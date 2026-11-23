@@ -15,11 +15,14 @@ use hyper_util::rt::TokioIo;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use web::attention::{Attention, Line, Stuck};
-use web::observations::{Observation, ObservationsPage};
+use web::observations::{
+    NewObservation, Observation, ObservationAdded, ObservationChangeAsked, ObservationChanges, ObservationsChanged,
+    ObservationsPage, TagsPage,
+};
 use web::plan::{Candidates, Field, Graph, Hits, Node, PlanChange, PlanChanges, Row, Standing, Tags};
-use web::system::{Past, System, UnderWay};
+use web::system::{LeftOf, Past, Rest, System, UnderWay};
 use web::works::{
-    Act, Added, Against, Back, Call, CellState, ChangeAsked, Checked, Engine, EngineAct, Failure, ForkAsked,
+    Act, Added, Against, Back, Call, CellState, ChangeAsked, Checked, Continues, Engine, EngineAct, Failure, ForkAsked,
     ForkInstead, ForkPage, Found, ItemChanged, ItemChanges, ItemHistory, Items, ItemsChanged, Limit, Maker, NewItem,
     NewWrite, Now, Outage, Pauser, Person, QuestionPage, Refusal, Run, Said, SessionWhy, Spent, SpokenTo, Step, Until,
     VersionPage, Waited, WorkPage, Writer,
@@ -51,6 +54,12 @@ pub enum Asked {
     },
     /// The owner's pause of everything set, or lifted.
     Everything(EngineAct),
+    /// The engine stopped: once what is under way has ended, or, where `now`, at once, which cuts that off and is done
+    /// only where `yes` confirms it, having said without it what it would cut off.
+    Stop {
+        now: bool,
+        yes: bool,
+    },
     /// A cancel for this reason, which says afterwards what the work is: cancelled, or ended otherwise before it could
     /// be.
     Cancel(u64, String),
@@ -84,10 +93,18 @@ pub enum Asked {
         block: Option<String>,
         whole: bool,
     },
-    /// The observations, the newest first, from this number down, at most this many.
+    /// The observations that are shown, the newest first, from this number down, at most this many.
     Observations {
         from: Option<u64>,
         limit: usize,
+        showing: Showing,
+    },
+    /// An observation an architect adds.
+    AddObservation(NewObservation),
+    /// Changes of observations made together, for this reason.
+    ChangeObservations {
+        why: String,
+        changes: Vec<ObservationChangeAsked>,
     },
     /// What needs whoever plans the work since the mark, waiting for it at most this many seconds; with no time, as
     /// long as it takes.
@@ -121,9 +138,10 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
         match asked {
             Asked::Add(item) => {
                 let added: Added = send(address, Method::POST, "/api/v1/items", Some(&item)).await?;
+                let (item, work) = (item_number(added.item), work_number(added.work));
                 Ok(format!(
-                    "Added item {} with its work {}, paused: let it on with `wf-agents resume {}`.",
-                    added.item, added.work, added.work
+                    "Added item {item} with its work {work}, paused: let it on with `wf-agents resume {}`.",
+                    added.work
                 ))
             }
             Asked::List(listing) => {
@@ -174,12 +192,13 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
             }
             Asked::Tags => {
                 let tags: Tags = send(address, Method::GET, "/api/v1/plan/tags", None::<&()>).await?;
-                Ok(tags_said(&tags))
+                let observed: TagsPage = send(address, Method::GET, "/api/v1/observations/tags", None::<&()>).await?;
+                Ok(tags_said(&tags, &observed))
             }
             Asked::Text { item, block, whole } => {
                 let items: Items = send(address, Method::GET, "/api/v1/items", None::<&()>).await?;
                 let Some(work) = items.items.iter().find(|i| i.number == item).map(|i| i.work.number) else {
-                    return Err(format!("There is no item #{item}."));
+                    return Err(format!("There is no item {item}.", item = item_number(item)));
                 };
                 let page: WorkPage = send(address, Method::GET, &format!("/api/v1/works/{work}"), None::<&()>).await?;
                 let mut texts = Vec::new();
@@ -190,14 +209,45 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
                 }
                 Ok(text_said(item, &page, &texts, whole, block.is_some()))
             }
-            Asked::Observations { from, limit } => {
+            Asked::Observations { from, limit, showing } => {
                 let page: ObservationsPage = send(address, Method::GET, "/api/v1/observations", None::<&()>).await?;
-                Ok(observations_said(&page, from, limit))
+                Ok(observations_said(&page, &showing, from, limit))
+            }
+            Asked::AddObservation(observation) => {
+                let added: ObservationAdded =
+                    send(address, Method::POST, "/api/v1/observations", Some(&observation)).await?;
+                Ok(format!("Added observation O{}.", added.number))
+            }
+            Asked::ChangeObservations { why, changes } => {
+                let asked = ObservationChanges {
+                    why,
+                    changes: changes.clone(),
+                };
+                let done: ObservationsChanged =
+                    send(address, Method::POST, "/api/v1/observations/changes", Some(&asked)).await?;
+                Ok(observations_changed(&changes, &done.changed))
             }
             Asked::Everything(act) => {
                 send::<(), _>(address, Method::POST, "/api/v1/engine/acts", Some(&act)).await?;
                 let engine: Engine = send(address, Method::GET, "/api/v1/engine", None::<&()>).await?;
                 Ok(standing(&engine))
+            }
+            Asked::Stop { now, yes } => {
+                // What is under way is read first: what a stop at once would cut off, and what one waits for.
+                let path = format!("/api/v1/system?weeks={}", clock());
+                let system: System = send(address, Method::GET, &path, None::<&()>).await?;
+                if now && !yes {
+                    return Ok(stop_said(&system, Stopped::NotYet));
+                }
+                let act = EngineAct::Stop { now };
+                if let Err(why) = send::<(), _>(address, Method::POST, "/api/v1/engine/acts", Some(&act)).await {
+                    // An engine that ends on the stop may end before its answer is sent: one that no longer answers
+                    // has stopped.
+                    if send::<Engine, ()>(address, Method::GET, "/api/v1/engine", None).await.is_ok() {
+                        return Err(why);
+                    }
+                }
+                Ok(stop_said(&system, if now { Stopped::AtOnce } else { Stopped::Once }))
             }
             Asked::Show { work, part, from } => {
                 let page: WorkPage = send(address, Method::GET, &format!("/api/v1/works/{work}"), None::<&()>).await?;
@@ -235,9 +285,10 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
                 // A work let on that the pause of everything holds back is said to be held, not to go on.
                 let page: WorkPage = send(address, Method::GET, &format!("/api/v1/works/{work}"), None::<&()>).await?;
                 Ok(match page.summary.now {
-                    Now::Everything { .. } => format!(
-                        "Work {work} is let on, and held back by the pause of everything until `wf-agents resume --all`."
-                    ),
+                    Now::Everything { .. } => {
+                        let work = work_number(work);
+                        format!("Work {work} is let on, and held back by the pause of everything until `wf-agents resume --all`.")
+                    }
                     _ => done,
                 })
             }
@@ -250,6 +301,7 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
                     send::<(), _>(address, Method::POST, &path, Some(&act)).await?;
                 }
                 let after: WorkPage = send(address, Method::GET, &page, None::<&()>).await?;
+                let work = work_number(work);
                 match after.summary.now {
                     Now::Cancelled => Ok(format!("Work {work} is cancelled.")),
                     Now::Merged => Err(format!("Work {work} is not cancelled: it has merged.")),
@@ -343,9 +395,28 @@ pub fn new_item(
         project,
         depends_on,
         tags,
+        continues: None,
         flow,
         writes,
     })
+}
+
+/// What `--continue-branch` and `--continue-pull` ask an item to continue; none where neither is given. The command
+/// line refuses both together.
+pub fn continues(branch: Option<String>, pull: Option<u64>) -> Option<Continues> {
+    match (branch, pull) {
+        (Some(name), _) => Some(Continues::Branch { name }),
+        (None, Some(number)) => Some(Continues::Pull { number }),
+        (None, None) => None,
+    }
+}
+
+/// What an item continues, in words: `the branch <name>` or `pull request <number>`.
+fn continues_words(continues: &Continues) -> String {
+    match continues {
+        Continues::Branch { name } => format!("the branch {name}"),
+        Continues::Pull { number } => format!("pull request {number}"),
+    }
 }
 
 /// The changes `wf-agents change` is given, each `ITEM:KIND` or `ITEM:KIND=VALUE`, in the order given.
@@ -353,7 +424,8 @@ pub fn changes(given: &[String]) -> Result<Vec<ChangeAsked>, String> {
     let usage = |given: &str, why: &str| {
         format!(
             "{given:?} is no change: {why}. A change is ITEM:KIND or ITEM:KIND=VALUE, the kind one of title=TEXT, \
-             level=LEVEL, depends-on=ITEM, no-longer-depends-on=ITEM, tag=TAG, untag=TAG, cancel and reopen"
+             level=LEVEL, depends-on=ITEM, no-longer-depends-on=ITEM, tag=TAG, untag=TAG, continue-branch=BRANCH, \
+             continue-pull=PULL, no-longer-continues, cancel and reopen"
         )
     };
     let mut changes = Vec::new();
@@ -404,6 +476,22 @@ pub fn changes(given: &[String]) -> Result<Vec<ChangeAsked>, String> {
                 item,
                 tag: text(value)?,
             },
+            "continue-branch" => ChangeAsked::Continues {
+                item,
+                continues: Some(Continues::Branch { name: text(value)? }),
+            },
+            "continue-pull" => ChangeAsked::Continues {
+                item,
+                continues: Some(Continues::Pull {
+                    number: (value.as_deref().map(|v| v.trim().parse::<u64>()))
+                        .and_then(Result::ok)
+                        .ok_or_else(|| usage(change, "it needs a pull request's number after ="))?,
+                }),
+            },
+            "no-longer-continues" => {
+                none(&value)?;
+                ChangeAsked::Continues { item, continues: None }
+            }
             "cancel" => {
                 none(&value)?;
                 ChangeAsked::Cancel { item }
@@ -523,9 +611,20 @@ fn question(q: &QuestionPage) -> Vec<String> {
     lines
 }
 
+/// A work's number as the engine writes it in words, everywhere: `W5`.
+fn work_number(number: u64) -> String {
+    store::WorkNumber(number).to_string()
+}
+
+/// An item's number as the engine writes it in words, everywhere: `#5`.
+fn item_number(number: u64) -> String {
+    store::ItemNumber(number).to_string()
+}
+
 /// What a command that acts says once it is done, with what the engine answered: of words said, the cell it gave them
 /// to.
 fn done(work: u64, act: &Act, said: Option<&Said>) -> String {
+    let work = work_number(work);
     match act {
         Act::Write { block, .. } => format!("Wrote {block} for work {work}."),
         Act::LetGo { cell } => format!("Cell {cell} of work {work} goes on."),
@@ -549,8 +648,97 @@ fn done(work: u64, act: &Act, said: Option<&Said>) -> String {
     }
 }
 
-/// The engine as a whole, in a line: whether everything is paused and by whom, and its slots.
+/// How a stop was asked for: at once and not yet confirmed, at once, or once what is under way has ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Stopped {
+    NotYet,
+    AtOnce,
+    Once,
+}
+
+/// The most rounds under way a stop lists.
+const STOP_LISTED: usize = 20;
+
+/// What a stop does to what is under way, as `system` read it just before: each round under way, with how long it has
+/// taken and how much longer it is expected to take; for a stop at once not yet confirmed, that nothing was stopped.
+fn stop_said(system: &System, stopped: Stopped) -> String {
+    let rounds: Vec<&UnderWay> = (system.under_way.iter())
+        .filter(|u| matches!(u, UnderWay::Round { .. }))
+        .collect();
+    let latest = web::system::rest_of_rounds(&system.under_way);
+    let mut listed = Vec::new();
+    for under_way in &rounds {
+        let UnderWay::Round {
+            work,
+            item,
+            cell,
+            began,
+            rest,
+            ..
+        } = under_way
+        else {
+            continue;
+        };
+        let rest = rest.unwrap_or(Rest::Longer {});
+        let to_come = match rest {
+            Rest::Expected { ms } => format!("about {} more", duration(ms)),
+            Rest::Longer {} => "longer than any round of its history".to_string(),
+        };
+        listed.push(format!(
+            "  {work} of {item} at {cell}: {} so far, {to_come}",
+            duration(system.now.saturating_sub(*began)),
+            work = work_number(*work),
+            item = item_number(*item)
+        ));
+    }
+    if listed.len() > STOP_LISTED {
+        let left = listed.len() - STOP_LISTED;
+        listed.truncate(STOP_LISTED);
+        listed.push(format!("  And {left} more."));
+    }
+    let n = rounds.len();
+    let these = if n == 1 {
+        "this round".to_string()
+    } else {
+        format!("these {n} rounds")
+    };
+    let head = match stopped {
+        Stopped::NotYet if n == 0 => {
+            return "Nothing is stopped: no round is under way, and `wf-agents stop --now --yes` stops the engine at \
+                    once."
+                .to_string();
+        }
+        Stopped::NotYet => format!(
+            "Nothing is stopped: `wf-agents stop --now --yes` stops the engine at once and cuts off {these}, which \
+             `wf-agents stop` waits for:"
+        ),
+        Stopped::AtOnce if n == 0 => return "The engine stopped at once; no round was under way.".to_string(),
+        Stopped::AtOnce => format!("The engine stopped at once, cutting off {these}:"),
+        Stopped::Once if n == 0 => return "The engine stopped; no round was under way.".to_string(),
+        Stopped::Once => {
+            let ends = match latest {
+                Rest::Expected { ms } => format!("expected in about {}", duration(ms)),
+                Rest::Longer {} => "once a round that has taken longer than any before has ended".to_string(),
+            };
+            format!("The engine is stopping: no round begins, and it ends once {these} have ended, {ends}:")
+        }
+    };
+    std::iter::once(head).chain(listed).collect::<Vec<_>>().join("\n")
+}
+
+/// The engine as a whole, in a line: whether it is stopping, whether everything is paused and by whom, and its slots.
 fn standing(engine: &Engine) -> String {
+    if let Some(stop) = engine.stopping {
+        let how = if stop.at_once {
+            "at once"
+        } else {
+            "once what is under way has ended"
+        };
+        return format!(
+            "The engine is stopping {how}: no round begins; {} of {} slots taken.",
+            engine.taken, engine.slots
+        );
+    }
     let paused = match engine.paused.map(|paused| paused.by) {
         Some(Pauser::Owner) => {
             "Every work is paused: none begins a round but to answer a note, until `wf-agents resume --all`"
@@ -567,6 +755,128 @@ const STARTED_HELD: &str = "The engine started with works going on and holds eve
 
 /// The most items `list` gives in one answer, and the most entries of a part of a work `show` gives alone.
 const LISTED: usize = 100;
+
+/// Which observations a list gives: those carrying the tag alone, where one is given; those of the project alone,
+/// where one is given; and those an item took in that is not cancelled, only where `all`.
+#[derive(Clone, Debug, Default)]
+pub struct Showing {
+    pub tag: Option<String>,
+    pub project: Option<String>,
+    pub all: bool,
+}
+
+/// The observation an architect adds: its text, from the words given or from a file, its title, its tags, the project
+/// it is of and the project that reported it.
+pub fn new_observation(
+    project: String,
+    reported_by: String,
+    title: Option<String>,
+    tags: Vec<String>,
+    text: Option<String>,
+    file: Option<&std::path::Path>,
+) -> Result<NewObservation, String> {
+    let text = match (text, file) {
+        (Some(text), None) => text,
+        (None, Some(path)) => std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?,
+        _ => return Err("An observation is given its text by --text or by --file, one of them.".to_string()),
+    };
+    Ok(NewObservation {
+        text,
+        title,
+        tags,
+        project,
+        reported_by,
+    })
+}
+
+/// The changes `wf-agents change-observations` is given, each `OBSERVATION:KIND` or `OBSERVATION:KIND=VALUE`, in the
+/// order given.
+pub fn observation_changes(given: &[String]) -> Result<Vec<ObservationChangeAsked>, String> {
+    let usage = |given: &str, why: &str| {
+        format!(
+            "{given:?} is no change: {why}. A change is OBSERVATION:KIND or OBSERVATION:KIND=VALUE, the observation \
+             its number with or without the O, the kind one of title=TEXT, tag=TAG, untag=TAG, taken-in-by=ITEM and \
+             delete"
+        )
+    };
+    let mut changes = Vec::new();
+    for change in given {
+        let Some((observation, rest)) = change.split_once(':') else {
+            return Err(usage(change, "it names no observation before a colon"));
+        };
+        let observation: u64 = (observation.trim().trim_start_matches('O').parse())
+            .map_err(|_| usage(change, "what is before the colon is no observation's number"))?;
+        let (kind, value) = match rest.split_once('=') {
+            Some((kind, value)) => (kind, Some(value.to_string())),
+            None => (rest, None),
+        };
+        let text = |value: Option<String>| value.ok_or_else(|| usage(change, "it needs a value after ="));
+        changes.push(match kind {
+            "title" => ObservationChangeAsked::Title {
+                observation,
+                title: text(value)?,
+            },
+            "tag" => ObservationChangeAsked::Tag {
+                observation,
+                tag: text(value)?,
+            },
+            "untag" => ObservationChangeAsked::Untag {
+                observation,
+                tag: text(value)?,
+            },
+            "taken-in-by" => {
+                let item = (value
+                    .as_deref()
+                    .map(|v| v.trim().trim_start_matches('#').parse::<u64>()))
+                .and_then(Result::ok)
+                .ok_or_else(|| usage(change, "it needs an item's number after ="))?;
+                ObservationChangeAsked::TakenIn { observation, item }
+            }
+            "delete" => {
+                if value.is_some() {
+                    return Err(usage(change, "it takes no value"));
+                }
+                ObservationChangeAsked::Delete { observation }
+            }
+            _ => return Err(usage(change, "its kind is none of these")),
+        });
+    }
+    Ok(changes)
+}
+
+/// What came of each change of observations, a line each, in the order asked.
+fn observations_changed(changes: &[ObservationChangeAsked], done: &[bool]) -> String {
+    let lines: Vec<String> = (changes.iter().zip(done))
+        .map(|(change, done)| match (change, *done) {
+            (ObservationChangeAsked::Title { observation, title }, true) => {
+                format!("O{observation} is titled \"{title}\".")
+            }
+            (ObservationChangeAsked::Title { observation, title }, false) => {
+                format!("O{observation} was titled \"{title}\" already.")
+            }
+            (ObservationChangeAsked::Tag { observation, tag }, true) => format!("O{observation} is tagged {tag}."),
+            (ObservationChangeAsked::Tag { observation, tag }, false) => {
+                format!("O{observation} was tagged {tag} already.")
+            }
+            (ObservationChangeAsked::Untag { observation, tag }, true) => {
+                format!("O{observation} is no longer tagged {tag}.")
+            }
+            (ObservationChangeAsked::Untag { observation, tag }, false) => {
+                format!("O{observation} was not tagged {tag}.")
+            }
+            (ObservationChangeAsked::TakenIn { observation, item }, true) => {
+                format!("O{observation} is taken in by {}.", item_number(*item))
+            }
+            (ObservationChangeAsked::TakenIn { observation, item }, false) => {
+                format!("O{observation} was taken in by {} already.", item_number(*item))
+            }
+            (ObservationChangeAsked::Delete { observation }, _) => {
+                format!("O{observation} is deleted: its text and why stay in the records.")
+            }
+        })
+        .collect();
+    lines.join("\n")
+}
 
 /// Which items a list gives: those carrying the tag alone, where one is given; from the item given; and those that
 /// ended, merged or cancelled, only where `all`.
@@ -610,22 +920,26 @@ fn list(items: &Items, listing: &Listing) -> String {
         let after = if item.depends_on.is_empty() {
             String::new()
         } else {
-            let on: Vec<String> = item.depends_on.iter().map(|on| format!("#{on}")).collect();
+            let on: Vec<String> = item.depends_on.iter().map(|on| item_number(*on)).collect();
             format!(", after {}", on.join(", "))
         };
         let tags = match item.tags.is_empty() {
             true => String::new(),
             false => format!(", tagged {}", item.tags.join(", ")),
         };
+        let tags = match &item.continues {
+            Some(continues) => format!("{tags}, continuing {}", continues_words(continues)),
+            None => tags,
+        };
         // What it does now says which items it waits for, as the engine says.
         let work = &item.work;
         lines.push(format!(
-            "#{} \"{}\" at {}, {}, W{} on {}{after}{tags}: {}",
-            item.number,
+            "{} \"{}\" at {}, {}, {} on {}{after}{tags}: {}",
+            item_number(item.number),
             item.title,
             level(item.level.as_deref()),
             project(item.project.as_deref()),
-            work.number,
+            work_number(work.number),
             work.flow,
             now(&work.now)
         ));
@@ -653,7 +967,7 @@ fn list(items: &Items, listing: &Listing) -> String {
 
 /// From where a list begins, as the end of a sentence.
 fn from_words(from: Option<u64>) -> String {
-    from.map_or_else(String::new, |from| format!(" from #{from} on"))
+    from.map_or_else(String::new, |from| format!(" from {} on", item_number(from)))
 }
 
 /// The most entries of each part of a work that grows with it, what happened to its item, its questions, its runs and
@@ -698,11 +1012,10 @@ fn show(page: &WorkPage) -> String {
     let summary = &page.summary;
     let work = summary.number;
     let happened = entries(page, Part::History);
+    let (named_work, named_item) = (work_number(work), item_number(summary.item));
     let mut lines = vec![
         format!(
-            "Work {} of item {} \"{}\" at {}, {}, on the flow {}.",
-            summary.number,
-            summary.item,
+            "Work {named_work} of item {named_item} \"{}\" at {}, {}, on the flow {}.",
             page.title,
             level(page.level.as_deref()),
             project(page.project.as_deref()),
@@ -726,7 +1039,7 @@ fn show(page: &WorkPage) -> String {
             }
         ),
         format!("Spent: {}.", spent(&summary.spent)),
-        format!("Item {} {}", summary.item, added(&page.history, happened.is_empty())),
+        format!("Item {named_item} {}", added(&page.history, happened.is_empty())),
     ];
     latest(&mut lines, &happened, work, Part::History);
     lines.push("Cells:".to_string());
@@ -802,7 +1115,8 @@ fn show(page: &WorkPage) -> String {
 /// One part of a work alone: at most [`LISTED`] of its entries in their order, from the one at this place, the first
 /// being one, with how many more there are and the command that gives them.
 fn show_part(page: &WorkPage, part: Part, from: usize) -> String {
-    let (work, said) = (page.summary.number, part.said());
+    let (number, said) = (page.summary.number, part.said());
+    let work = work_number(number);
     let all = entries(page, part);
     let from = from.max(1);
     if all.is_empty() {
@@ -816,7 +1130,7 @@ fn show_part(page: &WorkPage, part: Part, from: usize) -> String {
     lines.extend(all[from - 1..to].iter().flatten().cloned());
     if to < all.len() {
         lines.push(format!(
-            "And {} more: wf-agents show {work} {} --from {}",
+            "And {} more: wf-agents show {number} {} --from {}",
             all.len() - to,
             part.name(),
             to + 1
@@ -889,9 +1203,26 @@ fn entries(page: &WorkPage, part: Part) -> Vec<Vec<String>> {
     }
 }
 
+/// How a round missed its session's cache and why: what differed from the call before, that nothing did, which is a
+/// fault of wf-agents, or that the records do not say.
+fn missed_said(number: usize, missed: &web::works::Missed) -> String {
+    let cause = match (missed.differs.is_empty(), missed.unknown) {
+        (false, _) => format!("{} differed from the call before", missed.differs.join(", ")),
+        (true, true) => "the cause is not known: the records do not say what the call before was given, or the \
+            prompt grew shorter with no compaction recorded"
+            .to_string(),
+        (true, false) => "nothing before the messages differed, a fault of wf-agents".to_string(),
+    };
+    format!(
+        "    round {number} missed its session's cache: read {} of the {} tokens it held; {cause}",
+        missed.read, missed.held
+    )
+}
+
 /// A run, in lines: its rounds and calls, the context its last round ended with, its session's compactions and how it
 /// ended; then each of its rounds that missed its session's prompt cache, with what differed before the messages, or
-/// that nothing did, which is a fault of wf-agents; then what of it went past the lines of its history.
+/// that nothing did, which is a fault of wf-agents, or that the records do not say; then what of it went past the
+/// lines of its history.
 fn run_said(run: &Run) -> Vec<String> {
     let rounds = if run.rounds.len() == 1 {
         "1 round".to_string()
@@ -930,14 +1261,7 @@ fn run_said(run: &Run) -> Vec<String> {
         let Some(missed) = &round.missed else {
             continue;
         };
-        let cause = match missed.differs.is_empty() {
-            true => "nothing before the messages differed, a fault of wf-agents".to_string(),
-            false => format!("{} differed from the call before", missed.differs.join(", ")),
-        };
-        lines.push(format!(
-            "    round {} missed its session's cache: read {} of the {} tokens it held; {cause}",
-            round.number, missed.read, missed.held
-        ));
+        lines.push(missed_said(round.number, missed));
     }
     lines.extend(past_of(run));
     lines
@@ -949,12 +1273,16 @@ fn added(history: &ItemHistory, unchanged: bool) -> String {
     let after = if first.depends_on.is_empty() {
         String::new()
     } else {
-        let on: Vec<String> = first.depends_on.iter().map(|on| format!("#{on}")).collect();
+        let on: Vec<String> = first.depends_on.iter().map(|on| item_number(*on)).collect();
         format!(", after {}", on.join(", "))
     };
     let tags = match first.tags.is_empty() {
         true => String::new(),
         false => format!(", tagged {}", first.tags.join(", ")),
+    };
+    let tags = match &first.continues {
+        Some(continues) => format!("{tags}, continuing {}", continues_words(continues)),
+        None => tags,
     };
     format!(
         "was added as \"{}\" at {}{after}{tags}{}",
@@ -973,10 +1301,16 @@ fn item_changed(what: &ItemChanged) -> String {
     match what {
         ItemChanged::Title { title } => format!("titled \"{title}\""),
         ItemChanged::Level { level } => format!("put at level {level}"),
-        ItemChanged::DependsOn { item } => format!("came to depend on #{item}"),
-        ItemChanged::NoLongerDependsOn { item } => format!("no longer depends on #{item}"),
+        ItemChanged::DependsOn { item } => format!("came to depend on {}", item_number(*item)),
+        ItemChanged::NoLongerDependsOn { item } => format!("no longer depends on {}", item_number(*item)),
         ItemChanged::Tagged { tag } => format!("tagged {tag}"),
         ItemChanged::Untagged { tag } => format!("no longer tagged {tag}"),
+        ItemChanged::Continues {
+            continues: Some(continues),
+        } => {
+            format!("came to continue {}", continues_words(continues))
+        }
+        ItemChanged::Continues { continues: None } => "no longer continues anything".to_string(),
     }
 }
 
@@ -1031,28 +1365,92 @@ fn changed(changes: &[ChangeAsked], done: &[bool], items: Option<&Items>) -> Str
     let lines: Vec<String> = (changes.iter().zip(done))
         .map(|(change, done)| match (change, *done) {
             (ChangeAsked::Title { item, title }, true) => {
-                format!("#{item} is titled \"{title}\"; the title it had is kept in its history.")
+                format!(
+                    "{item} is titled \"{title}\"; the title it had is kept in its history.",
+                    item = item_number(*item)
+                )
             }
-            (ChangeAsked::Title { item, title }, false) => format!("#{item} was titled \"{title}\" already."),
+            (ChangeAsked::Title { item, title }, false) => {
+                format!("{item} was titled \"{title}\" already.", item = item_number(*item))
+            }
             (ChangeAsked::Level { item, level }, true) => {
-                format!("#{item} is at level {level}: its work's rounds run on it from now on.")
+                format!(
+                    "{item} is at level {level}: its work's rounds run on it from now on.",
+                    item = item_number(*item)
+                )
             }
-            (ChangeAsked::Level { item, level }, false) => format!("#{item} was at level {level} already."),
+            (ChangeAsked::Level { item, level }, false) => {
+                format!("{item} was at level {level} already.", item = item_number(*item))
+            }
             (ChangeAsked::DependsOn { item, on }, true) if cancelled(*on) => {
-                format!("#{item} depends on #{on}, which is cancelled: its work does not wait for it.")
+                format!(
+                    "{item} depends on {on}, which is cancelled: its work does not wait for it.",
+                    item = item_number(*item),
+                    on = item_number(*on)
+                )
             }
             (ChangeAsked::DependsOn { item, on }, true) => {
-                format!("#{item} depends on #{on}: its work waits for it to merge.")
+                format!(
+                    "{item} depends on {on}: its work waits for it to merge.",
+                    item = item_number(*item),
+                    on = item_number(*on)
+                )
             }
-            (ChangeAsked::DependsOn { item, on }, false) => format!("#{item} depended on #{on} already."),
-            (ChangeAsked::NoLongerDependsOn { item, on }, _) => format!("#{item} no longer depends on #{on}."),
-            (ChangeAsked::Tag { item, tag }, true) => format!("#{item} is tagged {tag}."),
-            (ChangeAsked::Tag { item, tag }, false) => format!("#{item} was tagged {tag} already."),
-            (ChangeAsked::Untag { item, tag }, _) => format!("#{item} is no longer tagged {tag}."),
-            (ChangeAsked::Cancel { item }, _) => format!("#{item} is cancelled."),
+            (ChangeAsked::DependsOn { item, on }, false) => format!(
+                "{item} depended on {on} already.",
+                item = item_number(*item),
+                on = item_number(*on)
+            ),
+            (ChangeAsked::NoLongerDependsOn { item, on }, _) => format!(
+                "{item} no longer depends on {on}.",
+                item = item_number(*item),
+                on = item_number(*on)
+            ),
+            (ChangeAsked::Tag { item, tag }, true) => format!("{item} is tagged {tag}.", item = item_number(*item)),
+            (ChangeAsked::Tag { item, tag }, false) => {
+                format!("{item} was tagged {tag} already.", item = item_number(*item))
+            }
+            (ChangeAsked::Untag { item, tag }, _) => {
+                format!("{item} is no longer tagged {tag}.", item = item_number(*item))
+            }
+            (
+                ChangeAsked::Continues {
+                    item,
+                    continues: Some(continues),
+                },
+                true,
+            ) => format!(
+                "{item} continues {}: its work starts from the head of that, until its branch is made.",
+                continues_words(continues),
+                item = item_number(*item)
+            ),
+            (
+                ChangeAsked::Continues {
+                    item,
+                    continues: Some(continues),
+                },
+                false,
+            ) => format!(
+                "{item} continued {} already.",
+                continues_words(continues),
+                item = item_number(*item)
+            ),
+            (ChangeAsked::Continues { item, continues: None }, true) => {
+                format!(
+                    "{item} continues nothing: its work starts from the head of main.",
+                    item = item_number(*item)
+                )
+            }
+            (ChangeAsked::Continues { item, continues: None }, false) => {
+                format!("{item} continued nothing already.", item = item_number(*item))
+            }
+            (ChangeAsked::Cancel { item }, _) => format!("{item} is cancelled.", item = item_number(*item)),
             (ChangeAsked::Reopen { item }, _) => match work_of(*item) {
-                Some(work) => format!("#{item} is reopened, paused: let it on with `wf-agents resume {work}`."),
-                None => format!("#{item} is reopened, paused."),
+                Some(work) => format!(
+                    "{item} is reopened, paused: let it on with `wf-agents resume {work}`.",
+                    item = item_number(*item)
+                ),
+                None => format!("{item} is reopened, paused.", item = item_number(*item)),
             },
         })
         .collect();
@@ -1081,7 +1479,7 @@ fn plan_changes(answer: &PlanChanges, marked: bool) -> String {
                 let after = match depends_on.is_empty() {
                     true => String::new(),
                     false => {
-                        let on: Vec<String> = depends_on.iter().map(|on| format!("#{on}")).collect();
+                        let on: Vec<String> = depends_on.iter().map(|on| item_number(*on)).collect();
                         format!(", after {}", on.join(", "))
                     }
                 };
@@ -1090,15 +1488,15 @@ fn plan_changes(answer: &PlanChanges, marked: bool) -> String {
                     false => format!(", tagged {}", tags.join(", ")),
                 };
                 format!(
-                    "#{} added as \"{}\" at {}{after}{tags}",
-                    line.item,
+                    "{} added as \"{}\" at {}{after}{tags}",
+                    item_number(line.item),
                     line.title,
                     level(at.as_deref())
                 )
             }
-            PlanChange::Changed { change } => format!("#{} {}", line.item, item_changed(change)),
-            PlanChange::Cancelled => format!("#{} cancelled", line.item),
-            PlanChange::Reopened => format!("#{} reopened", line.item),
+            PlanChange::Changed { change } => format!("{} {}", item_number(line.item), item_changed(change)),
+            PlanChange::Cancelled => format!("{} cancelled", item_number(line.item)),
+            PlanChange::Reopened => format!("{} reopened", item_number(line.item)),
         };
         match groups.last_mut() {
             Some((time, why, said)) if *time == line.time && *why == line.why.as_deref() => said.push(what),
@@ -1123,8 +1521,8 @@ fn row(row: &Row) -> String {
         false => format!(", tagged {}", row.tags.join(", ")),
     };
     format!(
-        "#{} \"{}\" at {}{tags}, {}",
-        row.item,
+        "{} \"{}\" at {}{tags}, {}",
+        item_number(row.item),
         row.title,
         level(row.level.as_deref()),
         match row.standing {
@@ -1192,8 +1590,10 @@ fn hits_said(hits: &Hits, text: &str) -> String {
             n => format!(" ({n} more there)"),
         };
         lines.push(format!(
-            "#{} \"{}\", {field}: {}{again}",
-            hit.item, hit.title, hit.snippet
+            "{} \"{}\", {field}: {}{again}",
+            item_number(hit.item),
+            hit.title,
+            hit.snippet
         ));
     }
     if hits.more > 0 {
@@ -1252,12 +1652,29 @@ fn graph_nodes(lines: &mut Vec<String>, nodes: &[Node], indent: usize) {
 }
 
 /// The tags items carry, a line each.
-fn tags_said(tags: &Tags) -> String {
-    if tags.tags.is_empty() {
-        return "No item carries a tag.".to_string();
+fn tags_said(tags: &Tags, observed: &TagsPage) -> String {
+    let mut names: Vec<&str> = (tags.tags.iter().map(|t| t.tag.as_str()))
+        .chain(observed.tags.iter().map(|t| t.tag.as_str()))
+        .collect();
+    names.sort_unstable();
+    names.dedup();
+    if names.is_empty() {
+        return "No item or observation carries a tag.".to_string();
     }
-    let lines: Vec<String> = (tags.tags.iter())
-        .map(|tag| format!("{}: {} open of {}", tag.tag, tag.open, tag.items))
+    let lines: Vec<String> = (names.into_iter())
+        .map(|name| {
+            let mut parts = Vec::new();
+            if let Some(tag) = tags.tags.iter().find(|t| t.tag == name) {
+                parts.push(format!("{} open of {}", tag.open, tag.items));
+            }
+            if let Some(tag) = observed.tags.iter().find(|t| t.tag == name) {
+                parts.push(format!(
+                    "{} not handled of {} observations",
+                    tag.unhandled, tag.carrying
+                ));
+            }
+            format!("{name}: {}", parts.join("; "))
+        })
         .collect();
     lines.join("\n")
 }
@@ -1273,8 +1690,8 @@ fn texts_of(page: &WorkPage, block: Option<&str>) -> Result<Vec<(String, u64)>, 
             found.map(|found| vec![found]).ok_or_else(|| {
                 let names: Vec<&str> = page.blocks.iter().map(|b| b.name.as_str()).collect();
                 format!(
-                    "#{} has no version of {name}: the blocks it has are {}.",
-                    page.summary.item,
+                    "{} has no version of {name}: the blocks it has are {}.",
+                    item_number(page.summary.item),
                     names.join(", ")
                 )
             })
@@ -1300,7 +1717,7 @@ const PARAGRAPH: usize = 240;
 /// The text of an item's blocks: each in short, of each section its heading and first paragraph, cut, with the length
 /// of the whole; or one whole, where asked. Without a block named, the other blocks the work has are named after.
 fn text_said(item: u64, page: &WorkPage, texts: &[(String, String)], whole: bool, named: bool) -> String {
-    let mut lines = vec![format!("#{item} \"{}\":", page.title)];
+    let mut lines = vec![format!("{} \"{}\":", item_number(item), page.title)];
     if texts.is_empty() {
         lines.push("  No person has written a block of it.".to_string());
     }
@@ -1481,7 +1898,7 @@ fn heed(line: &Line, now: u64) -> String {
                 _ => String::new(),
             };
             let why: Vec<String> = (items.iter())
-                .map(|idle| format!("#{} {}", idle.item, stuck(idle.why)))
+                .map(|idle| format!("{} {}", item_number(idle.item), stuck(idle.why)))
                 .collect();
             let none = match items.len() {
                 1 => "which is not going on",
@@ -1499,11 +1916,10 @@ fn heed(line: &Line, now: u64) -> String {
             format!("{}, {} ago", self::now(is), duration(now.saturating_sub(*since))),
         ),
     };
+    let (item, work) = (item_number(of.item), work_number(of.work));
     format!(
-        "Item {} \"{}\", work {}: {}",
-        of.item,
+        "Item {item} \"{}\", work {work}: {}",
         cut_title(&of.title),
-        of.work,
         sentence(&said)
     )
 }
@@ -1517,13 +1933,28 @@ fn cut_title(title: &str) -> String {
     }
 }
 
-/// The observations from the number given down, the newest first, each as a line saying where it came from and whether
-/// the owner read it, then its whole text indented; and how many more there are, with the command that gives them.
-fn observations_said(page: &ObservationsPage, from: Option<u64>, limit: usize) -> String {
+/// The observations shown, from the number given down, the newest first, each as a line saying where it came from and
+/// whether the owner read it, a line of what it is of, its title, tags and the item that took it in where there is
+/// anything to say, then its whole text indented; and how many more there are, with the command that gives them. An
+/// observation an item that is not cancelled took in is left out unless `all`.
+fn observations_said(page: &ObservationsPage, showing: &Showing, from: Option<u64>, limit: usize) -> String {
     if page.observations.is_empty() {
         return "There are no observations.".to_string();
     }
-    let down: Vec<&Observation> = (page.observations.iter())
+    let shown: Vec<&Observation> = (page.observations.iter())
+        .filter(|o| showing.all || !o.handled)
+        .filter(|o| showing.tag.as_ref().is_none_or(|tag| o.tags.contains(tag)))
+        .filter(|o| {
+            showing
+                .project
+                .as_ref()
+                .is_none_or(|project| o.project.as_ref() == Some(project))
+        })
+        .collect();
+    if shown.is_empty() {
+        return "No observation is shown: those taken in by an item are left out unless --all is given.".to_string();
+    }
+    let down: Vec<&Observation> = (shown.into_iter())
         .filter(|o| from.is_none_or(|from| o.number <= from))
         .collect();
     if down.is_empty() {
@@ -1535,25 +1966,50 @@ fn observations_said(page: &ObservationsPage, from: Option<u64>, limit: usize) -
             Some(at) => format!("read {}", utc(at)),
             None => "unread".to_string(),
         };
-        lines.push(format!(
-            "O{}, {read}, kept {}: item #{} \"{}\", W{}, cell {}, run {}, round {}",
-            o.number,
-            utc(o.kept),
-            o.item,
-            cut_title(&o.title),
-            o.work,
-            o.cell,
-            o.run,
-            o.round
-        ));
+        let came = match &o.round {
+            Some(r) => format!(
+                "item {item} \"{}\", {}, cell {}, run {}, round {}",
+                cut_title(&r.item_title),
+                work_number(r.work),
+                r.cell,
+                r.run,
+                r.round,
+                item = item_number(r.item),
+            ),
+            None => format!("reported by {}", o.reported_by.as_deref().unwrap_or("no project")),
+        };
+        lines.push(format!("O{}, {read}, kept {}: {came}", o.number, utc(o.kept)));
+        let mut facts = Vec::new();
+        if o.round.is_none() {
+            facts.push(format!("of {}", o.project.as_deref().unwrap_or("no project")));
+        }
+        if let Some(title) = &o.title {
+            facts.push(format!("title \"{}\"", cut_title(title)));
+        }
+        if !o.tags.is_empty() {
+            facts.push(format!("tags {}", o.tags.join(", ")));
+        }
+        if let Some(item) = o.taken_in_by {
+            let cancelled = if o.handled { "" } else { ", which is cancelled" };
+            facts.push(format!("taken in by {}{cancelled}", item_number(item)));
+        }
+        if !facts.is_empty() {
+            lines.push(format!("  {}", facts.join("; ")));
+        }
         lines.extend(o.text.trim().lines().map(|line| format!("  {line}")));
     }
     if let Some(next) = down.get(limit) {
-        lines.push(format!(
-            "And {} more, older: wf-agents observations --from {}",
-            down.len() - limit,
-            next.number
-        ));
+        let mut more = format!("wf-agents observations --from {}", next.number);
+        if let Some(tag) = &showing.tag {
+            more.push_str(&format!(" --tag {tag}"));
+        }
+        if let Some(project) = &showing.project {
+            more.push_str(&format!(" --project {project}"));
+        }
+        if showing.all {
+            more.push_str(" --all");
+        }
+        lines.push(format!("And {} more, older: {more}", down.len() - limit));
     }
     lines.join("\n")
 }
@@ -1579,8 +2035,7 @@ fn stuck(why: Stuck) -> &'static str {
     }
 }
 
-/// A duration in its two largest units, as the owner's page writes one: 2d 03h, 2h 05m, 3m 07s, 41s. Brought over from
-/// the reminders of the engine on `old-main` (`crates/engine/src/reminders.rs`).
+/// A duration in its two largest units, as the owner's page writes one: 2d 03h, 2h 05m, 3m 07s, 41s.
 fn duration(ms: u64) -> String {
     let s = ms / 1000;
     let (d, h, m, sec) = (s / 86_400, s % 86_400 / 3_600, s % 3_600 / 60, s % 60);
@@ -1674,8 +2129,26 @@ fn waited(waited: &Waited) -> String {
         ),
         Waited::Slot {} => "a free slot".to_string(),
         Waited::Answer { question } => format!("the owner to answer the question {question}"),
-        Waited::Turn { holder, .. } => format!("the project's turn to check and merge, which work {holder} holds"),
-        Waited::Agents { outage: o } => format!("the agents' rounds to begin again, as {}", cause(o)),
+        Waited::Turn { holder, .. } => {
+            let holder = work_number(*holder);
+            format!("the project's turn to check and merge, which work {holder} holds")
+        }
+        Waited::Agents { outage: o } => match o.first {
+            Some(first) => {
+                let what = if o.service == web::works::Service::Host {
+                    "act"
+                } else {
+                    "round"
+                };
+                let first = work_number(first);
+                format!("{first}'s {what} to come back: it is well again, and that {what} goes first")
+            }
+            None => format!("the agents' rounds to begin again, as {}", cause(o)),
+        },
+        Waited::Stopping { since } => format!(
+            "the engine to start again, as it was asked to stop {} ago",
+            duration(clock().saturating_sub(*since))
+        ),
         Waited::Outside { source, cell, why } => format!("the outside ({source}), before {cell} runs again: {why}"),
         Waited::Items { items } => format!("the items it depends on to merge: {}", numbers(items)),
     }
@@ -1683,7 +2156,7 @@ fn waited(waited: &Waited) -> String {
 
 /// Items by their numbers, each as an item's number is written: #5, #5 and #7, #5, #6 and #7.
 fn numbers(items: &[u64]) -> String {
-    let items: Vec<String> = items.iter().map(|item| format!("#{item}")).collect();
+    let items: Vec<String> = items.iter().map(|item| item_number(*item)).collect();
     match items.as_slice() {
         [] => "none".to_string(),
         [one] => one.clone(),
@@ -1716,18 +2189,28 @@ fn cause(outage: &Outage) -> &'static str {
 /// round that met it, with what it said.
 fn outage(outage: &Outage) -> String {
     let what = capital(cause(outage));
-    let until = match outage.until {
-        Until::Checked { at } => format!(
-            "The engine checks the outside itself at {}, touching no work's session, and every work goes on once it is \
-             well.",
+    let until = match (outage.until, outage.first) {
+        (Until::Checked { at }, _) => format!(
+            "The engine checks the outside itself at {}, touching no work's session, and one round goes first once it \
+             is well.",
             utc(at)
         ),
-        Until::Well { at } => format!(
-            "The engine's check at {} found it well, and every work goes on.",
+        (Until::Well { at }, Some(first)) => format!(
+            "The engine's check at {} found it well: {first}'s round goes first, and every work goes on once it comes \
+             back.",
+            utc(at),
+            first = work_number(first)
+        ),
+        (Until::Well { at }, None) => format!(
+            "The engine's check at {} found it well, and one round goes first.",
             utc(at)
         ),
-        Until::Looked { at } => format!(
-            "The host is looked at from {} every half minute, and every act goes on once it is reached.",
+        (Until::Looked { .. }, Some(first)) => {
+            let first = work_number(first);
+            format!("A look reached the host: {first}'s act goes first, and every act goes on once it comes back.")
+        }
+        (Until::Looked { at }, None) => format!(
+            "The host is looked at from {} every half minute, and one act goes first once it is reached.",
             utc(at)
         ),
     };
@@ -1753,11 +2236,11 @@ fn outage(outage: &Outage) -> String {
         _ => String::new(),
     };
     format!(
-        "{what} since {}. {until}{moves}{checked} Round {} of run {} of W{} met it. {}",
+        "{what} since {}. {until}{moves}{checked} Round {} of run {} of {} met it. {}",
         utc(outage.since),
         outage.round,
         outage.run,
-        outage.work,
+        work_number(outage.work),
         sentence(&outage.why)
     )
 }
@@ -1829,7 +2312,6 @@ fn maker(maker: &Maker) -> String {
 fn person(person: Person) -> &'static str {
     match person {
         Person::Owner => "owner",
-        Person::Architect => "architect",
     }
 }
 
@@ -1974,9 +2456,11 @@ fn system_said(system: &System, days: u64, limit: usize) -> String {
                     said.push(time_past("took", &time));
                 }
                 format!(
-                    "  W{work} of #{item}, round {round} of run {run} of {cell}, ended {}: {}",
+                    "  {work} of {item}, round {round} of run {run} of {cell}, ended {}: {}",
                     utc(*ended),
-                    said.join("; ")
+                    said.join("; "),
+                    work = work_number(*work),
+                    item = item_number(*item)
                 )
             }
             Past::Call {
@@ -1990,21 +2474,38 @@ fn system_said(system: &System, days: u64, limit: usize) -> String {
                 time,
                 size,
             } => format!(
-                "  W{work} of #{item}, call {call} of the tool {tool} by run {run} of {cell}, done {}: {}",
+                "  {work} of {item}, call {call} of the tool {tool} by run {run} of {cell}, done {}: {}",
                 utc(*done),
-                call_past(true, *time, *size).join("; ")
+                call_past(true, *time, *size).join("; "),
+                work = work_number(*work),
+                item = item_number(*item)
             ),
         });
     }
     if system.past.len() > limit {
         lines.push(more(system.past.len() - limit));
     }
+    if let Some(stop) = &system.stopping {
+        let how = if stop.at_once {
+            "at once"
+        } else {
+            "once what is under way has ended"
+        };
+        let ends = match stop.rest {
+            Rest::Expected { ms } => format!("expected to end in about {}", duration(ms)),
+            Rest::Longer {} => "to end once a round that has taken longer than any before has ended".to_string(),
+        };
+        lines.push(format!(
+            "The engine was asked {} to stop {how}: no round begins, and it is {ends}.",
+            utc(stop.since)
+        ));
+    }
     if system.under_way.is_empty() {
         lines.push("Nothing is under way.".to_string());
     } else {
         lines.push("Under way, the oldest first:".to_string());
     }
-    let so_far = |time: &Option<Against>, what: &str| match time {
+    let so_far = |time: &Option<Against>, since: u64, what: &str| match time {
         Some(time) => format!(
             "{} so far, {} the line of {} that {}",
             duration(time.value),
@@ -2012,7 +2513,10 @@ fn system_said(system: &System, days: u64, limit: usize) -> String {
             duration(time.line.value),
             given_by(&time.line)
         ),
-        None => format!("no line yet, too few {what} having ended"),
+        None => format!(
+            "{} so far, no line yet, too few {what} having ended",
+            duration(system.now.saturating_sub(since))
+        ),
     };
     for under_way in system.under_way.iter().take(limit) {
         lines.push(match under_way {
@@ -2025,7 +2529,13 @@ fn system_said(system: &System, days: u64, limit: usize) -> String {
                 began,
                 time,
                 bounds,
+                rest,
             } => {
+                let rest = match rest {
+                    Some(Rest::Expected { ms }) => format!("; about {} more", duration(*ms)),
+                    Some(Rest::Longer {}) => "; longer than any round of its history".to_string(),
+                    None => String::new(),
+                };
                 let bounds = bounds.map_or_else(String::new, |bounds| {
                     let tokens = |line: Option<web::works::Line>| {
                         line.map_or_else(|| "none yet".to_string(), |line| format!("{} tokens", line.value))
@@ -2040,9 +2550,11 @@ fn system_said(system: &System, days: u64, limit: usize) -> String {
                     )
                 });
                 format!(
-                    "  W{work} of #{item}, round {round} of run {run} of {cell}, since {}: {}{bounds}",
+                    "  {work} of {item}, round {round} of run {run} of {cell}, since {}: {}{rest}{bounds}",
                     utc(*began),
-                    so_far(time, "rounds of its cell")
+                    so_far(time, *began, "rounds of its cell"),
+                    work = work_number(*work),
+                    item = item_number(*item)
                 )
             }
             UnderWay::Call {
@@ -2055,16 +2567,132 @@ fn system_said(system: &System, days: u64, limit: usize) -> String {
                 made,
                 time,
             } => format!(
-                "  W{work} of #{item}, call {call} of the tool {tool} by run {run} of {cell}, since {}: {}",
+                "  {work} of {item}, call {call} of the tool {tool} by run {run} of {cell}, since {}: {}",
                 utc(*made),
-                so_far(time, "calls of its tool")
+                so_far(time, *made, "calls of its tool"),
+                work = work_number(*work),
+                item = item_number(*item)
             ),
         });
     }
     if system.under_way.len() > limit {
         lines.push(more(system.under_way.len() - limit));
     }
+    if !system.left_behind.is_empty() {
+        lines.push("Left running by a program as it ended, and stopped, the latest first:".to_string());
+    }
+    for left in system.left_behind.iter().take(limit) {
+        let of = match &left.of {
+            LeftOf::Try {
+                cell,
+                run,
+                round,
+                attempt,
+            } => format!("try {attempt} of round {round} of run {run} of {cell}"),
+            LeftOf::Act { cell, run, round } => format!("the check of round {round} of run {run} of {cell}"),
+            LeftOf::Call { cell, run, call, tool } => {
+                format!("the check of call {call} of the tool {tool} by run {run} of {cell}")
+            }
+            LeftOf::Ping { line, session } => format!("a keep-warm ping of session {session} of the line {line}"),
+            LeftOf::Fork { cell, run, round } => format!("a fork of round {round} of run {run} of {cell}"),
+        };
+        lines.push(format!(
+            "  {} of {}, {of}, ended {}: {} {}",
+            work_number(left.work),
+            item_number(left.item),
+            utc(left.at),
+            left.processes,
+            if left.processes == 1 { "process" } else { "processes" }
+        ));
+    }
+    if system.left_behind.len() > limit {
+        lines.push(more(system.left_behind.len() - limit));
+    }
+    for tests in &system.tests {
+        lines.extend(tests_said(tests, days, limit));
+    }
     lines.join("\n")
+}
+
+/// A time of a test or a job, in milliseconds or seconds.
+fn millis_said(ms: u64) -> String {
+    if ms < 1000 {
+        format!("{ms} ms")
+    } else {
+        format!("{:.1} s", ms as f64 / 1000.0)
+    }
+}
+
+/// What a project's merged checks say of how long its tests and jobs took, each list at most `limit` long, with how
+/// many more there are and how to see them.
+fn tests_said(tests: &web::system::TestTimes, days: u64, limit: usize) -> Vec<String> {
+    let project = tests.project.as_deref().unwrap_or("a project with no name");
+    let mut lines = vec![format!(
+        "Times of the tests and jobs of {project}, from its {} merged checks:",
+        tests.checks
+    )];
+    let more = |left: usize| {
+        format!(
+            "  And {left} more: wf-agents system --days {days} --limit {}",
+            limit + left
+        )
+    };
+    if tests.slowed.is_empty() {
+        lines.push("  No test took longer than its own history says in two merged checks in a row.".to_string());
+    } else {
+        lines.push("  Tests that took longer than their own history says in two merged checks in a row:".to_string());
+    }
+    for t in tests.slowed.iter().take(limit) {
+        lines.push(format!(
+            "    {} in {}: {} at {}, against a median of {} and a line of {}",
+            t.name,
+            t.unit,
+            millis_said(t.millis),
+            work_number(t.work),
+            millis_said(t.median),
+            millis_said(t.line)
+        ));
+    }
+    if tests.slowed.len() > limit {
+        lines.push(more(tests.slowed.len() - limit));
+    }
+    for g in &tests.grown {
+        lines.push(format!(
+            "  The CI grew: {} had a median of {} over the {} merged checks before the latest {} and {} over them ({} of \
+             them above the earlier median, {} needed); it stepped at the merge of {}.",
+            if g.of == driver::timed::TESTS { "the sum of the tests' times".to_string() } else { format!("the job {}", g.of) },
+            millis_said(g.before),
+            g.n,
+            g.n,
+            millis_said(g.after),
+            g.above,
+            g.needed,
+            work_number(g.work)
+        ));
+    }
+    lines.push("  The latest merges, the latest last, with what each check took and the tests it added:".to_string());
+    let skipped = tests.merges.len().saturating_sub(limit);
+    for m in tests.merges.iter().skip(skipped) {
+        let jobs: Vec<String> = (m.jobs.iter())
+            .map(|j| format!("{} {}", j.name, millis_said(j.millis)))
+            .collect();
+        lines.push(format!(
+            "    {}: jobs {}; the tests {}; {} tests added, {}",
+            work_number(m.work),
+            if jobs.is_empty() {
+                "none read".to_string()
+            } else {
+                jobs.join(", ")
+            },
+            millis_said(m.tests_millis),
+            m.added,
+            millis_said(m.added_millis)
+        ));
+    }
+    if skipped > 0 {
+        lines.push(more(skipped));
+    }
+    lines
 }
 
 /// What rounds took, as a clause.
@@ -2097,12 +2725,14 @@ mod tests {
             added: 0,
             depends_on: depends_on.to_vec(),
             tags: tags.iter().map(|t| t.to_string()).collect(),
+            continues: None,
             history: ItemHistory {
                 first: FirstItem {
                     title: format!("item {number}"),
                     level: Some("1".to_string()),
                     depends_on: depends_on.to_vec(),
                     tags: Vec::new(),
+                    continues: None,
                 },
                 changes: Vec::new(),
             },
@@ -2151,14 +2781,32 @@ mod tests {
         Observation {
             number,
             text: text.to_string(),
-            work: 3,
-            item: 2,
-            title: "Greet the user".to_string(),
-            cell: "plan".to_string(),
-            run: 4,
-            round: 1,
+            title: None,
+            tags: Vec::new(),
+            project: Some("wf-agents".to_string()),
+            reported_by: Some("wf-agents".to_string()),
+            round: Some(web::observations::Round {
+                work: 3,
+                item: 2,
+                item_title: "Greet the user".to_string(),
+                cell: "plan".to_string(),
+                run: 4,
+                round: 1,
+            }),
             kept: 1_800_000_000_000,
             read,
+            taken_in_by: None,
+            handled: false,
+        }
+    }
+
+    /// An observation an architect added, of this project and reported by that one.
+    fn an_added_observation(number: u64, text: &str, project: &str, reported_by: &str) -> Observation {
+        Observation {
+            round: None,
+            project: Some(project.to_string()),
+            reported_by: Some(reported_by.to_string()),
+            ..observation(number, text, None)
         }
     }
 
@@ -2172,22 +2820,206 @@ mod tests {
             ],
         };
         assert_eq!(
-            observations_said(&page, None, 2),
+            observations_said(&page, &Showing::default(), None, 2),
             "O3, unread, kept 2027-01-15 08:00 UTC: item #2 \"Greet the user\", W3, cell plan, run 4, round 1\n  Third.\n  \
              In two lines.\nO2, read 2027-01-15 08:01 UTC, kept 2027-01-15 08:00 UTC: item #2 \"Greet the user\", W3, \
              cell plan, run 4, round 1\n  Second.\nAnd 1 more, older: wf-agents observations --from 1"
         );
-        let down = observations_said(&page, Some(2), 20);
+        let down = observations_said(&page, &Showing::default(), Some(2), 20);
         assert!(down.starts_with("O2, read ") && down.ends_with("  First."), "{down}");
         assert!(!down.contains("O3") && !down.contains("more"), "{down}");
         assert_eq!(
-            observations_said(&page, Some(0), 20),
+            observations_said(&page, &Showing::default(), Some(0), 20),
             "No observation is numbered O0 or lower."
         );
         let none = ObservationsPage {
             observations: Vec::new(),
         };
-        assert_eq!(observations_said(&none, None, 20), "There are no observations.");
+        assert_eq!(
+            observations_said(&none, &Showing::default(), None, 20),
+            "There are no observations."
+        );
+    }
+
+    #[test]
+    fn the_line_of_an_added_observation_says_who_reported_it_what_it_is_of_and_its_title_tags_and_taker() {
+        let mut one = an_added_observation(5, "The merge cell names no tests.", "wf-agents", "compiler");
+        one.title = Some("Name the tests".to_string());
+        one.tags = vec!["flow".to_string(), "tests".to_string()];
+        let page = ObservationsPage {
+            observations: vec![one.clone()],
+        };
+        assert_eq!(
+            observations_said(&page, &Showing::default(), None, 20),
+            "O5, unread, kept 2027-01-15 08:00 UTC: reported by compiler\n  of wf-agents; title \"Name the tests\"; tags \
+             flow, tests\n  The merge cell names no tests."
+        );
+        // An item that is cancelled took it in: it is said, and it is shown without --all.
+        one.taken_in_by = Some(12);
+        let page = ObservationsPage {
+            observations: vec![one],
+        };
+        assert!(
+            observations_said(&page, &Showing::default(), None, 20)
+                .contains("tags flow, tests; taken in by #12, which is cancelled\n"),
+        );
+    }
+
+    #[test]
+    fn observations_are_filtered_by_tag_and_project_and_the_handled_are_left_out_unless_all() {
+        let mut tagged = an_added_observation(4, "Tagged.", "wf-agents", "wf-agents");
+        tagged.tags = vec!["flow".to_string()];
+        let mut handled = an_added_observation(3, "Handled.", "wf-agents", "wf-agents");
+        handled.tags = vec!["flow".to_string()];
+        handled.taken_in_by = Some(7);
+        handled.handled = true;
+        let page = ObservationsPage {
+            observations: vec![
+                tagged,
+                handled,
+                an_added_observation(2, "Another project's.", "compiler", "compiler"),
+                an_added_observation(1, "Untagged.", "wf-agents", "wf-agents"),
+            ],
+        };
+        let numbers = |showing: &Showing| -> Vec<String> {
+            let said = observations_said(&page, showing, None, 20);
+            said.lines()
+                .filter(|l| l.starts_with('O'))
+                .map(|l| l[..2].to_string())
+                .collect()
+        };
+        let by_tag = Showing {
+            tag: Some("flow".to_string()),
+            ..Showing::default()
+        };
+        assert_eq!(numbers(&by_tag), ["O4"]);
+        assert_eq!(numbers(&Showing { all: true, ..by_tag }), ["O4", "O3"]);
+        let by_project = Showing {
+            project: Some("compiler".to_string()),
+            ..Showing::default()
+        };
+        assert_eq!(numbers(&by_project), ["O2"]);
+        assert_eq!(numbers(&Showing::default()), ["O4", "O2", "O1"]);
+        // What is left to give is asked for with the same filters.
+        let limited = observations_said(
+            &page,
+            &Showing {
+                all: true,
+                ..Showing::default()
+            },
+            None,
+            1,
+        );
+        assert!(
+            limited.ends_with("And 3 more, older: wf-agents observations --from 3 --all"),
+            "{limited}"
+        );
+        let none = Showing {
+            tag: Some("nothing".to_string()),
+            ..Showing::default()
+        };
+        assert!(observations_said(&page, &none, None, 20).starts_with("No observation is shown"));
+    }
+
+    #[test]
+    fn tags_lists_a_tag_only_observations_carry_beside_the_items_tags() {
+        let items = Tags {
+            tags: vec![web::plan::TagCount {
+                tag: "page".to_string(),
+                items: 3,
+                open: 2,
+            }],
+        };
+        let observed = TagsPage {
+            tags: vec![
+                web::observations::TagCount {
+                    tag: "flow".to_string(),
+                    carrying: 4,
+                    unhandled: 1,
+                },
+                web::observations::TagCount {
+                    tag: "page".to_string(),
+                    carrying: 1,
+                    unhandled: 1,
+                },
+            ],
+        };
+        assert_eq!(
+            tags_said(&items, &observed),
+            "flow: 1 not handled of 4 observations\npage: 2 open of 3; 1 not handled of 1 observations"
+        );
+        assert_eq!(tags_said(&items, &TagsPage { tags: Vec::new() }), "page: 2 open of 3");
+        assert_eq!(
+            tags_said(&Tags { tags: Vec::new() }, &TagsPage { tags: Vec::new() }),
+            "No item or observation carries a tag."
+        );
+    }
+
+    #[test]
+    fn changes_of_observations_are_read_by_kind_and_a_wrong_one_is_refused() {
+        let given = |changes: &[&str]| observation_changes(&changes.iter().map(|c| c.to_string()).collect::<Vec<_>>());
+        assert_eq!(
+            given(&[
+                "O31:taken-in-by=#12",
+                "32:title=Fix the test",
+                "33:tag=flow",
+                "O34:untag=flow",
+                "35:delete"
+            ]),
+            Ok(vec![
+                ObservationChangeAsked::TakenIn {
+                    observation: 31,
+                    item: 12
+                },
+                ObservationChangeAsked::Title {
+                    observation: 32,
+                    title: "Fix the test".to_string()
+                },
+                ObservationChangeAsked::Tag {
+                    observation: 33,
+                    tag: "flow".to_string()
+                },
+                ObservationChangeAsked::Untag {
+                    observation: 34,
+                    tag: "flow".to_string()
+                },
+                ObservationChangeAsked::Delete { observation: 35 },
+            ])
+        );
+        for wrong in [
+            "31",
+            "x:delete",
+            "31:merge=12",
+            "31:delete=1",
+            "31:taken-in-by",
+            "31:taken-in-by=x",
+            "31:tag",
+        ] {
+            assert!(given(&[wrong]).is_err(), "{wrong} was read");
+        }
+    }
+
+    #[test]
+    fn an_observation_is_given_its_text_by_words_or_by_a_file_and_never_by_neither_or_both() {
+        let new = |text: Option<&str>, file: Option<&str>| {
+            let file = file.map(std::path::Path::new);
+            new_observation(
+                "wf-agents".to_string(),
+                "compiler".to_string(),
+                None,
+                vec!["flow".to_string()],
+                text.map(str::to_string),
+                file,
+            )
+        };
+        let made = new(Some("Words."), None).expect("words are a text");
+        assert_eq!(
+            (made.text.as_str(), made.project.as_str(), made.reported_by.as_str()),
+            ("Words.", "wf-agents", "compiler")
+        );
+        assert!(new(None, None).is_err());
+        assert!(new(Some("Words."), Some("a-file")).is_err());
+        assert!(new(None, Some("/no/such/file")).is_err());
     }
 
     // The list says what is down while the wait holds, as the latest check found it, since when, and when the engine
@@ -2214,6 +3046,7 @@ mod tests {
             }),
             until: Until::Checked { at: 3 * hour },
             holds: true,
+            first: None,
             may_move: false,
         });
         let said = list(&waiting, &Listing::default());
@@ -2221,14 +3054,145 @@ mod tests {
         assert_eq!(
             first,
             "No agent's round of any work begins. The agents' command line cannot run since 1970-01-01 01:00 UTC. The \
-             engine checks the outside itself at 1970-01-01 03:00 UTC, touching no work's session, and every work goes \
-             on once it is well. The check at 1970-01-01 02:00 UTC, the 2nd in the wait, found it down. No account is \
+             engine checks the outside itself at 1970-01-01 03:00 UTC, touching no work's session, and one round goes \
+             first once it is well. The check at 1970-01-01 02:00 UTC, the 2nd in the wait, found it down. No account is \
              in use: choose one on the Settings view. Round 1 of run 2 of W1 met it. API Error: 529 Overloaded."
         );
         let outage = waiting.outage.as_mut().unwrap();
         outage.until = Until::Well { at: 2 * hour };
         outage.holds = false;
         assert!(list(&waiting, &Listing::default()).starts_with("#1 "));
+    }
+
+    // The system view lists what each program run for a work left running and had stopped, the latest first, saying
+    // which program it was: a try of a round, the check of an act's round or of a call, a keep-warm ping or a fork.
+    // Microseconds.
+    #[test]
+    fn the_system_says_which_program_left_processes_running_and_how_many() {
+        let left = |at: u64, of: LeftOf, processes: usize| web::system::LeftBehind {
+            work: 4,
+            item: 9,
+            of,
+            at,
+            processes,
+        };
+        let system = System {
+            now: 600_000,
+            from: None,
+            spent: Spent::default(),
+            pinged: Spent::default(),
+            weeks: Vec::new(),
+            by_cell: Vec::new(),
+            by_model: Vec::new(),
+            by_work: Vec::new(),
+            merged: Vec::new(),
+            cancelled: Vec::new(),
+            added: Vec::new(),
+            sent_back: Vec::new(),
+            failed: Vec::new(),
+            past: Vec::new(),
+            under_way: Vec::new(),
+            tests: Vec::new(),
+            left_behind: vec![
+                left(
+                    300_000,
+                    LeftOf::Fork {
+                        cell: "I1".to_string(),
+                        run: 7,
+                        round: 1,
+                    },
+                    2,
+                ),
+                left(
+                    240_000,
+                    LeftOf::Ping {
+                        line: "engineer".to_string(),
+                        session: 2,
+                    },
+                    1,
+                ),
+                left(
+                    180_000,
+                    LeftOf::Call {
+                        cell: "I1".to_string(),
+                        run: 7,
+                        call: 3,
+                        tool: "run_tests".to_string(),
+                    },
+                    2,
+                ),
+                left(
+                    120_000,
+                    LeftOf::Act {
+                        cell: "M1".to_string(),
+                        run: 8,
+                        round: 1,
+                    },
+                    3,
+                ),
+                left(
+                    60_000,
+                    LeftOf::Try {
+                        cell: "I1".to_string(),
+                        run: 7,
+                        round: 2,
+                        attempt: 1,
+                    },
+                    1,
+                ),
+            ],
+            stopping: None,
+        };
+        let said = system_said(&system, 7, 10);
+        assert!(
+            said.ends_with(
+                "Left running by a program as it ended, and stopped, the latest first:\n  W4 of #9, a fork of round 1 \
+                 of run 7 of I1, ended 1970-01-01 00:05 UTC: 2 processes\n  W4 of #9, a keep-warm ping of session 2 of \
+                 the line engineer, ended 1970-01-01 00:04 UTC: 1 process\n  W4 of #9, the check of call 3 \
+                 of the tool run_tests by run 7 of I1, ended 1970-01-01 00:03 UTC: 2 processes\n  W4 of #9, the check of \
+                 round 1 of run 8 of M1, ended 1970-01-01 00:02 UTC: 3 processes\n  W4 of #9, try 1 of round 2 of run 7 \
+                 of I1, ended 1970-01-01 00:01 UTC: 1 process"
+            ),
+            "{said}"
+        );
+    }
+
+    // A work the wait every work shares holds while one round goes first says it waits for that round, not for the
+    // cause the check found gone, and for the act that goes first where the wait is the acts'. Microseconds.
+    #[test]
+    fn a_work_held_while_one_round_goes_first_says_it_waits_for_that_one() {
+        let mut outage = Outage {
+            service: web::works::Service::Agents,
+            failure: Failure::Offline,
+            why: "Unable to connect to API".to_string(),
+            work: 1,
+            run: 2,
+            round: 1,
+            since: 0,
+            checked: Some(Checked {
+                at: 30_000,
+                taken: 1,
+                found: Found::Well,
+            }),
+            until: Until::Well { at: 30_000 },
+            holds: true,
+            first: Some(3),
+            may_move: false,
+        };
+        assert_eq!(
+            waited(&Waited::Agents { outage: outage.clone() }),
+            "W3's round to come back: it is well again, and that round goes first"
+        );
+        outage.service = web::works::Service::Host;
+        assert_eq!(
+            waited(&Waited::Agents { outage: outage.clone() }),
+            "W3's act to come back: it is well again, and that act goes first"
+        );
+        outage.first = None;
+        assert!(
+            waited(&Waited::Agents { outage }).starts_with("the agents' rounds to begin again, as "),
+            "a wait no round goes first in says its cause"
+        );
     }
 
     // Where the owner lets the engine move at a usage limit and another account may yet be moved to, the planner is told
@@ -2248,6 +3212,7 @@ mod tests {
             checked: None,
             until: Until::Checked { at: 3 * hour },
             holds: true,
+            first: None,
             may_move: true,
         });
         let moves = "The engine also checks the other accounts and moves every work to the first one it finds well.";
@@ -2278,6 +3243,7 @@ mod tests {
             checked: None,
             until: Until::Checked { at: 3 * hour },
             holds: true,
+            first: None,
             may_move: false,
         };
         let line = Line::Agents {
@@ -2314,7 +3280,7 @@ mod tests {
         };
         assert_eq!(
             heed(&line, 2 * hour),
-            "Item 2 \"item 2\", work 2: for 1h 00m, stalled at merge. Nothing new runs this last cell, and no cell can \
+            "Item #2 \"item 2\", work W2: for 1h 00m, stalled at merge. Nothing new runs this last cell, and no cell can \
              write what runs it."
         );
     }
@@ -2571,6 +3537,32 @@ mod tests {
         assert!(!few.contains(" earlier: ") && !few.contains(" more"), "{few}");
     }
 
+    // A round's miss of its session's cache says why: what differed, that the records do not say, or that nothing
+    // before the messages differed, which is a fault of wf-agents.
+    #[test]
+    fn a_round_that_missed_its_cache_says_why_by_what_differed_or_that_it_is_not_known_or_a_fault() {
+        let missed = |differs: &[&str], unknown: bool| web::works::Missed {
+            read: 1_200,
+            held: 34_340,
+            differs: differs.iter().map(|part| part.to_string()).collect(),
+            unknown,
+        };
+        assert_eq!(
+            missed_said(2, &missed(&["model", "program_tools"], false)),
+            "    round 2 missed its session's cache: read 1200 of the 34340 tokens it held; model, program_tools differed from the call before"
+        );
+        let unknown = missed_said(2, &missed(&[], true));
+        assert!(
+            unknown.contains("the cause is not known") && !unknown.contains("fault"),
+            "{unknown}"
+        );
+        let fault = missed_said(2, &missed(&[], false));
+        assert!(
+            fault.ends_with("nothing before the messages differed, a fault of wf-agents"),
+            "{fault}"
+        );
+    }
+
     // A part given alone comes a hundred entries at a time, from the place asked, each answer saying how to ask for the
     // next.
     #[test]
@@ -2578,21 +3570,21 @@ mod tests {
         let page = work(250, 0, 0, 0, 0);
         let first = show_part(&page, Part::Runs, 1);
         let lines: Vec<&str> = first.lines().collect();
-        assert_eq!(lines[0], "Work 1, its runs, 1 to 100 of 250:");
+        assert_eq!(lines[0], "Work W1, its runs, 1 to 100 of 250:");
         assert_eq!(lines.len(), LISTED + 2);
         assert!(lines[1].starts_with("  run 1 of plan: ") && lines[LISTED].starts_with("  run 100 of plan: "));
         assert_eq!(lines[LISTED + 1], "And 150 more: wf-agents show 1 runs --from 101");
         let last = show_part(&page, Part::Runs, 201);
         assert!(
-            last.starts_with("Work 1, its runs, 201 to 250 of 250:\n  run 201 of plan: "),
+            last.starts_with("Work W1, its runs, 201 to 250 of 250:\n  run 201 of plan: "),
             "{last}"
         );
         assert_eq!(last.lines().count(), 51, "the last answer says nothing more: {last}");
         assert_eq!(
             show_part(&page, Part::Runs, 251),
-            "Work 1, its runs: 250, fewer than 251."
+            "Work W1, its runs: 250, fewer than 251."
         );
-        assert_eq!(show_part(&page, Part::Sessions, 1), "Work 1, its sessions: none.");
+        assert_eq!(show_part(&page, Part::Sessions, 1), "Work W1, its sessions: none.");
     }
 
     // What happened to an item is one history in the order it happened: the changes made to it, and the cancels and
@@ -2612,7 +3604,7 @@ mod tests {
         });
         let said = show_part(&page, Part::History, 1);
         let lines = [
-            "Work 1, what happened to its item, 1 to 4 of 4:".to_string(),
+            "Work W1, what happened to its item, 1 to 4 of 4:".to_string(),
             format!("  {}: tagged t1", utc(10)),
             format!("  {}: cancelled, no reason being given", utc(15)),
             format!("  {}: tagged t2", utc(20)),
@@ -2745,6 +3737,82 @@ mod tests {
     }
 
     #[test]
+    fn what_an_item_continues_is_given_by_two_flags_and_changed_by_three_kinds() {
+        assert_eq!(continues(None, None), None);
+        assert_eq!(
+            continues(Some("old".to_string()), None),
+            Some(Continues::Branch {
+                name: "old".to_string()
+            })
+        );
+        assert_eq!(continues(None, Some(226)), Some(Continues::Pull { number: 226 }));
+        let given: Vec<String> = [
+            "3:continue-branch=work-226-0a1b2c3d",
+            "#4:continue-pull=226",
+            "5:no-longer-continues",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        assert_eq!(
+            changes(&given),
+            Ok(vec![
+                ChangeAsked::Continues {
+                    item: 3,
+                    continues: Some(Continues::Branch {
+                        name: "work-226-0a1b2c3d".to_string()
+                    })
+                },
+                ChangeAsked::Continues {
+                    item: 4,
+                    continues: Some(Continues::Pull { number: 226 })
+                },
+                ChangeAsked::Continues {
+                    item: 5,
+                    continues: None
+                },
+            ])
+        );
+        for wrong in [
+            "3:continue-branch",
+            "3:continue-pull=x",
+            "3:continue-pull",
+            "3:no-longer-continues=x",
+        ] {
+            let refused = changes(&[wrong.to_string()]).expect_err(wrong);
+            assert!(
+                refused.contains("A change is ITEM:KIND or ITEM:KIND=VALUE"),
+                "{refused}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_item_that_continues_something_says_so_where_it_is_listed_and_where_its_history_is_told() {
+        let continuing = Some(Continues::Pull { number: 226 });
+        let mut history = item(1, false, &[], &[]).history;
+        assert!(!added(&history, true).contains("continuing"));
+        history.first.continues = continuing.clone();
+        assert!(
+            added(&history, true).contains(", continuing pull request 226"),
+            "{}",
+            added(&history, true)
+        );
+        assert_eq!(
+            item_changed(&ItemChanged::Continues {
+                continues: Some(Continues::Branch {
+                    name: "old".to_string()
+                })
+            }),
+            "came to continue the branch old"
+        );
+        assert_eq!(
+            item_changed(&ItemChanged::Continues { continues: None }),
+            "no longer continues anything"
+        );
+    }
+
+    #[test]
     fn the_system_lists_at_most_its_limit_of_what_went_past_its_lines_and_says_how_to_see_the_rest() {
         let line = web::works::Line {
             value: 25_000,
@@ -2784,6 +3852,9 @@ mod tests {
             failed: Vec::new(),
             past: (1..=12).map(past).collect(),
             under_way: Vec::new(),
+            tests: Vec::new(),
+            left_behind: Vec::new(),
+            stopping: None,
         };
         let said = system_said(&system, 7, 10);
         let lines: Vec<&str> = said.lines().collect();
@@ -2796,6 +3867,178 @@ mod tests {
         );
         assert_eq!(lines[12], "  And 2 more: wf-agents system --days 7 --limit 12");
         assert_eq!(lines[13], "Nothing is under way.");
+    }
+
+    // What a project's merged checks say of time is bounded as every list of the report is: the slowed tests and the
+    // latest merges each at most the limit, with how many more there are and how to see them; a series that grew is said
+    // with the merge it stepped at.
+    #[test]
+    fn the_times_of_a_projects_merged_checks_are_said_bounded_with_how_many_more_there_are() {
+        use web::system::{Grown, JobTime, MergeTimes, SlowedTest, TestTimes};
+        let tests = TestTimes {
+            project: Some("wf-agents".to_string()),
+            checks: 40,
+            slowed: (1..=7)
+                .map(|n| SlowedTest {
+                    work: n,
+                    unit: "carry".to_string(),
+                    name: format!("t{n}"),
+                    millis: 9_000,
+                    median: 3_000,
+                    line: 5_000,
+                })
+                .collect(),
+            grown: vec![Grown {
+                of: "tests".to_string(),
+                work: 33,
+                before: 100_000,
+                after: 130_000,
+                above: 18,
+                n: 19,
+                needed: 17,
+            }],
+            merges: (1..=8)
+                .map(|n| MergeTimes {
+                    work: n,
+                    jobs: vec![JobTime {
+                        name: "lint".to_string(),
+                        millis: 7_000,
+                    }],
+                    tests_millis: 100_000 + n * 10,
+                    added: 2,
+                    added_millis: 300,
+                })
+                .collect(),
+        };
+        let said = tests_said(&tests, 7, 3);
+        assert_eq!(said.len(), 12, "{said:#?}");
+        assert_eq!(
+            said[0],
+            "Times of the tests and jobs of wf-agents, from its 40 merged checks:"
+        );
+        assert_eq!(
+            said[2],
+            "    t1 in carry: 9.0 s at W1, against a median of 3.0 s and a line of 5.0 s"
+        );
+        assert_eq!(said[5], "  And 4 more: wf-agents system --days 7 --limit 7");
+        assert!(
+            said[6].starts_with("  The CI grew: the sum of the tests' times had a median of 100.0 s")
+                && said[6].ends_with("it stepped at the merge of W33."),
+            "{}",
+            said[6]
+        );
+        assert_eq!(
+            said[8],
+            "    W6: jobs lint 7.0 s; the tests 100.1 s; 2 tests added, 300 ms"
+        );
+        assert_eq!(
+            said[10],
+            "    W8: jobs lint 7.0 s; the tests 100.1 s; 2 tests added, 300 ms"
+        );
+        assert_eq!(said[11], "  And 5 more: wf-agents system --days 7 --limit 8");
+        let none = TestTimes {
+            slowed: Vec::new(),
+            grown: Vec::new(),
+            merges: Vec::new(),
+            ..tests
+        };
+        let said = tests_said(&none, 7, 3);
+        assert_eq!(said.len(), 3, "{said:#?}");
+        assert!(
+            said[1].starts_with("  No test took longer than its own history says"),
+            "{}",
+            said[1]
+        );
+    }
+
+    // A stop says each round under way it waits for, or would cut off, with how long it has taken and how much longer
+    // it is expected to take, and when the engine is expected to end, the latest of them; the system view says the
+    // stop that stands and each round's rest. Fails where a round is left out, its rest misread, or the end not the
+    // latest. Microseconds.
+    #[test]
+    fn a_stop_says_the_rounds_it_waits_for_or_would_cut_off_with_how_long_each_has_to_go() {
+        let round = |work: u64, began: u64, rest| UnderWay::Round {
+            work,
+            item: work + 10,
+            cell: "I1".to_string(),
+            run: 2,
+            round: 1,
+            began,
+            time: None,
+            bounds: None,
+            rest,
+        };
+        let mut system = System {
+            now: 600_000,
+            from: Some(0),
+            spent: Spent::default(),
+            pinged: Spent::default(),
+            weeks: Vec::new(),
+            by_cell: Vec::new(),
+            by_model: Vec::new(),
+            by_work: Vec::new(),
+            merged: Vec::new(),
+            cancelled: Vec::new(),
+            added: Vec::new(),
+            sent_back: Vec::new(),
+            failed: Vec::new(),
+            past: Vec::new(),
+            under_way: vec![
+                round(1, 0, Some(Rest::Expected { ms: 120_000 })),
+                round(2, 540_000, Some(Rest::Expected { ms: 300_000 })),
+            ],
+            tests: Vec::new(),
+            left_behind: Vec::new(),
+            stopping: None,
+        };
+        let listed =
+            "  W1 of #11 at I1: 10m 00s so far, about 2m 00s more\n  W2 of #12 at I1: 1m 00s so far, about 5m 00s more";
+        assert_eq!(
+            stop_said(&system, Stopped::NotYet),
+            format!(
+                "Nothing is stopped: `wf-agents stop --now --yes` stops the engine at once and cuts off these 2 rounds, \
+                 which `wf-agents stop` waits for:\n{listed}"
+            )
+        );
+        assert_eq!(
+            stop_said(&system, Stopped::Once),
+            format!(
+                "The engine is stopping: no round begins, and it ends once these 2 rounds have ended, expected in about \
+                 5m 00s:\n{listed}"
+            )
+        );
+        system.under_way[0] = round(1, 0, Some(Rest::Longer {}));
+        assert!(
+            stop_said(&system, Stopped::Once).starts_with(
+                "The engine is stopping: no round begins, and it ends once these 2 rounds have ended, once a round \
+                 that has taken longer than any before has ended:\n  W1 of #11 at I1: 10m 00s so far, longer than any \
+                 round of its history\n"
+            ),
+            "{}",
+            stop_said(&system, Stopped::Once)
+        );
+        system.stopping = Some(web::system::Stop {
+            since: 0,
+            at_once: false,
+            rest: Rest::Longer {},
+        });
+        let said = system_said(&system, 7, 10);
+        assert!(
+            said.contains(
+                "The engine was asked 1970-01-01 00:00 UTC to stop once what is under way has ended: no round begins, \
+                 and it is to end once a round that has taken longer than any before has ended.\nUnder way"
+            ),
+            "{said}"
+        );
+        assert!(
+            said.contains(
+                "Under way, the oldest first:\n  W1 of #11, round 1 of run 2 of I1, since 1970-01-01 00:00 UTC: 10m 00s \
+                 so far, no line yet, too few rounds of its cell having ended; longer than any round of its history\n  \
+                 W2 of #12, round 1 of run 2 of I1, since 1970-01-01 00:09 UTC: 1m 00s so far, no line yet, too few \
+                 rounds of its cell having ended; about 5m 00s more"
+            ),
+            "{said}"
+        );
     }
 
     #[test]
@@ -2843,6 +4086,9 @@ mod tests {
                 ),
             ],
             under_way: Vec::new(),
+            tests: Vec::new(),
+            left_behind: Vec::new(),
+            stopping: None,
         };
         let said = system_said(&system, 7, 10);
         let lines: Vec<&str> = said.lines().collect();
@@ -2898,6 +4144,13 @@ pub fn forked_said(page: &ForkPage) -> String {
         }
     }
     out.push_str(&format!("\nIt cost ${:.4}.\n", page.usd_micros as f64 / 1e6));
+    if page.left > 0 {
+        let processes = if page.left == 1 { "process" } else { "processes" };
+        out.push_str(&format!(
+            "Its program left {} {processes} running in its group as it ended, which were stopped.\n",
+            page.left
+        ));
+    }
     let share = match (page.read, page.held) {
         (Some(read), Some(held)) if held > 0 => Some((read.min(held) * 100 / held, read, held)),
         _ => None,
@@ -2989,6 +4242,7 @@ mod fork_tests {
             kept: "/k/7-1.fork.1.answer".to_string(),
             account: "work".to_string(),
             instead: None,
+            left: 0,
         }
     }
 
@@ -3050,6 +4304,12 @@ mod fork_tests {
                 .contains("The session ran under no account: the fork ran under the account in use, work, whose cache")
         );
         assert!(!forked_said(&page()).contains("the fork ran under the account in use"));
+        // What its program left running, stopped as it ended, is said with its cost, and nothing where it left none.
+        let left = ForkPage { left: 2, ..page() };
+        assert!(forked_said(&left).contains(
+            "It cost $0.0410.\nIts program left 2 processes running in its group as it ended, which were stopped.\n"
+        ));
+        assert!(!forked_said(&page()).contains("running in its group"));
     }
 
     #[test]

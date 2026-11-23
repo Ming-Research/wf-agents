@@ -18,15 +18,18 @@ CREATE TABLE schema_version (
 -- An item: a thing to be done, as it was added. Its number is given by the store, counting from one, one sequence
 -- across the projects. Its level is the name of the level of the installation it was given as it was added; null for
 -- an item kept before items had levels. Its project is the name the installation's settings give the project it
--- belongs to, whose repository its works run in; null for an item kept before items had projects. What happened to an
--- item is in `item_changes`; its one work is in `works`, whose records are the tables keyed by `work`, a block's content
--- in `contents`; why its work was cancelled is in `cancelled`.
+-- belongs to, whose repository its works run in; null for an item kept before items had projects. Its continues is the
+-- branch (`branch:<name>`) or the pull request (`pull:<number>`) its work starts from as it is added, null for an item
+-- that continues nothing and starts from the head of main. What happened to an item is in `item_changes`; its one work
+-- is in `works`, whose records are the tables keyed by `work`, a block's content in `contents`; why its work was
+-- cancelled is in `cancelled`.
 CREATE TABLE items (
     number INTEGER PRIMARY KEY,
     title TEXT NOT NULL,
     added INTEGER NOT NULL,
     level TEXT,
-    project TEXT
+    project TEXT,
+    continues TEXT
 );
 
 -- An item depends on another as it is added, one added before it, of its own project or another.
@@ -45,11 +48,12 @@ CREATE TABLE tagged (
 );
 
 -- A change made to an item since it was added, its nth counting from one, at this time (JSON), and why, as whoever
--- made it said: it was given a title, put at a level, came to depend on an item or no longer depends on one, or came to
--- carry a tag or no longer carries one. Changes made together have one time and one reason. `why` is null for a change
--- kept before changes said why. What an item is as it stands is what it was added as with each of its changes made in
--- turn: its latest title and level, or those it was added with where it has none, the items it was added depending on
--- with each it came to depend on, but those it no longer depends on, and so its tags.
+-- made it said: it was given a title, put at a level, came to depend on an item or no longer depends on one, came to
+-- carry a tag or no longer carries one, or came to continue a branch or a pull request or to continue none. Changes
+-- made together have one time and one reason. `why` is null for a change kept before changes said why. What an item is
+-- as it stands is what it was added as with each of its changes made in turn: its latest title and level, or those it
+-- was added with where it has none, the items it was added depending on with each it came to depend on, but those it no
+-- longer depends on, and so its tags and what it continues.
 CREATE TABLE item_changes (
     item INTEGER NOT NULL REFERENCES items (number),
     n INTEGER NOT NULL,
@@ -100,8 +104,8 @@ CREATE TABLE on_flow (
 );
 
 -- What the work's time went to from its first round to its last, kept as it ended (JSON: each stretch with when it
--- began and ended, and `model`, `tools`, `owner`, `paused`, `items` or `other`). A work reopened and ended again keeps
--- it again; the latest is the work's.
+-- began and ended, and `model`, `tools`, `owner`, `paused`, `stopping`, `items` or `other`). A work reopened and ended
+-- again keeps it again; the latest is the work's.
 CREATE TABLE kept_time (
     work INTEGER NOT NULL REFERENCES works (number),
     at INTEGER NOT NULL,
@@ -339,6 +343,16 @@ CREATE TABLE keep_warm (
     time INTEGER NOT NULL
 );
 
+-- The engine was asked to stop at `time` (`what`: `Asked`, once what is under way has ended, or `Now`, at once), or
+-- started again after a stop (`Over`), `n` counting from one: the latest row says whether a stop stands, which it does
+-- while that row is `Asked` or `Now`, and none that none does. While a stop stands no round of any work begins. It is
+-- the installation's, not a work's.
+CREATE TABLE stops (
+    n INTEGER PRIMARY KEY,
+    what TEXT NOT NULL CHECK (what IN ('Asked', 'Now', 'Over')),
+    time INTEGER NOT NULL
+);
+
 -- An account the agents' program may run under was added, removed, or taken by the owner as the one the agents run
 -- under (`what`: `Added`, `Removed` or `Taken`), by the name the owner gave it, at `time`, `n` counting from one. Its
 -- token is kept outside the store, under the name. The account in use is the latest taken that was not removed since;
@@ -512,6 +526,21 @@ CREATE TABLE measured (
     FOREIGN KEY (work, run) REFERENCES started (work, run)
 );
 
+-- A program the engine ran for the work ended by itself and left `processes` running in its process group, one or
+-- more, which its carrier stopped before it gave the program's end: no one read what they would have printed, and what
+-- they took is counted nowhere else. `of` says which program (JSON: `kind` and its fields): a try of a round of a run
+-- (`try`, with `run`, `round` and `attempt`, the round's first being one and the try's first in its round being one),
+-- the project's check run by a round of an act (`act`, with `run` and `round`) or for a call of a tool (`call`, with
+-- `call`), a keep-warm ping of the session of a line (`ping`, with `line` and `session`), or a fork of the session of a
+-- round of a run (`fork`, with `run` and `round`, the first being one).
+CREATE TABLE left_behind (
+    work INTEGER NOT NULL REFERENCES works (number),
+    at INTEGER NOT NULL,
+    of TEXT NOT NULL,
+    processes INTEGER NOT NULL CHECK (processes > 0),
+    PRIMARY KEY (work, at)
+);
+
 -- A keep-warm ping of the session of a line, its sessions counted from none, which keeps its prompt cache while the
 -- line waits: what it took, and why it failed where it did (NULL where it did not), which may name paths of the
 -- machine.
@@ -555,6 +584,53 @@ CREATE TABLE pulls (
     PRIMARY KEY (work, at)
 );
 
+-- A test of a project, named by the unit it is in (a test binary, a test file) and its own name, kept once for every
+-- run that reported it. Its number is given by the store, counting from one.
+CREATE TABLE test_names (
+    test INTEGER PRIMARY KEY,
+    unit TEXT NOT NULL,
+    name TEXT NOT NULL,
+    UNIQUE (unit, name)
+);
+
+-- A run of the project's CI that the host read, and how it came to the work: `asking` is what asked for it (`call/<call>`
+-- of `run_tests`, or `run/<run>/round/<round>` of the check before the merge), `source` is `fast` (the fast workflow),
+-- `full` (the full workflows) or `command` (a host's run of the project's check command, which has no job and no
+-- test), `commit_id` is the commit it ran on, and `workflow` is the workflow it is a run of, by the name of its file
+-- (empty for a host's command). The same asking of the same source on the same commit and workflow is kept once; the
+-- check before a merge asks for each of the project's full workflows under one asking, so it has a run for each.
+CREATE TABLE timed (
+    work INTEGER NOT NULL REFERENCES works (number),
+    at INTEGER NOT NULL,
+    asking TEXT NOT NULL,
+    source TEXT NOT NULL,
+    commit_id TEXT NOT NULL,
+    workflow TEXT NOT NULL,
+    PRIMARY KEY (work, at)
+);
+
+-- How long each job of a run kept in `timed` took from its start to its end, in milliseconds, as the host records it.
+CREATE TABLE timed_jobs (
+    work INTEGER NOT NULL,
+    at INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    millis INTEGER NOT NULL,
+    PRIMARY KEY (work, at, name),
+    FOREIGN KEY (work, at) REFERENCES timed (work, at)
+);
+
+-- How long each test of a run kept in `timed` took, in milliseconds, as the run's results give it, and whether it
+-- passed. A test the run did not run is not here.
+CREATE TABLE timed_tests (
+    work INTEGER NOT NULL,
+    at INTEGER NOT NULL,
+    test INTEGER NOT NULL REFERENCES test_names (test),
+    passed INTEGER NOT NULL,
+    millis INTEGER NOT NULL,
+    PRIMARY KEY (work, at, test),
+    FOREIGN KEY (work, at) REFERENCES timed (work, at)
+);
+
 -- A thing that happened to the work was taken at `time`, and its entries begin at the place `place`.
 CREATE TABLE moments (
     work INTEGER NOT NULL REFERENCES works (number),
@@ -563,24 +639,62 @@ CREATE TABLE moments (
     PRIMARY KEY (work, place)
 );
 
--- An observation a run kept as it finished, numbered by the store as it is kept, counting from one, as the
--- installation's: the `n`th text, counting from one, of the `observations` of what came back at the end of a round of
--- the run, of the return the run was taken on or of one sent back that no later return was made in a session holding.
--- What it says, its cell and when it was kept are in the work's records, and are not kept again here.
+-- An observation: one a run kept as it finished, or one an architect added; numbered by the store as it is kept,
+-- counting from one, as the installation's. One a run kept is the `n`th text, counting from one, of the
+-- `observations` of what came back at the end of a round of the run, of the return the run was taken on or of one
+-- sent back that no later return was made in a session holding: its text, its cell and when it was kept are in the
+-- work's records, and are not kept again here, and the project it is of and the one that reported it are its work's
+-- item's. One an architect added has no work, run, round or `n`; it has its `text`, `project` (the project it is of:
+-- whose items may take it in), `reported_by` (the project that reported it), `added_at` and, where it was given one,
+-- the `title` it was added with. The tags it was added with are in `observation_tagged`, each change made to it since
+-- in `observation_changes`.
 CREATE TABLE observations (
     number INTEGER PRIMARY KEY,
-    work INTEGER NOT NULL,
-    run INTEGER NOT NULL,
-    round INTEGER NOT NULL,
-    n INTEGER NOT NULL,
+    work INTEGER,
+    run INTEGER,
+    round INTEGER,
+    n INTEGER,
+    text TEXT,
+    project TEXT,
+    reported_by TEXT,
+    added_at INTEGER,
+    title TEXT,
     UNIQUE (work, run, round, n),
-    FOREIGN KEY (work, run, round) REFERENCES back (work, run, round)
+    FOREIGN KEY (work, run, round) REFERENCES back (work, run, round),
+    CHECK (
+        (work IS NOT NULL AND run IS NOT NULL AND round IS NOT NULL AND n IS NOT NULL
+            AND text IS NULL AND project IS NULL AND reported_by IS NULL AND added_at IS NULL AND title IS NULL)
+        OR (work IS NULL AND run IS NULL AND round IS NULL AND n IS NULL
+            AND text IS NOT NULL AND project IS NOT NULL AND reported_by IS NOT NULL AND added_at IS NOT NULL)
+    )
 );
 
 -- The owner read the observation, at `at`: one row for one that was read, and none for one still unread.
 CREATE TABLE observations_read (
     observation INTEGER PRIMARY KEY REFERENCES observations (number),
     at INTEGER NOT NULL
+);
+
+-- An observation carries a tag, which classifies it, as it is added.
+CREATE TABLE observation_tagged (
+    observation INTEGER NOT NULL REFERENCES observations (number),
+    tag TEXT NOT NULL,
+    PRIMARY KEY (observation, tag)
+);
+
+-- A change made to an observation since it was added, its nth counting from one, at this time (JSON), and why, as
+-- whoever made it said: it was given a title, came to carry a tag or no longer carries one, was taken in by an item,
+-- or was deleted. Changes made together have one time and one reason. What an observation is as it stands is what it
+-- was added as, or kept as, with each of its changes made in turn: its latest title, its tags with each it came to
+-- carry but those it no longer carries, the latest item that took it in, and whether it was deleted, which no change
+-- follows.
+CREATE TABLE observation_changes (
+    observation INTEGER NOT NULL REFERENCES observations (number),
+    n INTEGER NOT NULL,
+    at INTEGER NOT NULL,
+    change TEXT NOT NULL,
+    why TEXT NOT NULL,
+    PRIMARY KEY (observation, n)
 );
 
 -- A copy of the database was taken, under this name, at `taken`. `seq` is the order the copies were recorded in, which

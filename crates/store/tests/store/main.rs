@@ -11,6 +11,7 @@ mod items;
 mod observations;
 mod only_added;
 mod opening;
+mod repair;
 mod round_trip;
 mod versions;
 
@@ -18,10 +19,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use decide::{
-    CallId, Called, Done, Finished, Hurried, Outsider, Pauser, PutIn, Returned, Round, RunId, Seq, Started, Who, Write,
-    Written,
+    CallId, Called, Done, Finished, Hurried, Outsider, Pauser, PutIn, Returned, Room, Round, RunId, Seq, Started, Who,
+    Write, Written,
 };
-use engine::{Ask, Came, Effect, Event, Given, Handed, Spent, Time, Work, handle, pending};
+use engine::{Ask, Came, Effect, Event, Gate, Given, Handed, Spent, Time, Work, handle, handle_then, pending};
 use flow::{Compiled, Has, Source, compile};
 use rusqlite::Connection;
 use rusqlite::types::Value;
@@ -164,6 +165,7 @@ fn first(title: &str, level: &str, depends_on: &[store::ItemNumber]) -> store::F
         project: Some("one".to_string()),
         depends_on: depends_on.to_vec(),
         tags: Vec::new(),
+        continues: None,
     }
 }
 
@@ -205,6 +207,9 @@ struct Driver {
     ended: u64,
     /// Where the work is saved after each thing that happens, when it is.
     saving: Option<Saving>,
+    /// What the driver records for the work after the next thing that happens to it, before the walk begins any round
+    /// ([`Driver::anew_before_the_next_round`]).
+    follows: Vec<Event>,
 }
 
 /// A work saved after each thing that happens to it, and loaded back each time from a store opened anew on the file.
@@ -223,6 +228,7 @@ impl Driver {
             clock: START,
             ended: 0,
             saving: None,
+            follows: Vec::new(),
         }
     }
 
@@ -240,9 +246,32 @@ impl Driver {
     /// Takes the event, which the loop must take, and gives what is to be done. Where the work is saved, it is saved
     /// and must load back as it is.
     fn on(&mut self, event: Event) -> Vec<Effect> {
+        let effects = self.take(event);
+        self.check_saved();
+        effects
+    }
+
+    /// Gives the engine the event at the driver's next second, saving nothing, and then, before the walk, what the
+    /// driver records after it ([`Driver::anew_before_the_next_round`]).
+    fn take(&mut self, event: Event) -> Vec<Effect> {
         self.clock += 1000;
         let now = Time(self.clock);
-        let effects = handle(&self.flow, &mut self.work, now, event).expect("the event is taken");
+        let follows = std::mem::take(&mut self.follows);
+        let then = |_: &Compiled, _: &Work| follows.clone();
+        handle_then(&self.flow, &mut self.work, now, event, Room::FREE, Gate::Open, &then).expect("the event is taken")
+    }
+
+    /// The line begins a new session, for this reason, as the driver records one: after the next thing that happens to
+    /// the work and before the walk, so that a round that thing begins runs in it.
+    fn anew_before_the_next_round(&mut self, line: &str, why: engine::Why) {
+        self.follows.push(Event::Anew {
+            line: line.to_string(),
+            why,
+        });
+    }
+
+    /// Where the work is saved, saves it and checks that it loads back as it is.
+    fn check_saved(&mut self) {
         if let Some(s) = &mut self.saving {
             s.store.save(s.work, &self.work).expect("the work is saved");
             let loaded = s.db.open().load(s.work).expect("the work loads");
@@ -251,7 +280,6 @@ impl Driver {
                 "the work loaded from a store opened anew is not the work saved"
             );
         }
-        effects
     }
 
     /// The run whose round is under way, and its cell.
@@ -320,6 +348,32 @@ impl Driver {
         panic!("calls are still to be made");
     }
 
+    /// The round under way ends with a return that asks, and the last call it makes is recorded as a question for the
+    /// owner, as it was recorded when a return could ask one, with the return that asked it. No return asks one now,
+    /// and what was recorded of one is read as it was recorded.
+    fn end_recording_a_question(&mut self, came: Came) {
+        let (run, _) = self.under_way();
+        let spent = self.spent();
+        self.take(Event::Returned { run, came, spent });
+        let question = Ask::Person {
+            who: Who::Owner,
+            question: "which way?".to_string(),
+        };
+        let called = self.work.records.called.last_mut().expect("a call");
+        called.on = Some(Who::Owner);
+        let (call, run) = (called.call, called.run);
+        self.work.calls.insert(call, engine::Call::Asked(question.clone()));
+        for ((of, _), back) in &mut self.work.back {
+            if *of == run
+                && let engine::Back::Returned { asks, .. } = back
+                && let Some(last) = asks.last_mut()
+            {
+                *last = question.clone();
+            }
+        }
+        self.check_saved();
+    }
+
     /// Every call that is to be withdrawn is said to have its result: that it was withdrawn.
     fn withdraw(&mut self) {
         for e in pending(&self.flow, &self.work) {
@@ -380,15 +434,8 @@ fn tool(name: &str) -> Ask {
     }
 }
 
-fn question(who: Who) -> Ask {
-    Ask::Person {
-        who,
-        question: "which way?".to_string(),
-    }
-}
-
 /// A history that leaves an entry of every kind: writes by a person and the outside with values and without, runs
-/// finished, sent back and abandoned, calls for a tool and a person, done and withdrawn, a question asked and the
+/// finished, sent back and abandoned, calls for a tool and recorded as for a person, done and withdrawn, a question asked and the
 /// owner's answer to it, a run's limit of returns let go by the owner, a pause and a resume, a round that failed and
 /// the engine's pause for it, a cell let go, and a cancel with a run at rest at the owner's call.
 fn history(d: &mut Driver) {
@@ -429,8 +476,9 @@ fn history(d: &mut Driver) {
         d.end(wanting());
     }
     d.answer();
-    // A return that asks ends the run; the writer is entered again once both calls have their results.
-    d.end(Came::asks(vec![tool("a"), question(Who::Owner)]));
+    // A return that asks ends the run; the writer is entered again once both calls have their results. The second call
+    // is recorded as a question for the owner.
+    d.end_recording_a_question(Came::asks(vec![tool("a"), tool("e")]));
     // Two lines begin a new session.
     d.on(Event::Anew {
         line: "main".to_string(),
@@ -461,20 +509,21 @@ fn history(d: &mut Driver) {
     d.end(Came::asks(vec![tool("b"), tool("c")]));
     d.answer();
     d.end(hands_in(&[("text", None)]));
-    // The judge asks the architect during a pause: the call is made, and entering it again waits for the resume.
+    // The judge asks for a tool during a pause: the call is made, and entering it again waits for the resume.
     d.on(Event::Paused {
         by: Pauser::Owner,
         why: None,
     });
-    d.end(Came::asks(vec![question(Who::Architect)]));
+    d.end(Came::asks(vec![tool("f")]));
     d.answer();
     d.on(Event::Resumed);
-    // The judge's round given the architect's answer fails, and the engine pauses the work; let on, the round is given
+    // The judge's round given the tool's result fails, and the engine pauses the work; let on, the round is given
     // again.
     d.fail("The agent's program could not start.");
     d.on(Event::Resumed);
-    // The judge asks the owner, and the writer runs again for a new request while the judge waits for the answer.
-    d.end(Came::asks(vec![question(Who::Owner)]));
+    // The judge asks for a call recorded as a question for the owner, and the writer runs again for a new request while
+    // the judge waits for the answer.
+    d.end_recording_a_question(Came::asks(vec![tool("g")]));
     d.wrote("request", Outsider::Person, None);
     d.end(hands_in(&[("text", None)]));
     d.wrote("checks", Outsider::Outside, Some("pass"));
@@ -483,6 +532,54 @@ fn history(d: &mut Driver) {
         number: 41,
         url: "https://github.com/o/r/pull/41".to_string(),
     });
+    // It read the run of the project's CI that checked it, which told how long its tests and jobs took, and read it again:
+    // the same run is kept once, its tests named once for every work that reports them.
+    let reading = work::Reading {
+        asking: "run/1/round/1".to_string(),
+        source: work::Source::Full,
+        commit: "0123abc".to_string(),
+        workflow: "ci.yml".to_string(),
+        jobs: vec![
+            work::timed::Job {
+                name: "test 1 of 3".to_string(),
+                millis: 61_000,
+            },
+            work::timed::Job {
+                name: "lint".to_string(),
+                millis: 7_000,
+            },
+        ],
+        tests: vec![
+            work::timed::Test {
+                unit: "carry".to_string(),
+                name: "tools::tests::b".to_string(),
+                passed: false,
+                millis: 2_500,
+            },
+            work::timed::Test {
+                unit: "carry".to_string(),
+                name: "tools::tests::a".to_string(),
+                passed: true,
+                millis: 120,
+            },
+        ],
+    };
+    // The check before the merge asked for another full workflow under the same asking: its run is another reading,
+    // kept beside the first.
+    let other = work::Reading {
+        workflow: "slow.yml".to_string(),
+        jobs: vec![work::timed::Job {
+            name: "slow".to_string(),
+            millis: 90_000,
+        }],
+        tests: Vec::new(),
+        ..reading.clone()
+    };
+    d.on(Event::Timed {
+        reading: reading.clone(),
+    });
+    d.on(Event::Timed { reading });
+    d.on(Event::Timed { reading: other });
     d.wrote("verdict", Outsider::Person, Some("no"));
     d.on(Event::LetGo { cell: "write".into() });
     // Answered, the judge is entered again, and hands in until a run of it finishes, writing a choice; the writer then

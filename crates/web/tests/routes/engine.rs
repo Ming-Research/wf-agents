@@ -39,7 +39,7 @@ async fn the_engine_says_its_slots_and_whether_everything_is_paused() {
     let router = &running.router;
     assert_eq!(
         get_json(router, "/api/v1/engine").await,
-        json!({ "slots": 2, "taken": 0, "paused": null, "keepWarm": true })
+        json!({ "slots": 2, "taken": 0, "paused": null, "keepWarm": true, "stopping": null })
     );
     assert_eq!(post(router, "/api/v1/items", &item("First")).await.0, StatusCode::OK);
     let engine = get_json(router, "/api/v1/engine").await;
@@ -155,6 +155,7 @@ async fn started_on_a_work_going_on_the_engine_says_it_holds_everything_until_th
             project: "trial".to_string(),
             depends_on: Vec::new(),
             tags: Vec::new(),
+            continues: None,
             flow: "trial".to_string(),
             writes: vec![driver::FirstWrite {
                 block: decide::BlockId("request".to_string()),
@@ -179,18 +180,8 @@ async fn started_on_a_work_going_on_the_engine_says_it_holds_everything_until_th
         json!({ "kind": "everything", "since": START, "by": "engine" }),
         "{attention}"
     );
-    // The round handed out again asks the owner, whose answer leaves the work nothing of its own to wait for.
+    // The round handed out again ends, sent back, and the next is held.
     pass(2000).await;
-    let work = &get_json(router, "/api/v1/items").await["items"][0]["work"];
-    let call = work["waits"][0]["ends"]["call"]
-        .as_u64()
-        .unwrap_or_else(|| panic!("the call it waits on: {work}"));
-    let answer = json!({ "kind": "result", "call": call, "result": "Yes, by name." });
-    assert_eq!(
-        post(router, "/api/v1/works/1/acts", &answer).await.0,
-        StatusCode::NO_CONTENT
-    );
-    pass(500).await;
     // Held by the pause of everything alone, the work says so in what it does now and waits on the owner for nothing:
     // the pause is one thing, counted and lifted where it is set and not work by work.
     let work = &get_json(router, "/api/v1/items").await["items"][0]["work"];

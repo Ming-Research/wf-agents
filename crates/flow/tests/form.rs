@@ -19,7 +19,7 @@ use support::{compiled, edit, laid_out};
 
 /// What is written beside the tests' flows.
 fn beside() -> Agents {
-    agents::read(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/laid_out")).expect("the files are read")
+    agents::read(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/project")).expect("the files are read")
 }
 
 /// The small flow laid out one thing to a file, its flow naming these tools.
@@ -146,6 +146,7 @@ fn engineer() -> Compiled {
             "main",
             "start",
             "head",
+            "test_times",
             "tree",
             "words",
         ]),

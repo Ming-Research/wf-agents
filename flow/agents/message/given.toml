@@ -1,5 +1,5 @@
 # How the content of a datum a cell is given is put into its session, by the kind the cell gives it in (design
-# statements 17 to 19): `latest`, its latest version whole, where the session lacks it; `last_and_latest`, what changed
+# document `data-and-context`, 17 to 19): `latest`, its latest version whole, where the session lacks it; `last_and_latest`, what changed
 # since the version the cell last worked from, or the whole where the session lacks that one or the change would be
 # longer; `all`, each version the session lacks, whole. `{choice}` in a text is `choice` below for a datum that is a
 # choice, and nothing for another. Filled in a run: `number`, `last_number`, `first_number`, `value`, `content`;

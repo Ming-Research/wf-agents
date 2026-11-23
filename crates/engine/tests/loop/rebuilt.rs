@@ -18,6 +18,7 @@ fn rebuilt(work: &Work) -> Work {
         ran: work.ran.clone(),
         observed: work.observed.clone(),
         measured: work.measured.clone(),
+        left_behind: work.left_behind.clone(),
         pinged: work.pinged.clone(),
         forked: work.forked.clone(),
         pulls: work.pulls.clone(),
@@ -26,6 +27,7 @@ fn rebuilt(work: &Work) -> Work {
         flows: work.flows.clone(),
         readings: work.readings.clone(),
         kept_time: work.kept_time.clone(),
+        timed: work.timed.clone(),
     }
 }
 
@@ -33,7 +35,7 @@ fn rebuilt(work: &Work) -> Work {
 fn a_work_rebuilt_from_its_parts_goes_on_exactly_as_the_original() {
     let (mut w, write, _) = W::requested();
     let judge = round(&w.returns(write, hands_in(&[("text", None)]))).0;
-    let calls = calls_of(&w.returns(judge, Came::asks(vec![tool("a"), question(Who::Owner)])));
+    let calls = calls_of(&w.returns(judge, Came::asks(vec![tool("a"), tool("b")])));
     w.done(calls[0].0);
     let mut copy = W {
         flow: judged(),

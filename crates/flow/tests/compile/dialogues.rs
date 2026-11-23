@@ -26,6 +26,7 @@ fn has() -> Has {
             "main",
             "start",
             "head",
+            "test_times",
             "tree",
             "words",
         ]),

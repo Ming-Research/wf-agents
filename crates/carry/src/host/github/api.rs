@@ -27,6 +27,10 @@ pub struct Pull {
     pub draft: bool,
     /// GitHub's id of it among all its objects, by which a draft is made ready.
     pub node: String,
+    /// The branch its head is on.
+    pub branch: String,
+    /// Whether its head is on a branch of another repository, a fork, or of none that GitHub still has.
+    pub from_fork: bool,
 }
 
 /// Whether a pull request is open, or was closed with or without its merge.
@@ -92,6 +96,9 @@ pub type File = (String, Vec<u8>);
 pub trait Api: Send + Sync + 'static {
     /// The pull requests whose head is this branch of the repository, open or not.
     fn pulls(&self, branch: &str) -> impl Future<Output = Result<Vec<Pull>, Failed>> + Send;
+
+    /// The pull request of this number; none where the repository has none so numbered.
+    fn pull(&self, number: u64) -> impl Future<Output = Result<Option<Pull>, Failed>> + Send;
 
     /// Opens a pull request of the branch into the base, with this title and body, as a draft.
     fn open(

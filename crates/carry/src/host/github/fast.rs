@@ -1,5 +1,5 @@
-//! The project's two workflows, which the engine runs by hand through the project's declaration (`ci` in
-//! `flow/project.toml`), always by their files on main, given the commit to run on, each run found by a value its
+//! The project's workflows, which the engine runs by hand through the project's declaration (`ci` in
+//! `wf-agents.toml`), always by their files on main, given the commit to run on, each run found by a value its
 //! name holds, which is worked out from what asked for it; and what each reports, read from the JUnit XML it uploads
 //! (`results`), never guessed from a log.
 //!
@@ -8,8 +8,11 @@
 //! finds the run it asked for before and waits for it, or reads it where it has ended, and asks for a run again only
 //! where it finds none but runs that were cancelled, which judged nothing.
 //!
-//! - fast: runs only the tests and checks a request names, and builds only what they need; every `run_tests` is run by
-//!   it, and so is what the check before a merge runs again of what failed.
+//! - fast: runs only the tests and checks a request names, and builds only what they need; every `run_tests` that names
+//!   a test or a check is run by it, and so is what the check before a merge runs again of what failed.
+//! - measure: times the measurements a request names on the commit and on the commit the work's change began from, in
+//!   one run on the machine the project declares, and reports each timing as a case in a suite named for what was
+//!   timed; the engine gives the cases as it gives tests, and works out nothing of its own from them.
 //! - full: the workflows that hold every job required to merge; the check before a merge runs them, once, on the
 //!   commit to merge, and nothing else does.
 //!
@@ -21,7 +24,7 @@
 
 use std::time::Duration;
 
-use flow::agents::{Ci, CiFast, CiFull, ResultWords, Tool, fill};
+use flow::agents::{Ci, CiFast, CiFull, CiMeasure, ResultWords, Tool, fill};
 use store::WorkNumber;
 use uuid::Uuid;
 
@@ -33,6 +36,7 @@ use crate::held::Stop;
 use crate::host::{Asking, Failed, Named, Verdict};
 use crate::process;
 use service::Along;
+use work::timed::{Job, Reading, Source, Test};
 
 /// A request for runs of the workflows: the commit they run on, and which of the work's asks it is, by which its runs
 /// are found again.
@@ -150,27 +154,58 @@ fn judged<'a>(ran: &'a [Ran], tests: &'a [String]) -> Option<Vec<results::Row<'a
     concluded.then(|| results::rows(tests, run))
 }
 
-/// A time such as `90m`, `2h`, `30s` or `1d`; or why it is none.
-pub(super) fn span_of(text: &str) -> Result<Duration, String> {
-    let text = text.trim();
-    let (number, unit) = text.split_at(text.find(|c: char| !c.is_ascii_digit()).unwrap_or(text.len()));
-    let number: u64 = number
-        .parse()
-        .map_err(|_| format!("{text:?} is no time such as 90m or 2h"))?;
-    let seconds = match unit {
-        "s" => 1,
-        "m" => 60,
-        "h" => 3600,
-        "d" => 86_400,
-        _ => return Err(format!("{text:?} is no time such as 90m or 2h")),
+/// How long the jobs and the tests of a run of the workflow took, as the work's records keep it: each job that ran to a
+/// conclusion GitHub gave a time for, and each test the run ran and gave a time for. A run whose results could not be
+/// read has its jobs only.
+fn reading(ran: &Ran, source: Source, workflow: &str, request: Request<'_>) -> Reading {
+    let jobs = (ran.jobs.iter())
+        .filter_map(|job| {
+            job.took.map(|seconds| Job {
+                name: job.name.clone(),
+                millis: seconds * 1000,
+            })
+        })
+        .collect();
+    let tests = match &ran.results {
+        Ok(run) => (run.cases.iter())
+            .filter(|case| case.outcome != results::Outcome::Skipped)
+            .filter_map(|case| {
+                case.millis.map(|millis| Test {
+                    unit: case.test.unit.clone(),
+                    name: case.test.name.clone(),
+                    passed: case.outcome == results::Outcome::Passed,
+                    millis,
+                })
+            })
+            .collect(),
+        Err(_) => Vec::new(),
     };
-    Ok(Duration::from_secs(number * seconds))
+    Reading {
+        asking: request.asking.name(),
+        source,
+        commit: request.commit.to_string(),
+        workflow: workflow.to_string(),
+        jobs,
+        tests,
+    }
+    .normalised()
+}
+
+/// The input that says how long one test may run before it is stopped, in whole seconds, where the project's workflows
+/// take one and the history of its merged checks says it.
+pub(super) fn test_stop(input: &str, stop: &Stop) -> Option<(String, String)> {
+    if input.is_empty() {
+        return None;
+    }
+    Some((input.to_string(), stop.test_seconds()?.to_string()))
 }
 
 /// What a request is run by.
 pub(super) enum Role<'a> {
     Fast(&'a CiFast),
     Full(&'a CiFull),
+    /// The measure workflow, and the commit the work's change began from, which it times the commit against.
+    Measure(&'a CiMeasure, &'a str),
 }
 
 impl<A: Api> GitHub<A> {
@@ -218,6 +253,20 @@ impl<A: Api> GitHub<A> {
             )));
         }
         Ok(self.runner_missing(&fast.runner)?.map_or(Ok(Role::Fast(fast)), Err))
+    }
+
+    /// Why a request that names measurements cannot be run by the project's measure workflow, in the words of the tool's
+    /// file, or that workflow. A request that names none does not ask this.
+    pub(super) fn measure_role<'a>(&'a self, ci: Option<&'a Ci>) -> Result<Result<&'a CiMeasure, String>, String> {
+        let words = self
+            .tool()?
+            .github
+            .as_ref()
+            .ok_or("the words of run_tests have no [github]")?;
+        let Some(measure) = ci.and_then(|ci| ci.measure.as_ref()) else {
+            return Ok(Err(words.no_measure.clone()));
+        };
+        Ok(self.runner_missing(&measure.runner)?.map_or(Ok(measure), Err))
     }
 
     /// Why the check before a merge cannot run the project's full workflows, in the words of the check's file, or those
@@ -312,12 +361,40 @@ impl<A: Api> GitHub<A> {
                     let checks = serde_json::to_string(&named.checks).unwrap_or_default();
                     inputs.push((fast.checks_input.clone(), checks));
                 }
+                inputs.extend(test_stop(&fast.test_stop_input, stop));
+                let limit = flow::agents::span(&fast.too_long).map_err(|why| format!("ci.fast.too_long: {why}"))?;
                 let plan = Plan {
                     workflow: &fast.workflow,
                     results: &fast.results,
                     inputs,
                     call,
-                    limit: self.config.timeout,
+                    limit,
+                };
+                match self.execute(&plan, commit, stop).await? {
+                    Some(one) => {
+                        stop.timed(reading(&one, Source::Fast, &fast.workflow, request));
+                        ran.push(one);
+                    }
+                    None => return Ok(None),
+                }
+            }
+            Role::Measure(measure, base) => {
+                let limit =
+                    flow::agents::span(&measure.too_long).map_err(|why| format!("ci.measure.too_long: {why}"))?;
+                let call = self.call(request, &measure.workflow);
+                let names: String = (named.measure.iter()).map(|m| format!("{}\n", m.trim())).collect();
+                let inputs = vec![
+                    (measure.commit_input.clone(), commit.to_string()),
+                    (measure.base_input.clone(), base.to_string()),
+                    (measure.call_input.clone(), call.clone()),
+                    (measure.measure_input.clone(), names),
+                ];
+                let plan = Plan {
+                    workflow: &measure.workflow,
+                    results: &measure.results,
+                    inputs,
+                    call,
+                    limit,
                 };
                 match self.execute(&plan, commit, stop).await? {
                     Some(one) => ran.push(one),
@@ -325,13 +402,14 @@ impl<A: Api> GitHub<A> {
                 }
             }
             Role::Full(full) => {
-                let limit = span_of(&full.too_long).map_err(|why| format!("ci.full.too_long: {why}"))?;
+                let limit = flow::agents::span(&full.too_long).map_err(|why| format!("ci.full.too_long: {why}"))?;
                 for workflow in &full.workflows {
                     let call = self.call(request, workflow);
-                    let inputs = vec![
+                    let mut inputs = vec![
                         (full.commit_input.clone(), commit.to_string()),
                         (full.call_input.clone(), call.clone()),
                     ];
+                    inputs.extend(test_stop(&full.test_stop_input, stop));
                     let plan = Plan {
                         workflow,
                         results: &full.results,
@@ -340,7 +418,10 @@ impl<A: Api> GitHub<A> {
                         limit,
                     };
                     match self.execute(&plan, commit, stop).await? {
-                        Some(one) => ran.push(one),
+                        Some(one) => {
+                            stop.timed(reading(&one, Source::Full, workflow, request));
+                            ran.push(one);
+                        }
                         None => return Ok(None),
                     }
                 }
@@ -443,7 +524,7 @@ impl<A: Api> GitHub<A> {
         let named = Named {
             tests: tests.clone(),
             checks,
-            commit: None,
+            ..Named::default()
         };
         let role = match self.role(ci, &named)? {
             Ok(role) => role,
@@ -513,8 +594,7 @@ impl<A: Api> GitHub<A> {
         };
         let named_main = Named {
             tests: red_again.clone(),
-            checks: Vec::new(),
-            commit: None,
+            ..Named::default()
         };
         let Some(on_main) = self.execute_role(&role, at_main, &named_main, stop).await? else {
             return Ok(None);
@@ -682,7 +762,9 @@ fn said(words: &ResultWords, role: &Role<'_>, commit: &str, ran: &[Ran], named: 
     let which = match role {
         Role::Fast(_) => &words.which_fast,
         Role::Full(_) => &words.which_full,
+        Role::Measure(..) => &words.which_measure,
     };
+    let measuring = matches!(role, Role::Measure(..));
     let urls: Vec<&str> = ran.iter().map(|r| r.run.url.as_str()).collect();
     let mut lines = Vec::new();
     let mut tests: Vec<String> = Vec::new();
@@ -698,11 +780,13 @@ fn said(words: &ResultWords, role: &Role<'_>, commit: &str, ran: &[Ran], named: 
             }
         };
         match role {
-            Role::Fast(_) => {
-                for row in results::rows(&named.tests, run) {
+            Role::Fast(_) | Role::Measure(..) => {
+                // What a measure run is asked for is the measurements named, and its cases are timings of them.
+                let asked = if measuring { &named.measure } else { &named.tests };
+                for row in results::rows(asked, run) {
                     total += 1;
                     passed += usize::from(row.became == Became::Passed);
-                    let lines = test_lines(words, &row, run);
+                    let lines = test_lines(words, &row, run, measuring);
                     if row.became == Became::Passed {
                         green.extend(lines);
                     } else {
@@ -716,7 +800,7 @@ fn said(words: &ResultWords, role: &Role<'_>, commit: &str, ran: &[Ran], named: 
                     if case.outcome == results::Outcome::Passed {
                         passed += 1;
                     } else {
-                        tests.extend(case_lines(words, case));
+                        tests.extend(case_lines(words, case, false));
                     }
                 }
                 tests.extend(run.unbuilt.iter().map(|u| {
@@ -738,12 +822,21 @@ fn said(words: &ResultWords, role: &Role<'_>, commit: &str, ran: &[Ran], named: 
     // job that did not run.
     let checks: Vec<&Check> = (jobs.iter().copied())
         .filter(|j| j.outcome != Outcome::Skipped)
-        .filter(|j| matches!(role, Role::Full(_)) || named.checks.contains(&j.name))
+        .filter(|j| match role {
+            Role::Full(_) => true,
+            Role::Fast(_) => named.checks.contains(&j.name),
+            Role::Measure(..) => false,
+        })
         .collect();
     let mut came = Vec::new();
     if total > 0 || matches!(role, Role::Full(_)) && unread.is_empty() {
         let (passed, total) = (passed.to_string(), total.to_string());
-        came.push(fill(&words.came_tests, &[("passed", &passed), ("total", &total)]));
+        let said = if measuring {
+            &words.came_measures
+        } else {
+            &words.came_tests
+        };
+        came.push(fill(said, &[("passed", &passed), ("total", &total)]));
     }
     if !checks.is_empty() {
         let green = checks.iter().filter(|j| !red_job(j)).count().to_string();
@@ -768,12 +861,14 @@ fn said(words: &ResultWords, role: &Role<'_>, commit: &str, ran: &[Ran], named: 
         Role::Fast(_) => (named.checks.iter())
             .filter(|c| !ran.iter().flat_map(|r| &r.jobs).any(|j| &j.name == *c))
             .collect(),
-        Role::Full(_) => Vec::new(),
+        Role::Full(_) | Role::Measure(..) => Vec::new(),
     };
     // Every job of the runs, with how it ended and how long it took, and beneath one whose log was read what it says;
     // only those that did not pass where only what did not pass is said, the others being the note of the check.
     let ends: Vec<&StepEnd> = ran.iter().flat_map(|r| &r.ends).collect();
-    let shown = jobs.iter().filter(|j| matches!(role, Role::Fast(_)) || red_job(j));
+    let shown = jobs
+        .iter()
+        .filter(|j| matches!(role, Role::Fast(_) | Role::Measure(..)) || red_job(j));
     let mut said_jobs: Vec<String> = shown.map(|j| job_said(words, j, &ends)).collect();
     said_jobs.extend(missing.iter().map(|c| {
         fill(
@@ -785,7 +880,12 @@ fn said(words: &ResultWords, role: &Role<'_>, commit: &str, ran: &[Ran], named: 
         lines.push(format!("{}\n{}", words.jobs_title, said_jobs.join("\n")));
     }
     if !green.is_empty() {
-        lines.push(format!("{}\n{}", words.passed_title, green.join("\n")));
+        let title = if measuring {
+            &words.timings_title
+        } else {
+            &words.passed_title
+        };
+        lines.push(format!("{title}\n{}", green.join("\n")));
     }
     lines.join("\n\n")
 }
@@ -844,17 +944,20 @@ fn time(words: &ResultWords, case: &Case) -> String {
         .map_or(String::new(), |time| fill(&words.time, &[("time", time)]))
 }
 
-/// A test as a line of what became of it and how long it took, and what a failed one said beneath it.
-fn case_lines(words: &ResultWords, case: &Case) -> Vec<String> {
+/// A test as a line of what became of it and how long it took, and what a failed one said beneath it; a timing of a
+/// measurement as the same with what was timed in it, since the timings of one name differ only by that.
+fn case_lines(words: &ResultWords, case: &Case, measuring: bool) -> Vec<String> {
     let became = match case.outcome {
         results::Outcome::Passed => &words.passed,
         results::Outcome::Failed => &words.failed,
         results::Outcome::Skipped => &words.skipped,
     };
+    let line = if measuring { &words.measure_case } else { &words.test };
     let mut lines = vec![fill(
-        &words.test,
+        line,
         &[
             ("name", &case.test.name),
+            ("unit", &case.test.unit),
             ("became", became),
             ("time", &time(words, case)),
         ],
@@ -869,7 +972,7 @@ fn case_lines(words: &ResultWords, case: &Case) -> Vec<String> {
 }
 
 /// A test an agent named, as the lines of the tests of the run it names, or of why none is.
-fn test_lines(words: &ResultWords, row: &results::Row<'_>, run: &results::Run) -> Vec<String> {
+fn test_lines(words: &ResultWords, row: &results::Row<'_>, run: &results::Run, measuring: bool) -> Vec<String> {
     let mut lines = Vec::new();
     match row.became {
         Became::NotRun | Became::NotBuilt => {
@@ -903,7 +1006,7 @@ fn test_lines(words: &ResultWords, row: &results::Row<'_>, run: &results::Run) -
         }
         Became::Passed | Became::Failed => {
             for case in &row.matched {
-                lines.extend(case_lines(words, case));
+                lines.extend(case_lines(words, case, measuring));
             }
         }
     }

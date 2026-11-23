@@ -197,6 +197,7 @@ function AgentSent({
   line,
   cells,
   unknown,
+  unchecked,
   taskFile,
   onChoose,
 }: {
@@ -204,6 +205,8 @@ function AgentSent({
   line: string;
   cells: string[];
   unknown: Unknown[];
+  /// What was not checked for want of the project's declaration, and why; none where it was read.
+  unchecked: string | null;
   /// The file the cell's task is written in, where it is not written in place.
   taskFile: string | null;
   onChoose: (c: Chosen) => void;
@@ -277,6 +280,11 @@ function AgentSent({
   const of = (...carried: SentCarried[]) => parts.filter((p) => carried.includes(p.carried));
   return (
     <>
+      {unchecked && (
+        <PanelPart label="Not checked">
+          <p className="muted">{unchecked}</p>
+        </PanelPart>
+      )}
       {unknown.length > 0 && (
         <PanelPart label="Unknown names" count={unknown.length}>
           <ul className="uses">
@@ -323,9 +331,11 @@ export function CellPanel(props: {
   act?: ActWords;
   /// The names a text sent to an agent gives that nothing defines.
   unknown?: Unknown[];
+  /// What was not checked for want of the project's declaration, and why; none where it was read.
+  unchecked?: string | null;
   onChoose: (c: Chosen) => void;
 }) {
-  const { cell, flow, sent, act, unknown, onChoose } = props;
+  const { cell, flow, sent, act, unknown, unchecked, onChoose } = props;
   const blocks = new Map(flow.blocks.map((b) => [b.name, b]));
   const onLine = cell.line ? (flow.lines.find((l) => l.name === cell.line)?.cells ?? []) : [];
   const sharing = onLine.filter((c) => c !== cell.id);
@@ -393,6 +403,7 @@ export function CellPanel(props: {
             line={cell.line ?? ''}
             cells={onLine}
             unknown={unknown ?? []}
+            unchecked={unchecked ?? null}
             taskFile={cell.taskFile}
             onChoose={onChoose}
           />

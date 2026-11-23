@@ -1,6 +1,8 @@
 //! The tables are only inserted into: neither the crate's code nor its schema says anything that would change or
 //! take out a row. A migration replaces the one row of the schema's version, which no work's entries are, and nothing
-//! else: where it gives old rows a value, it makes the table anew and carries each row across whole.
+//! else: where it gives old rows a value, it makes the table anew and carries each row across whole. The one exception
+//! is the one-off repair of the costs recorded wrongly (decision `wrong-costs-are-rewritten-once-by-a-command`), which
+//! sets the cost of a round and of a fork in place, and is removed with its command.
 
 use std::fs;
 
@@ -32,6 +34,18 @@ fn neither_the_code_nor_the_schema_changes_or_takes_out_a_row() {
         let found: Vec<String> = (words(&text).into_iter())
             .filter(|w| CHANGING.contains(&w.as_str()))
             .collect();
+        if file.ends_with("/src/repair.rs") {
+            // What the exception is: the cost of a round and the cost of a fork set, and no other change of a row.
+            assert_eq!(found, ["update", "update"], "{file} says {found:?}");
+            for set in ["UPDATE spent SET usd_micros", "UPDATE forked SET usd_micros"] {
+                assert!(text.contains(set), "{file} does not say {set}");
+            }
+            assert!(
+                !text.to_ascii_lowercase().contains("on conflict"),
+                "{file} says on conflict"
+            );
+            continue;
+        }
         assert_eq!(found, Vec::<String>::new(), "{file} says {found:?}");
         // A conflict met by changing the row there is the same.
         assert!(

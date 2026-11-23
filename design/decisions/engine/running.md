@@ -16,6 +16,10 @@ A work's worktree is made in the data directory, under `worktrees/`, on a branch
 - rejected: an agent proposed putting the works' worktrees under the directory of the wf projects; the owner rejected it, because that directory belongs to wf, and wf-agents' worktrees go under its own data directory, which git keeps with the worktrees ignored.
 - rejected: an agent proposed keeping the worktrees, the logs and the tools' output apart from the data, as a runtime that can be thrown away; the owner rejected it, because what cannot be thrown away belongs in the data.
 
+### decision a-continuing-work-has-a-branch-of-its-own
+A work whose item continues a branch or pull request is made on a new branch of its own, from the head of what the item names, and the old branch is left as it was.
+- rejected: an agent proposed that the work commit on the old branch itself, the old pull request staying its own; the owner rejected it, because the branch name would no longer come from the work's number alone, the old branch would not stay as it was, and two works could not continue one branch.
+
 ### decision agents-run-by-their-programs-print-mode
 An agent's round is one run of its program's print mode, `claude -p` unless the installation names another program.
 - rejected: an agent proposed running the agents through the Claude Agent SDK; the owner rejected it, because with a print mode he can switch accounts in the terminal or move to another program, since many programs have one, and the SDK showed no advantage that a print mode lacks.
@@ -33,10 +37,6 @@ The agents' program takes its message as a stream of JSON and gives its output a
 The engine runs the agents' program with `CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING` set to 0, so that the service checks each tool's input as JSON before it streams it.
 - replaced: Leaving the program to stream tool inputs as they are made was on main; the owner changed it, because it matters to mend the returns that came back cut off, and with that streaming the service no longer checks a tool's input.
 
-### decision no-toolchain-is-installed-in-a-round
-The engine runs the agents' program with `RUSTUP_AUTO_INSTALL` set to 0, so that no toolchain is installed during a round.
-- replaced: Leaving the variable unset was on main; the owner changed it, because then a round does not download hundreds of megabytes unseen, and a missing toolchain is an error the agent sees.
-
 ### decision an-agent-ends-with-the-engine
 An agent's program, like every program the engine runs, is stopped when the engine's process ends, however it ends, by a small shell in its own process group that waits on a pipe the engine holds.
 - replaced: Letting the agents' programs outlive the engine, with the next engine stopping them before it runs a round, was on main; the owner changed it, because a program left running spends and changes the worktree unseen: one ran eight seconds after the engine ended and committed.
@@ -49,3 +49,13 @@ The agents' program keeps its settings and sessions in the engine's `profile/` i
 ### decision agents-run-as-the-engines-user
 The agents' program runs as the engine's own system user, and nothing the engine does keeps it out of the data directory; only the program's own rules do.
 - rejected: an agent proposed another system user for the agents, or else refusing the data directory to their file tools by path and dropping the shell commands that read files; the owner rejected it, because an agent works in its own worktree, and only some harmless commands were to be allowed.
+
+### decision a-stop-waits-for-the-rounds-under-way
+Asked to stop, the engine begins no round of any work and ends once the rounds under way have ended and their returns are kept; a stop at once cuts them off.
+- rejected: an agent proposed waiting only for the rounds still within their cell's usual time, and cutting off those past it; the owner rejected it, because a round past its usual time is not near its end, and the rounds cut off would often be the longest.
+- replaced: Stopping at once, with the next start going on from what each cut-off try kept, was on main; the owner changed it, because every stop, and so every install of a new build, lost what was left of each round under way and its return.
+
+### decision what-a-program-leaves-is-stopped
+As a program the engine runs ends by itself, what it left in its group is stopped, TERM then KILL 3 s later, and its work's records count it with the program, a fork's too.
+- rejected: an agent proposed waiting for what a program left to end by itself, its time and cost counted in its round; the owner rejected it, because the round would hold its slot for output nobody reads, and a service left running would never let it end.
+- replaced: Leaving what a program left in its group running, unwatched and uncounted, was on main; the owner changed it, because it went on running and spending where nobody saw it, while nobody reads what it does once its program has ended.

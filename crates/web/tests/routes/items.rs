@@ -202,6 +202,75 @@ async fn the_levels_are_given_with_what_each_is_for_the_default_and_the_highest(
     );
 }
 
+#[test]
+fn what_an_item_continues_is_written_as_its_kind_and_the_name_or_number_and_read_back() {
+    let branch = web::works::Continues::Branch {
+        name: "old".to_string(),
+    };
+    let pull = web::works::Continues::Pull { number: 3 };
+    assert_eq!(
+        serde_json::to_value(&branch).unwrap(),
+        json!({ "kind": "branch", "name": "old" })
+    );
+    assert_eq!(
+        serde_json::to_value(&pull).unwrap(),
+        json!({ "kind": "pull", "number": 3 })
+    );
+    let read: web::works::Continues = serde_json::from_value(json!({ "kind": "pull", "number": 3 })).unwrap();
+    assert_eq!(read, pull);
+    assert_eq!(branch.kept(), store::Continues::Branch("old".to_string()));
+    assert_eq!(web::works::Continues::of(&store::Continues::Pull(3)), pull);
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_item_is_refused_continuing_what_no_branch_is_called_or_on_a_flow_that_starts_no_work() {
+    let running = running();
+    let router = &running.router;
+    let item = |continues: Value| {
+        json!({
+            "title": "Greet the user",
+            "dependsOn": [],
+            "project": "trial",
+            "flow": "trial",
+            "continues": continues,
+            "writes": [{ "block": "request", "content": "Please.", "value": null }],
+        })
+    };
+    let (status, body) = post(
+        router,
+        "/api/v1/items",
+        &item(json!({ "kind": "branch", "name": "-x" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap()
+            .contains("is no branch an item may continue"),
+        "{body}"
+    );
+    // The trial flow has no cell that starts a work: nothing would read what the item continues.
+    let (status, body) = post(router, "/api/v1/items", &item(json!({ "kind": "pull", "number": 7 }))).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap()
+            .contains("has no cell that starts a work"),
+        "{body}"
+    );
+    assert_eq!(
+        get_json(router, "/api/v1/items").await,
+        json!({ "items": [], "outage": null })
+    );
+    // Continuing nothing, said so, is an item as any other.
+    assert_eq!(
+        post(router, "/api/v1/items", &item(Value::Null)).await,
+        (StatusCode::OK, json!({ "item": 1, "work": 1 }))
+    );
+}
+
 #[tokio::test(start_paused = true)]
 async fn an_item_that_cannot_be_added_is_refused_with_why() {
     let running = running();
@@ -299,7 +368,7 @@ fn at(s: &Value, cell: &str) -> bool {
     s["now"]["cell"] == cell || s["now"]["at"] == cell
 }
 
-/// The plan's question, which waits for the owner at the plan, answered.
+/// The plan's run at its limit, which waits for the owner at the plan, let go on.
 async fn answered(router: &axum::Router) -> Value {
     let asked = listed_until(router, |s| s["waits"].as_array().is_some_and(|w| !w.is_empty())).await;
     assert!(at(&asked, "plan"), "{asked}");

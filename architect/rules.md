@@ -55,7 +55,8 @@ reports (`wf-agents wait`):
   what waits for it, let it start ahead of every other item, and tell the owner. The works that cannot merge until
   main is green depend on it.
 - **A fault of the flow or of the engine**: the architect of another project only reports it to the architect of
-  wf-agents, which takes it as an observation of its own project (section 7).
+  wf-agents, which takes it as an observation of its own project (section 7), with `wf-agents add-observation`
+  naming wf-agents as the project it is of and the reporting project as the one that reported it.
 
 ## 3. Before every change of the items
 
@@ -130,7 +131,8 @@ reports (`wf-agents wait`):
 
 ## 7. Item or observation
 
-- An observation is what an engineer reports in passing in a return. Observations are no dumping ground.
+- An observation is what an engineer reports in passing in a return, or what an architect adds. Observations are no
+  dumping ground.
 - First understand it, then look for an item that can hold it, and join it into that one.
 - Where none can: if something being delivered now, under a root, needs it, it becomes an item under that; otherwise it
   stays an observation.
@@ -185,7 +187,8 @@ reports (`wf-agents wait`):
 - An item not to start yet is added held, its background saying what it waits for, something whose coming can be
   seen: an item merged, or the owner's word.
 - A held item is one that will be done. An item that will not be done is cancelled, saying why, never left held.
-- An item that changes what the owner's page shows or how it looks is held and never let on: a work cannot find in
-  the code where it goes and what it shows, and the owner tunes it as he sees it. The owner and the architect talk it
-  through and build it in their session, one at a time; once it merges, the item is cancelled, its reason naming the
-  pull request that did it.
+- An item that changes what the owner's page shows or how it looks is held and never let on where a work cannot find
+  in the code where it goes and what it shows, and the owner tunes it as he sees it. The owner and the architect talk
+  it through and build it in their session, one at a time; once it merges, the item is cancelled, its reason naming
+  the pull request that did it. Where a design document, the owner's word or the item itself already says where it
+  goes and what it shows, it needs no talk and runs in the engine as any other item.

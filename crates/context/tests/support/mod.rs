@@ -16,8 +16,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use context::{Changes, Entered, For, Main};
-use decide::{BlockId, CallId, CellId, Outsider, RunId, Seq};
-use engine::{Came, Effect, Event, Fill, Handed, RanOn, Spent, Time, Why, Work, handle, pending};
+use decide::{BlockId, CallId, CellId, Outsider, Room, RunId, Seq};
+use engine::{Came, Effect, Event, Fill, Gate, Handed, RanOn, Spent, Time, Why, Work, handle_then, pending};
 use flow::agents::Agents;
 use flow::system::Settings;
 use flow::{CellSpec, Compiled, Has, Source};
@@ -152,7 +152,7 @@ pub fn flow() -> Compiled {
 
 /// What is written beside the flows, as the flow crate's tests have it.
 pub fn words() -> Agents {
-    let beside = Path::new(env!("CARGO_MANIFEST_DIR")).join("../flow/tests/laid_out");
+    let beside = Path::new(env!("CARGO_MANIFEST_DIR")).join("../flow/tests/project");
     flow::agents::read(&beside).expect("the words beside the flows of the tests are read")
 }
 
@@ -188,8 +188,8 @@ pub fn branched() -> Compiled {
 
 /// Which work and item the tests' rounds are of.
 pub const FOR: For<'static> = For {
-    work: 1,
-    item: 1,
+    work: "W1",
+    item: "#1",
     title: "Greet",
 };
 
@@ -211,6 +211,9 @@ pub struct Sim {
     /// The settings the words may name, with their values: none.
     pub named: Settings,
     time: u64,
+    /// What the driver records for the work after the next thing that happens to it, before the walk begins any round
+    /// ([`Sim::anew_before_the_next_round`]).
+    follows: Vec<Event>,
 }
 
 impl Default for Sim {
@@ -233,13 +236,24 @@ impl Sim {
             takes_main: false,
             named: Settings::default(),
             time: 0,
+            follows: Vec::new(),
         }
     }
 
-    /// The loop takes it.
+    /// The loop takes it, and then, before the walk, what the driver records after it ([`Sim::anew_before_the_next_round`]).
     pub fn take(&mut self, event: Event) -> Vec<Effect> {
         self.time += 1;
-        let taken = handle(&self.flow, &mut self.work, Time(self.time), event.clone());
+        let follows = std::mem::take(&mut self.follows);
+        let then = |_: &Compiled, _: &Work| follows.clone();
+        let taken = handle_then(
+            &self.flow,
+            &mut self.work,
+            Time(self.time),
+            event.clone(),
+            Room::FREE,
+            Gate::Open,
+            &then,
+        );
         taken.unwrap_or_else(|refused| panic!("{event:?} is refused: {refused:?}"))
     }
 
@@ -460,9 +474,19 @@ impl Sim {
         });
     }
 
-    /// The line begins a new session, for this reason.
+    /// The line begins a new session, for this reason, now: a round of the line that has begun goes on in the session
+    /// it began in, and the line's next round runs in the new one.
     pub fn anew(&mut self, line: &str, why: Why) {
         self.take(Event::Anew {
+            line: line.to_string(),
+            why,
+        });
+    }
+
+    /// The line begins a new session, for this reason, as the driver records one: after the next thing that happens to
+    /// the work and before the walk, so that a round that thing begins runs in it.
+    pub fn anew_before_the_next_round(&mut self, line: &str, why: Why) {
+        self.follows.push(Event::Anew {
             line: line.to_string(),
             why,
         });
