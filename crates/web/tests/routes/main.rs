@@ -20,6 +20,7 @@ mod observations;
 mod other_sites;
 mod page;
 mod planning;
+mod pulls;
 mod slots;
 mod stopped;
 mod stream;

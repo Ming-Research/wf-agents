@@ -6,6 +6,8 @@
 use std::collections::VecDeque;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
+use service::OpenPull;
+
 use super::{Asking, Branch, Failed, Host, Named, NotMerged, Verdict};
 use crate::held::Stop;
 
@@ -22,6 +24,8 @@ pub(crate) struct Fake {
     titles: Mutex<Vec<String>>,
     /// What asked for each verdict and each run of the tests, in order.
     askings: Mutex<Vec<Asking>>,
+    /// What it says of its open pull requests.
+    open: Mutex<Result<Option<Vec<OpenPull>>, String>>,
 }
 
 /// What the host was asked.
@@ -56,7 +60,14 @@ impl Fake {
             tests: Mutex::new(None),
             titles: Mutex::new(Vec::new()),
             askings: Mutex::new(Vec::new()),
+            open: Mutex::new(Ok(None)),
         }
+    }
+
+    /// Says this of its open pull requests.
+    pub(crate) fn opened(self, said: Result<Option<Vec<OpenPull>>, String>) -> Fake {
+        *lock(&self.open) = said;
+        self
     }
 
     /// Fails to let go, with these words, until it is told otherwise.
@@ -158,6 +169,10 @@ impl Host for Fake {
 
     fn pull_at(&self, number: u64) -> Option<String> {
         Some(format!("https://host.example/pull/{number}"))
+    }
+
+    async fn open_pulls(&self) -> Result<Option<Vec<OpenPull>>, String> {
+        lock(&self.open).clone()
     }
 }
 

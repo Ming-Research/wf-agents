@@ -13,7 +13,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use tokio::io::AsyncWriteExt;
 
-use super::api::{Api, Check, File, Outcome, Pull, Run, State};
+use super::api::{Api, Check, File, OPEN_PULLS, Outcome, Pull, Run, State};
 use crate::host::Failed;
 
 /// GitHub's REST API, through `gh`, in one repository.
@@ -198,6 +198,25 @@ impl Api for Gh {
             .as_array()
             .ok_or("GitHub's list of pull requests is not a list")?;
         Ok(pulls.iter().map(pull).collect::<Result<_, String>>()?)
+    }
+
+    async fn open_pulls(&self) -> Result<Vec<Pull>, Failed> {
+        let mut open = Vec::new();
+        for page in 1.. {
+            let path = format!("repos/{}/pulls?state=open&per_page=100&page={page}", self.repository);
+            let listed = self.json("GET", &path, None, &[200]).await?;
+            let listed = listed
+                .as_array()
+                .ok_or("GitHub's list of pull requests is not a list")?;
+            open.extend(listed.iter().map(pull).collect::<Result<Vec<_>, String>>()?);
+            if listed.len() < 100 {
+                break;
+            }
+            if open.len() >= OPEN_PULLS {
+                return Err(format!("the repository holds more than {OPEN_PULLS} open pull requests").into());
+            }
+        }
+        Ok(open)
     }
 
     async fn open(&self, branch: &str, base: &str, title: &str, body: &str) -> Result<Pull, Failed> {
@@ -474,6 +493,12 @@ fn pull(value: &Value) -> Result<Pull, String> {
         body: value["body"].as_str().unwrap_or_default().to_string(),
         draft: value["draft"].as_bool().unwrap_or(false),
         node: text(&value["node_id"], "id")?,
+        updated: value["updated_at"]
+            .as_str()
+            .and_then(epoch)
+            .and_then(|seconds| u64::try_from(seconds).ok())
+            .map(|seconds| seconds * 1000)
+            .ok_or("a pull request has no time it was updated")?,
     })
 }
 

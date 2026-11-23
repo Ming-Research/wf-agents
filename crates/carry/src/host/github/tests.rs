@@ -709,6 +709,33 @@ async fn a_pull_request_closed_on_github_fails_the_round() {
     assert_eq!(hub.opened(), 1, "no second pull request is opened");
 }
 
+// What the host says of its open pull requests is the open ones of the repository, whatever their branch, as a person
+// lists them: one closed is gone from it, and a list GitHub refuses is an `Err` with its words, never none.
+#[tokio::test]
+async fn the_open_pull_requests_are_the_open_ones_and_a_list_github_refuses_is_said_and_not_taken_for_none() {
+    let hub = Hub::new();
+    assert_eq!(hub.host.open_pulls().await, Ok(Some(Vec::new())));
+    let head = hub.committed().await;
+    hub.green(&head);
+    hub.verdict(&head).await.unwrap().unwrap();
+    let kept = hub.github().pull_requests();
+    assert_eq!(
+        hub.host.open_pulls().await,
+        Ok(Some(vec![service::OpenPull {
+            number: 1,
+            title: "Greet the user".to_string(),
+            url: "https://github.example/pull/1".to_string(),
+            draft: kept[0].draft,
+            updated: kept[0].updated,
+        }]))
+    );
+    hub.github().close(1);
+    assert_eq!(hub.host.open_pulls().await, Ok(Some(Vec::new())));
+    hub.github().refuse_listing("HTTP 403: API rate limit exceeded");
+    let refused = hub.host.open_pulls().await.expect_err("GitHub refuses the list");
+    assert!(refused.contains("API rate limit exceeded"), "{refused}");
+}
+
 #[tokio::test]
 async fn a_stopped_wait_gives_nothing() {
     let hub = Hub::new();

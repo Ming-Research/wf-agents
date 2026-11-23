@@ -24,8 +24,9 @@ wf-agents runs coding agents through a defined flow.
   with `wf-agents wait` for what needs them, each answer ending with the mark to give the next, and read the
   observations agents reported with `wf-agents observations`, the newest first. They read the plan
   with `wf-agents changes --since <mark>`, `candidates`, `search <text>`, `graph <item>` (up to what it depends on and
-  down to what depends on it; `--up` or `--down` for one), `tags` and `text <item> [<block>]`, and `list`, which leaves
-  out what merged or was cancelled unless given `--all`; they change items with
+  down to what depends on it; `--up` or `--down` for one), `tags` and `text <item> [<block>]`, `pulls` (the pull
+  requests open on each project's host, each with the work that keeps it) and `list`, which leaves out what merged or
+  was cancelled unless given `--all`; they change items with
   `wf-agents change --why <sentence> <item>:<kind>[=<value>]...`, all or none, or one at a time with `set-title`,
   `set-level`, `add-dependency`, `remove-dependency`, `tag`, `untag`, `cancel` and `reopen`, each with `--why`.
   `wf-agents system` says how the system ran over the last days: what went past the lines of its history, and what is

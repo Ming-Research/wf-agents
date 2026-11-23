@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use flow::agents::{NoProject, fill};
 use service::{
-    CallReply, Changes, Diff, OfWork, Release, ReleaseReply, Round, RoundReply, Rounds, Seen, ToolCall, Tools,
+    CallReply, Changes, Diff, OfWork, OpenPull, Release, ReleaseReply, Round, RoundReply, Rounds, Seen, ToolCall, Tools,
 };
 use store::{Item, WorkNumber};
 use work::Spent;
@@ -194,6 +194,20 @@ impl Rounds for ByProject<dyn Rounds> {
         match of(&self.of, &asked.item) {
             Ok(rounds) => rounds.diff(asked, path),
             Err(_) => Box::pin(async { Ok(None) }),
+        }
+    }
+
+    // A project the settings do not name has no host to ask, which is no host with no pull requests.
+    fn open_pulls(
+        &self,
+        project: &str,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<Vec<OpenPull>>, String>> + Send + '_>> {
+        match self.of.get(project) {
+            Some(rounds) => rounds.open_pulls(project),
+            None => {
+                let why = format!("the installation's settings do not name the project {project}");
+                Box::pin(async move { Err(why) })
+            }
         }
     }
 }

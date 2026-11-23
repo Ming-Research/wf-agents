@@ -25,6 +25,7 @@ use std::sync::Arc;
 
 use decide::run::Failure;
 use decide::{CallId, RunId};
+use service::OpenPull;
 use store::WorkNumber;
 use tokio::sync::Mutex;
 
@@ -245,6 +246,10 @@ pub trait Host: Send + Sync + 'static {
     /// The address of the pull request of this number on the host, worked out without asking it; none where the host
     /// has no pull requests, as the local repository.
     fn pull_at(&self, number: u64) -> Option<String>;
+
+    /// The pull requests open on the host, whatever their branch; none where the host has no pull requests, as the
+    /// local repository. An `Err` is why the host could not say, which says nothing of there being none.
+    fn open_pulls(&self) -> impl Future<Output = Result<Option<Vec<OpenPull>>, String>> + Send;
 }
 
 /// The tests and the checks an agent names to `run_tests`, each as it wrote it, and the commit it names to run them on.
@@ -323,5 +328,9 @@ impl<H: Host> Host for Arc<H> {
 
     fn pull_at(&self, number: u64) -> Option<String> {
         (**self).pull_at(number)
+    }
+
+    async fn open_pulls(&self) -> Result<Option<Vec<OpenPull>>, String> {
+        (**self).open_pulls().await
     }
 }

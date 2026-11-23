@@ -148,6 +148,23 @@ pub struct Script {
     /// What the cells of each flow return, by the flow's name.
     #[serde(default)]
     pub flows: BTreeMap<String, FlowScript>,
+    /// The pull requests open on the host of each project, where the script says one.
+    #[serde(default)]
+    pub pulls: Vec<PullScript>,
+}
+
+/// A pull request open on the host of a project, as the script's host says it.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PullScript {
+    /// The project whose repository it is in.
+    pub project: String,
+    pub number: u64,
+    pub title: String,
+    #[serde(default)]
+    pub draft: bool,
+    /// When it was last updated, in milliseconds since 1970.
+    pub updated: u64,
 }
 
 /// What a round takes; what is left out is taken from the script's own, or else from the defaults above.

@@ -17,6 +17,7 @@ use serde::de::DeserializeOwned;
 use web::attention::{Attention, Line, Stuck};
 use web::observations::{Observation, ObservationsPage};
 use web::plan::{Candidates, Field, Graph, Hits, Node, PlanChange, PlanChanges, Row, Standing, Tags};
+use web::pulls::{OpenPull, Pulls};
 use web::system::{Past, System, UnderWay};
 use web::works::{
     Act, Added, Against, Back, Call, CellState, ChangeAsked, Checked, Engine, EngineAct, Failure, ForkAsked,
@@ -62,6 +63,12 @@ pub enum Asked {
     /// What changed in the plan since the mark.
     Changes {
         since: Option<String>,
+    },
+    /// The pull requests open on the hosts of the projects' repositories: of this project alone, where one is named,
+    /// and numbered this or more, where a number is.
+    Pulls {
+        project: Option<String>,
+        from: Option<u64>,
     },
     /// The items that could be let on now.
     Candidates,
@@ -154,6 +161,14 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
                 };
                 let changes: PlanChanges = send(address, Method::GET, &path, None::<&()>).await?;
                 Ok(plan_changes(&changes, since.is_some()))
+            }
+            Asked::Pulls { project, from } => {
+                let path = match &project {
+                    Some(project) => format!("/api/v1/pulls?project={}", encoded(project)),
+                    None => "/api/v1/pulls".to_string(),
+                };
+                let pulls: Pulls = send(address, Method::GET, &path, None::<&()>).await?;
+                Ok(pulls_said(&pulls, from, clock()))
             }
             Asked::Candidates => {
                 let candidates: Candidates = send(address, Method::GET, "/api/v1/plan/candidates", None::<&()>).await?;
@@ -651,6 +666,74 @@ fn list(items: &Items, listing: &Listing, now: u64) -> String {
         lines.push(format!("And {hidden} {items}: wf-agents list{tag} --all{from}"));
     }
     lines.join("\n")
+}
+
+/// The open pull requests, a line each, at most [`LISTED`]: each says its project, number, title, whether it is a draft,
+/// when it was last updated, its address and the work that keeps it, what that work does now and when something last
+/// happened to it, or that no work keeps it. A project whose host could not say, and one whose host has no pull
+/// requests, are each said on a line of their own first. What is left out is said by project, with the command that
+/// gives it. `now` is the time it is said, to say how long ago things were.
+fn pulls_said(pulls: &Pulls, from: Option<u64>, now: u64) -> String {
+    let mut lines: Vec<String> = (pulls.failed.iter())
+        .map(|unsaid| {
+            format!(
+                "Project {}: its host could not say which pull requests are open. {}",
+                unsaid.project,
+                sentence(&unsaid.why)
+            )
+        })
+        .collect();
+    lines.extend((pulls.without.iter()).map(|project| format!("Project {project}: its host has no pull requests.")));
+    let chosen: Vec<&OpenPull> = (pulls.pulls.iter())
+        .filter(|pull| from.is_none_or(|from| pull.number >= from))
+        .collect();
+    if chosen.is_empty() && lines.is_empty() {
+        return format!(
+            "No pull request is open{}.",
+            from.map_or_else(String::new, |from| format!(" numbered {from} or more"))
+        );
+    }
+    lines.extend(chosen.iter().take(LISTED).map(|pull| pull_line(pull, now)));
+    let rest = chosen.get(LISTED..).unwrap_or_default();
+    let mut said: Vec<&str> = Vec::new();
+    for pull in rest {
+        if said.contains(&pull.project.as_str()) {
+            continue;
+        }
+        said.push(&pull.project);
+        let of: Vec<&&OpenPull> = rest.iter().filter(|other| other.project == pull.project).collect();
+        lines.push(format!(
+            "And {} more of {}: wf-agents pulls --project {} --from {}",
+            of.len(),
+            pull.project,
+            pull.project,
+            pull.number
+        ));
+    }
+    lines.join("\n")
+}
+
+/// An open pull request, as a line of the list of them.
+fn pull_line(pull: &OpenPull, now: u64) -> String {
+    let draft = if pull.draft { " (draft)" } else { "" };
+    let keeper = match &pull.work {
+        Some(work) => format!(
+            "W{} of item #{}: {} ({})",
+            work.work,
+            work.item,
+            self::now(&work.now),
+            last_said(work.last, now)
+        ),
+        None => "no work keeps it.".to_string(),
+    };
+    format!(
+        "{} pull request #{} \"{}\"{draft}, updated {} ago, {}: {keeper}",
+        pull.project,
+        pull.number,
+        pull.title,
+        duration(now.saturating_sub(pull.updated)),
+        pull.url
+    )
 }
 
 /// From where a list begins, as the end of a sentence.
@@ -2229,6 +2312,82 @@ mod tests {
             kept: 1_800_000_000_000,
             read,
         }
+    }
+
+    /// An open pull request of a project, a draft where its number is 2, updated an hour into the time, kept by this work.
+    fn pull(project: &str, number: u64, work: Option<web::pulls::PullWork>) -> OpenPull {
+        OpenPull {
+            project: project.to_string(),
+            number,
+            title: format!("Pull {number}"),
+            url: format!("https://host.example/pull/{number}"),
+            draft: number == 2,
+            updated: 3_600_000,
+            work,
+        }
+    }
+
+    // The open pull requests are a line each, with the work that keeps one, what it does and when something last happened
+    // to it, or that no work keeps it; a project whose host could not say, and one whose host has no pull requests, are
+    // said by themselves first, and the first is never said as having none.
+    #[test]
+    fn the_open_pull_requests_are_a_line_each_and_a_project_whose_host_could_not_say_is_said_by_itself() {
+        let hour = 3_600_000;
+        let kept = web::pulls::PullWork {
+            work: 5,
+            item: 40,
+            now: Now::Cancelled,
+            last: Some(2 * hour),
+        };
+        let pulls = Pulls {
+            pulls: vec![pull("wf", 1, Some(kept)), pull("wf", 2, None)],
+            failed: vec![web::pulls::Unsaid {
+                project: "halo".to_string(),
+                why: "gh api GET repos/o/r/pulls failed: HTTP 403: rate limit".to_string(),
+            }],
+            without: vec!["local".to_string()],
+        };
+        assert_eq!(
+            pulls_said(&pulls, None, 3 * hour),
+            "Project halo: its host could not say which pull requests are open. gh api GET repos/o/r/pulls failed: \
+             HTTP 403: rate limit.\n\
+             Project local: its host has no pull requests.\n\
+             wf pull request #1 \"Pull 1\", updated 2h 00m ago, https://host.example/pull/1: W5 of item #40: cancelled \
+             (last happened 1h 00m ago)\n\
+             wf pull request #2 \"Pull 2\" (draft), updated 2h 00m ago, https://host.example/pull/2: no work keeps it."
+        );
+        let nothing = Pulls {
+            pulls: Vec::new(),
+            failed: Vec::new(),
+            without: Vec::new(),
+        };
+        assert_eq!(pulls_said(&nothing, None, hour), "No pull request is open.");
+        assert_eq!(
+            pulls_said(&nothing, Some(30), hour),
+            "No pull request is open numbered 30 or more."
+        );
+        // From a number on, those numbered less are left out.
+        let from = pulls_said(&pulls, Some(2), 3 * hour);
+        assert!(from.contains("#2 ") && !from.contains("#1 "), "{from}");
+    }
+
+    // At most a hundred are said, and what is left out is said by project, with the command that gives it from its first.
+    #[test]
+    fn the_open_pull_requests_past_the_most_said_are_counted_by_project_with_the_command_that_gives_them() {
+        let many = |project: &str, from: u64, to: u64| (from..=to).map(|n| pull(project, n, None)).collect::<Vec<_>>();
+        let pulls = Pulls {
+            pulls: [many("a", 1, 60), many("b", 1, 60)].concat(),
+            failed: Vec::new(),
+            without: Vec::new(),
+        };
+        let said = pulls_said(&pulls, None, 3_600_000);
+        let lines: Vec<&str> = said.lines().collect();
+        assert_eq!(lines.len(), LISTED + 1, "{said}");
+        assert_eq!(
+            lines[LISTED], "And 20 more of b: wf-agents pulls --project b --from 41",
+            "{said}"
+        );
+        assert!(lines[LISTED - 1].starts_with("b pull request #40 "), "{said}");
     }
 
     #[test]

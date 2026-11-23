@@ -252,3 +252,45 @@ fn the_words_beside_the_flows_say_a_call_of_no_project_named() {
     assert!(said.unnamed.contains("{project}"), "{}", said.unnamed);
     assert!(!said.none.contains('{'), "{}", said.none);
 }
+
+/// Carriers whose host says one pull request is open, by the project it is asked of.
+struct Hosted;
+
+impl Rounds for Hosted {
+    fn give(&self, _: Round, _: RoundReply) {}
+
+    fn stop(&self, _: Round, _: RoundReply) {}
+
+    fn open_pulls(
+        &self,
+        project: &str,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<Vec<OpenPull>>, String>> + Send + '_>> {
+        let title = project.to_string();
+        Box::pin(async move {
+            Ok(Some(vec![OpenPull {
+                number: 7,
+                title,
+                url: "https://host.example/pull/7".to_string(),
+                draft: false,
+                updated: 0,
+            }]))
+        })
+    }
+}
+
+// The pull requests open on a project's host are asked of that project's carriers alone; a project the settings do not
+// name is said not to be, which says nothing of there being none.
+#[tokio::test]
+async fn the_open_pull_requests_are_asked_of_the_named_projects_host_and_one_not_named_says_so() {
+    let rounds = by_project::<dyn Rounds>(Arc::new(Hosted));
+    let open = rounds
+        .open_pulls("one")
+        .await
+        .expect("the host says")
+        .expect("it has pull requests");
+    assert_eq!((open[0].number, open[0].title.as_str()), (7, "one"));
+    assert_eq!(
+        rounds.open_pulls("two").await,
+        Err("the installation's settings do not name the project two".to_string())
+    );
+}

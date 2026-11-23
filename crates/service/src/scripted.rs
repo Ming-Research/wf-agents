@@ -19,8 +19,8 @@ use driver::{Along, Found};
 use store::WorkNumber;
 
 use crate::carriers::{
-    CallReply, Carriers, Heard, KeptTokens, Network, Outside, Round, RoundReply, Rounds, Token, ToolCall, Tools,
-    WITHDRAWN,
+    CallReply, Carriers, Heard, KeptTokens, Network, OpenPull, Outside, Round, RoundReply, Rounds, Token, ToolCall,
+    Tools, WITHDRAWN,
 };
 use crate::script::{Ends, Planned, Script};
 
@@ -89,6 +89,24 @@ impl Inner {
 }
 
 impl Rounds for Scripted {
+    // The script's host says its pull requests by the project they are in.
+    fn open_pulls(
+        &self,
+        project: &str,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<Vec<OpenPull>>, String>> + Send + '_>> {
+        let open = (self.inner.script.pulls.iter())
+            .filter(|pull| pull.project == project)
+            .map(|pull| OpenPull {
+                number: pull.number,
+                title: pull.title.clone(),
+                url: format!("https://host.example/pull/{}", pull.number),
+                draft: pull.draft,
+                updated: pull.updated,
+            })
+            .collect();
+        Box::pin(async move { Ok(Some(open)) })
+    }
+
     fn give(&self, round: Round, reply: RoundReply) {
         let planned = self.planned(&round);
         let key = (round.work, round.run, round.number);

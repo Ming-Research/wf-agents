@@ -213,6 +213,20 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
+    /// The pull requests open on the hosts of the projects' repositories, each with its number, title, whether it is a
+    /// draft and when it was last updated, and the work that keeps it, what that work does now and how long ago
+    /// something last happened to it, or that no work keeps it; at most a hundred. A project whose host could not say
+    /// is said by itself with why, and is never taken for one with no pull requests.
+    Pulls {
+        /// Only the pull requests of this project.
+        #[arg(long)]
+        project: Option<String>,
+        /// Only the pull requests numbered this or more.
+        #[arg(long, value_name = "NUMBER")]
+        from: Option<u64>,
+        #[command(flatten)]
+        at: At,
+    },
     /// The items that could be let on now: paused, every item they depend on merged or cancelled. Those more open items
     /// wait for come first; the choice is yours.
     Candidates {
@@ -581,6 +595,7 @@ fn main() -> ExitCode {
         Command::Reopen { item, why, at } => one(at, why, ChangeAsked::Reopen { item }),
         Command::List { tag, from, all, at } => talk::ask(at.port, Asked::List(talk::Listing { tag, from, all })),
         Command::Changes { since, at } => talk::ask(at.port, Asked::Changes { since }),
+        Command::Pulls { project, from, at } => talk::ask(at.port, Asked::Pulls { project, from }),
         Command::Candidates { at } => talk::ask(at.port, Asked::Candidates),
         Command::Search { text, limit, at } => talk::ask(at.port, Asked::Search { text, limit }),
         Command::Observations { from, limit, at } => talk::ask(at.port, Asked::Observations { from, limit }),

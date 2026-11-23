@@ -70,8 +70,9 @@ use work::{Ask, Call, RanOn, Time};
 
 pub use carriers::{
     Back, CallReply, Carriers, Changes, Diff, Diffstat, Doing, Doings, FileChanged, Fork, ForkFailed, Forked, Heard,
-    Hosting, KeptTokens, Mark, Network, OfWork, Outside, Ping, PingReply, Pull, Release, ReleaseReply, Returned, Round,
-    RoundReply, Rounds, Saying, Seen, Teller, Telling, Token, Tokens, Told, ToolCall, Tools, Try, WITHDRAWN, YEAR_MS,
+    Hosting, KeptTokens, Mark, Network, OfWork, OpenPull, Outside, Ping, PingReply, Pull, Release, ReleaseReply,
+    Returned, Round, RoundReply, Rounds, Saying, Seen, Teller, Telling, Token, Tokens, Told, ToolCall, Tools, Try,
+    WITHDRAWN, YEAR_MS,
 };
 pub use clock::{Clock, SystemClock, TokioClock};
 pub use driver::{Along, Instead, Said, Under, Window};
@@ -1553,6 +1554,25 @@ impl Handle {
             );
         }
         seen
+    }
+
+    /// The pull requests open on the host of each of these projects' repositories, as the carrier of the engine's acts
+    /// asks each host off the loop, all at once, each project with what its host said: none where its host has no
+    /// pull requests, or why it could not say.
+    pub async fn open_pulls(&self, projects: Vec<String>) -> Vec<(String, Result<Option<Vec<OpenPull>>, String>)> {
+        let asked: Vec<_> = (projects.into_iter())
+            .map(|project| {
+                let carriers = self.carriers.clone();
+                let name = project.clone();
+                (project, tokio::spawn(async move { carriers.open_pulls(&name).await }))
+            })
+            .collect();
+        let mut said = Vec::with_capacity(asked.len());
+        for (project, asked) in asked {
+            let pulls = (asked.await).unwrap_or_else(|e| Err(format!("it could not be asked: {e}")));
+            said.push((project, pulls));
+        }
+        said
     }
 
     /// Each file the work changed, as the carrier of the engine's acts works it out off the loop: none where there is

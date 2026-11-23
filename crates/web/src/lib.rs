@@ -30,6 +30,7 @@ mod guard;
 pub mod interface;
 pub mod observations;
 pub mod plan;
+pub mod pulls;
 pub mod settings;
 pub mod system;
 pub mod view;
