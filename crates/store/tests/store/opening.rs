@@ -527,8 +527,9 @@ fn a_file_of_version_20_is_migrated_keeping_every_row_it_holds_its_tries_directo
         "no round of the file has a try whose tokens add up to its own"
     );
     assert!(!before["spent"].is_empty(), "the work has rounds that took something");
+    // The file has no table of forks yet, which a later version makes empty.
     for (table, written) in [("spent", 5), ("pinged", 6), ("forked", 6)] {
-        let mut told_apart: Vec<Vec<String>> = (before[table].iter())
+        let mut told_apart: Vec<Vec<String>> = (before.get(table).into_iter().flatten())
             .map(|row| {
                 let mut row = row.clone();
                 row.insert(written, "Null".to_string());
