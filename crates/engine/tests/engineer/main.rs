@@ -84,7 +84,8 @@
 //! the check passed, a person writes, while the pause holds the merge back, an input only people write that runs a cell
 //! before a judge, the background, after which the first judge to hand in refuses, or writes a verdict as its refusal,
 //! a coin of its own deciding; then the work is let on. In one of ten the check
-//! fails the first time it runs and the random steps end there; in two of ten, they end only once the cell told of
+//! fails the first time it runs and the random steps end there, the first cell that may ask having asked a question it
+//! waits for and left out what it must write; in two of ten, they end only once the cell told of
 //! the failure has answered it with a commit and nothing that matters, the commit running the review and the check
 //! again through the work's head; in one of ten, the first cell that may ask asks a question that does not wait, and
 //! the random steps end once the round of the cell told of the failure that answered it with nothing committed has
@@ -1103,7 +1104,11 @@ impl Random {
                 // Nine agents in ten owe nothing they leave out.
                 next_word(d, run, i, cell, &mut handed_in, 90);
                 let first = !d.work.records.questions.iter().any(|q| !q.engine);
-                let force = self.steer == Steer::FailCheckLeft && first;
+                let force = match self.steer {
+                    Steer::FailCheckLeft if first => Some(false),
+                    Steer::FailCheck if first => Some(true),
+                    _ => None,
+                };
                 // A value that stands with nothing but some blocks is handed in with no question beside it.
                 let questions = match may_ask(&d.flow, i, &handed_in) {
                     true => self.questions(d, i, cell, force),
@@ -1116,7 +1121,8 @@ impl Random {
                     .any(|q| matches!(q, Question::Asked { waits: true, .. }))
                 {
                     let must = d.flow.cells[i].must_write.clone();
-                    handed_in.retain(|h| !must.contains(&h.block) || d.rng.chance(50));
+                    let leaves_out = force == Some(true);
+                    handed_in.retain(|h| !must.contains(&h.block) || (!leaves_out && d.rng.chance(50)));
                 }
                 let mut came = hands_in(d, run, i, handed_in);
                 came.said.questions = questions;
@@ -1127,9 +1133,9 @@ impl Random {
 
     /// What the agent of the cell at this place writes in the record of the questions beside its hand-in, where an
     /// answer runs its cell: a question of its own in five of a hundred, which waits in one of two, and always one
-    /// that does not wait where `force` says so; one of its own that stands asked anew, as it was, in two of a
+    /// where `force` says so, waiting as it says; one of its own that stands asked anew, as it was, in two of a
     /// hundred; one withdrawn in two of a hundred; nothing otherwise.
-    fn questions(&self, d: &mut Driver, i: usize, cell: &str, force: bool) -> Vec<Question> {
+    fn questions(&self, d: &mut Driver, i: usize, cell: &str, force: Option<bool>) -> Vec<Question> {
         let spec = &d.flow.cells[i];
         if !(spec.watches.iter()).any(|t| t.of_source(&d.flow, flow::ANSWER).is_some()) {
             return Vec::new();
@@ -1139,9 +1145,9 @@ impl Random {
             .map(|(name, _)| name.to_string())
             .collect();
         let fresh = format!("{cell}_{}", d.work.records.questions.len());
-        let drawn = if force { None } else { Some(d.rng.below(100)) };
+        let drawn = if force.is_some() { None } else { Some(d.rng.below(100)) };
         let (name, waits) = match drawn {
-            None => (fresh, false),
+            None => (fresh, force == Some(true)),
             Some(0..=4) => (fresh, d.rng.chance(50)),
             Some(5..=6) if !own.is_empty() => (own[d.rng.below(own.len())].clone(), false),
             Some(7..=8) if !own.is_empty() => {
