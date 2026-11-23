@@ -291,6 +291,9 @@ struct History {
     /// takes the owner's answers asks a question; and, of some blocks, how often the return hands in that block alone.
     writes: u64,
     asks: u64,
+    /// How often, in a hundred, a block a return hands in that was written before is handed in as changing nothing in
+    /// meaning.
+    unmatters: u64,
     prefer: BTreeMap<String, u64>,
     /// The value a return that writes a choice gives it, of some choices.
     force: BTreeMap<String, String>,
@@ -307,6 +310,8 @@ enum Forced {
     All,
     /// Hands in the blocks the cell must write every time and no other.
     Must,
+    /// The round that comes next fails after its program had its message.
+    Fail,
 }
 
 impl History {
@@ -331,6 +336,7 @@ impl History {
             trace: Vec::new(),
             writes: 70,
             asks: 8,
+            unmatters: 0,
             prefer: BTreeMap::new(),
             force: BTreeMap::new(),
             target: None,
@@ -662,14 +668,14 @@ impl History {
             tool("y"),
         ]);
         self.drain(reached);
-        // The notes are written after the review's last run, and its next run reads them in its first round, which asks
-        // for a tool: its second round holds them as the latest, which the review never worked from as they are. The
-        // first of the two runs gives the review a last run to have worked from.
+        // The notes are written after the review's last run, and its next run reads them in its first round, which fails
+        // after its program had the message: its second round holds them as the latest, which the review never worked
+        // from as they are. The first of the two runs gives the review a last run to have worked from.
         for _ in 0..2 {
             self.put("notes");
             self.put("plan");
             self.under_way("build");
-            self.forced = Some(vec![Forced::All, tool("q")]);
+            self.forced = Some(vec![Forced::All, Forced::Fail]);
             self.drain(reached);
         }
         // The close, run by the finish, reads the verdict, and its run ends the work once it hands in or asks for a
@@ -781,10 +787,14 @@ impl History {
                 reached.said_again += 1;
             }
         }
-        if self.rng.chance(8) {
+        let scripted = matches!(self.forced.as_ref().and_then(|f| f.first()), Some(Forced::Fail));
+        if let Some(forced) = self.forced.as_mut().filter(|_| scripted) {
+            forced.remove(0);
+        }
+        if scripted || self.rng.chance(8) {
             // A round that failed after its program had its message, as at the usage limit, put it into its session;
             // one that failed before its program ran put nothing there.
-            if self.rng.chance(50) {
+            if scripted || self.rng.chance(50) {
                 self.lines.entry(line.clone()).or_default().fill(round.run, &used.fills);
                 self.sim.fails_as(round, decide::run::Failure::UsageLimit, true);
                 reached.wrote += 1;
@@ -827,6 +837,7 @@ impl History {
             Some(Forced::Wrong) => wrong = true,
             Some(Forced::All) => all = true,
             Some(Forced::Must) => only_must = true,
+            Some(Forced::Fail) => {}
             None => {}
         }
         if !scripted && self.rng.chance(15) {
@@ -864,10 +875,11 @@ impl History {
                     _ => v[self.rng.below(v.len())].clone(),
                 });
                 let content = value.clone().unwrap_or_else(|| self.content(block.as_str()));
+                let matters = self.matters(&block, value.as_deref());
                 writes.push(Handed {
                     block,
                     content,
-                    matters: true,
+                    matters,
                     value,
                 });
             }
@@ -884,10 +896,11 @@ impl History {
                     let percent = self.prefer.get(block.as_str()).copied().unwrap_or(self.writes);
                     if !writes.iter().any(|w| w.block == *block) && self.rng.chance(percent) {
                         let content = self.content(block.as_str());
+                        let matters = self.matters(block, None);
                         writes.push(Handed {
                             block: block.clone(),
                             content,
-                            matters: true,
+                            matters,
                             value: None,
                         });
                     }
@@ -918,6 +931,18 @@ impl History {
         let mut came = Came::hands_in(writes);
         came.said.questions = self.questions(&cell);
         came
+    }
+
+    /// Whether a block a return hands in changes its meaning: a block written before, which is no choice, is handed in
+    /// as changing nothing in meaning as often as the history says.
+    fn matters(&mut self, block: &BlockId, value: Option<&str>) -> bool {
+        if self.unmatters == 0 || value.is_some() {
+            return true;
+        }
+        let written = decide::versions(&self.sim.work.records)
+            .get(block)
+            .is_some_and(|versions| !versions.is_empty());
+        !(written && self.rng.chance(self.unmatters))
     }
 
     /// A question of the cell's own in one return of twelve, where its cell takes the owner's answers: it waits for the
@@ -1716,12 +1741,31 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
             }
             (reached.archive[cell][chosen].2.clone(), cell == target.cell)
         });
-        let mut history = match from {
-            Some((mut history, at_target)) => {
+        // Now and then it begins from a state kept at a round of a cell after the target's instead, and has the owner write
+        // what runs the cell again: a session holds what the cells after it read, which only a cell run again can be
+        // sent as the session stands.
+        let later: Option<History> = (at + 1 < order.len() && rng.chance(20))
+            .then(|| {
+                let cells: Vec<&String> = (order[at + 1..].iter())
+                    .filter(|cell| reached.archive.get(*cell).is_some_and(|kept| !kept.is_empty()))
+                    .collect();
+                (!cells.is_empty()).then(|| {
+                    let kept = &reached.archive[cells[rng.below(cells.len())]];
+                    kept[rng.below(kept.len())].2.clone()
+                })
+            })
+            .flatten();
+        let from_later = later.is_some();
+        let mut history = match (later, from) {
+            (Some(mut history), _) => {
+                history.quiet = 0;
+                history
+            }
+            (None, Some((mut history, at_target))) => {
                 history.quiet = if at_target { 0 } else { rng.below(60) };
                 history
             }
-            None => {
+            (None, None) => {
                 let sim = support::engineer_sim();
                 let scene = Scene::engineer(&sim);
                 let mut history = History::of(sim, scene, seed.wrapping_mul(7_919).wrapping_add(n as u64));
@@ -1733,6 +1777,7 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
         // The mode of the run.
         history.writes = [25, 70, 100][rng.below(3)];
         history.asks = [8, 40, 90][rng.below(3)];
+        history.unmatters = [0, 20, 50][rng.below(3)];
         history.scene.passes = Some([60, 85, 100][rng.below(3)]);
         history.scene.puts = [4, 8, 16][rng.below(3)];
         history.scene.reopens = [2, 4, 10][rng.below(3)];
@@ -1750,6 +1795,14 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
         if quiet_owner {
             history.asks = 0;
             history.scene.speaks = 0;
+        }
+        if from_later {
+            let mut mine: Vec<&'static str> = (history.scene.writes.iter().copied())
+                .filter(|w| target.blocks.iter().any(|b| b == w) || *w == "background")
+                .collect();
+            mine.dedup();
+            let block = mine[rng.below(mine.len())];
+            history.put(block);
         }
         // What the work holds at the round changes some, before it is carried.
         for _ in 0..1 + rng.below(3) {
