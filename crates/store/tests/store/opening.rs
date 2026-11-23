@@ -457,9 +457,11 @@ fn a_migrated_file_has_sound_foreign_keys_and_takes_the_reading_and_the_changes_
 
 /// A work as one kept at version 17 holds it, in which a version is empty where `empty` says so and holds words
 /// otherwise, and the same with `inverse` the other way round: the same places, blocks and writers, the two works
-/// differing only in which version holds nothing. A request a person wrote, the owner's main written by the outside
-/// as one that does not matter and said to a cell, a choice the outside wrote with an empty content, and a run's
-/// writes, one of them changing nothing in meaning and one with a value.
+/// differing only in which version holds nothing. A request a person wrote, and the opinions a person wrote beside it
+/// with words in both works, which run the writer where the request, holding nothing and written before any, says
+/// nothing and runs no cell; the owner's main written by the outside as one that does not matter and said to a cell, a
+/// choice the outside wrote with an empty content, and a run's writes, one of them changing nothing in meaning and one
+/// with a value.
 fn kept_at_17(inverse: bool) -> Work {
     // Whether the version of the pattern's `empty` holds nothing in this work.
     let nothing = |empty: bool| empty != inverse;
@@ -469,6 +471,13 @@ fn kept_at_17(inverse: bool) -> Work {
         block: "request".into(),
         by: Outsider::Person,
         content: content(true),
+        matters: true,
+        value: None,
+    });
+    d.on(Event::Wrote {
+        block: "opinions".into(),
+        by: Outsider::Person,
+        content: "words".to_string(),
         matters: true,
         value: None,
     });
@@ -527,8 +536,8 @@ fn a_file_of_version_17_is_migrated_and_each_of_its_writes_reads_as_holding_what
             .chain(w.records.finished[0].writes.iter().map(|w| w.empty))
             .collect()
     };
-    assert_eq!(of(&kept), [true, false, false, false, true, false]);
-    assert_eq!(of(&other), [false, true, false, true, false, false]);
+    assert_eq!(of(&kept), [true, false, false, false, false, true, false]);
+    assert_eq!(of(&other), [false, false, true, false, true, false, false]);
     let (old, new) = kept_in_works(17, &[&kept, &other]);
     let store = old.open();
     assert_eq!(versions(&old.path), [SCHEMA_VERSION]);

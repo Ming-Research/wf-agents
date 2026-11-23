@@ -580,15 +580,19 @@ impl Explorer<'_> {
             }
             // A return is sent back where it would write over a version its round was not told of: a cell before it
             // ran while the return waited to be taken, and wrote what this one writes; and where it leaves the next
-            // word owed, a maker woken by a point answering nothing, or a judge failing with no point, as a return of
-            // its choices alone may (design document `data-and-context`, 42).
+            // word owed, a maker woken by a point answering nothing, or a judge failing with no point, or where it
+            // deals with the owner's words and answers none, as a return of its choices alone may (design document
+            // `data-and-context`, 35 and 42).
             Step::SendBack { unmet }
                 if variant.is_none()
                     || sent_back
                     || unmet.iter().all(|u| {
                         matches!(
                             u,
-                            run::Unmet::WrittenOver { .. } | run::Unmet::WordOwed { .. } | run::Unmet::NoPoint { .. }
+                            run::Unmet::WrittenOver { .. }
+                                | run::Unmet::WordOwed { .. }
+                                | run::Unmet::NoPoint { .. }
+                                | run::Unmet::NotAnswered { .. }
                         )
                     }) =>
             {
@@ -596,6 +600,8 @@ impl Explorer<'_> {
                 if !sent_back && variant.is_some() {
                     if unmet.iter().any(|u| matches!(u, run::Unmet::WrittenOver { .. })) {
                         self.reach(WRITTEN_OVER.to_string());
+                    } else if unmet.iter().any(|u| matches!(u, run::Unmet::NotAnswered { .. })) {
+                        self.reach(WORDS_UNANSWERED.to_string());
                     } else {
                         self.reach(WORD_OWED.to_string());
                     }
@@ -1461,6 +1467,9 @@ pub const WRITTEN_OVER: &str = "a return was sent back as it would write over wh
 
 /// A return of the cell's choices or content that leaves the next word owed, sent back for it.
 pub const WORD_OWED: &str = "a return that leaves the next word owed was sent back";
+
+/// A return that says it dealt with the owner's words and writes no answer to them, sent back for it.
+pub const WORDS_UNANSWERED: &str = "a return that dealt with the owner's words and answered none was sent back";
 
 /// Whether the question of this name stands with no answer to its latest version, as the records say.
 fn unanswered(records: &Records, question: &str) -> bool {

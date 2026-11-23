@@ -50,8 +50,14 @@ const AFTER: usize = 400;
 /// in whose questions the engine asks its own; a review of the code; and the merge, which requires every question to
 /// be answered. The research and the implementation each have questions and words of their own, which each watches.
 fn asking() -> Compiled {
+    // An answer is written in the words its block's `text` gives, as the engine's files give it in a flow's blocks: an
+    // answer that holds no words says nothing, and runs no cell.
     let own = |cell: &str| {
-        format!("[blocks.{cell}_questions]\noutside = \"answer\"\n[blocks.{cell}_words]\noutside = \"words\"\n")
+        format!(
+            "[blocks.{cell}_questions]\noutside = \"answer\"\n[blocks.{cell}_questions.writes]\n\
+             text = \"The owner answered {{question}}, version {{version}}, with option {{option}}.\"\n\
+             [blocks.{cell}_words]\noutside = \"words\"\n"
+        )
     };
     let flow = format!(
         r#"
