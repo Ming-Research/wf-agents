@@ -1213,16 +1213,26 @@ fn stood(cell: &CellSpec, s: &Situation) -> Vec<String> {
     lines
 }
 
-/// What the tool writes for every agent's cell of the flow, as the lines of [`stood`].
-fn written(sim: &Sim) -> BTreeSet<String> {
+/// What the tool writes for every agent's cell of the flow, as the lines of [`stood`], and how many of its situations are
+/// of a session begun anew in which another cell of its line was read first. The project's guide is in the system prompt
+/// of every session, and no situation holds it or lacks it as a datum.
+fn written(sim: &Sim) -> (BTreeSet<String>, usize) {
     let mut lines = BTreeSet::new();
+    let mut after_read = 0;
     for cell in sim.flow.cells.iter().filter(|c| c.kind == flow::Kind::Agent) {
         let all = context::situations::situations(&sim.flow, &sim.words, cell, REOPENED, &sim.compared);
         for named in all {
+            assert!(
+                !named.situation.data.contains_key("guide") && !named.situation.holds.iter().any(|h| h == "guide"),
+                "{}: {} gives the guide",
+                cell.id,
+                named.name
+            );
+            after_read += usize::from(named.name.starts_with("reopened_after_read-"));
             lines.extend(stood(cell, &named.situation));
         }
     }
-    lines
+    (lines, after_read)
 }
 
 /// The source that writes a block of a line as its session begins anew, and none of the small flow's blocks.
@@ -1362,7 +1372,7 @@ fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() 
     }
     // What the tool writes and what the rounds reached are the same, line by line: a line of a round that the tool does
     // not write is a gap in its rules, and a line it writes that no round reached is one it writes for nothing.
-    let written = written(&Sim::new());
+    let (written, _) = written(&Sim::new());
     let (gaps, nothing) = (missing(&reached.real, &written), missing(&written, &reached.real));
     assert!(
         reached.real.is_subset(&written) && written.is_subset(&reached.real),
@@ -1383,10 +1393,13 @@ fn per_cell(lines: &BTreeSet<String>) -> String {
     format!("{cells:?}")
 }
 
+// Alone it runs about 50 s on CI (8 histories of up to 220 steps, about 40 ms a round, most of it the context manager
+// filling each round twice, as its session stands and in a new one). It catches what no other test does: a state of a
+// datum in a round of the repository's own flow that the tool's rules do not write. It cannot be smaller: a cell is
+// reached only after the cells before it, and each history reaches a few cells further than the one before.
 #[test]
-fn the_rounds_of_works_of_the_engineer_s_flow_stand_in_what_the_tool_writes_for_its_cells() {
+fn every_state_of_a_datum_that_a_round_of_the_engineer_s_flow_stood_in_is_one_the_tool_writes() {
     let mut reached = Reached::default();
-    let began = std::time::Instant::now();
     for seed in 0..ENGINEER_SEEDS {
         let sim = support::engineer_sim();
         let scene = Scene::engineer(&sim);
@@ -1407,24 +1420,25 @@ fn the_rounds_of_works_of_the_engineer_s_flow_stand_in_what_the_tool_writes_for_
             std::panic::resume_unwind(e);
         }
     }
-    let written = written(&support::engineer_sim());
-    let (gaps, nothing) = (missing(&reached.real, &written), missing(&written, &reached.real));
-    let gaps = format!(
-        "{gaps}\n{}",
-        (reached.real.difference(&written))
-            .map(|line| format!("{line}\n    {}", reached.examples[line]))
-            .collect::<Vec<_>>()
-            .join("\n")
-    );
+    let (written, after_read) = written(&support::engineer_sim());
     assert!(
-        reached.real.is_subset(&written) && written.is_subset(&reached.real),
-        "rounds stood in what the tool does not write, {gaps}\n\nthe tool writes what no round stood in, {nothing}\n\nof the \
-         rounds, by cell: {}\nof the tool, by cell: {}\nof the tool and no round, by cell: {}\nthe histories carried {} rounds in {:?}",
-        per_cell(&reached.real),
-        per_cell(&written),
-        per_cell(&written.difference(&reached.real).cloned().collect()),
+        after_read > 0,
+        "no situation of a session begun anew and another cell read in it"
+    );
+    // A line of a round that the tool does not write is a gap in its rules. The other way, a line it writes that no round
+    // stood in, is not held to: these histories reach only some of the flow's cells and of the states each datum has.
+    let gaps: Vec<String> = (reached.real.difference(&written))
+        .map(|line| format!("{line}\n    {}", reached.examples[line]))
+        .collect();
+    assert!(
+        gaps.is_empty(),
+        "{} states of a datum that rounds stood in, and the tool does not write:\n{}\n\nrounds carried: {}; of the rounds, \
+         by cell: {}; of the tool, by cell: {}",
+        gaps.len(),
+        gaps.join("\n"),
         reached.rounds,
-        began.elapsed()
+        per_cell(&reached.real),
+        per_cell(&written)
     );
 }
 
