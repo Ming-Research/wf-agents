@@ -12,7 +12,7 @@
 import { Fragment, type ReactNode, useCallback, useContext, useEffect, useRef } from 'react';
 
 import { StateMark, markName } from '../marks';
-import { Fold, ListRow, Sign, StatusLine } from '../parts';
+import { Attr, Fold, ListRow, Sign, StatusLine } from '../parts';
 import type { CallRow, Following, Handed, Round, Run, Step, Unmet, WorkPage } from '../works-api';
 import { ChosenRound } from './chosen-round';
 import { CallsTook, Opener, Parts } from './marks';
@@ -39,7 +39,6 @@ import {
   sentence,
   sessionWords,
   spentWords,
-  unmetWords,
   writerWords,
 } from './words';
 
@@ -100,6 +99,24 @@ function CallLine({ row, reader, abandoned }: { row: CallRow; reader: Reader; ab
       </span>
       {row.done !== null && <Opener label="result" load={async () => (await reader.call(row.call)) ?? ''} />}
     </ListRow>
+  );
+}
+
+/// Why a return was sent back, each reason as the key its words have in `[faults]` of `agents/return/sent_back.toml` and
+/// the values recorded of it, each under the name of its field, with no sentence of the page's own (decision
+/// a-sent-back-reason-is-shown-by-its-key).
+export function Reasons({ unmet }: { unmet: Unmet[] }) {
+  return (
+    <ul className="reasons">
+      {unmet.map((u, i) => (
+        <ListRow key={i}>
+          <span className="mono">{u.key}</span>
+          {u.values.map((v, j) => (
+            <Attr key={j} name={v.name} value={v.value} />
+          ))}
+        </ListRow>
+      ))}
+    </ul>
   );
 }
 
@@ -206,11 +223,7 @@ function RoundPart({ run, round, calls, first, timed, sentBack, failedBefore, re
           <>
             <dt>Sent back</dt>
             <dd>
-              <ul className="reasons">
-                {sentBack.map((u, i) => (
-                  <ListRow key={i}>{unmetWords(u)}</ListRow>
-                ))}
-              </ul>
+              <Reasons unmet={sentBack} />
             </dd>
           </>
         )}

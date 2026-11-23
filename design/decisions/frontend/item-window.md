@@ -114,6 +114,12 @@ The Step names no round: it shows a run's details once, and where a return was s
 - replaced: A heading Round 1, with more rounds after a return was sent back, was on main; the owner changed it, because a round is the engine's concept, and all the owner needs to know is that a return was wrong and sent back.
 - rejected: an agent proposed leaving out the heading only where a run has one round, and telling rounds apart where there are several; the owner rejected it, because a return is either handed in or sent back, and the owner need not learn what a round is.
 
+### decision a-sent-back-reason-is-shown-by-its-key
+The Step shows each reason a return was sent back by its key in `sent_back.toml` and the values recorded under their names, with no sentence of the page's own.
+- replaced: The page's own 33 sentences for the reasons, worded apart from the file, was on main; the owner changed it, because two copies drifted: a reason the engine added had no words on the page for a day.
+- rejected: an agent proposed also showing the file's sentence, read from the directory as it is now, with the values filled in; the owner rejected it, because a later change of the file would rewrite past returns, and the page would need the rule that fills it.
+- rejected: an agent proposed keeping the files beside the flows with each version of a flow and showing the sentence of the work's version; the owner rejected it, because it changes the store and the files kept with a version, and old versions have none.
+
 ### decision a-runs-inputs-are-what-its-cell-is-given
 The Step's Inputs are the blocks the run's cell is given, watches or reads, each at the version the run began with, those new to the run first; blocks it may only write are under Handed in.
 - replaced: A list headed Started from of every block the run read or might write, most with no version yet, was on main; the owner changed it, because it could not be read: what was read and what was written were mixed in it.

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Outage, Waited } from '../works-api';
-import { callWords, failureWords, outageWords, unmetWords, waitedWords } from './words';
+import { callWords, failureWords, outageWords, waitedWords } from './words';
 
 const outage = (o: Partial<Outage>): Outage => ({
   service: 'agents',
@@ -22,9 +22,6 @@ describe('the words of a round that failed and of the waits that follow', () => 
   it('names each kind of cause', () => {
     expect(failureWords('usageLimit')).toBe("the account's usage limit was reached");
     expect(failureWords('passing')).toBe('in passing');
-    expect(unmetWords({ kind: 'unreadable', why: 'missing field `matters`' })).toBe(
-      'what it returned could not be read: missing field `matters`',
-    );
   });
 
   it("says the engine's wait as a call, with how many failed in a row", () => {
