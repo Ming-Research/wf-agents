@@ -1470,7 +1470,7 @@ fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() 
 /// How many runs the search makes at most, how many steps each takes after its quiet ones, how many of the first steps
 /// of a run begun from nothing only carry the work's rounds (up to), and how many states of the work at the entry of a
 /// round of each kind it keeps.
-const RUNS: usize = 70;
+const RUNS: usize = 85;
 const RUN_STEPS: usize = 40;
 const QUIET_STEPS: usize = 150;
 const FRONTIER: usize = 6;
