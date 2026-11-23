@@ -19,20 +19,20 @@ fn since(h: &H, mark: Option<&Mark>) -> Attention {
     h.d().attention(mark).expect("the driver answers")
 }
 
-/// The work's round under way asks the owner a question; gives the time it did.
-fn asks_the_owner(h: &mut H, work: WorkNumber) -> Time {
-    h.returns(work, Came::asks(vec![question(Who::Owner)]));
+/// The work's run reaches its limit of returns and calls the owner; gives the time it did.
+fn calls_the_owner(h: &mut H, work: WorkNumber) -> Time {
+    h.at_limit(work);
     Time(h.clock)
 }
 
 #[test]
-fn a_question_for_the_owner_comes_once_since_it_was_asked_and_a_restart_adds_only_its_pause_of_everything() {
+fn a_call_for_the_owner_comes_once_since_it_was_made_and_a_restart_adds_only_its_pause_of_everything() {
     let mut h = H::new();
     let (_, w) = h.add(new_item("a", &[], "plain"));
     h.let_on(w);
     let first = since(&h, None);
     assert_eq!(heeds(&first), vec![], "a work under way is something for the planner");
-    let asked = asks_the_owner(&mut h, w);
+    let asked = calls_the_owner(&mut h, w);
     let answer = since(&h, Some(&first.mark));
     assert_eq!(
         answer.lines,
@@ -413,8 +413,8 @@ fn what_rests_for_a_person_comes_first_the_longest_waiting_first() {
     }
     h.hands_in(wa, &[("text", None)]);
     h.hands_in(wa, &[("merged", None)]);
-    asks_the_owner(&mut h, wc);
-    asks_the_owner(&mut h, wb);
+    calls_the_owner(&mut h, wc);
+    calls_the_owner(&mut h, wb);
     assert_eq!(
         heeds(&since(&h, Some(&mark))),
         vec![
@@ -436,7 +436,7 @@ fn lines_past_the_most_are_counted_and_come_again_at_the_next_mark() {
         .collect();
     for w in &works {
         h.let_on(*w);
-        asks_the_owner(&mut h, *w);
+        calls_the_owner(&mut h, *w);
     }
     let first = since(&h, None);
     let shown = |works: &[WorkNumber]| -> Vec<Heed> { works.iter().map(|w| Heed::ForAPerson { work: *w }).collect() };
@@ -500,7 +500,7 @@ fn a_work_whose_records_are_at_fault_is_a_line_first() {
     let added = Time(h.clock);
     let (_, wb) = h.add(new_item("b", &[], "plain"));
     h.let_on(wb);
-    asks_the_owner(&mut h, wb);
+    calls_the_owner(&mut h, wb);
     at_fault(&mut h, wa);
     assert_eq!(
         heeds(&since(&h, None)),
@@ -538,7 +538,7 @@ fn a_work_waiting_for_an_item_that_rests_for_a_person_is_idle() {
     let (_, wb) = h.add(new_item("b", &[a], "judged"));
     h.let_on(wa);
     h.let_on(wb);
-    asks_the_owner(&mut h, wa);
+    calls_the_owner(&mut h, wa);
     assert_eq!(
         heeds(&since(&h, None)),
         vec![

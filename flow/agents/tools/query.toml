@@ -1,4 +1,4 @@
-# One read-only SQL query on the engine's records, run by the engine (design statement 27). `{store}` is filled with
+# One read-only SQL query on the engine's records, run by the engine. `{store}` is filled with
 # what the records hold where the store is open to agents, and with `closed` below where it is not. The engine gives a
 # result as `{"rows": [...]}`, each row an object by the column names, with `cut` where rows are left out.
 words = '''
