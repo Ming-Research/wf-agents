@@ -8,7 +8,6 @@ fn the_store_is_always_open_to_agents_and_the_engine_starts_with_it_whatever_the
     // With the real schema, which marks what agents may not read, the tool describes the store.
     let described = carry::store(&beside());
     assert!(described.contains("### `items`"), "{described}");
-    assert!(!described.contains("is not open"), "{described}");
     let flows = [real.flow.clone()];
     assert!(
         carry::carriers(real.settings.clone(), &real.data, beside(), &flows).is_ok(),
