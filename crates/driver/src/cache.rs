@@ -144,7 +144,7 @@ pub fn misses_by(line_of: &dyn Fn(&CellId) -> Option<String>, work: &Work, life_
         let Some((last, before)) = last_call(line_of, work, line, round.run, number) else {
             continue;
         };
-        let begun = work::sessions::start(work, round.run, number);
+        let begun = work::sessions::first_try_at(work, round.run, number);
         let (Some(last), Some(began)) = (work.time_of(last), work.time_of(begun)) else {
             continue;
         };

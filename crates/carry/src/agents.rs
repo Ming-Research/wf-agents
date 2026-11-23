@@ -1716,8 +1716,9 @@ impl Inner {
                 later.push((r.run, r.round));
             }
         }
+        // Where the first of them made its first call, which read what the round left from the cache.
         let until = (later.iter())
-            .map(|(run, round)| work::sessions::start(work, *run, *round))
+            .map(|(run, round)| work::sessions::first_try_at(work, *run, *round))
             .min();
         let end_of = |run: RunId, number: usize| {
             (work.records.returned.iter())
