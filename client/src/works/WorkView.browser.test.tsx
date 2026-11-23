@@ -85,29 +85,23 @@ describe("a work's page opened on a round's address", () => {
     );
     unmount = () => flushSync(() => root.unmount());
     await expect.poll(() => host.querySelector('section.cw-fold-chosen')).not.toBeNull();
-    const body = host.querySelector('aside .drawer-body') as HTMLElement;
     const lit = host.querySelector('section.cw-fold-chosen') as HTMLElement;
+    // The window's scrolling part: the item's panel is as high as the window and its part scrolls.
+    const inner = lit.closest('.cw-inner') as HTMLElement;
     // The window has scrolled, and the section's middle lies in the part of it that is seen, inside the browser's view.
-    // What the measure holds is told as it is when the test fails, with each element from the section up that scrolls.
+    // What the measure holds is told as it is when the test fails.
     const measure = () => {
-      const seen = body.getBoundingClientRect();
+      const seen = inner.getBoundingClientRect();
       const at = lit.getBoundingClientRect();
       const middle = (at.top + at.bottom) / 2;
-      const scrollers: string[] = [];
-      for (let e: HTMLElement | null = lit.parentElement; e !== null; e = e.parentElement) {
-        if (e.scrollHeight > e.clientHeight || e.scrollWidth > e.clientWidth) {
-          scrollers.push(`${e.tagName}.${e.className}:top ${e.scrollTop}/${e.scrollHeight - e.clientHeight}`);
-        }
-      }
       return JSON.stringify({
-        tall: body.scrollHeight > body.clientHeight,
-        scrolled: body.scrollTop > 0,
+        tall: inner.scrollHeight > inner.clientHeight,
+        scrolled: inner.scrollTop > 0,
         centred: middle >= seen.top && middle <= seen.bottom,
         across: at.left >= Math.max(seen.left, 0) && at.right <= Math.min(seen.right, window.innerWidth),
-        body: [seen.top, seen.bottom, seen.left, seen.right],
+        window: [seen.top, seen.bottom, seen.left, seen.right],
         section: [at.top, at.bottom, at.left, at.right],
-        view: [window.innerWidth, window.innerHeight],
-        scrollers,
+        browser: [window.innerWidth, window.innerHeight],
       });
     };
     await expect.poll(measure).toMatch(/^\{"tall":true,"scrolled":true,"centred":true,"across":true,/);
