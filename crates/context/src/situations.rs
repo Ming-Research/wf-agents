@@ -941,6 +941,11 @@ impl<'a> Reach<'a> {
                     (Class::Fired | Class::Grouped, false) => Stands::HoldsLast,
                     (Class::Rest | Class::Never | Class::Output, false) => Stands::Holds,
                 };
+                // What only cells that run after every run of this cell write is not written whenever it is entered.
+                let stands = match self.written_only_later(&block) {
+                    true => Stands::Unwritten,
+                    false => stands,
+                };
                 (block.to_string(), stands)
             })
             .collect();

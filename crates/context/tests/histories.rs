@@ -272,9 +272,6 @@ struct History {
     rng: Rng,
     /// What each line's session holds.
     lines: BTreeMap<String, Held>,
-    /// The lines that began a new session while the round given was of the line, which holds nothing once that round
-    /// is carried out.
-    renewed: BTreeSet<String>,
     /// The version of each datum each cell last worked from.
     worked: BTreeMap<(CellId, BlockId), Seq>,
     /// The last content written of each block.
@@ -325,7 +322,6 @@ impl History {
             scene,
             rng: Rng::new(seed),
             lines: BTreeMap::new(),
-            renewed: BTreeSet::new(),
             worked: BTreeMap::new(),
             last: BTreeMap::new(),
             written: BTreeMap::new(),
@@ -417,18 +413,7 @@ impl History {
             self.put(block);
         } else if roll < puts + reopens {
             let line = self.scene.lines[self.rng.below(self.scene.lines.len())].clone();
-            self.sim.anew(&line, Why::Owner);
-            // The round given goes on in the session it began in, and the line's next round runs in the new one: what the
-            // session holds is forgotten once that round is carried out.
-            match self.sim.round() {
-                Some(round) if self.sim.line(&round) == line => {
-                    self.renewed.insert(line);
-                }
-                _ => {
-                    self.lines.insert(line, Held::default());
-                }
-            }
-            reached.reopened += 1;
+            self.reopen(&line, reached);
         } else if self.scene.talks && roll < puts + reopens + speaks && self.speaks() {
             // The owner spoke or answered.
         } else if roll < puts + reopens + speaks + self.scene.nudges && self.target.is_some() {
@@ -436,9 +421,6 @@ impl History {
             self.perturb(reached, &target);
         } else if let Some(round) = self.sim.round() {
             self.carry(&round, reached);
-            for line in std::mem::take(&mut self.renewed) {
-                self.lines.insert(line, Held::default());
-            }
         } else if let Some(call) = self.sim.calls().first() {
             self.sim.done(*call, "the rows");
         } else if !self.lets_go() {
@@ -488,9 +470,7 @@ impl History {
                     Some(line) if self.rng.chance(70) => line,
                     _ => self.scene.lines[self.rng.below(self.scene.lines.len())].clone(),
                 };
-                self.sim.anew(&line, Why::Owner);
-                self.lines.insert(line, Held::default());
-                reached.reopened += 1;
+                self.reopen(&line, reached);
             }
             3 | 4 => {
                 if self.scene.talks {
@@ -523,6 +503,14 @@ impl History {
                 }
             }
         }
+    }
+
+    /// The owner has the line begin a new session. A round of the line that has begun goes on in the session it began
+    /// in, and the line's next round runs in the new one: which round begins a session is what the records say
+    /// ([`Sim::begins`]), where the test's account of what the session holds is begun anew ([`History::carry`]).
+    fn reopen(&mut self, line: &str, reached: &mut Reached) {
+        self.sim.anew(line, Why::Owner);
+        reached.reopened += 1;
     }
 
     /// The owner says a few words to a cell that takes them, or answers a question that stands unanswered. Says whether
@@ -674,6 +662,16 @@ impl History {
             tool("y"),
         ]);
         self.drain(reached);
+        // The notes are written after the review's last run, and its next run reads them in its first round, which asks
+        // for a tool: its second round holds them as the latest, which the review never worked from as they are. The
+        // first of the two runs gives the review a last run to have worked from.
+        for _ in 0..2 {
+            self.put("notes");
+            self.put("plan");
+            self.under_way("build");
+            self.forced = Some(vec![Forced::All, tool("q")]);
+            self.drain(reached);
+        }
         // The close, run by the finish, reads the verdict, and its run ends the work once it hands in or asks for a
         // call: its first two returns are sent back, which is the limit of its returns.
         self.forced = Some(vec![Forced::Wrong, Forced::Wrong]);
@@ -724,12 +722,13 @@ impl History {
         let line = self.sim.line(round);
         self.trace
             .push(format!("{}#{} round {}", round.cell, round.run.0, round.number));
+        // A round that begins its line's session is the first to put anything into it, whatever the account held of the
+        // session before.
         let begins = self.sim.begins(round);
-        let held = if begins {
-            Held::default()
-        } else {
-            self.lines.get(&line).cloned().unwrap_or_default()
-        };
+        if begins {
+            self.lines.insert(line.clone(), Held::default());
+        }
+        let held = self.lines.get(&line).cloned().unwrap_or_default();
         let going_on = self.sim.enter(round, false);
         let lost = !begins && self.rng.chance(10);
         // Entered in a session that holds nothing: on the small flow every round; on the engineer's where the round begins
