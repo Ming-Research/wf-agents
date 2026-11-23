@@ -32,7 +32,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use context::message::{Values, kept};
 use context::text::as_written;
-use context::{Entered, Form, Piece, Stands};
+use context::{Entered, Form, Piece, Situation, Stands};
 use decide::run::Unmet;
 use decide::{BlockId, CallId, CellId, RunId, Seq, Writer};
 use engine::{Ask, Back, Came, Fill, Given, Handed, Why};
@@ -86,6 +86,8 @@ struct Held {
     taken: Vec<(BlockId, Seq)>,
     /// How often each task was filled into it.
     tasks: BTreeMap<String, u32>,
+    /// The cells entered in it.
+    entered: BTreeSet<CellId>,
 }
 
 impl Held {
@@ -94,7 +96,8 @@ impl Held {
     }
 
     /// What a round that reached the model filled into it.
-    fn fill(&mut self, run: RunId, fills: &[Fill]) {
+    fn fill(&mut self, run: RunId, cell: &CellId, fills: &[Fill]) {
+        self.entered.insert(cell.clone());
         for fill in fills {
             match fill {
                 Fill::Whole { block, version } | Fill::Change { block, version, .. } => {
@@ -142,6 +145,8 @@ struct Reached {
     unread: usize,
     /// A block the cell writes, given by nothing else, sent as the session lacked its latest.
     outputs: usize,
+    /// What the entries of real rounds stood in, by [`stood`].
+    real: BTreeSet<String>,
 }
 
 /// One history, and the test's account beside it.
@@ -267,7 +272,10 @@ impl History {
             // A round that failed after its program had its message, as at the usage limit, put it into its session;
             // one that failed before its program ran put nothing there.
             if self.rng.chance(50) {
-                self.lines.entry(line.clone()).or_default().fill(round.run, &used.fills);
+                self.lines
+                    .entry(line.clone())
+                    .or_default()
+                    .fill(round.run, &round.cell, &used.fills);
                 self.sim.fails_as(round, decide::run::Failure::UsageLimit, true);
                 reached.wrote += 1;
             } else {
@@ -275,7 +283,10 @@ impl History {
             }
             return;
         }
-        self.lines.entry(line.clone()).or_default().fill(round.run, &used.fills);
+        self.lines
+            .entry(line.clone())
+            .or_default()
+            .fill(round.run, &round.cell, &used.fills);
         let compactions = u32::from(self.rng.chance(10));
         let came = self.came(round);
         self.sim.returns(round, came, compactions);
@@ -540,6 +551,23 @@ impl History {
         fills
     }
 
+    /// Which entry of its cell the round is, by the test's account of the session: the cell has been entered in it
+    /// (`later`); it worked from nothing (`first`); it worked before and the session holds nothing (`reopened`); or the
+    /// session holds what another cell was sent (`reopened_after_read`).
+    fn entry(&self, round: &Round, held: &Held) -> &'static str {
+        let cell = self.sim.cell(round);
+        let worked = self.worked.keys().any(|(c, _)| *c == cell.id);
+        if held.entered.contains(&cell.id) {
+            "later"
+        } else if !worked {
+            "first"
+        } else if held.versions.is_empty() && held.parts.is_empty() {
+            "reopened"
+        } else {
+            "reopened_after_read"
+        }
+    }
+
     fn check(&self, round: &Round, entered: &Entered, held: &Held, reached: &mut Reached) {
         let sim = &self.sim;
         let cell = sim.cell(round);
@@ -687,6 +715,9 @@ impl History {
             .collect();
         assert_eq!(entered.run.taken, taken, "what the last return handed in");
         assert_eq!(entered.situation.after_hand_in, !held.taken.is_empty());
+        reached
+            .real
+            .extend(stood(cell.id.as_str(), self.entry(round, held), &entered.situation));
         // What the page shows for the situation, its places open, is what the engine sends in it.
         let open = context::message(
             &sim.flow,
@@ -705,6 +736,48 @@ impl History {
             assert!(fits(&open.pieces, &text), "{:?} does not fit {text:?}", open.pieces);
         }
     }
+}
+
+/// What an entry of the cell stood in, as lines each of one thing the tool writes a situation for, apart: what ran the
+/// cell and how the session stood with each datum; what the session held as the entry began; what else was given. A
+/// real round and a written situation are held to the same lines, each by its own, so that each datum's state is
+/// compared by the cell, the entry and what ran it, and a state of one datum is not asked of another.
+fn stood(cell: &str, entry: &str, s: &Situation) -> Vec<String> {
+    let mut lines: Vec<String> = (s.data.iter())
+        .map(|(block, stands)| format!("{cell} {entry} ran by {:?}: {block} {}", s.new, stands.name()))
+        .collect();
+    lines.push(format!(
+        "{cell} {entry} holds {:?}, after a hand-in: {}",
+        s.holds, s.after_hand_in
+    ));
+    lines.push(format!(
+        "{cell} {entry} given results {:?}, sent back {}, main {:?}",
+        s.results, s.sent_back, s.main
+    ));
+    lines
+}
+
+/// What the tool writes for every agent's cell of the flow, as the lines of [`stood`], by the entry each is named for.
+fn written(sim: &Sim) -> BTreeSet<String> {
+    let mut lines = BTreeSet::new();
+    for cell in sim.flow.cells.iter().filter(|c| c.kind == flow::Kind::Agent) {
+        let all = context::situations::situations(&sim.flow, &sim.words, cell, REOPENED, &support::compared());
+        for named in all {
+            let entry = named.name.split('-').next().expect("an entry");
+            lines.extend(stood(cell.id.as_str(), entry, &named.situation));
+        }
+    }
+    lines
+}
+
+/// The source no block of the small flow is written by.
+const REOPENED: &str = "session";
+
+/// The lines in the first set and not in the second, cut to how many a failure says.
+fn missing(a: &BTreeSet<String>, b: &BTreeSet<String>) -> String {
+    let all: Vec<&String> = a.difference(b).collect();
+    let shown: Vec<&str> = all.iter().take(60).map(|s| s.as_str()).collect();
+    format!("{} of them:\n{}", all.len(), shown.join("\n"))
 }
 
 /// A datum a round of the cell is given, by the test's account: its kind, and whether it is given only as what the
@@ -820,6 +893,14 @@ fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() 
     ] {
         assert!(n > 0, "no history reached {what}");
     }
+    // What the tool writes and what the rounds reached are the same, line by line: a line of a round that the tool does
+    // not write is a gap in its rules, and a line it writes that no round reached is one it writes for nothing.
+    let written = written(&Sim::new());
+    let (gaps, nothing) = (missing(&reached.real, &written), missing(&written, &reached.real));
+    assert!(
+        reached.real.is_subset(&written) && written.is_subset(&reached.real),
+        "rounds stood in what the tool does not write, {gaps}\n\nthe tool writes what no round stood in, {nothing}"
+    );
 }
 
 #[test]
