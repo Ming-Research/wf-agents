@@ -302,6 +302,7 @@ impl S {
             level: "1".to_string(),
             project: PROJECT.to_string(),
             tags: Vec::new(),
+            continues: None,
             depends_on: Vec::new(),
             flow: "sessions".to_string(),
             writes: vec![FirstWrite {
@@ -353,6 +354,7 @@ impl S {
             project: PROJECT.to_string(),
             depends_on: Vec::new(),
             tags: Vec::new(),
+            continues: None,
             flow: "sessions".to_string(),
             writes: vec![FirstWrite {
                 block: "request".into(),
@@ -386,6 +388,7 @@ impl S {
             project: PROJECT.to_string(),
             depends_on: Vec::new(),
             tags: Vec::new(),
+            continues: None,
             flow: "sessions".to_string(),
             writes: vec![FirstWrite {
                 block: "request".into(),
@@ -1162,6 +1165,7 @@ fn a_model_the_service_does_not_have_pauses_every_work_whose_rounds_run_on_it() 
             project: PROJECT.to_string(),
             depends_on: Vec::new(),
             tags: Vec::new(),
+            continues: None,
             flow: "sessions".to_string(),
             writes: vec![FirstWrite {
                 block: "request".into(),
