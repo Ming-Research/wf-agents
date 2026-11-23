@@ -104,6 +104,7 @@ pub(crate) enum Asked {
     Reopen(u64),
     Cancel(u64),
     Log(u64),
+    Pull(u64),
 }
 
 impl Fake {
@@ -204,6 +205,40 @@ impl Fake {
     /// opened its pull request would.
     pub(crate) fn hide_pulls_once(&self) {
         self.kept().hidden += 1;
+    }
+
+    /// A pull request of the branch into the base, in this state, that a person made before the work: at the branch's
+    /// head where the bare repository has it, from a fork where `from_fork` says so. Gives its number.
+    pub(crate) fn pull_of(&self, branch: &str, base: &str, state: State, from_fork: bool) -> u64 {
+        let head = self.head(branch).unwrap_or_default();
+        let mut kept = self.kept();
+        let number = kept.pulls.len() as u64 + 1;
+        let pull = Pull {
+            number,
+            url: format!("https://github.example/pull/{number}"),
+            state,
+            head,
+            base: base.to_string(),
+            merge_commit: None,
+            title: format!("Pull request {number}"),
+            body: String::new(),
+            draft: false,
+            node: format!("PR_{number}"),
+            branch: branch.to_string(),
+            from_fork,
+        };
+        kept.pulls.push((branch.to_string(), pull));
+        number
+    }
+
+    /// What the pull requests were asked to close with, as `(number, comment)` in order.
+    pub(crate) fn closed_with(&self) -> Vec<(u64, String)> {
+        (self.kept().asked.iter())
+            .filter_map(|asked| match asked {
+                Asked::Close { number, comment } => Some((*number, comment.clone())),
+                _ => None,
+            })
+            .collect()
     }
 
     /// Closes the pull request, as a person may.
@@ -309,6 +344,14 @@ fn squash(bare: &std::path::Path, head: &str, title: &str) -> Result<String, Str
 }
 
 impl Api for Fake {
+    async fn pull(&self, number: u64) -> Result<Option<Pull>, Failed> {
+        self.kept().asked.push(Asked::Pull(number));
+        let found = (self.kept().pulls.iter())
+            .find(|(_, p)| p.number == number)
+            .map(|(branch, _)| branch.clone());
+        Ok(found.and_then(|branch| self.of(&branch).into_iter().find(|p| p.number == number)))
+    }
+
     async fn pulls(&self, branch: &str) -> Result<Vec<Pull>, Failed> {
         let mut kept = self.kept();
         kept.asked.push(Asked::Pulls(branch.to_string()));
@@ -348,6 +391,8 @@ impl Api for Fake {
             body: body.to_string(),
             draft: true,
             node: format!("PR_{number}"),
+            branch: branch.to_string(),
+            from_fork: false,
         };
         kept.pulls.push((branch.to_string(), pull.clone()));
         Ok(pull)
