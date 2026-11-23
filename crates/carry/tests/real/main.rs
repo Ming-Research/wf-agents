@@ -957,6 +957,7 @@ impl Real {
                         (name.to_string(), level)
                     })
                     .into(),
+                highest_level: None,
                 slots: 2,
                 args: Vec::new(),
                 env: Vec::new(),

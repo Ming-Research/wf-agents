@@ -256,7 +256,9 @@ function cellsAt(at: string | null, state: CellState, deep = true): CellNow[] {
 
 const spentOf = (dollars: number, hours: number, rounds: number): Spent => ({
   usdMicros: Math.round(dollars * 1e6),
-  inputTokens: rounds * 41_000,
+  inputTokens: rounds * 800,
+  cacheWrittenTokens: rounds * 40_200,
+  unsplitTokens: 0,
   cachedTokens: rounds * 30_000,
   outputTokens: rounds * 3_200,
   workingMs: Math.round(hours * HOUR),
@@ -777,7 +779,8 @@ export function fixtureSource(start = Date.now()): Source {
       }
     },
     // The made-up works have no block with a version.
-    loadVersion: (work, block, number) => Promise.reject(new Error(`Work ${work} has no version ${number} of ${block}`)),
+    loadVersion: (work, block, number) =>
+      Promise.reject(new Error(`${workName(work)} has no version ${number} of ${block}.`)),
     act: (work, what) => {
       try {
         const { summary } = find(work);

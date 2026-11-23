@@ -84,7 +84,8 @@ fn answered(spent: Spent) -> Forked {
 fn took() -> Spent {
     Spent {
         usd_micros: 81_000,
-        input_tokens: 120,
+        uncached_tokens: 120,
+        cache_written_tokens: Some(100),
         cached_tokens: 25_800,
         output_tokens: 30,
         ..Spent::default()
@@ -117,11 +118,12 @@ async fn a_fork_that_answered_is_kept_with_the_work_as_the_round_it_was_asked_of
     assert_eq!(
         (
             kept[0].usd_micros,
-            kept[0].input_tokens,
+            kept[0].uncached_tokens,
+            kept[0].cache_written_tokens,
             kept[0].cached_tokens,
             kept[0].output_tokens
         ),
-        (81_000, 120, 25_800, 30)
+        (81_000, 120, Some(100), 25_800, 30)
     );
 }
 

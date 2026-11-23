@@ -11,6 +11,20 @@ A new build of the engine is installed and started by hand: the engine never ins
 - rejected: an agent proposed a deployment in which CI builds a package after a merge and the engine restarts on the new package when no round is running; the owner rejected it, because changing the engine by hand is fine once the system improves itself and passes acceptance on the test system.
 - rejected: an agent proposed that the engine install itself and restart on each green commit of main, as wf-board's deploy agent did; the owner rejected it, because a restart holds every work until the owner looks, so a redeploy at each merge would stop the night's works.
 
+### decision the-flows-are-the-programs-own
+The engine runs the flows its program carries, built in from the source the program is built from and taken out into the data directory at start; a flow in a directory runs only where one is given.
+- replaced: Taking the flow files from main's latest commit as the engine starts was on main; the owner changed it, because a flow main had moved on to could use a field the installed program did not know, and the engine then could not start.
+- rejected: an agent proposed that the program carry its commit and the start script take the flow files from that commit; the owner rejected it, because program and flows would stay two things matched by a number, kept by a script outside the repository.
+
+### decision the-programs-flows-are-named-on-the-command-line
+The program's own flows are named by `--program-flow`, given once for each, in the order given; the first is the one the flow page shows, and `--flow` is refused beside it.
+- rejected: an agent proposed an ordered list of flow names in the installation's settings; the owner rejected it, because an argument used as `--flow` is used changes least, where a setting adds a key and a change to the settings page, its example and the checks.
+
+### decision the-program-says-the-commit-it-was-given
+`wf-agents --version` and the engine's start line say the program's version and the commit the build was given in `WF_BUILD_COMMIT`, or `unknown` where it was given none; the build runs no git.
+- rejected: an agent proposed that the build script run git for the commit and for whether the checkout has changes; the owner rejected it, because the result would depend on the checkout's state, which a build not made from a git checkout cannot give.
+- rejected: an agent proposed that the program carry no commit; the owner rejected it, because after an install no one could then say which source the program, its page and its flows were built from.
+
 ### decision a-works-worktree-is-in-the-data-directory
 A work's worktree is made in the data directory, under `worktrees/`, on a branch of the work's own.
 - rejected: an agent proposed putting the works' worktrees under the directory of the wf projects; the owner rejected it, because that directory belongs to wf, and wf-agents' worktrees go under its own data directory, which git keeps with the worktrees ignored.

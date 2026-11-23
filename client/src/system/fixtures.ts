@@ -10,6 +10,8 @@ import type { AccountsPage, AccountUsage, SettingsPage, System, Week } from './a
 const nothing = (): Spent => ({
   usdMicros: 0,
   inputTokens: 0,
+  cacheWrittenTokens: 0,
+  unsplitTokens: 0,
   cachedTokens: 0,
   outputTokens: 0,
   workingMs: 0,
@@ -19,6 +21,8 @@ const nothing = (): Spent => ({
 const add = (a: Spent, b: Spent): Spent => ({
   usdMicros: a.usdMicros + b.usdMicros,
   inputTokens: a.inputTokens + b.inputTokens,
+  cacheWrittenTokens: a.cacheWrittenTokens + b.cacheWrittenTokens,
+  unsplitTokens: a.unsplitTokens + b.unsplitTokens,
   cachedTokens: a.cachedTokens + b.cachedTokens,
   outputTokens: a.outputTokens + b.outputTokens,
   workingMs: a.workingMs + b.workingMs,
@@ -29,6 +33,8 @@ const add = (a: Spent, b: Spent): Spent => ({
 const part = (spent: Spent, share: number): Spent => ({
   usdMicros: Math.round(spent.usdMicros * share),
   inputTokens: Math.round(spent.inputTokens * share),
+  cacheWrittenTokens: Math.round(spent.cacheWrittenTokens * share),
+  unsplitTokens: Math.round(spent.unsplitTokens * share),
   cachedTokens: Math.round(spent.cachedTokens * share),
   outputTokens: Math.round(spent.outputTokens * share),
   workingMs: Math.round(spent.workingMs * share),
@@ -127,6 +133,7 @@ export function fixtureSettings(): SettingsPage {
         keys: [
           key('command', '"claude"'),
           key('slots', '3', '2', { kind: 'count' }),
+          { key: 'highest_level', written: null, running: null, change: { kind: 'level' } },
           key('args', '["--allowedTools", "Edit(./**)"]'),
           key('work_budget_usd', '5.0'),
         ],

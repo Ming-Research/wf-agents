@@ -374,6 +374,38 @@ async fn a_job_red_with_no_failed_test_of_its_own_fails_the_commit_beside_a_test
     }
 }
 
+// The job `tree` of a run on a change of only the design tree fails a step of its own: its results say so as a suite of
+// its name with an error, a unit not built, not as a test that failed. The commit fails as the full workflows found it,
+// with that step said, and nothing is run again, as would be a test of that name on the fast workflow. Well under a
+// second alone, a repository on disk and GitHub in memory; no other test holds a job of no tests to its own file.
+#[tokio::test]
+async fn a_design_tree_check_that_failed_fails_the_commit_by_its_step_and_runs_no_test_again() {
+    let step = r#"<testsuites><testsuite name="tree"><error message="the step Check the design tree's forms of the job failed"/></testsuite></testsuites>"#;
+    let hub = Hub::new();
+    hub.with_workflow(CI);
+    let head = hub.committed().await;
+    let jobs = vec![
+        passed("scope"),
+        check("tree", red()),
+        check("page", Outcome::Skipped),
+        check("test", Outcome::Skipped),
+        check("check", red()),
+    ];
+    hub.github()
+        .of_workflow("ci.yml", &head, jobs, Some(("test-results", vec![file("tree", step)])));
+    hub.fast_on(&head, true, Outcome::Passed);
+    let verdict = hub.verdict(&head).await.unwrap().expect("judged");
+    assert_eq!((&verdict.held, verdict.observations.len()), (&None, 0), "{verdict:?}");
+    let failed = verdict.failed.expect("failed");
+    assert!(!failed.contains("run again"), "{failed}");
+    assert!(failed.contains("- tree: failed (failure)"), "{failed}");
+    assert!(
+        failed.contains("tree: the step Check the design tree's forms of the job failed"),
+        "{failed}"
+    );
+    assert_eq!(runs(&hub).len(), 1, "only the full workflows ran");
+}
+
 // A job that did not pass and left no results of its own, as one whose runner died before it named them, is let
 // through only where the run again reproduces it, as a check the fast workflow runs by name, or where it only sums up
 // the others, needing every other job of the full workflow as main holds it: beside a failed test of another job that

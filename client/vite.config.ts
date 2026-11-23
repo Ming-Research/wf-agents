@@ -14,13 +14,14 @@
 import { playwright } from '@vitest/browser-playwright';
 import react from '@vitejs/plugin-react';
 import { configDefaults, defineConfig } from 'vitest/config';
+import { sourceStampPlugin } from './build/stamp';
 
 const target = process.env.WF_AGENTS_URL ?? 'http://127.0.0.1:7490';
 
 const BROWSER_TESTS = 'src/**/*.browser.test.tsx';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), sourceStampPlugin()],
   build: {
     outDir: 'dist',
     emptyOutDir: true,

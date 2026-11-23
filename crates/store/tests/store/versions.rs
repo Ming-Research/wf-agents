@@ -165,7 +165,8 @@ fn the_forks_of_a_work_read_back_as_written_each_with_its_round_and_what_it_took
     let run = d.work.records.rounds[0].run;
     let spent = |usd_micros| Spent {
         usd_micros,
-        input_tokens: 120,
+        uncached_tokens: 120,
+        cache_written_tokens: Some(100),
         cached_tokens: 18_100,
         output_tokens: 30,
         ..Spent::default()

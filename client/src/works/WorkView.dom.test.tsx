@@ -340,6 +340,11 @@ describe("a work's line", () => {
     expect(line.querySelector('.now-words')).toBeNull();
     expect(button(line, 'Pause')).toBeUndefined();
   });
+
+  it("names the work by its number, as the engine writes it, where no item the page read has it for its work", async () => {
+    const { page } = await drawWork(41, fixtureSource({ loadItems: async () => ({ items: [] }) }));
+    expect(page.querySelector('.cw-empty')?.textContent).toBe('No item the page read has W41 for its work');
+  });
 });
 
 describe('a work as it is read', () => {

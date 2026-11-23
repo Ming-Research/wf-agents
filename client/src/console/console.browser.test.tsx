@@ -25,6 +25,7 @@ import { DEFAULT_ACCENT, pickAccent, PRESETS, tones } from '../accent';
 import { apart, lchOf } from '../colour';
 import { MARKS } from '../marks';
 import { useBarItems } from '../Engine';
+import { NO_LEVEL } from '../works/words';
 import type { Changed, Items, Now } from '../works-api';
 import { FIXTURES, type Source as PageSource, SourceContext } from '../works/source';
 import { fixtureSource } from './fixtures';
@@ -69,6 +70,8 @@ const running = (number: number): ShownWork => {
     last: null,
     level: '2',
     raise: 0,
+    cellLevel: '2',
+    held: null,
     lines: null,
   };
 };
@@ -183,6 +186,75 @@ describe('the tree in columns', () => {
     expect(told).toHaveBeenLastCalledWith(expect.objectContaining({ id: 1 }));
     click(x, HEIGHT - 20);
     expect(told).toHaveBeenLastCalledWith(null);
+  });
+
+  it('says on pointing at the level on a card what the item window says of it, in every case, and turns the pointer to no hand over it', async () => {
+    const worked = (id: number, work: Partial<ShownWork>): Shown => ({ ...card(id), work: { ...running(id), ...work } });
+    // The card's own middle stands at the screen's, with the level in its second row, under the number.
+    const said = (item: Shown) => {
+      scene.show([item]);
+      settle(scene);
+      const left = scene.place().left;
+      // Off every card first, so that nothing said for the last card stands.
+      move(WIDTH - 10, HEIGHT - 10);
+      scene.step();
+      expect(canvas().title).toBe('');
+      for (let y = line - ROW; y <= line + ROW; y += 2) {
+        for (let x = left + 4; x < left + 80; x += 4) {
+          move(x, y);
+          scene.step();
+          if (canvas().title !== '') return { title: canvas().title, cursor: canvas().style.cursor };
+        }
+      }
+      return { title: '', cursor: canvas().style.cursor };
+    };
+    // Held by the highest level a round may run at: written at the level it runs at, and what held it said.
+    expect(said(worked(1, { level: '3', raise: 0, cellLevel: '3', held: { asks: 1, by: 'agents.highest_level' } }))).toEqual({
+      title: 'level 3, levels_above 1, agents.highest_level 3',
+      cursor: '',
+    });
+    // Raised, and held by nothing: its keys alone.
+    expect(said(worked(2, { level: '3', raise: 1, cellLevel: '4', held: null }))).toEqual({
+      title: 'level 3, levels_above 1',
+      cursor: '',
+    });
+    expect(said(worked(3, { level: '2', raise: 0, cellLevel: '2', held: null })).title).toBe('level 2');
+    // A work whose engine gives no level: a dash, and why there is none.
+    expect(said(worked(4, { level: null, raise: 0, cellLevel: null, held: null })).title).toBe(NO_LEVEL.level);
+  });
+
+  it("writes the number of each card, a shadow's and a deliverable's too, as #n, and starts every title past the widest number the whole tree holds, folded items included", () => {
+    const under = { open: 1, done: 0, cancelled: 0, elsewhere: 0 };
+    // 445, the only number of three digits, stands under item 5, which the tree can fold away.
+    const tree = (folded: boolean) => [
+      { ...card(5, [card(445)]), fold: { folded, under } },
+      card(57),
+      { ...card(7), deliver: true },
+      card(9, [shadow(57)]),
+    ];
+    const texts = () => scene.drawnNumbers().map((n) => `${n.text}${n.shadow ? ' (shadow)' : ''}`);
+    const titles = () => new Set(scene.drawnNumbers().map((n) => n.titleAt));
+    scene.show(tree(false));
+    settle(scene);
+    expect(texts()).toEqual(['#5', '#445', '#57', '#7', '#9', '#57 (shadow)']);
+    expect(titles().size).toBe(1);
+    const [column] = titles();
+    // Folded away, the only card of three digits is not drawn, and no title moves for it.
+    scene.show(tree(true));
+    for (let k = 0; k <= FOLD_MS / 16; k += 1) scene.step();
+    expect(texts()).toEqual(['#5', '#57', '#7', '#9', '#57 (shadow)']);
+    expect([...titles()]).toEqual([column]);
+    // Shown again, the cards that stayed are kept, and the shadow's number is still said.
+    scene.show(tree(false));
+    settle(scene);
+    expect(texts()).toEqual(['#5', '#445', '#57', '#7', '#9', '#57 (shadow)']);
+    expect([...titles()]).toEqual([column]);
+    // A tree of numbers of two digits at most has a narrower column.
+    scene.show([card(5), card(57), shadow(57)]);
+    settle(scene);
+    expect(texts()).toEqual(['#5', '#57', '#57 (shadow)']);
+    expect(titles().size).toBe(1);
+    expect([...titles()][0]).toBeLessThan(column);
   });
 
   it('folds the items under a card at a click on its funnel and shows them at a click on the dot they fold into, selecting nothing, each fold turning over its time', async () => {

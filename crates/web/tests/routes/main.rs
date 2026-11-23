@@ -336,6 +336,17 @@ pub fn running_flow(
     carriers: service::Carriers,
     source: &Source,
 ) -> Running {
+    running_flow_on_levels(store, dir, carriers, source, levels())
+}
+
+/// [`running_flow`], with these levels in place of [`levels`].
+pub fn running_flow_on_levels(
+    store: Box<dyn store::Storage + Send>,
+    dir: tempfile::TempDir,
+    carriers: service::Carriers,
+    source: &Source,
+    levels: service::Levels,
+) -> Running {
     let flow = flow::compile(source, &trial_has(&Source::default())).unwrap();
     let clock = Arc::new(TokioClock::new(work::Time(START)));
     let (service, inbox) = Service::open(store, vec![flow], carriers, clock).unwrap();
@@ -343,21 +354,31 @@ pub fn running_flow(
     tokio::spawn(service.run(inbox));
     let flows = Flows::dirs(trial_dir().join("flow"), Box::new(trial_has));
     // The observations are read from the store's file, as the engine's program serves them.
-    let observations = web::observations::router(handle.clone(), dir.path().join("store.sqlite"), levels(), projects());
+    let observations = web::observations::router(
+        handle.clone(),
+        dir.path().join("store.sqlite"),
+        levels.clone(),
+        projects(),
+    );
     Running {
-        router: web::with_works(flows, handle, levels(), projects()).merge(observations),
+        router: web::with_works(flows, handle, levels, projects()).merge(observations),
         _dir: dir,
     }
 }
 
-/// The levels an item is added at: `1` and `2`, the default, and `3`, above the highest an item may be at; and a title
-/// has 20 words at most.
+/// The levels an item is added at: `1` and `2`, the default, and `3`, above the highest an item may be at and the
+/// highest one round may run at; and a title has 20 words at most.
 pub fn levels() -> service::Levels {
+    levels_with_rounds_highest("2")
+}
+
+/// [`levels`], with the highest level one round may run at at this level.
+pub fn levels_with_rounds_highest(rounds_highest: &str) -> service::Levels {
     let levels = [("1", "Easy work"), ("2", "Ordinary work"), ("3", "Hard work")].map(|(name, desc)| service::Level {
         name: name.to_string(),
         desc: desc.to_string(),
     });
-    service::Levels::new(levels, "2", Some("2"))
+    service::Levels::new(levels, "2", Some("2"), Some(rounds_highest))
         .expect("the levels are made")
         .with_title_max(20)
 }
