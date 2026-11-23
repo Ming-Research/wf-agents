@@ -3,7 +3,8 @@
 How wf-agents itself is tested: its own CI workflows, the machines they run on and how they stay within their time.
 
 ### decision wf-agents-ci-runs-on-the-owners-machine
-The jobs of wf-agents' own workflows run on the owner's machine, on the runners labelled `14900k`, except one that builds nothing.
+The jobs of wf-agents' own workflows that build or test run on the owner's machine, on the runners labelled `14900k`; the jobs that build nothing run on GitHub's.
+- replaced: One job that built nothing off the owner's machine, the job that sums the run up, was on main; the owner changed it, because the job that says what changed and the job that checks the tree build nothing and need none of the eight runners.
 - replaced: The fast CI on GitHub's hosted runners was on main; the owner changed it, because a runner on his build machine changes nothing in the engine, keeps one definition of how tests run, and stays separate from his laptop.
 - replaced: The full CI on GitHub's runners was on main; the owner changed it, because his machine runs it faster, as the old system came to do.
 - rejected: an agent proposed checking several works together in one run of the full CI; the owner rejected it, because he chose to move the full CI to his machine instead, which is faster.

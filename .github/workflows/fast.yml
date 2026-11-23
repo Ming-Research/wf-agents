@@ -100,7 +100,7 @@ jobs:
         run: npm run lint
       - name: Format
         run: cargo fmt --all --check
-      # The design tree's files against the forms of design/README.md, as the full CI checks them.
+      # The design tree's files against the forms of design/README.md, as the full CI's job `tree` checks them.
       - name: Design tree
         run: python3 design/lint.py
       - name: Citations of the documents
