@@ -21,6 +21,7 @@ mod moving_on;
 mod opening;
 mod outage;
 mod outside;
+mod parallel;
 mod scheduling;
 mod sessions;
 mod starting;

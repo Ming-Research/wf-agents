@@ -10,4 +10,4 @@ CREATE TABLE moving_on (
     moving INTEGER NOT NULL CHECK (moving IN (0, 1)),
     time INTEGER NOT NULL
 );
-UPDATE schema_version SET version = 24;
+UPDATE schema_version SET version = 25;
