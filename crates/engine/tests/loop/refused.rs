@@ -114,6 +114,52 @@ fn a_return_of_a_run_that_finished_is_refused() {
     );
 }
 
+// What a carrier says it read of the branch is of the blocks a source outside the work writes: a read of a block that
+// only people write, that only cells write or that the flow does not have is refused, and the work is left as it was; a
+// read of one the outside writes is taken. Well under a millisecond alone; no other test holds what a return may say it
+// read.
+#[test]
+fn a_return_that_read_a_block_no_source_outside_writes_is_refused() {
+    let (mut w, write, _) = W::requested();
+    let returning = |block: &str| {
+        let mut came = hands_in(&[("text", None)]);
+        came.read = vec![handed(block, None)];
+        Event::Returned {
+            run: write,
+            came,
+            spent: Spent::default(),
+        }
+    };
+    for (block, why) in [
+        (
+            "request",
+            Refused::NotTheirs {
+                block: "request".into(),
+                by,
+            },
+        ),
+        (
+            "go",
+            Refused::NotTheirs {
+                block: "go".into(),
+                by: Outsider::Outside,
+            },
+        ),
+        (
+            "text",
+            Refused::NotTheirs {
+                block: "text".into(),
+                by,
+            },
+        ),
+        ("elsewhere", Refused::NoSuchBlock("elsewhere".into())),
+    ] {
+        assert_eq!(w.refused(returning(block)), why, "a read of {block}");
+    }
+    // One the outside writes is taken: the return stands.
+    w.on(returning("main"));
+}
+
 #[test]
 fn a_result_of_a_call_the_work_does_not_have_is_refused() {
     let (mut w, ..) = W::requested();

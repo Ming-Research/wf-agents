@@ -158,6 +158,26 @@ fn a_write_said_to_a_cell_loads_back_said_to_it() {
     assert_eq!(said, [Some("judge"), None]);
 }
 
+// A run that finished waiting for a block is kept with that block and loads back waiting for it. Well under a second
+// alone, a store on disk; no other test holds the block a finished run waits for through the file.
+#[test]
+fn a_run_that_finished_waiting_for_a_block_loads_back_waiting_for_it() {
+    let mut new = of_the_new_form();
+    let last = new.records.finished.last_mut().expect("a finished run");
+    last.waits_for = Some("main".into());
+    let db = Db::new();
+    let mut store = db.open();
+    first_work(&mut store);
+    let (_, work) = store
+        .add(&first("second", "2", &[]), "judged", Time(START), &Work::default())
+        .expect("the item is added");
+    store.save(work, &new).expect("the work is saved");
+    let loaded = db.open().load(work).expect("it loads");
+    let waits = loaded.records.finished.last().and_then(|f| f.waits_for.clone());
+    assert_eq!(waits, Some("main".into()));
+    assert_eq!(loaded, new);
+}
+
 #[test]
 fn runs_of_the_new_form_load_back_with_what_they_dealt_with_what_was_put_in_and_what_filled_their_sessions() {
     let new = of_the_new_form();

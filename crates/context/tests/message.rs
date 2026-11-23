@@ -498,6 +498,25 @@ fn a_return_found_owing_its_answer_naming_what_does_not_run_it_or_holding_a_verd
     }
 }
 
+// A return that says it dealt with what ran it, committing nothing and asking nothing, is sent back in the words of
+// `unanswered`, the block filled in. Well under a millisecond alone; no other test holds the sentence a round is told.
+#[test]
+fn a_return_that_dealt_with_what_ran_it_and_did_nothing_is_sent_back_in_its_words() {
+    let mut sim = Sim::new();
+    sim.writes("request", "Greet the user.");
+    carry(&mut sim, &[("plan", "Greet by name.", None)]);
+    let round = sim.round().expect("the build is entered");
+    let entered = sim.enter(&round, sim.begins(&round));
+    sim.tries(&round, 1, entered.fills);
+    let mut came = Came::hands_in(Vec::new());
+    came.found = vec![Unmet::Unanswered { block: "check".into() }];
+    sim.returns(&round, came, 0);
+    let again = sim.round().expect("the build's round after it was sent back");
+    let entered = sim.enter(&again, false);
+    let said = "- `check` is dealt with, but nothing is committed and no question is asked: commit the fix, or ask the owner.\n";
+    assert!(entered.text.contains(said), "{said:?} is not in {}", entered.text);
+}
+
 #[test]
 fn main_taken_in_is_told_to_a_cell_that_takes_it_in_in_one_line_in_the_words_of_its_part() {
     let mut sim = Sim::new();

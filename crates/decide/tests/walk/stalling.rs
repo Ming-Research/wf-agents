@@ -112,6 +112,35 @@ fn a_check_that_waits_for_main_has_the_work_wait_for_main_until_main_moves() {
     );
 }
 
+// A cell after where the work stands says that what it wrote waits for main: the work waits for main there, though that
+// cell is held behind the cell the work stands at, and once main moves it is that held cell the work stalls on, not a
+// wait with nothing to end it.
+#[test]
+fn a_wait_for_main_ends_once_main_moves_though_the_cell_that_waited_for_it_is_held() {
+    let (gated, named) = waiting_for("ok", "ok", when("go", "yes", cell("gated", &["brief"], &["done"])));
+    let cells = vec![gated, cell("later", &["main"], &["ok"]), cell("merge", &["done"], &[])];
+    let mut w = World::with_tests(cells, BTreeMap::from([named]));
+    w.written_by_cells("ok");
+    w.written_outside("main", "main");
+    w.person_writes("brief");
+    w.outside_writes("main");
+    // The gated cell does not apply yet: the later cell runs on main, and says that what it wrote waits for main.
+    let at = w.run_waiting_for("later", &[("ok", Value("no"))], "main");
+    let run = (w.records.finished.iter())
+        .find(|f| f.at == at)
+        .expect("the later cell finished")
+        .run;
+    w.person_sets("go", "yes");
+    let outside = Waited::Outside {
+        source: "main".to_string(),
+        run,
+        block: "ok".into(),
+    };
+    assert_eq!(w.decide(), wait("gated", vec![outside]));
+    w.outside_writes("main");
+    assert_eq!(w.decide(), stalled("gated", &["ok"], &[("later", Unrun::Held)]));
+}
+
 #[test]
 fn a_cell_that_writes_what_the_work_waits_for_and_is_skipped_says_which_key_of_its_condition_does_not_hold() {
     let (merge, named) = waiting_for("ok", "ok", cell("merge", &["ok"], &[]));
