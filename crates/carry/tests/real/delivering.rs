@@ -53,10 +53,10 @@ async fn a_deliverable_is_delivered_saying_what_it_was_made_of_touching_nothing_
         assert_eq!(spent, [Spent::default()], "the act took nothing");
     }
     assert_eq!(latest(&real, alone, "delivered"), "Delivered, made of no other item.");
-    assert_eq!(latest(&real, of_one, "delivered"), "Delivered, made of the item 1.");
+    assert_eq!(latest(&real, of_one, "delivered"), "Delivered, made of the item #1.");
     assert_eq!(
         latest(&real, of_two, "delivered"),
-        "Delivered, made of the items 1 and 2."
+        "Delivered, made of the items #1 and #2."
     );
     assert!(real.calls().is_empty(), "an agent ran");
     assert_eq!(repository(&real), before, "the act changed the repository");

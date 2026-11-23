@@ -86,10 +86,10 @@ async fn a_work_the_engine_paused_as_its_round_failed_is_given_with_the_reason_s
             "kind": "forAPerson",
             "of": { "work": 1, "item": 1, "title": "Greet the user" },
             "since": START + 7500,
-            "now": { "kind": "paused", "at": "plan", "by": "engine", "why": "The agent's program could not start." },
+            "now": { "kind": "paused", "at": "plan", "by": "engine", "why": "The round failed. The cause: The agent's program could not start." },
             "waits": [{
                 "key": "pause",
-                "why": "The engine paused the work. The agent's program could not start.",
+                "why": "The engine paused the work. The round failed. The cause: The agent's program could not start.",
                 "ends": { "kind": "resume" },
             }],
         }])
@@ -173,7 +173,7 @@ async fn a_mark_that_cannot_be_read_or_is_not_of_these_records_is_refused() {
     assert_eq!(status, StatusCode::BAD_REQUEST, "{words}");
     let (status, words) = refused(router, "/api/v1/attention?since=7").await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{words}");
-    assert!(words.contains("work 7"), "{words}");
+    assert!(words.contains("W7"), "{words}");
     let (status, words) = refused(router, &format!("/api/v1/attention?wait={}", u64::MAX)).await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{words}");
     let (status, words) = refused(router, "/api/v1/attention?after=1").await;

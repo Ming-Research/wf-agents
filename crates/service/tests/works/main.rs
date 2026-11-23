@@ -142,6 +142,8 @@ pub struct Trial {
     forks: Forks,
     /// The check of the outside of the agents' rounds, where it is not the script's, which always finds it well.
     outside: Option<Arc<dyn service::Outside>>,
+    /// The result a call the engine ends itself has, in the carriers' words.
+    calls: flow::agents::Calls,
 }
 
 /// The keep-warm pings handed out and not yet answered, each with its reply.
@@ -167,6 +169,17 @@ impl Trial {
     /// The loop with this script, on an empty store, the outside of the agents' rounds checked by this.
     pub fn with_outside(script: Script, outside: Arc<dyn service::Outside>) -> Trial {
         Trial::opened(script, None, Some(outside))
+    }
+
+    /// The loop with the trial's script, on an empty store, the result of a call the engine ends itself being these
+    /// words.
+    pub fn with_calls(calls: flow::agents::Calls) -> Trial {
+        Trial::opened_with(trial_script(), (None, None), calls)
+    }
+
+    /// The loop with this script, on an empty store, the result of a call the engine ends itself being these words.
+    pub fn with_script_and_calls(script: Script, calls: flow::agents::Calls) -> Trial {
+        Trial::opened_with(script, (None, None), calls)
     }
 
     /// The loop with the trial's script, on an empty store, whose agents' rounds run in sessions kept warm: every round
@@ -217,6 +230,15 @@ impl Trial {
     /// The loop with this script, on an empty store, its sessions kept warm where `pings` holds the pings in hand, and
     /// the outside checked by `outside` where one is given.
     fn opened(script: Script, pings: Option<Pings>, outside: Option<Arc<dyn service::Outside>>) -> Trial {
+        Trial::opened_with(script, (pings, outside), Scripted::calls())
+    }
+
+    /// The loop as [`Trial::opened`] opens it, the result of a call the engine ends itself being these words.
+    fn opened_with(
+        script: Script,
+        (pings, outside): (Option<Pings>, Option<Arc<dyn service::Outside>>),
+        calls: flow::agents::Calls,
+    ) -> Trial {
         let dir = tempfile::tempdir().expect("a directory for the store");
         let path = dir.path().join("store.sqlite");
         let clock = Arc::new(TokioClock::new(START));
@@ -224,7 +246,7 @@ impl Trial {
         let paused = Told::default();
         let forks = Forks::default();
         let carried = (pings.as_ref(), outside.as_ref(), &forks);
-        let (service, inbox) = open(&path, &script, &clock, (&handed, &paused), carried);
+        let (service, inbox) = open(&path, &script, &clock, (&handed, &paused), carried, &calls);
         let trial = Trial {
             _dir: dir,
             path,
@@ -239,6 +261,7 @@ impl Trial {
             pings,
             forks,
             outside,
+            calls,
         };
         trial.check();
         trial
@@ -279,7 +302,7 @@ impl Trial {
         }
         let recorded = (&self.handed, &self.paused);
         let carried = (self.pings.as_ref(), self.outside.as_ref(), &self.forks);
-        let (service, inbox) = open(&self.path, &self.script, &self.clock, recorded, carried);
+        let (service, inbox) = open(&self.path, &self.script, &self.clock, recorded, carried, &self.calls);
         self.service = service;
         self.inbox = inbox;
         self.check();
@@ -571,6 +594,7 @@ fn open(
     clock: &Arc<TokioClock>,
     (handed, paused): (&Arc<Mutex<BTreeSet<Unit>>>, &Told),
     (pings, outside, forks): (Option<&Pings>, Option<&Arc<dyn service::Outside>>, &Forks),
+    calls: &flow::agents::Calls,
 ) -> (Service, Inbox) {
     let store = Store::open(path).expect("the store opens");
     let recording = Arc::new(Recording {
@@ -595,6 +619,7 @@ fn open(
         host: Some(Arc::new(recording.scripted.clone())),
         slots: SLOTS,
         tokens: Arc::new(service::KeptTokens::new()),
+        calls: calls.clone(),
     };
     let clock: Arc<dyn service::Clock> = clock.clone();
     Service::open(Box::new(store), vec![trial_flow()], carriers, clock).expect("the loop opens")

@@ -30,9 +30,6 @@ use crate::{account, cli, failure, process};
 /// itself, for a while, before it says so.
 const REQUEST_WAIT: Duration = Duration::from_secs(120);
 
-/// What the short request asks.
-const REQUEST: &str = "Reply with the single word ok.";
-
 /// The check of the outside of the agents' rounds, as the installation's settings say how they run.
 pub struct Check {
     /// The agents' command line, as `agents.command` names it.
@@ -191,20 +188,20 @@ impl Check {
             &self.setting_sources,
             "--settings",
             &settings,
-            REQUEST,
+            &self.said.request,
         ];
         let output = match process::output(self.command(&args, token), REQUEST_WAIT).await {
             Ok(output) => output,
-            Err(why) => {
+            Err(unrun) => {
                 // One that did not end in time had no answer from the service; one that cannot be started is the
                 // command line failing to run.
-                let failure = match why.contains("did not end within") {
-                    true => decide::run::Failure::Unavailable,
-                    false => failure::of(&why, &failure::Said::default(), None),
+                let failure = match &unrun {
+                    process::Unrun::Timeout(_) => decide::run::Failure::Unavailable,
+                    process::Unrun::Cannot(why) => failure::of(why, &failure::Said::default(), None),
                 };
                 let down = Found::Down {
                     failure,
-                    why,
+                    why: unrun.into(),
                     resets: None,
                 };
                 return (down, None);
@@ -219,7 +216,7 @@ impl Check {
             return (Found::Well, said);
         }
         let had_result = stream.has_result();
-        let no = match stream.read(cli::Begin::New, 0) {
+        let no = match stream.read(cli::Begin::New, 0, &self.words) {
             Ok(_) => return (Found::Well, said),
             Err(no) => no,
         };
@@ -232,10 +229,14 @@ impl Check {
                 process::ended(&self.words, &self.command, output.status, &tail)
             }
         };
-        let failure = failure::of(&why, &no.said, no.spent.as_ref());
+        let report = match (output.status.success(), had_result) {
+            (true, _) | (false, true) => no.report,
+            (false, false) => String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        };
+        let failure = failure::of(&report, &no.said, no.spent.as_ref());
         let now = self.clock.now().map_or(0, |now| now.0);
         let resets = (failure == decide::run::Failure::UsageLimit)
-            .then(|| failure::resets(&why, &no.said, now, &failure::zone_offset))
+            .then(|| failure::resets(&report, &no.said, now, &failure::zone_offset))
             .flatten()
             .map(Time);
         (Found::Down { failure, why, resets }, said)
@@ -362,7 +363,9 @@ mod tests {
     #[tokio::test]
     async fn a_check_finds_the_outside_well_where_the_network_and_a_short_request_are_and_hears_the_usage() {
         let dir = tempfile::tempdir().unwrap();
-        let check = check(dir.path(), &answering(ANSWERED), true);
+        let mut check = check(dir.path(), &answering(ANSWERED), true);
+        // What it asks is the words' `request`, whatever they are.
+        check.said.request = "Say pong.".to_string();
         let heard = check.check(Some("work".to_string())).await;
         assert_eq!(heard.found, Found::Well);
         assert_eq!(
@@ -375,6 +378,7 @@ mod tests {
         // The short request is on the cheapest level's model, in a session not kept, and names no session of a work;
         // it is given the settings that keep the program's sessions.
         let request = &calls[0];
+        assert!(request.ends_with("Say pong."), "{request}");
         for part in [
             "-p",
             "--model claude-haiku-5-5",
@@ -444,7 +448,7 @@ mod tests {
             limited.found,
             Found::Down {
                 failure: Failure::UsageLimit,
-                why: "the command line's result is an error: You've hit your weekly limit".to_string(),
+                why: "The command line's result is an error: You've hit your weekly limit".to_string(),
                 resets: Some(Time(1_793_394_000_000)),
             }
         );
@@ -513,6 +517,43 @@ mod tests {
             "{why}"
         );
         assert_eq!(calls(dir.path()).len(), 1, "nothing is run for it");
+    }
+
+    // The kind of what is down where the short request did not end in time is the way it ended, a timeout, and no
+    // word of the words beside the flows says it: with them changed to words of a usage limit, a command line that
+    // does not answer is the same. The clock stands still, so that the request's time passes at once; the one call of
+    // the script is `sleep`, which is killed with its check.
+    #[tokio::test(start_paused = true)]
+    async fn a_short_request_that_does_not_end_in_time_is_unavailable_whatever_the_words_beside_the_flows_say() {
+        let limit = "You've hit your weekly limit. It resets Fri 5pm.".to_string();
+        for changed in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let mut check = check(dir.path(), "exec sleep 1000", true);
+            if changed {
+                check.said = flow::agents::CheckWords {
+                    no_account: limit.clone(),
+                    offline: limit.clone(),
+                    request: limit.clone(),
+                };
+                for text in [
+                    &mut check.words.exited,
+                    &mut check.words.signal,
+                    &mut check.words.cut_off,
+                    &mut check.words.no_stream_result,
+                    &mut check.words.no_return,
+                    &mut check.words.error,
+                    &mut check.words.no_reason,
+                ] {
+                    *text = limit.clone();
+                }
+            }
+            let heard = check.check(Some("work".to_string())).await;
+            let Found::Down { failure, resets, .. } = &heard.found else {
+                panic!("{changed}: {heard:?}");
+            };
+            assert_eq!(*failure, Failure::Unavailable, "{changed}");
+            assert_eq!(*resets, None, "{changed}");
+        }
     }
 
     #[tokio::test]

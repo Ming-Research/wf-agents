@@ -307,15 +307,21 @@ export function waitedWords(waited: Waited): string {
     case 'outside':
       return `${waited.source} to move, before ${waited.cell} runs again: ${waited.why}`;
     case 'turn':
-      return `the project's turn to check and merge, which W${waited.holder} holds`;
+      return `the project's turn to check and merge, which ${workName(waited.holder)} holds`;
     case 'items':
       return itemsWords(waited.items);
   }
 }
 
+/// A work's number as the engine writes it in words, everywhere: `W5`.
+export const workName = (number: number): string => `W${number}`;
+
+/// An item's number as the engine writes it in words, everywhere: `#5`.
+export const itemName = (number: number): string => `#${number}`;
+
 /// Items by their numbers, as a line names them: `#5`, `#5 and #7`, `#5, #6 and #7`.
 export function itemsWords(items: number[]): string {
-  const named = items.map((n) => `#${n}`);
+  const named = items.map(itemName);
   return named.length < 2 ? named.join('') : `${named.slice(0, -1).join(', ')} and ${named[named.length - 1]}`;
 }
 
@@ -403,7 +409,7 @@ function whoGives(w: Waited): string | null {
     case 'outside':
       return w.source;
     case 'turn':
-      return `W${w.holder}`;
+      return workName(w.holder);
     case 'limit':
     case 'calls':
     case 'answer':
