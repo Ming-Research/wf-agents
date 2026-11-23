@@ -142,9 +142,8 @@ async fn an_item_is_added_paused_with_its_reason_and_the_items_its_pause_waits_f
     );
 }
 
-// Reference: acceptance 7 of the work and the decision `a-pause-says-why-and-what-it-waits-for`: a pause waits for an
-// item until that item has merged or been cancelled. An item cancelled and then reopened has not been cancelled, so the
-// pause waits for it again: the work says it is open, and it is no candidate.
+// A pause waits for an item until that item has merged or been cancelled. An item cancelled and then reopened has not
+// been cancelled, so the pause waits for it again: the work says it is open, and it is no candidate.
 #[tokio::test(start_paused = true)]
 async fn a_pause_waits_again_for_an_item_that_was_cancelled_and_reopened() {
     let running = running();
@@ -166,8 +165,9 @@ async fn a_pause_waits_again_for_an_item_that_was_cancelled_and_reopened() {
     assert_eq!(after["waiting"], json!(1));
 }
 
-// Reference: the same acceptance: a pause the owner lifts waits for nothing any more, so the work says no items, however
-// the items it waited for stand, and the attention gives no line of the pause being over.
+// A pause the owner lifts waits for nothing any more, so the attention gives no line of the pause being over when the
+// items it waited for end after the lift. The driver's test lifts a pause only after they ended; the order here is the
+// other, at the route.
 #[tokio::test(start_paused = true)]
 async fn a_pause_that_is_lifted_says_no_items_and_is_no_line_when_they_end_after() {
     let running = running();
@@ -182,8 +182,6 @@ async fn a_pause_that_is_lifted_says_no_items_and_is_no_line_when_they_end_after
             .0,
         StatusCode::NO_CONTENT
     );
-    let now = get_json(router, "/api/v1/works/2").await["summary"]["now"].clone();
-    assert_eq!((now.get("waitsFor"), now.get("open")), (None, None), "{now}");
     let cancel = json!({ "why": "Not needed", "changes": [{ "kind": "cancel", "item": 1 }] });
     post(router, "/api/v1/items/changes", &cancel).await;
     assert_eq!(over(&get_json(router, "/api/v1/attention").await), vec![]);

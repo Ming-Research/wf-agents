@@ -18,6 +18,8 @@ fn a_script_that_names_what_the_flow_lacks_keeps_the_engine_from_starting() {
     );
 }
 
+// A directory there is none of is refused, though `run` gives `--new` where a directory holds no store, as every first
+// start does: `--new` makes the store of a directory, not the directory itself.
 #[test]
 fn the_engine_does_not_start_without_its_data_directory() {
     let place = Place::new(SCRIPT);
@@ -31,6 +33,7 @@ fn the_engine_does_not_start_without_its_data_directory() {
             data.display()
         )
     );
+    assert!(!data.exists());
 }
 
 // A directory that is no data directory is not made one by being named: with no store in it, nothing is made unless
@@ -254,9 +257,8 @@ fn a_command_whose_engine_stops_answering_once_asked_says_it_may_have_been_taken
     assert!(said.contains("What was asked may have been taken"), "{said}");
 }
 
-// Reference: the clap usage of the command and the line of `let-go` that a cell or a call is given, never both and never
-// neither. The command line refuses either before it asks an engine anything, so no engine is started: each is run once
-// and fails at once.
+// `let-go` is given a cell or a call, never both and never neither. The command line refuses either before it asks an
+// engine anything, so no engine is started: each is run once and fails at once.
 #[test]
 fn let_go_takes_a_cell_or_a_call_and_neither_both_nor_none() {
     for args in [&["let-go", "1"][..], &["let-go", "1", "build", "--call", "3"][..]] {
@@ -269,25 +271,4 @@ fn let_go_takes_a_cell_or_a_call_and_neither_both_nor_none() {
         let said = String::from_utf8_lossy(&out.stderr);
         assert!(said.contains("Usage:") && said.contains("let-go"), "{args:?}: {said}");
     }
-}
-
-// Reference: the line `the engine does not start without its data directory` already holds: a directory there is none
-// of is refused, and `--new` makes the store of a directory, not the directory itself.
-#[test]
-fn new_does_not_make_a_data_directory_there_is_none_of() {
-    let place = Place::new(SCRIPT);
-    let data = place.dir.path().join("nowhere");
-    let out = run_plain_on(&data, &trial(), &place.script(), 0)
-        .arg("--new")
-        .output()
-        .expect("the command runs");
-    assert!(!out.status.success());
-    assert_eq!(
-        String::from_utf8_lossy(&out.stderr),
-        format!(
-            "{}: no such directory: the data directory is made before the engine runs in it\n",
-            data.display()
-        )
-    );
-    assert!(!data.exists());
 }
