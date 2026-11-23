@@ -184,7 +184,7 @@ fn a_work_paused_while_its_round_is_under_way_holds_the_turn_until_the_round_end
     w.pause();
     assert_eq!(stands(&w), (true, false), "the round under way runs to its end");
     w.returns("check");
-    assert_eq!(stands(&w).0, false, "its own pause held it as the round ended");
+    assert!(!stands(&w).0, "its own pause held it as the round ended");
     assert!(stands(&w).1, "and it wants the turn from its pause on");
 }
 
@@ -238,5 +238,5 @@ fn a_cell_the_flow_no_longer_has_takes_no_turn() {
     let mut land = cell("land", &["verdict"], &["landed"]);
     land.turn = true;
     w.install(vec![cell("plan", &["request"], &["plan"]), land]);
-    assert_eq!(stands(&w).0, false);
+    assert!(!stands(&w).0);
 }
