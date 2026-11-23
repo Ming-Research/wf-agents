@@ -44,8 +44,8 @@ reads = ["{each}_questions", "{each}_words"]
 plan = ["plan_owner", "plan_agent", "acceptance"]
 change = ["code", "title", "decisions", "evidence", "tests", "head"]
 
-# Chosen, not measured: no work yet showed what these should be.
+# Chosen, not measured.
 [limits]
-runs = 3
+runs = 5
 returns = 3
 calls = 40
