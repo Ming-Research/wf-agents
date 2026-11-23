@@ -322,3 +322,129 @@ fn what_is_refused_is_held_to_the_shape_of_a_command() {
         ["flow/agents/refused.toml: each entry names a command"]
     );
 }
+
+/// Every one of the five words, in the order the flow's file writes them.
+const WORDS: [Ability; 5] = [
+    Ability::Shell,
+    Ability::Files,
+    Ability::TempFiles,
+    Ability::Web,
+    Ability::Subagents,
+];
+
+/// The words of the set that bit `mask` of `0..32` picks.
+fn picked(mask: usize) -> Vec<Ability> {
+    WORDS
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| mask & (1 << i) != 0)
+        .map(|(_, w)| *w)
+        .collect()
+}
+
+/// The tool names the program's tools reference lists as built-in tools that the engine may name in `--tools`.
+const DOCUMENTED_TOOLS: [&str; 9] = [
+    "Agent",
+    "Bash",
+    "Edit",
+    "Glob",
+    "Grep",
+    "Read",
+    "WebFetch",
+    "WebSearch",
+    "Write",
+];
+
+// Whatever set of words the flow holds, the round's tools, rules and directories are what the program can read and what
+// the words say, and nothing more: no tool, rule or directory twice; no empty or flag-like item that the program's
+// variadic flags would end at; no allow rule for a tool the round is not given, which would be dead; a tool, rule or
+// directory only for a word that gives it; and a refusal that no word takes back. Reference: the program's
+// command-line reference (`--tools` names the tools the session has and its flags take lists that end at the next flag)
+// and permission rules (a tool name, or a name with a pattern between parentheses; `//path` is an absolute path). All
+// 32 sets of words on a line that writes and one that only reads, in microseconds.
+#[test]
+fn every_set_of_words_gives_tools_rules_and_directories_the_program_can_read_and_nothing_a_word_does_not_give() {
+    let refused_whatever = of(false).refused;
+    for mask in 0..32 {
+        let may = picked(mask);
+        let has = |w: Ability| may.contains(&w);
+        for reads_only in [false, true] {
+            let p = Permissions::of(reads_only, &may, Path::new("/x/T/"), &commands());
+            let at = format!("{may:?} reads_only {reads_only}: {p:?}");
+            for (name, list) in [
+                ("tools", &p.tools),
+                ("allowed", &p.allowed),
+                ("directories", &p.directories),
+            ] {
+                let mut seen = list.clone();
+                seen.sort();
+                seen.dedup();
+                assert_eq!(seen.len(), list.len(), "{name} holds an item twice: {at}");
+                assert!(
+                    list.iter()
+                        .all(|i| !i.is_empty() && !i.starts_with('-') && !i.contains(',')),
+                    "{name} holds an item the flags would misread: {at}"
+                );
+            }
+            for rule in p.allowed.iter().chain(&p.refused) {
+                let (name, pattern) = match rule.split_once('(') {
+                    Some((name, rest)) => (
+                        name,
+                        Some(rest.strip_suffix(')').unwrap_or_else(|| panic!("{rule}: {at}"))),
+                    ),
+                    None => (rule.as_str(), None),
+                };
+                assert!(name.chars().all(|c| c.is_ascii_alphabetic()), "{rule}");
+                assert!(pattern.is_none_or(|p| !p.contains(['(', ')'])), "{rule}");
+            }
+            for rule in &p.allowed {
+                let name = rule.split('(').next().unwrap();
+                assert!(
+                    p.tools.iter().any(|t| t == name),
+                    "the allowed {rule} is for a tool the round lacks: {at}"
+                );
+            }
+            assert_eq!(has(Ability::Shell), p.tools.contains(&"Bash".to_string()), "{at}");
+            assert_eq!(has(Ability::Shell), p.allowed.contains(&"Bash".to_string()), "{at}");
+            assert_eq!(
+                has(Ability::Files),
+                p.allowed.contains(&"Edit(./**)".to_string()),
+                "{at}"
+            );
+            assert_eq!(has(Ability::Web), p.tools.contains(&"WebFetch".to_string()), "{at}");
+            assert_eq!(has(Ability::Web), p.tools.contains(&"WebSearch".to_string()), "{at}");
+            assert_eq!(
+                has(Ability::Subagents),
+                p.tools.iter().any(|t| t == "Task" || t == "Agent"),
+                "{at}"
+            );
+            assert_eq!(has(Ability::TempFiles), p.directories == ["/x/T"], "{at}");
+            assert_eq!(
+                has(Ability::TempFiles),
+                p.allowed.contains(&"Edit(//x/T/**)".to_string()),
+                "{at}"
+            );
+            let reads = p.tools.contains(&"Read".to_string());
+            assert_eq!(reads, has(Ability::Files) || has(Ability::TempFiles), "{at}");
+            // A refusal is the same whatever the words, so that no word takes one back.
+            let wanted = of(reads_only).refused;
+            assert_eq!(p.refused, wanted, "{at}");
+            assert!(refused_whatever.iter().all(|r| p.refused.contains(r)), "{at}");
+        }
+    }
+}
+
+// The tools the round is given are tool names the program documents, in its tools reference, as the exact strings that
+// `--tools` and permission rules take: a name it does not list is not known to name a tool, and a tool the program does
+// not give would take away what a word lets the agents do (the subagent tool, which the reference names `Agent`).
+// Reference: the program's tools reference (code.claude.com/docs/en/tools-reference), its `--tools` row. Microseconds.
+#[test]
+fn every_tool_a_round_is_given_is_a_name_the_programs_tools_reference_lists() {
+    let all = Permissions::of(false, &WORDS, Path::new("/x/T"), &[]);
+    for tool in &all.tools {
+        assert!(
+            DOCUMENTED_TOOLS.contains(&tool.as_str()),
+            "{tool} is no documented tool name"
+        );
+    }
+}
