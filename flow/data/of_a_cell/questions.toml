@@ -3,7 +3,8 @@
 # asks it anew or withdraws it finishes, or as the engine asks it (in the questions of the cell its flow names), each
 # new to no cell; an answer as the owner answers a version of a question, new to the cells that watch the datum only
 # where it changes the option the work goes by. A cell that writes it in `outputs` asks the owner: `words` is told to
-# it, after the list of what it returns, and `[shape]` is what the form of its line holds it to.
+# it, after the list of what it returns, with `words_if_marked` after them where it has a block it hands in every time,
+# and `[shape]` is what the form of its line holds it to.
 name = "{cell}_questions"
 what = "The questions the cell asks the owner, each under its name, and the owner's answers to them. Each answer names the question, the version answered and the option chosen."
 from = "answer"
@@ -15,8 +16,9 @@ answer settles a choice the design tree's rules give the owner: the option taken
 cannot go on without the answer, or if going on by your recommendation would likely have to be undone at a cost: the
 work stops at this cell, and you are run again with the answer. Otherwise the work goes on by your recommendation. In a
 text, point to a question as `{{name}}`; `recommends` counts the options from 1. To rewrite a question, write it again
-under its name; to withdraw it, give its name and why. A question you do not write again stands, with its answer.
-
+under its name; to withdraw it, give its name and why. A question you do not write again stands, with its answer.'''
+# Told after the words, only to a cell that hands in a block every time.
+words_if_marked = '''
 A return with a question you wait for may leave out the blocks marked "hand it in every time", since the work stops at this cell until the answer comes.'''
 
 [shape]
@@ -43,8 +45,8 @@ additionalProperties = false
 # question withdrawn: `{version}` the version that withdraws it, `{was}` the version withdrawn, `{why}` why, as `why`
 # says it.
 [writes]
-text = "`{question}`, version {version}, answered: option {option}, {does}: {follows}."
-why = " Why: {why}"
+text = "`{question}`, version {version}, answered:\n- option {option}, {does}: {follows}"
+why = "\nWhy: {why}"
 asked = "`{question}`, version {version}, asked: {ask}{options}{recommends}{waits}{tree}"
 asked_anew = "`{question}`, version {version}, asked anew in place of version {was}: {ask}{options}{recommends}{waits}{tree}"
 option = "\n- option {option}, {does}: {follows}"

@@ -28,6 +28,7 @@ fn kept(path: &Path) {
             project: "trial".to_string(),
             depends_on: Vec::new(),
             tags: Vec::new(),
+            continues: None,
             flow: "trial".to_string(),
             writes: vec![driver::FirstWrite {
                 block: decide::BlockId("request".to_string()),
