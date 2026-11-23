@@ -433,6 +433,36 @@ fn a_round_takes_what_its_entry_says_and_else_what_the_script_says() {
     assert_eq!((merge.ms, merge.spent), (900, Spent::default()));
 }
 
+// The script's `input_tokens` are the tokens sent fresh, as the program's are; the round's record counts, among the
+// tokens sent and not read from the cache, those it says were written to the cache, and tells them apart.
+#[test]
+fn a_round_the_script_says_wrote_tokens_to_the_cache_keeps_them_apart_from_those_sent_fresh() {
+    let flow = trial();
+    let script = Script::read(
+        r#"
+        [took]
+        input_tokens = 300
+        cache_written_tokens = 2000
+
+        [[flows.trial.rounds]]
+        cell = "build"
+        run = 2
+        took = { cache_written_tokens = 50 }
+        "#,
+    )
+    .unwrap();
+    let by_the_script = script.round(&flow, cell(&flow, "build"), 1, 1, &BTreeMap::new()).spent;
+    assert_eq!(
+        (by_the_script.uncached_tokens, by_the_script.cache_written_tokens),
+        (300 + 2000, Some(2000))
+    );
+    let by_its_entry = script.round(&flow, cell(&flow, "build"), 2, 1, &BTreeMap::new()).spent;
+    assert_eq!(
+        (by_its_entry.uncached_tokens, by_its_entry.cache_written_tokens),
+        (300 + 50, Some(50))
+    );
+}
+
 #[test]
 fn an_act_says_the_turn_it_waits_for_and_the_ci_run_it_runs_as_where_its_entry_says() {
     let flow = trial();
