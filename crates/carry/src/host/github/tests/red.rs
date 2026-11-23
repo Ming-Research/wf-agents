@@ -21,8 +21,9 @@ fn b(passed: bool) -> Vec<(String, Vec<u8>)> {
     vec![("junit.xml".to_string(), xml.into_bytes())]
 }
 
-/// The JUnit of a run of `tools::tests::b` and `tools::tests::c`, each passed or failed as given.
-fn b_and_c(b: bool, c: bool) -> Vec<(String, Vec<u8>)> {
+/// The JUnit of a run of `tools::tests::b` and `tools::tests::c`, each passed or failed as given, in this file: the full
+/// workflows' is the file of the job `test`, and the fast workflow's is one file for the whole run.
+fn b_and_c(file: &str, b: bool, c: bool) -> Vec<(String, Vec<u8>)> {
     let case = |name: &str, passed: bool| {
         let failure = if passed {
             String::new()
@@ -36,7 +37,7 @@ fn b_and_c(b: bool, c: bool) -> Vec<(String, Vec<u8>)> {
         case("tools::tests::b", b),
         case("tools::tests::c", c)
     );
-    vec![("junit.xml".to_string(), xml.into_bytes())]
+    vec![(file.to_string(), xml.into_bytes())]
 }
 
 fn red() -> Outcome {
@@ -208,16 +209,24 @@ async fn several_tests_that_fail_again_hold_the_commit_only_where_all_fail_on_ma
         let hub = Hub::new();
         let head = hub.committed().await;
         let jobs = || vec![passed("lint"), check("test", red())];
-        hub.github()
-            .of_workflow("ci.yml", &head, jobs(), Some(("test-results", b_and_c(false, false))));
+        hub.github().of_workflow(
+            "ci.yml",
+            &head,
+            jobs(),
+            Some(("test-results", b_and_c("test.xml", false, false))),
+        );
         let main = hub.main_on_github();
-        hub.github()
-            .of_workflow("fast.yml", &head, jobs(), Some(("test-results", b_and_c(false, false))));
+        hub.github().of_workflow(
+            "fast.yml",
+            &head,
+            jobs(),
+            Some(("test-results", b_and_c("junit.xml", false, false))),
+        );
         hub.github().of_workflow(
             "fast.yml",
             &main,
             jobs(),
-            Some(("test-results", b_and_c(false, c_passes_on_main))),
+            Some(("test-results", b_and_c("junit.xml", false, c_passes_on_main))),
         );
         let verdict = hub.verdict(&head).await.unwrap().expect("judged");
         if c_passes_on_main {

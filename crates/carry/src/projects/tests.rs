@@ -334,7 +334,7 @@ async fn what_a_work_changed_is_asked_of_its_projects_carrier_and_is_nothing_whe
     for project in [Some("one"), Some("two"), None] {
         let number = if project == Some("one") { 1 } else { 2 };
         let of = || of_work(item(number, project));
-        assert!(matches!(rounds.seen(of()).await, Ok(_)));
+        assert!(rounds.seen(of()).await.is_ok());
         assert!(matches!(rounds.changes(of()).await, Ok(None)));
         assert!(matches!(rounds.diff(of(), "farewell.txt".to_string()).await, Ok(None)));
     }
