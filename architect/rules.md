@@ -159,8 +159,10 @@ reports (`wf-agents wait`):
   `wf-agents show` counts them. This is a guide, not a hard limit; a story far longer belongs to an item that is too
   big (section 6). Sentences
   are short, and each has a subject that acts. Every name, such as a file, a test, a cell or a command, is said in
-  plain words where it first appears, and an item by its number and its title. Never how to do it, which the work's
-  research finds. It names the owner as the owner, never as "you".
+  plain words where it first appears, and an item by its number and its title. It never sets how to do it, which the
+  work's research finds. The first conclusions the owner and the architect reached on how go under the reference, said
+  to be first conclusions, for the research to weigh and not to follow: the work may take another way, and its plan
+  then says why. It names the owner as the owner, never as "you".
   The acceptance is the work's plan's, not the background's. The background is written before the work begins; once it
   has begun, the background changes only where what the item asks changes, never for its wording, since a change runs
   the work's cells again.
