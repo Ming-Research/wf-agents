@@ -279,6 +279,11 @@ pub enum Back {
         waits_for: Option<BlockId>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         read: Vec<Handed>,
+        /// Why the return says the work changes each file the project protects, by the file's path, where it says; a
+        /// return sent back is completed by the returns after it, which need not say it again. Returns kept before it
+        /// was kept have none.
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        protected: BTreeMap<String, String>,
     },
     /// Nothing came back: the round failed, for this reason, as whatever carried it out says, with the kind of cause
     /// it told apart. The run's next round is given what this one was given, as the kind's handling lets it (crate
@@ -333,21 +338,32 @@ impl Question {
 }
 
 impl Work {
-    /// What the version of a question asks and its options, or why it was withdrawn: as the round that brought it
-    /// returned it, the last of its run to end before the version was written, among what the agent said or what the
-    /// engine asked beside it. None where that round's return holds no question of the name.
+    /// What the version of a question asks and its options, or why it was withdrawn: of what the engine asked beside
+    /// the return of the last round of its run to end before the version was written; of what the agent said, as the
+    /// latest return of the run up to that round that wrote it ([`Work::asked_by`]), since a return completes the one
+    /// sent back before it. None where no return holds a question of the name.
     pub fn question(&self, version: &decide::Questioned) -> Option<&Question> {
         let r = &self.records;
         let round = (r.returned.iter())
             .filter(|e| e.run == version.run && e.at < version.at)
             .count();
+        if !version.engine {
+            return self.asked_by(version.run, round, &version.name);
+        }
         match self.back.get(&(version.run, round))? {
-            Back::Returned { said, engine, .. } => {
-                let of = if version.engine { engine } else { &said.questions };
-                of.iter().rev().find(|q| q.name() == version.name)
-            }
+            Back::Returned { engine, .. } => engine.iter().rev().find(|q| q.name() == version.name),
             _ => None,
         }
+    }
+
+    /// The question of this name as the latest return of the run up to this round that asked it, asked it anew or
+    /// withdrew it wrote it: what a return sent back wrote of it, and the returns completing it did not write again,
+    /// stands.
+    pub fn asked_by(&self, run: RunId, round: usize, name: &str) -> Option<&Question> {
+        (1..=round).rev().find_map(|n| match self.back.get(&(run, n))? {
+            Back::Returned { said, .. } => said.questions.iter().rev().find(|q| q.name() == name),
+            _ => None,
+        })
     }
 }
 

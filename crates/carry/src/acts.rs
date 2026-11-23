@@ -334,7 +334,7 @@ impl<H: Host> Inner<H> {
             tree: project.tree.clone(),
             main: self.host.kept_main(),
         };
-        let looking = || Looking::of(&round.flow, &round.kept, read_with.clone());
+        let looking = || Looking::of(&round.flow, &round.kept, read_with.clone(), Some(round.run));
         match act {
             "start" => {
                 let started = start(project, &self.host, &branch, &self.repository).await?;
@@ -681,8 +681,7 @@ pub(crate) async fn check(
         }
         // An answer that takes the recommended option to a question that does not wait runs no cell, so one given after
         // the change was handed in is found only here. The check has no return that says anything beside its work.
-        let said = Said::default();
-        let unwritten = crate::tree::unwritten(project, place, &main, &project.tree, gate.work, &said).await?;
+        let unwritten = crate::tree::unwritten(project, place, &main, &project.tree, gate.work, &[]).await?;
         if !unwritten.is_empty() {
             let questions = unwritten.join("\n");
             let slots = [("main", project.main.as_str()), ("questions", questions.as_str())];

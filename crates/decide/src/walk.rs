@@ -441,6 +441,7 @@ pub fn told(flow: &Flow, records: &Records, run: RunId) -> Option<Told> {
                 told: walk.told(r, block),
                 latest: latest.map(|v| v.at),
                 value: latest.and_then(|v| v.value).map(str::to_string),
+                empty: latest.is_some_and(|v| v.empty),
                 added: flow.adds_entries(block),
             };
             (block.clone(), standing)
@@ -861,7 +862,7 @@ pub(crate) struct Walk<'a> {
 impl<'a> Walk<'a> {
     pub(crate) fn new(flow: &'a Flow, records: &'a Records) -> Self {
         let runs = read_runs(records);
-        let mut versions = read_versions(records, &runs);
+        let mut versions = read_versions(records, &runs, Some(flow));
         rule(flow, &runs, &mut versions);
         Self {
             flow,
@@ -1456,16 +1457,33 @@ pub(crate) fn read_runs(records: &Records) -> BTreeMap<RunId, RunView<'_>> {
 }
 
 /// Whether a write gives its block a meaning of its own, the one reading of meaning (design document
-/// `data-and-context`, 9): of a choice, where this write or the version before it has a value, where the value is
+/// `data-and-context`, 9): of a choice, where this write or the version before has a value, where the value is
 /// another than the one before, whatever its writer says, its first version always; of any other block, where it
 /// matters, or where its writer did not see the meaning it would keep. `over` is the value of the version before, none
-/// where there is none; a first version that does not matter says nothing.
-pub(crate) fn gives_meaning(value: Option<&str>, over: Option<Option<&str>>, matters: bool, saw: bool) -> bool {
+/// where there is none; a first version that does not matter says nothing. A write that `says_nothing` gives none,
+/// whatever its writer says ([`says_nothing`]).
+pub(crate) fn gives_meaning(
+    value: Option<&str>,
+    over: Option<Option<&str>>,
+    matters: bool,
+    saw: bool,
+    says_nothing: bool,
+) -> bool {
+    if says_nothing {
+        return false;
+    }
     match over {
         Some(before) if value.is_some() || before.is_some() => value != before,
         Some(_) => matters || !saw,
         None => value.is_some() || matters,
     }
+}
+
+/// Whether a write that holds nothing, with no value and no content but whitespace, says nothing: it stands where no
+/// version is before it, where the one before holds nothing too, and, of a block whose versions are entries added to a
+/// record, which replace none, wherever it stands. An empty text over content is a clearing, and says something.
+pub(crate) fn says_nothing(empty: bool, over_empty: Option<bool>, adds_entries: bool) -> bool {
+    empty && (adds_entries || over_empty.is_none_or(|e| e))
 }
 
 /// Every version of every block, each with its meaning. A block that has a value in this version or the one before, a
@@ -1475,10 +1493,13 @@ pub(crate) fn gives_meaning(value: Option<&str>, over: Option<Option<&str>>, mat
 /// provided its writer saw that meaning: the outside always did, and a run did when the version it started from has
 /// it. A run that did not, because the block's meaning was changed after it started, has a meaning of its own for what
 /// it wrote. A first version handed in as not mattering has none: it says nothing, and is new to no cell (design
-/// document `data-and-context`, 9).
+/// document `data-and-context`, 9). So has a write that holds nothing where it says nothing ([`says_nothing`]); read
+/// without the flow, which says what blocks are records of entries, an empty entry over content is taken to say
+/// something.
 pub(crate) fn read_versions<'a>(
     records: &'a Records,
     runs: &BTreeMap<RunId, RunView<'a>>,
+    flow: Option<&Flow>,
 ) -> BTreeMap<&'a BlockId, Vec<Version<'a>>> {
     let by_people = (records.written.iter()).map(|w| Written {
         block: &w.block,
@@ -1510,8 +1531,13 @@ pub(crate) fn read_versions<'a>(
         // A run saw what it writes over when the version it started from has the meaning of the version before.
         let started = of_block.iter().find(|v| Some(v.at) == from).map(|v| v.meaning);
         let saw = w.by.is_none() || (over.is_some() && started == over.map(|v| v.meaning));
+        let nothing = says_nothing(
+            w.empty,
+            over.map(|v| v.empty),
+            flow.is_some_and(|flow| flow.adds_entries(w.block)),
+        );
         let meaning = match over {
-            _ if gives_meaning(w.value, over.map(|v| v.value), w.matters, saw) => Some(w.at),
+            _ if gives_meaning(w.value, over.map(|v| v.value), w.matters, saw, nothing) => Some(w.at),
             Some(v) => v.meaning,
             None => None,
         };
