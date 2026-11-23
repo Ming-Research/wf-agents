@@ -61,6 +61,7 @@ use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
 use decide::{BlockId, CallId, CellId, Outsider, Pauser, RunId};
+use driver::parallel;
 use driver::{Asked, Driver, Failed, Found, NewItem, Todo, Wake};
 use engine::{Effect, Event};
 use flow::{CellSpec, Compiled, Kind};
@@ -69,8 +70,8 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use work::{Ask, Call, RanOn, Time};
 
 pub use carriers::{
-    Back, CallReply, Carriers, Changes, Diff, Diffstat, Doing, Doings, FileChanged, Fork, Forked, Heard, Hosting,
-    KeptTokens, Mark, Network, OfWork, Outside, Ping, PingReply, Pull, Release, ReleaseReply, Returned, Round,
+    Back, CallReply, Carriers, Changes, Diff, Diffstat, Doing, Doings, FileChanged, Fork, ForkFailed, Forked, Heard,
+    Hosting, KeptTokens, Mark, Network, OfWork, Outside, Ping, PingReply, Pull, Release, ReleaseReply, Returned, Round,
     RoundReply, Rounds, Saying, Seen, Teller, Telling, Token, Tokens, Told, ToolCall, Tools, Try, WITHDRAWN, YEAR_MS,
 };
 pub use clock::{Clock, SystemClock, TokioClock};
@@ -111,6 +112,10 @@ pub struct Service {
     adding: Arc<tokio::sync::Mutex<()>>,
     /// The usage limit of each account that stands, as last told to whoever listens: told again once it changed.
     limits: BTreeMap<String, driver::Limit>,
+    /// The latest ask of the list of each project's works under way ([`Driver::parallel`]) that is under way, by the
+    /// project: the next ask of the project waits for it, so that an older list is never written after a newer. Lost
+    /// in a stop, when the driver gives the lists again.
+    asking: BTreeMap<String, tokio::task::JoinHandle<()>>,
 }
 
 /// A read of the works as the driver holds them, at the time the loop's clock gives.
@@ -358,10 +363,12 @@ impl Service {
             pinging: BTreeMap::new(),
             adding: Arc::default(),
             limits,
+            asking: BTreeMap::new(),
         };
         let works: Vec<WorkNumber> = service.driver.works().map(|kept| kept.head.number).collect();
         service.tell_paused(works);
         service.hand(now, todos)?;
+        service.ask_parallel();
         service.set_wake();
         Ok((service, Inbox(inbox)))
     }
@@ -1032,6 +1039,9 @@ impl Service {
             .map(|(work, _)| work)
             .collect();
         self.tell_paused(works.clone());
+        if !works.is_empty() {
+            self.ask_parallel();
+        }
         let mut accounts = accounts;
         if !works.is_empty() || answered {
             let limits = self.driver.limits();
@@ -1046,6 +1056,56 @@ impl Service {
                 copies: false,
                 accounts,
             });
+        }
+    }
+
+    /// Asks the carrier of the engine's acts, off the loop, for the files the branch of each work under way has changed,
+    /// for each project whose list of works under way differs from the last asked ([`Driver::parallel`]); the list, in the
+    /// flow's words, comes back to the loop as what the source [`parallel::PARALLEL`] says of the project. A project's
+    /// asks are answered in the order they were made.
+    fn ask_parallel(&mut self) {
+        for ask in self.driver.parallel() {
+            let (carriers, to) = (self.carriers.clone(), self.to.clone());
+            let before = self.asking.remove(&ask.project);
+            let project = ask.project.clone();
+            let task = tokio::spawn(async move {
+                if let Some(before) = before {
+                    let _ = before.await;
+                }
+                let mut entries = Vec::with_capacity(ask.works.len());
+                for listed in ask.works {
+                    let of = OfWork {
+                        work: listed.work,
+                        item: listed.item.clone(),
+                        merged: None,
+                    };
+                    // What its worktree holds that is not committed is no part of the list, which is read of the
+                    // records and the commits alone.
+                    let changed = match carriers.changes(of).await {
+                        Ok(Some(changes)) => parallel::Changed::Files(
+                            (changes.files.into_iter())
+                                .filter(|file| file.committed)
+                                .map(|file| file.path)
+                                .collect(),
+                        ),
+                        Ok(None) => parallel::Changed::Nothing,
+                        Err(why) => parallel::Changed::Unread(why),
+                    };
+                    entries.push(parallel::Entry {
+                        work: listed.work,
+                        item: listed.item.number,
+                        changed,
+                        planned: listed.planned,
+                    });
+                }
+                let content = parallel::text(&ask.words, &entries);
+                let _ = to.send(Message::Outside {
+                    project: ask.project,
+                    source: parallel::PARALLEL.to_string(),
+                    content,
+                });
+            });
+            self.asking.insert(project, task);
         }
     }
 
@@ -1395,6 +1455,7 @@ impl Handle {
             Some(Err(why)) => return Ok(Some(Err(why))),
             Some(Ok(fork)) => fork,
         };
+        let (run, round) = (fork.run, fork.round);
         let forked = self.carriers.agents.fork(fork).await;
         if let Ok(forked) = &forked
             && let Some(said) = forked.usage.clone()
@@ -1404,7 +1465,12 @@ impl Handle {
                 said,
             });
         }
-        Ok(Some(forked))
+        // A fork that ran took what it cost, whether or not it answered, and the work keeps that; one refused before
+        // its program ran took nothing.
+        if let Some(event) = fork_event(run, round, &forked) {
+            let _ = (self.to).send(Message::Happened { work, event });
+        }
+        Ok(Some(forked.map_err(|failed| failed.to_string())))
     }
 
     /// What the agent of the round of this number of the run did from the mark on, as the carrier of its cell's kind
@@ -1567,6 +1633,16 @@ fn kind_of(kept: &driver::Kept<'_>, cell: &CellId) -> Option<Kind> {
         .map(|c| if c.agent { Kind::Agent } else { Kind::Engine })
 }
 
+/// What the work keeps of a fork of the round of this number of the run that ended: what it took, whether it answered
+/// or failed having run; none for one refused before its program ran, which took nothing.
+fn fork_event(run: RunId, round: usize, asked: &Result<Forked, ForkFailed>) -> Option<Event> {
+    let spent = match asked {
+        Ok(forked) => Some(forked.spent),
+        Err(failed) => failed.spent,
+    }?;
+    Some(Event::Forked { run, round, spent })
+}
+
 /// What a fork of a round of the work reads which session the round ran in by: the outline of the version the work is
 /// on. A work on none kept has none, and the fork is refused, with why.
 fn fork_outline(kept: &driver::Kept<'_>) -> Result<Arc<flow::Outline>, String> {
@@ -1611,6 +1687,46 @@ mod tests {
     use work::Work;
 
     use super::*;
+
+    // What the work keeps of a fork is what it took where its program ran, whether it answered or not, and nothing of
+    // one refused before it ran.
+    #[test]
+    fn a_fork_that_ran_is_kept_whether_it_answered_or_failed_and_one_refused_before_it_ran_is_not() {
+        let spent = work::Spent {
+            usd_micros: 400_000,
+            input_tokens: 120,
+            ..Default::default()
+        };
+        let forked = Forked {
+            answer: None,
+            text: "It said this.".to_string(),
+            spent,
+            read: Some(9_000),
+            held: Some(10_000),
+            expired: None,
+            round: (RunId(7), 1),
+            later: Vec::new(),
+            kept: "/k/7-1.fork.1.answer".to_string(),
+            account: "work".to_string(),
+            instead: None,
+            usage: None,
+        };
+        let event = |spent| {
+            Some(Event::Forked {
+                run: RunId(7),
+                round: 1,
+                spent,
+            })
+        };
+        assert_eq!(fork_event(RunId(7), 1, &Ok(forked)), event(spent));
+        let failed = ForkFailed {
+            why: "The fork wrote no answer.".to_string(),
+            spent: Some(spent),
+        };
+        assert_eq!(fork_event(RunId(7), 1, &Err(failed)), event(spent));
+        let refused = ForkFailed::from("No account is in use.");
+        assert_eq!(fork_event(RunId(7), 1, &Err(refused)), None);
+    }
 
     /// The flow of a deliverable item as the repository defines it (`flow/deliver`), whose one cell, `V1`, is the
     /// engine's.

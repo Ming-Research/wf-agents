@@ -27,6 +27,7 @@ fn engineer() -> Compiled {
             "asked",
             "dependencies",
             "handed_in",
+            "parallel",
             "main",
             "start",
             "head",

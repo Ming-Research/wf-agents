@@ -90,6 +90,42 @@ pub struct Pinged {
     pub failed: Option<String>,
 }
 
+/// A fork of a round's session asked a question, at a place of its own in the order of what happened to the work: the
+/// run and the round whose session it was forked from, and what it took (the cost and the tokens sent fresh or written
+/// to the cache, read from it, and that came back), whether it answered or not. Its time is the time of that place.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Forked {
+    /// The place of the entry in the order of what happened to the work.
+    pub at: Seq,
+    pub run: RunId,
+    /// Which round of the run, the first being one.
+    pub round: usize,
+    pub usd_micros: u64,
+    pub input_tokens: u64,
+    pub cached_tokens: u64,
+    pub output_tokens: u64,
+}
+
+/// What a kind of call beside the rounds took.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BesideKind {
+    /// A keep-warm ping of a line's session.
+    Ping,
+    /// A fork of a round's session asked a question.
+    Fork,
+}
+
+/// What a call made beside the rounds took, at its place in the order of what happened to the work: a keep-warm ping's
+/// or a fork's. Whatever adds up what a work spent reads these, so that every kind of spend beside the rounds counts
+/// wherever the spend is added up.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SpentBeside {
+    pub at: Seq,
+    pub kind: BesideKind,
+    /// What it took: a fork's has the cost and the three counts of tokens alone.
+    pub spent: Spent,
+}
+
 /// The measures of the round of this number of the run: its last try's; none where no try of it said them.
 pub fn of_round(measured: &[Measured], run: RunId, round: usize) -> Option<&Measures> {
     (measured.iter().rev())
