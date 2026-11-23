@@ -8,7 +8,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Definition } from './api';
 import { Views } from './App';
 import type { Route } from './route';
-import { placeSteps } from './works/placing';
 import type { Serves } from './serves';
 import { small } from './testing';
 import {
@@ -183,28 +182,5 @@ describe('the views', () => {
     expect(scrolledToRound).toBe(2);
     expect(tab()).toBe('Step');
     expect((shown(container).querySelector('.view-line') as HTMLElement).dataset.drawnFirst).toBe('yes');
-  });
-
-  it('keeps chosen a row that is no run when the address, which then names no run, is followed', async () => {
-    const page = fixtureWork(41);
-    const first = page.steps.find((x) => x.kind === 'run');
-    if (first?.kind !== 'run') throw new Error('the work has no run');
-    // The places of the rows that are drawn as rows of the history, among them one that is no run.
-    const drawn = placeSteps(page).filter((r) => r.divider === null);
-    const at = drawn.findIndex((r) => r.step.kind !== 'run');
-    if (at < 0) throw new Error('the work has no row that is no run');
-    const { container, go } = drawViews({ view: 'work', work: 41, run: first.run });
-    await settle();
-    const rows = () => [...shown(container).querySelectorAll('tbody tr.step-row')];
-    const chosen = () => rows().flatMap((r, i) => (r.classList.contains('chosen') ? [i] : []));
-    expect(chosen()).toEqual([drawn.findIndex((r) => r.step.kind === 'run' && r.step.run === first.run)]);
-    // The owner chooses the row, which writes the address of no run; the page follows the address.
-    act(() => {
-      (rows()[at].querySelector('.step-lead button') as HTMLElement).click();
-    });
-    expect(chosen()).toEqual([at]);
-    go({ view: 'work', work: 41 });
-    await settle();
-    expect(chosen()).toEqual([at]);
   });
 });

@@ -72,9 +72,15 @@ describe("a work's page opened on a round's address", () => {
     const root = createRoot(host);
     flushSync(() =>
       root.render(
-        <SourceContext.Provider value={source}>
-          <WorkScreen page={page} onActed={() => undefined} run={run.run} round={run.rounds[1].number} />
-        </SourceContext.Provider>,
+        // In the page's own frame, which is as high as the browser and gives each view what is left of it: only so is
+        // the window bound in height and scrolls.
+        <div className="page">
+          <div className="view">
+            <SourceContext.Provider value={source}>
+              <WorkScreen page={page} onActed={() => undefined} run={run.run} round={run.rounds[1].number} />
+            </SourceContext.Provider>
+          </div>
+        </div>,
       ),
     );
     unmount = () => flushSync(() => root.unmount());
@@ -82,13 +88,13 @@ describe("a work's page opened on a round's address", () => {
     const body = host.querySelector('aside .drawer-body') as HTMLElement;
     const lit = host.querySelector('section.cw-fold-chosen') as HTMLElement;
     // The window has scrolled, and the section's middle lies in the part of it that is seen, inside the browser's view.
-    expect(body.scrollHeight).toBeGreaterThan(body.clientHeight);
     await expect
       .poll(() => {
         const seen = body.getBoundingClientRect();
         const at = lit.getBoundingClientRect();
         const middle = (at.top + at.bottom) / 2;
         return (
+          body.scrollHeight > body.clientHeight &&
           body.scrollTop > 0 &&
           middle >= seen.top &&
           middle <= seen.bottom &&
@@ -97,7 +103,12 @@ describe("a work's page opened on a round's address", () => {
         );
       })
       .toBe(true);
-    // The page itself has not been scrolled to it.
+    // Nothing else has been scrolled to it: not the page's frame nor the view over which the window floats (both are
+    // hidden, which a section can still scroll) nor the document.
+    for (const outer of [host.querySelector('.page'), host.querySelector('.view-body'), document.scrollingElement]) {
+      expect(outer?.scrollTop).toBe(0);
+      expect(outer?.scrollLeft).toBe(0);
+    }
     expect(window.scrollX).toBe(0);
     expect(window.scrollY).toBe(0);
   });

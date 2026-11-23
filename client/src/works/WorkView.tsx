@@ -131,18 +131,17 @@ export function WorkScreen({ page, failed = null, onActed, run, round, active = 
     },
     [select, active, work, page],
   );
-  // The address, followed as it changes: the run it names is chosen unless it is the one chosen, and a round it names
-  // brings the window out on its Step.
-  const latest = useRef({ chosen, page, select });
+  // The address, followed as it changes: the run it names is chosen, none being let go, and the window comes out on its
+  // Step. A row the owner chose is written to the address first, so that following it chooses that row again.
+  const latest = useRef({ page, select });
   useEffect(() => {
-    latest.current = { chosen, page, select };
+    latest.current = { page, select };
   });
   const followed = useRef({ run, round });
   useEffect(() => {
     if (followed.current.run === run && followed.current.round === round) return;
     followed.current = { run, round };
     const now = latest.current;
-    if (runOf(now.page, now.chosen) === run && round === undefined) return;
     now.select(stepOfRun(now.page, run));
   }, [run, round]);
   // The round the address names, while the run it names is the one chosen.
