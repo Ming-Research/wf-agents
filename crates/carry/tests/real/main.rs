@@ -11,6 +11,7 @@
 mod accounts;
 mod budget;
 mod catching_up;
+mod declared;
 mod delivering;
 mod failing;
 mod forms;
@@ -35,7 +36,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use carry::git::{self, Place};
-use carry::settings::{Agents, Items, Level, Owner, PermissionsAdded, Project};
+use carry::settings::{Agents, Items, Level, Owner, Project};
 use carry::{Settings, session};
 use decide::{CallId, Decision, Pauser, RunId, Who};
 use driver::{FirstWrite, NewItem};
@@ -324,6 +325,8 @@ pub struct Real {
     _dir: tempfile::TempDir,
     pub data: PathBuf,
     pub repo: PathBuf,
+    /// The command that checks the projects, as their declarations name it.
+    check: String,
     /// Where the fake keeps what it was given.
     calls: PathBuf,
     pub settings: Settings,
@@ -814,7 +817,9 @@ fn open(
     tokens: &Arc<service::KeptTokens>,
 ) -> (Service, Inbox) {
     let kept: Arc<dyn service::Tokens> = tokens.clone();
-    let mut carriers = carry::carriers_keeping(settings.clone(), data, beside(), kept).expect("the carriers are made");
+    let flows = std::slice::from_ref(flow);
+    let mut carriers =
+        carry::carriers_keeping(settings.clone(), data, beside(), flows, kept).expect("the carriers are made");
     if deaf {
         carriers.agents = Arc::new(Deaf(carriers.agents));
     }
@@ -831,8 +836,9 @@ pub const ACCOUNT: &str = "tests";
 pub const TOKEN: &str = "sk-ant-oat01-the-tests";
 
 /// Makes a project's repository at `repo`, on its main branch, with a greeting, the project's files and its
-/// declaration: the one beside this repository's flows.
-pub fn made_repository(repo: &Path) {
+/// declaration: this repository's own, with `check` as the command that checks a project hosted in its local
+/// repository.
+pub fn made_repository(repo: &Path, check: &str) {
     std::fs::create_dir_all(repo).unwrap();
     git_in(repo, &["init", "-q", "-b", "main"]);
     git_in(repo, &["config", "user.name", "Tester"]);
@@ -847,15 +853,16 @@ pub fn made_repository(repo: &Path) {
     let declaration = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../")
         .join(flow::agents::DECLARATION);
-    std::fs::create_dir_all(repo.join("flow")).unwrap();
     // The variable the repository's declaration gives every round's command line is given another value here, so that
     // a round that is given the value the declaration names is told from one given a value the engine wrote itself.
-    let text = std::fs::read_to_string(declaration).expect("the declaration is read");
-    let declared = text.replace(
+    let text = std::fs::read_to_string(declaration).expect("the repository's declaration is read");
+    let named = text.replace(
         "RUSTUP_AUTO_INSTALL = \"0\"",
         &format!("RUSTUP_AUTO_INSTALL = \"{DECLARED_VARIABLE}\""),
     );
-    assert_ne!(declared, text, "the declaration names RUSTUP_AUTO_INSTALL");
+    assert_ne!(named, text, "the declaration names RUSTUP_AUTO_INSTALL");
+    let check = toml::Value::String(check.to_string());
+    let declared = format!("{named}\n[local]\ncheck = {check}\n");
     std::fs::write(repo.join(flow::agents::DECLARATION), declared).expect("the declaration is written");
     git_in(repo, &["add", "."]);
     git_in(repo, &["commit", "-q", "-m", "Greet"]);
@@ -867,20 +874,19 @@ pub fn made_repository(repo: &Path) {
 /// The value the test repository's declaration gives `RUSTUP_AUTO_INSTALL`, which is no value the engine gives it.
 pub const DECLARED_VARIABLE: &str = "declared-in-the-test-repository";
 
-/// The project's guide, constitution and tree rules, by their paths in the test repository, which `project.toml`
-/// beside the repository's flows names, with their texts.
+/// The project's guide, constitution and tree rules, by their paths in the test repository, which its declaration
+/// names, with their texts.
 pub const PROJECT_FILES: [(&str, &str); 3] = [
     ("AGENTS.md", "# The test project\n\nWhat its agents need to know.\n"),
     ("design/constitution.md", "# Its constitution\n"),
     ("design/README.md", "# The rules of its tree\n"),
 ];
 
-/// A project in the repository at `repo`, on its local repository, with this check.
-fn project(repo: &Path, check: &str) -> Project {
+/// A project in the repository at `repo`, hosted in its local repository.
+fn project(repo: &Path) -> Project {
     Project {
         repo: repo.to_path_buf(),
         main: "main".to_string(),
-        check: check.to_string(),
         allowed_config: Vec::new(),
         github: None,
         commits: Default::default(),
@@ -917,13 +923,13 @@ impl Real {
         for made in [&data, &calls] {
             std::fs::create_dir_all(made).unwrap();
         }
-        made_repository(&repo);
+        made_repository(&repo, check);
         let command = fake(&root, &calls, &answers);
         let settings = Settings {
             owner: Owner {
                 language: "Chinese".to_string(),
             },
-            projects: [(PROJECT.to_string(), project(&repo, check))].into(),
+            projects: [(PROJECT.to_string(), project(&repo))].into(),
             agents: Agents {
                 command: command.display().to_string(),
                 levels: [("1", "claude-haiku-5-5"), ("2", "claude-sonnet-5-5")]
@@ -939,11 +945,6 @@ impl Real {
                 args: Vec::new(),
                 env: Vec::new(),
                 setting_sources: "user".to_string(),
-                // The lock command of a project on Cargo.
-                permissions: PermissionsAdded {
-                    locks: vec!["cargo update".to_string()],
-                    ..Default::default()
-                },
                 subagents: Default::default(),
                 work_budget_usd: budget,
                 // What a letting-on of a work the engine paused for its budget allows it beyond that budget: the
@@ -967,6 +968,7 @@ impl Real {
             _dir: dir,
             data,
             repo,
+            check: check.to_string(),
             calls,
             settings,
             flow,
@@ -985,9 +987,8 @@ impl Real {
     /// the first's, and starts the loop again with it; gives the repository.
     pub fn add_project(&mut self, name: &str) -> PathBuf {
         let repo = self.repo.with_file_name(name);
-        made_repository(&repo);
-        let check = self.settings.projects[PROJECT].check.clone();
-        self.settings.projects.insert(name.to_string(), project(&repo, &check));
+        made_repository(&repo, &self.check);
+        self.settings.projects.insert(name.to_string(), project(&repo));
         self.restart();
         repo
     }

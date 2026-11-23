@@ -31,8 +31,9 @@
 //! - `backups`: the copies of the database that were taken and uploaded, and what failed in keeping them. They belong
 //!   to no work, and the backup's own task keeps them through a connection of its own ([`Backups`]).
 //! - `observations`: what agents came across beyond their works, the observations each run kept as it finished, which
-//!   are kept with the rest of the work and numbered as the installation's; and the owner's reading of each. They are
-//!   read for the page, and marked read, through a connection of their own ([`Observations`]).
+//!   are kept with the rest of the work and numbered as the installation's, and those an architect adds; each one's
+//!   title, tags and later changes; and the owner's reading of each. They are read for the page, added to, changed and
+//!   marked read through a connection of their own ([`Observations`]).
 
 mod backups;
 pub mod before_migration;
@@ -49,8 +50,10 @@ use work::{Time, Work};
 
 pub use backups::{Backups, Failure, Kept, Records};
 pub use flows::{KeptFlow, KeptOutline};
-pub use items::{Change, Continues, First, Item, ItemChange, ItemNumber, WorkHead, WorkNumber};
-pub use observations::{Observation, Observations};
+pub use items::{Change, Continues, First, Item, ItemChange, ItemNumber, TAG_CHARS, WorkHead, WorkNumber, tag_is_bad};
+pub use observations::{
+    FromRound, NewObservation, NotMade, Observation, ObservationChange, Observations, Refusal, TagCount,
+};
 
 /// The name of the store's file in the data directory.
 pub const FILE: &str = "store.sqlite";
@@ -60,7 +63,7 @@ pub const SCHEMA: &str = include_str!("../../../db/schema.sql");
 
 /// The version of [`SCHEMA`]. A database made with an earlier one is migrated to it as it is opened; one made with
 /// any other is not opened.
-pub const SCHEMA_VERSION: u32 = 29;
+pub const SCHEMA_VERSION: u32 = 30;
 
 /// A step of the store after a migration's SQL.
 type Step = fn(&Connection) -> Result<(), Fault>;
@@ -163,7 +166,10 @@ const MIGRATIONS: &[Migration] = &[
         "../../../db/migrations/202611231231-keep-the-engine-s-stops.sql"
     )),
     Migration::sql(include_str!(
-        "../../../db/migrations/202611231300-keep-how-long-the-tests-and-jobs-of-each-run-took.sql"
+        "../../../db/migrations/202611231400-keep-the-observations-an-architect-adds-and-what-is-done-to-each.sql"
+    )),
+    Migration::sql(include_str!(
+        "../../../db/migrations/202611231500-keep-how-long-the-tests-and-jobs-of-each-run-took.sql"
     )),
 ];
 

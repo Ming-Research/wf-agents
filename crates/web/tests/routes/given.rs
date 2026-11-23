@@ -166,6 +166,61 @@ async fn a_name_a_text_sent_gives_between_backticks_that_nothing_defines_is_said
     }
 }
 
+// The names of the project's own settings and the project's files are the project's declaration's to say. Where the page
+// has no declaration it checks neither and says so with why, so that what it did not check does not look checked; where
+// it has one, it checks them all and says nothing.
+#[tokio::test]
+async fn where_no_declaration_was_read_the_page_checks_no_project_setting_and_says_so_with_why() {
+    let dir = copied();
+    let rules = dir.path().join("agents/rules/general.md");
+    let text = std::fs::read_to_string(&rules).unwrap();
+    std::fs::write(&rules, format!("{text}\nMind `project.no_such_setting`.\n")).unwrap();
+    let given_with = |project: Option<&Path>| {
+        let mut flows = Flows::dirs(dir.path().join("engineer"), Box::new(the_engine_s));
+        flows.alike.project = project.map(Path::to_path_buf);
+        let router = web::router(flows);
+        async move { get_json(&router, "/api/v1/flow/given").await }
+    };
+    let named = |given: &serde_json::Value| -> Vec<String> {
+        let unknown = given["unknown"].as_array().expect("the unknown names");
+        unknown
+            .iter()
+            .map(|u| u["name"].as_str().unwrap().to_string())
+            .collect()
+    };
+    // No checkout of the project: nothing says what its settings are, and the page says it checked none.
+    let given = given_with(None).await;
+    let said = given["unchecked"].as_str().expect("what was not checked is said");
+    assert!(
+        said.contains("were not checked") && said.contains("no declaration of the project was read"),
+        "{said}"
+    );
+    assert!(said.contains("no checkout of the project"), "{said}");
+    assert!(
+        !named(&given).iter().any(|n| n.starts_with("project.")),
+        "{:?}",
+        named(&given)
+    );
+    // A checkout that holds no declaration: the page says which file it looked for.
+    let empty = tempfile::TempDir::new().unwrap();
+    let given = given_with(Some(empty.path())).await;
+    let said = given["unchecked"].as_str().expect("what was not checked is said");
+    assert!(said.contains("wf-agents.toml"), "{said}");
+    assert!(
+        !named(&given).iter().any(|n| n.starts_with("project.")),
+        "{:?}",
+        named(&given)
+    );
+    // A checkout that holds the repository's own declaration: everything is checked, and a name it does not define is
+    // said.
+    let repository = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let given = given_with(Some(&repository)).await;
+    assert_eq!(given["unchecked"], json!(null), "{given}");
+    let names = named(&given);
+    assert!(names.contains(&"project.no_such_setting".to_string()), "{names:?}");
+    assert!(!names.contains(&"project.research".to_string()), "{names:?}");
+}
+
 #[tokio::test]
 async fn a_name_counts_as_defined_only_where_a_tool_s_file_lists_it_in_defines() {
     let dir = copied();

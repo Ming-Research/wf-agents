@@ -2014,7 +2014,8 @@ pub struct Added {
 }
 
 /// Something happened: these works grew, an item was added where `items`, the copies of the database changed where
-/// `copies`, and the accounts, their usage or their usage limits changed where `accounts`.
+/// `copies`, the accounts, their usage or their usage limits changed where `accounts`, and an observation was added or
+/// changed where `observations`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Changed {
@@ -2022,6 +2023,7 @@ pub struct Changed {
     pub items: bool,
     pub copies: bool,
     pub accounts: bool,
+    pub observations: bool,
 }
 
 /// Why something asked of the interface was refused, in words.
@@ -3196,6 +3198,7 @@ impl Changed {
             items: changed.items,
             copies: changed.copies,
             accounts: changed.accounts,
+            observations: changed.observations,
         }
     }
 }

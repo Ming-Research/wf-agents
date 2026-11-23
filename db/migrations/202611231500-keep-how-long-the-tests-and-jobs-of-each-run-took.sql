@@ -1,4 +1,4 @@
--- From version 28 of the schema to version 29: the engine keeps how long each test and each job of a run of the
+-- From version 29 of the schema to version 30: the engine keeps how long each test and each job of a run of the
 -- project's CI took, as the host read it, so that tests and checks are judged by what earlier ones took. A work kept
 -- before has none kept. The version's one row is replaced last.
 CREATE TABLE test_names (
@@ -33,4 +33,4 @@ CREATE TABLE timed_tests (
     PRIMARY KEY (work, at, test),
     FOREIGN KEY (work, at) REFERENCES timed (work, at)
 );
-UPDATE schema_version SET version = 29;
+UPDATE schema_version SET version = 30;

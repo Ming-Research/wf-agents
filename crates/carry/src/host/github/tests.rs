@@ -67,6 +67,7 @@ fn ci() -> flow::agents::Ci {
             test_stop_input: "test_stop".to_string(),
             checks: vec!["lint".to_string()],
             results: "test-results".to_string(),
+            too_long: "2s".to_string(),
         },
         full: CiFull {
             workflows: vec!["ci.yml".to_string()],
@@ -78,6 +79,15 @@ fn ci() -> flow::agents::Ci {
             results: "test-results".to_string(),
         },
         measure: None,
+    }
+}
+
+/// How the tests' project merges a pull request: not as the host's tests do, so that what reaches the host is seen to
+/// come from the declaration.
+fn merging() -> flow::agents::Merging {
+    flow::agents::Merging {
+        merge_method: "rebase".to_string(),
+        delete_branch: true,
     }
 }
 
@@ -95,7 +105,6 @@ fn config(bare: &std::path::Path) -> Config {
         url: bare.display().to_string(),
         remote: "origin".to_string(),
         start: Duration::from_millis(300),
-        timeout: Duration::from_secs(2),
         merge_method: "squash".to_string(),
         delete_branch: false,
         ci: Some(ci()),
@@ -990,7 +999,7 @@ fn github_as_the_settings_say_needs_the_engines_token() {
         &repo.data,
         INSTALLATION,
         |_| None,
-        None,
+        (None, &merging()),
         (None, None, words()),
     );
     let refused = none.err().expect("refused");
@@ -1002,15 +1011,17 @@ fn github_as_the_settings_say_needs_the_engines_token() {
         &repo.data,
         INSTALLATION,
         given,
-        Some(ci()),
+        (Some(ci()), &merging()),
         (None, None, words()),
     );
     let host = host.expect("made");
     let config = &host.config;
     assert_eq!(config.url, "https://github.com/owner/name.git");
+    assert_eq!(config.start, Duration::from_secs(600));
     assert_eq!(
-        (config.start, config.timeout),
-        (Duration::from_secs(600), Duration::from_secs(7200))
+        (config.merge_method.as_str(), config.delete_branch),
+        ("rebase", true),
+        "how a pull request is merged is the project's declaration"
     );
     assert_eq!(
         config.runners,

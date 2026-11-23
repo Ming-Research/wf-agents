@@ -12,9 +12,9 @@
 //! entered for ([`returns`](crate::returns)). How many run at once is the engine's to bound: it gives at most as many
 //! rounds at once as the settings give slots, and holds the others back in its own order.
 //!
-//! A round is run with the project of its work's item ([`crate::projects`]): its declaration in place of the one beside
-//! the flows, the settings its texts name filled from it, and main's head as its host last gave it. A round of a work
-//! whose item has no project the settings name fails, saying so.
+//! A round is run with the project of its work's item ([`crate::projects`]): its declaration, the settings its texts
+//! name filled from it, and main's head as its host last gave it. A round of a work whose item has no project the
+//! settings name, or whose project is held for its declaration, fails, saying so.
 //!
 //! A round fails, handing in nothing, where the worktree is not there, the program cannot be started, or its stream
 //! holds no return of the form: neither one the command line took, nor, where it gave up on the return, its last
@@ -111,6 +111,7 @@ use decide::run::{Failure, Unmet};
 use decide::{BlockId, CellId, Pauser, RunId, Seq};
 use driver::Policy;
 use engine::Came;
+use flow::agents::Declaration;
 use serde::{Deserialize, Serialize};
 use service::{
     Clock, Doings, Fork, ForkFailed, Forked, Mark, Ping, PingReply, Round, RoundReply, Rounds, SystemClock, Teller,
@@ -149,7 +150,7 @@ struct Inner {
     data: PathBuf,
     installation: Uuid,
     /// Each project's, by its name, for the rounds of the works of its items.
-    projects: BTreeMap<String, Of>,
+    projects: BTreeMap<String, Result<Of, String>>,
     /// What is said of a result of the agents' program that cannot be read, in the words beside the flows: the same for
     /// every project, which a declaration does not change.
     program: flow::agents::ProgramWords,
@@ -211,7 +212,7 @@ async fn entries_given(
     if naming.is_empty() {
         return Ok(given);
     }
-    let format = of.beside.project.tree_format.as_ref().ok_or_else(no_tree_format)?;
+    let format = of.declaration.tree_format.as_ref().ok_or_else(no_tree_format)?;
     let began = work::sessions::began_at(work, run, number).unwrap_or_else(|| work.tick());
     let versions = decide::versions(&work.records.before(began));
     let latest = |block: &BlockId| {
@@ -237,9 +238,11 @@ async fn entries_given(
 pub struct Of {
     /// The project's settings.
     project: Project,
-    /// What is written beside the flows, with the project's declaration in place of the one beside them, which the
-    /// form and the system prompts are made from.
+    /// What is written beside the flows, which the form and the system prompts are made from.
     beside: Beside,
+    /// The project's declaration, `wf-agents.toml` on its main, which the system prompts and the permissions are made
+    /// from.
+    declaration: Declaration,
     /// What the engine puts into the texts its agents are sent: the settings they name, with their values, and the
     /// places it fills alike for every line.
     filling: system::Filling,
@@ -250,13 +253,14 @@ pub struct Of {
 
 impl Of {
     /// What the rounds of a project's works are run with, of these settings: the project's own, what is written beside
-    /// the flows with its declaration, and the reference of its repository that holds main's head as its host last
-    /// gave it.
-    pub fn new(settings: &Settings, project: Project, beside: Beside, main: String) -> Of {
-        let filling = system::filling(settings, &beside);
+    /// the flows, its declaration, and the reference of its repository that holds main's head as its host last gave
+    /// it.
+    pub fn new(settings: &Settings, project: Project, beside: Beside, declaration: Declaration, main: String) -> Of {
+        let filling = system::filling(settings, &beside, &declaration);
         Of {
             project,
             beside,
+            declaration,
             filling,
             main,
         }
@@ -278,9 +282,17 @@ impl Of {
         match what {
             system::Begun::System => {
                 let read = |path: &str| system::read_within(dir, path);
-                let tests = cell.tests_only.then(|| tests_only::paths(&self.beside.project));
-                let your_line = permissions.told(&self.beside.your_line, &self.beside.project.protected.paths, tests);
-                system::of_line(&self.beside, &self.filling, flow, cell, &your_line, read)
+                let tests = cell.tests_only.then(|| tests_only::paths(&self.declaration));
+                let your_line = permissions.told(&self.beside.your_line, &self.declaration.protected.paths, tests);
+                system::of_line(
+                    &self.beside,
+                    &self.declaration,
+                    &self.filling,
+                    flow,
+                    cell,
+                    &your_line,
+                    read,
+                )
             }
             system::Begun::Form => flow::form::form(flow, &self.beside, line),
         }
@@ -304,7 +316,7 @@ impl Agents {
         settings: Settings,
         data: PathBuf,
         installation: Uuid,
-        projects: BTreeMap<String, Of>,
+        projects: BTreeMap<String, Result<Of, String>>,
         tokens: Arc<dyn Tokens>,
     ) -> Self {
         Self::with_clock(settings, data, installation, projects, tokens, Arc::new(SystemClock))
@@ -315,11 +327,13 @@ impl Agents {
         settings: Settings,
         data: PathBuf,
         installation: Uuid,
-        projects: BTreeMap<String, Of>,
+        projects: BTreeMap<String, Result<Of, String>>,
         tokens: Arc<dyn Tokens>,
         clock: Arc<dyn Clock>,
     ) -> Self {
-        let program = (projects.values().next()).map(|of| of.beside.cost.program.clone());
+        // The words are beside the flows, the same for every project: those of any project that is carried. A held
+        // project runs no program.
+        let program = (projects.values().find_map(|of| of.as_ref().ok())).map(|of| of.beside.cost.program.clone());
         Agents {
             inner: Arc::new(Inner {
                 settings,
@@ -497,9 +511,13 @@ impl Rounds for Agents {
 impl Inner {
     /// What the program is let run for a round of the cell, of the project.
     fn permissions(&self, of: &Of, cell: &flow::CellSpec) -> Permissions {
-        let (args, added) = (&self.settings.agents.args, &self.settings.agents.permissions);
-        let refused = permissions::refused_commands(&of.beside);
-        Permissions::of(cell.reads_only, args, &refused, added)
+        let refused = permissions::refused_commands(&of.beside, &of.declaration);
+        Permissions::of(
+            cell.reads_only,
+            &self.settings.agents.args,
+            &refused,
+            &of.declaration.heavy,
+        )
     }
 
     /// Whether the line of the cell, in the work, for the item, would begin a new session of it with another system
@@ -727,7 +745,7 @@ impl Inner {
                     let before = before_messages(&on, round.account.as_deref(), &system, &form);
                     let command = self.command(
                         &dir,
-                        &of.beside.project.environment,
+                        &of.declaration.environment,
                         &on,
                         &system,
                         &permissions,
@@ -943,7 +961,7 @@ impl Inner {
                     .map(|h| h.content.clone())
                     .collect();
                 for names in &naming {
-                    let looked = match &of.beside.project.tree_format {
+                    let looked = match &of.declaration.tree_format {
                         Some(format) => {
                             let (tree, head) = (of.project.tree.as_str(), place.reference());
                             crate::tree::unknown(&place.dir, tree, format, &head, names).await
@@ -966,7 +984,7 @@ impl Inner {
                 // that asks for calls as well: taken, it ends the run, and the run entered for the results begins on
                 // the head it left.
                 if round.cell.tests_only {
-                    let tests = tests_only::paths(&of.beside.project);
+                    let tests = tests_only::paths(&of.declaration);
                     let outside = match &ended {
                         Ok(now) => {
                             let (began, now) = (began.as_deref(), now.as_deref());
@@ -1032,7 +1050,7 @@ impl Inner {
         if round.cell.reads_only {
             return protected::Looked::default();
         }
-        let (paths, words) = (&of.beside.project.protected.paths, &of.beside.asks.protected);
+        let (paths, words) = (&of.declaration.protected.paths, &of.beside.asks.protected);
         match protected::look(&of.project, place, &of.main, paths, words, &round.kept, given).await {
             Ok(looked) => looked,
             Err(why) => {
@@ -1540,7 +1558,7 @@ impl Inner {
         write(&compacted.again, b"").await.map_err(failed)?;
         let command = self.command(
             &dir,
-            &of.beside.project.environment,
+            &of.declaration.environment,
             &on,
             &system,
             &permissions,
@@ -1655,8 +1673,7 @@ impl Inner {
             std::fs::read_to_string(&at)
                 .map_err(|e| NoLine::System(format!("{}: {e}", at.file_name().unwrap_or_default().to_string_lossy())))
         };
-        let (args, added) = (&self.settings.agents.args, &self.settings.agents.permissions);
-        let refused = permissions::refused_commands(&of.beside);
+        let refused = permissions::refused_commands(&of.beside, &of.declaration);
         Ok(SessionLine {
             session,
             run: last.run,
@@ -1664,7 +1681,7 @@ impl Inner {
             on: last.on.clone(),
             system: began(system::Begun::System)?,
             form: began(system::Begun::Form)?,
-            permissions: Permissions::of(reads_only, args, &refused, added),
+            permissions: Permissions::of(reads_only, &self.settings.agents.args, &refused, &of.declaration.heavy),
         })
     }
 
@@ -1916,7 +1933,7 @@ impl Inner {
                 agents,
                 &profile,
                 crate::programs::engine().iter().cloned(),
-                &of.beside.project.environment,
+                &of.declaration.environment,
                 token,
             ))
             .current_dir(dir);
@@ -2743,6 +2760,13 @@ mod tests {
         )
     }
 
+    /// The repository's own declaration, `wf-agents.toml` at its root, read as the engine reads a project's.
+    fn declared(beside: &Beside) -> Declaration {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let text = std::fs::read_to_string(root.join(flow::agents::DECLARATION)).expect("the declaration is read");
+        Declaration::read(&text, flow::agents::DECLARATION, beside).expect("the repository's declaration is one")
+    }
+
     /// A work whose run 7, of R2, ran its first round, its try on these at 3, and whose round ended at 4.
     fn ran_once(on: RanOn) -> Work {
         let mut work = Work::default();
@@ -2823,7 +2847,8 @@ mod tests {
         let repo = git::tests::Repo::new("true");
         let project = repo.project.clone();
         let (flow, beside) = engineer();
-        let of = Of::new(&settings, project, beside, "refs/heads/main".to_string());
+        let declaration = declared(&beside);
+        let of = Of::new(&settings, project, beside, declaration, "refs/heads/main".to_string());
         // The tokens of the accounts `work` and `home`.
         let tokens = service::KeptTokens::new();
         for (name, secret) in [("work", "sk-ant-oat01-work"), ("home", "sk-ant-oat01-home")] {
@@ -2833,7 +2858,7 @@ mod tests {
             settings,
             data.to_path_buf(),
             Uuid::nil(),
-            [("example".to_string(), of)].into(),
+            [("example".to_string(), Ok(of))].into(),
             Arc::new(tokens),
             Arc::new(service::TokioClock::new(work::Time(10_000_000))),
         );
@@ -2991,7 +3016,10 @@ mod tests {
                     .to_string()
             })
             .collect();
-        let first = &agents.inner.projects["example"].beside.cost.fork.first;
+        let carried = agents.inner.projects["example"]
+            .as_ref()
+            .expect("the project is carried");
+        let first = &carried.beside.cost.fork.first;
         assert!(!first.is_empty(), "the flow's words give the first message");
         assert_eq!(said, [first.clone(), fork.question.clone()]);
         assert_eq!(
@@ -3369,8 +3397,9 @@ mod tests {
         let settings = Settings::read(include_str!("../install.sample.toml")).expect("the sample reads");
         let project = settings.projects["example"].clone();
         let (flow, beside) = engineer();
-        let of = Of::new(&settings, project, beside, "refs/heads/main".to_string());
-        let projects = [("example".to_string(), of)].into();
+        let declaration = declared(&beside);
+        let of = Of::new(&settings, project, beside, declaration, "refs/heads/main".to_string());
+        let projects = [("example".to_string(), Ok(of))].into();
         let agents = Agents::new(
             settings,
             dir.to_path_buf(),

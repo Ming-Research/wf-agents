@@ -230,10 +230,11 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// The observations agents reported beyond their works, the newest first: each with its number, whether the owner
-    /// read it, when it was kept, the item and work it came from and the cell, run and round that reported it, then
-    /// its whole text. At most twenty are given; the line after them says how many more there are and the number to
-    /// give next time with --from.
+    /// The observations, the newest first: each with its number, whether the owner read it, when it was kept and where
+    /// it came from (the item, work, cell, run and round of one an agent reported, or the project that reported one an
+    /// architect added), what project it is of, its title, tags and the item that took it in where it has them, then
+    /// its whole text. Those an item that is not cancelled took in are left out unless --all. At most twenty are
+    /// given; the line after them says how many more there are and the command to give them.
     Observations {
         /// The number of the observation to give from, going down to the older ones; the newest where none is given.
         #[arg(long, value_name = "NUMBER")]
@@ -241,6 +242,55 @@ enum Command {
         /// The most observations to give.
         #[arg(long, default_value_t = 20)]
         limit: usize,
+        /// Only the observations that carry this tag.
+        #[arg(long)]
+        tag: Option<String>,
+        /// Only the observations of this project.
+        #[arg(long)]
+        project: Option<String>,
+        /// The observations an item took in as well.
+        #[arg(long)]
+        all: bool,
+        #[command(flatten)]
+        at: At,
+    },
+    /// Adds an observation: what an architect came across, of the project whose items may take it in, and reported
+    /// by the project it came from, which may be the same; both among those the settings name. A fault of the flow or
+    /// the engine found in another project is added as of wf-agents. It is given a title and tags as it is added, or
+    /// later with `wf-agents change-observations`, and has the next number.
+    AddObservation {
+        /// The project it is of.
+        #[arg(long)]
+        project: String,
+        /// The project that reported it.
+        #[arg(long = "reported-by", value_name = "PROJECT")]
+        reported_by: String,
+        /// Its title, in the owner's language, as long as an item's may be.
+        #[arg(long)]
+        title: Option<String>,
+        /// A tag it carries, a name with no space and no comma; given once for each. The same names classify items.
+        #[arg(long = "tag", value_name = "TAG")]
+        tags: Vec<String>,
+        /// What it says.
+        #[arg(long, conflicts_with = "file", required_unless_present = "file")]
+        text: Option<String>,
+        /// A file that holds what it says.
+        #[arg(long)]
+        file: Option<PathBuf>,
+        #[command(flatten)]
+        at: At,
+    },
+    /// Makes several changes of observations at once, for one reason: in the order given, each judged against what
+    /// those before it make, all of them or none. Each is OBSERVATION:KIND or OBSERVATION:KIND=VALUE, the observation
+    /// its number with or without the O, the kind one of title=TEXT, tag=TAG, untag=TAG, taken-in-by=ITEM and delete.
+    /// An item of the project the observation is of, whose work is not cancelled, takes an observation in, whatever
+    /// it is doing; a deleted observation is listed no more, and its text and why stay in the records. Every refusal is
+    /// said at once, by the change's place.
+    ChangeObservations {
+        #[command(flatten)]
+        why: Why,
+        #[arg(required = true, value_name = "OBSERVATION:KIND[=VALUE]")]
+        changes: Vec<String>,
         #[command(flatten)]
         at: At,
     },
@@ -260,7 +310,8 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// The tags items carry, each with how many items carry it and how many of those have not ended.
+    /// The tags items and observations carry, each with how many items carry it and how many of those have not ended,
+    /// and how many observations carry it and how many of those are not handled: one list of the names in use.
     Tags {
         #[command(flatten)]
         at: At,
@@ -482,7 +533,8 @@ enum FlowCommand {
         /// Only this cell, by its id.
         #[arg(long)]
         cell: Option<String>,
-        /// The project's checkout, whose files the system prompt holds; they are left out where none is given.
+        /// The project's checkout, whose declaration (`wf-agents.toml`) and files the system prompt holds; they are left
+        /// out where none is given.
         #[arg(long)]
         project: Option<PathBuf>,
     },
@@ -597,7 +649,39 @@ fn main() -> ExitCode {
         Command::Changes { since, at } => talk::ask(at.port, Asked::Changes { since }),
         Command::Candidates { at } => talk::ask(at.port, Asked::Candidates),
         Command::Search { text, limit, at } => talk::ask(at.port, Asked::Search { text, limit }),
-        Command::Observations { from, limit, at } => talk::ask(at.port, Asked::Observations { from, limit }),
+        Command::Observations {
+            from,
+            limit,
+            tag,
+            project,
+            all,
+            at,
+        } => {
+            let showing = talk::Showing { tag, project, all };
+            talk::ask(at.port, Asked::Observations { from, limit, showing })
+        }
+        Command::AddObservation {
+            project,
+            reported_by,
+            title,
+            tags,
+            text,
+            file,
+            at,
+        } => match talk::new_observation(project, reported_by, title, tags, text, file.as_deref()) {
+            Ok(observation) => talk::ask(at.port, Asked::AddObservation(observation)),
+            Err(why) => {
+                eprintln!("{why}");
+                ExitCode::FAILURE
+            }
+        },
+        Command::ChangeObservations { why, changes, at } => match talk::observation_changes(&changes) {
+            Ok(changes) => talk::ask(at.port, Asked::ChangeObservations { why: why.why, changes }),
+            Err(why) => {
+                eprintln!("{why}");
+                ExitCode::FAILURE
+            }
+        },
         Command::Graph {
             item,
             down,
