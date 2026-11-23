@@ -1,5 +1,5 @@
 //! The project's workflows, which the engine runs by hand through the project's declaration (`ci` in
-//! `flow/project.toml`), always by their files on main, given the commit to run on, each run found by a value its
+//! `wf-agents.toml`), always by their files on main, given the commit to run on, each run found by a value its
 //! name holds, which is worked out from what asked for it; and what each reports, read from the JUnit XML it uploads
 //! (`results`), never guessed from a log.
 //!
@@ -151,38 +151,6 @@ fn judged<'a>(ran: &'a [Ran], tests: &'a [String]) -> Option<Vec<results::Row<'a
     let run = one.results.as_ref().ok()?;
     let concluded = (one.jobs.iter()).all(|j| !matches!(j.outcome, Outcome::Broken(_) | Outcome::Pending));
     concluded.then(|| results::rows(tests, run))
-}
-
-/// What is wrong with the time limits a project's declaration gives its workflows (`too_long` of `[ci.full]` and of
-/// `[ci.measure]`), each said with where it is written, so that a limit that is no time is refused as the engine starts
-/// and not by the first request that waits for a run, after its commit is pushed.
-pub fn limit_faults(ci: &Ci) -> Vec<String> {
-    let at = |table: &str, why: String| format!("{} [{table}]: too_long: {why}", flow::agents::DECLARATION);
-    let mut faults = Vec::new();
-    if let Err(why) = span_of(&ci.full.too_long) {
-        faults.push(at("ci.full", why));
-    }
-    if let Some(Err(why)) = ci.measure.as_ref().map(|measure| span_of(&measure.too_long)) {
-        faults.push(at("ci.measure", why));
-    }
-    faults
-}
-
-/// A time such as `90m`, `2h`, `30s` or `1d`; or why it is none.
-pub(super) fn span_of(text: &str) -> Result<Duration, String> {
-    let text = text.trim();
-    let (number, unit) = text.split_at(text.find(|c: char| !c.is_ascii_digit()).unwrap_or(text.len()));
-    let number: u64 = number
-        .parse()
-        .map_err(|_| format!("{text:?} is no time such as 90m or 2h"))?;
-    let seconds = match unit {
-        "s" => 1,
-        "m" => 60,
-        "h" => 3600,
-        "d" => 86_400,
-        _ => return Err(format!("{text:?} is no time such as 90m or 2h")),
-    };
-    Ok(Duration::from_secs(number * seconds))
 }
 
 /// What a request is run by.
@@ -346,12 +314,13 @@ impl<A: Api> GitHub<A> {
                     let checks = serde_json::to_string(&named.checks).unwrap_or_default();
                     inputs.push((fast.checks_input.clone(), checks));
                 }
+                let limit = flow::agents::span(&fast.too_long).map_err(|why| format!("ci.fast.too_long: {why}"))?;
                 let plan = Plan {
                     workflow: &fast.workflow,
                     results: &fast.results,
                     inputs,
                     call,
-                    limit: self.config.timeout,
+                    limit,
                 };
                 match self.execute(&plan, commit, stop).await? {
                     Some(one) => ran.push(one),
@@ -359,7 +328,8 @@ impl<A: Api> GitHub<A> {
                 }
             }
             Role::Measure(measure, base) => {
-                let limit = span_of(&measure.too_long).map_err(|why| format!("ci.measure.too_long: {why}"))?;
+                let limit =
+                    flow::agents::span(&measure.too_long).map_err(|why| format!("ci.measure.too_long: {why}"))?;
                 let call = self.call(request, &measure.workflow);
                 let names: String = (named.measure.iter()).map(|m| format!("{}\n", m.trim())).collect();
                 let inputs = vec![
@@ -381,7 +351,7 @@ impl<A: Api> GitHub<A> {
                 }
             }
             Role::Full(full) => {
-                let limit = span_of(&full.too_long).map_err(|why| format!("ci.full.too_long: {why}"))?;
+                let limit = flow::agents::span(&full.too_long).map_err(|why| format!("ci.full.too_long: {why}"))?;
                 for workflow in &full.workflows {
                     let call = self.call(request, workflow);
                     let inputs = vec![

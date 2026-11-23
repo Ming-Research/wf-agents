@@ -1352,7 +1352,6 @@ mod tests {
             args: vec!["--strict-mcp-config".to_string()],
             env: Vec::new(),
             setting_sources: "user".to_string(),
-            permissions: Default::default(),
             subagents: Default::default(),
             work_budget_usd: None,
             let_on_allowance_usd: 20.0,
@@ -2707,7 +2706,7 @@ mod tests {
             assert_eq!(
                 faults(own, &[]),
                 [format!(
-                    "flow/project.toml [environment]: {own} is the engine's own, which it gives every round itself"
+                    "wf-agents.toml [environment]: {own} is the engine's own, which it gives every round itself"
                 )],
                 "{own}"
             );

@@ -1,10 +1,10 @@
 //! The system prompt of each line of the engineer's flow as the repository defines it (`flow/engineer`), made from
-//! the files beside it (`flow/agents`, `flow/project.toml`).
+//! the files beside it (`flow/agents`) and the project's declaration (`wf-agents.toml`).
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use flow::agents::{self, Agents};
+use flow::agents::{self, Agents, Declaration};
 use flow::system::{self, Of, Part, Piece, Settings};
 use flow::{CellSpec, Compiled, Has, Kind};
 
@@ -40,6 +40,12 @@ fn beside() -> Agents {
     agents::read(&root()).expect("the files beside the flows are read")
 }
 
+/// The repository's declaration, read as the engine reads a project's.
+fn declaration(agents: &Agents) -> Declaration {
+    let text = std::fs::read_to_string(root().join("../wf-agents.toml")).expect("the declaration is read");
+    Declaration::read(&text, "wf-agents.toml", agents).expect("the declaration is a declaration")
+}
+
 /// Each file of the project, by its path, as a text that says which it is.
 fn project(path: &str) -> Result<Option<String>, String> {
     Ok(Some(format!("The text of {path}.\n")))
@@ -64,7 +70,7 @@ fn as_written(pieces: &[Piece]) -> String {
 
 /// The settings the texts name, each with a value.
 fn settings(agents: &Agents) -> Settings {
-    Settings::of(&agents.project, &agents.installation, |name| {
+    Settings::of(Some(&declaration(agents)), &agents.installation, |name| {
         Some(format!("the value of {name}"))
     })
 }
@@ -89,7 +95,9 @@ fn the_system_prompt_is_the_same_bytes_for_every_cell_of_a_line_and_every_sessio
     let lines: BTreeSet<&str> = flow.cells.iter().filter_map(|c| c.line.as_deref()).collect();
     assert!(lines.contains("engineer") && lines.len() > 1, "{lines:?}");
     for line in lines {
-        let of_cell = |cell: &CellSpec| system::parts(&agents, &flow, cell, project).expect("the parts are made");
+        let of_cell = |cell: &CellSpec| {
+            system::parts(&agents, Some(&declaration(&agents)), &flow, cell, project).expect("the parts are made")
+        };
         let cells = cells(&flow, line);
         let first = sent(&of_cell(cells[0]), &agents);
         for cell in &cells {
@@ -98,7 +106,8 @@ fn the_system_prompt_is_the_same_bytes_for_every_cell_of_a_line_and_every_sessio
         }
         // Another session of the line, from the same files read again, begins with the same bytes.
         let again = beside();
-        let parts = system::parts(&again, &flow, cells[0], project).expect("the parts are made");
+        let parts =
+            system::parts(&again, Some(&declaration(&again)), &flow, cells[0], project).expect("the parts are made");
         assert_eq!(sent(&parts, &again), first, "{line}");
     }
     assert!(cells(&flow, "engineer").len() > 1);
@@ -109,7 +118,14 @@ fn the_system_prompt_is_the_same_bytes_for_every_cell_of_a_line_and_every_sessio
 #[test]
 fn a_lines_system_prompt_holds_the_parts_session_toml_names_in_its_order() {
     let (flow, agents) = (engineer(), beside());
-    let parts = system::parts(&agents, &flow, cells(&flow, "engineer")[0], project).unwrap();
+    let parts = system::parts(
+        &agents,
+        Some(&declaration(&agents)),
+        &flow,
+        cells(&flow, "engineer")[0],
+        project,
+    )
+    .unwrap();
     let named: Vec<(Of, &str, &str)> = (parts.iter())
         .map(|p| (p.of, p.name.as_str(), p.source.as_str()))
         .collect();
@@ -135,7 +151,7 @@ fn a_lines_system_prompt_holds_the_parts_session_toml_names_in_its_order() {
     );
     // Each line is given the sets of rules its file names, in their order, and no other.
     for cell in flow.cells.iter().filter(|c| c.kind == Kind::Agent) {
-        let parts = system::parts(&agents, &flow, cell, project).unwrap();
+        let parts = system::parts(&agents, Some(&declaration(&agents)), &flow, cell, project).unwrap();
         let rules: Vec<&String> = (parts.iter()).filter(|p| p.of == Of::Rules).map(|p| &p.name).collect();
         assert_eq!(rules, cell.system.iter().collect::<Vec<_>>(), "{}", cell.id.as_str());
     }
@@ -191,14 +207,22 @@ fn how_you_return_holds_each_fields_and_each_flow_tools_words() {
 #[test]
 fn a_setting_the_texts_name_with_no_value_makes_no_prompt() {
     let (flow, mut agents) = (engineer(), beside());
-    let parts = system::parts(&agents, &flow, cells(&flow, "engineer")[0], project).unwrap();
+    let parts = system::parts(
+        &agents,
+        Some(&declaration(&agents)),
+        &flow,
+        cells(&flow, "engineer")[0],
+        project,
+    )
+    .unwrap();
     let fills = |name: &str| ["your_line", "store", "named_checks", "measure"].contains(&name);
     assert_eq!(system::check(&parts, &settings(&agents), fills), Vec::<String>::new());
     // The way the project names its tests, which the words of `run_tests` name, given as the installation's here, with
     // no value; and the subagents an agent may start.
-    agents.project.project.remove("test_names");
+    let mut declared = declaration(&agents);
+    declared.project.remove("test_names");
     agents.installation.names.push("project.test_names".to_string());
-    let lacking = Settings::of(&agents.project, &agents.installation, |name| {
+    let lacking = Settings::of(Some(&declared), &agents.installation, |name| {
         (!["agents.subagents.most", "project.test_names"].contains(&name)).then(|| "a value".to_string())
     });
     let fill = |name: &str| Some(name.to_string());
@@ -234,7 +258,14 @@ fn a_tools_place_is_filled_from_its_own_file() {
     let ways: Vec<&str> = run_tests.places["named_checks"].keys().map(String::as_str).collect();
     assert_eq!(ways, ["named", "none_named", "whole"]);
     assert!(!agents.installation.names.iter().any(|n| n.starts_with("github.")));
-    let parts = system::parts(&agents, &flow, cells(&flow, "engineer")[0], project).unwrap();
+    let parts = system::parts(
+        &agents,
+        Some(&declaration(&agents)),
+        &flow,
+        cells(&flow, "engineer")[0],
+        project,
+    )
+    .unwrap();
     let returns = parts.iter().find(|p| p.of == Of::Returns).expect("how a cell returns");
     for words in run_tests.places["named_checks"].values() {
         assert!(

@@ -552,7 +552,8 @@ enum FlowCommand {
         /// Only this cell, by its id.
         #[arg(long)]
         cell: Option<String>,
-        /// The project's checkout, whose files the system prompt holds; they are left out where none is given.
+        /// The project's checkout, whose declaration (`wf-agents.toml`) and files the system prompt holds; they are left
+        /// out where none is given.
         #[arg(long)]
         project: Option<PathBuf>,
     },
