@@ -155,7 +155,7 @@ describe('the Settings view', () => {
     expect(box(page, 'items.highest_level').value).toBe('3');
     const slots = box(page, 'agents.slots').closest('tr')!;
     expect(slots.lastElementChild?.textContent).toBe('2');
-    const limit = box(page, 'sessions.context_limit').closest('tr')!;
+    const limit = box(page, 'sessions.compact_at').closest('tr')!;
     expect(limit.lastElementChild?.textContent).toBe('500000 · left out of the file');
     const fileOnly = [...page.querySelectorAll('.file-table')];
     expect(fileOnly.map((t) => t.querySelector('h4')?.textContent)).toEqual([
