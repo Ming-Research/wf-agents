@@ -22,7 +22,8 @@
 //! order that must write it, and surely run, run whichever way the conditions go: one of them runs on no condition, or
 //! between them they run on each value of a choice the cell itself does not run on one value of. A cell surely runs
 //! where something it watches is certainly written before it. A datum is also certainly written where the cell runs
-//! only because something it watches was written, that only cells write, and each of them ran. The flow says no more of
+//! only because something it watches was written, that only cells write, and each of them ran, and a choice that its
+//! condition or its preconditions say the value of. The flow says no more of
 //! which blocks a cell writes each time than what it must write, so that a cell is taken to write no more.
 //!
 //! On a first entry, a datum only the cell itself or cells after it in the order write is not written yet, and what the
@@ -322,9 +323,20 @@ impl<'a> Reach<'a> {
         let given: Vec<BlockId> = reach.given.iter().map(|g| g.block.clone()).collect();
         reach.starts = given.iter().filter(|b| reach.starts_with(b)).cloned().collect();
         let implied = reach.implied(cell, &mut Vec::new());
-        let certain = given
+        // A cell runs only where each choice its condition and its preconditions name has the value they say, so that
+        // each is written.
+        let chosen: BTreeSet<&BlockId> = (flow.flow.cells()[place]
+            .applies
             .iter()
-            .filter(|b| reach.starts.contains(*b) || implied.contains(*b) || reach.written_before(place, b));
+            .chain(&flow.flow.cells()[place].requires))
+        .filter_map(|key| match key {
+            Condition::Is { block, .. } => Some(block),
+            Condition::Test(_) => None,
+        })
+        .collect();
+        let certain = given.iter().filter(|b| {
+            reach.starts.contains(*b) || implied.contains(*b) || chosen.contains(*b) || reach.written_before(place, b)
+        });
         reach.certain = certain.cloned().collect();
         reach
     }
@@ -504,14 +516,6 @@ impl<'a> Reach<'a> {
             .all(|c| c.kind != Kind::Agent);
         if self.starts.contains(block) && watches && first && *class == Class::Rest && entry != Entry::First {
             states.retain(|s| *s != Stands::HoldsNew);
-        }
-        // A datum only cells write that the cell watches by itself runs the cell as soon as it is new to it, as the run
-        // begins, and no cell writes while a run is under way: where it did not run the cell, nothing of it is new, and the
-        // cell worked from a version of it, so that the session never holds it as the latest that is new or as one the
-        // cell never worked from.
-        let by_cells = (self.flow.blocks.get(block)).is_some_and(|d| !d.writers.people && d.writers.outside.is_none());
-        if *class == Class::Rest && watches && by_cells {
-            states.retain(|s| !matches!(s, Stands::HoldsLatest | Stands::HoldsNew));
         }
         // A datum the cell watches and writes itself: a version written by another while its run was under way ran it,
         // and the cell's own, after it, is the one it last worked from, so that nothing is new to it.

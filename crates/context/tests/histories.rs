@@ -235,6 +235,7 @@ impl Scene {
                 "design_ok",
                 "testing_ok",
                 "checked",
+                "needs_testing",
             ],
         }
     }
@@ -798,7 +799,9 @@ impl History {
             if let Some(only) = self.sim.flow.blocks[&kept.block].with_nothing_but.get(value).cloned() {
                 writes.retain(|w| w.block == kept.block || only.contains(&w.block));
                 for block in &only {
-                    if !writes.iter().any(|w| w.block == *block) {
+                    // What the return may hold beside it is held now and then, as the draw of its own blocks gives it.
+                    let percent = self.prefer.get(block.as_str()).copied().unwrap_or(self.writes);
+                    if !writes.iter().any(|w| w.block == *block) && self.rng.chance(percent) {
                         let content = self.content(block.as_str());
                         writes.push(Handed {
                             block: block.clone(),
@@ -1470,20 +1473,23 @@ fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() 
 const RUNS: usize = 70;
 const RUN_STEPS: usize = 40;
 const QUIET_STEPS: usize = 150;
-const FRONTIER: usize = 4;
+const FRONTIER: usize = 6;
 
 /// The states of a history as the round of a cell is to be carried, kept to branch from, by the cell, how often it has
 /// begun a run (up to three) and which round of its run it is (up to the second): `cell@runs@round`.
 type Frontier = BTreeMap<String, Vec<History>>;
 
-/// What a run of the search is steered at: a cell, and the blocks its state not yet reached is of or that run it.
+/// What a run of the search is steered at: a cell, the datum and the state of it a line not yet reached says, and the
+/// blocks near them: those that run the cell.
 struct Target {
     cell: String,
+    datum: Option<String>,
+    unwritten: bool,
     blocks: Vec<String>,
 }
 
 impl Target {
-    /// What a line of [`stood`] not yet reached is of: its cell, the datum it says, and what the cell watches.
+    /// What a line of [`stood`] not yet reached is of.
     fn of(sim: &Sim, line: &str) -> Target {
         let (cell, rest) = line.split_once(": ").unwrap_or(("", line));
         let datum = match rest.strip_prefix("run by ") {
@@ -1499,6 +1505,8 @@ impl Target {
         }
         Target {
             cell: cell.to_string(),
+            datum: datum.map(str::to_string),
+            unwritten: rest.contains(" unwritten and "),
             blocks,
         }
     }
@@ -1559,6 +1567,9 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
     let mut log = Vec::new();
     let begun = std::time::Instant::now();
     let flow_of = support::engineer_sim();
+    let order: Vec<String> = (flow_of.flow.flow.cells().iter())
+        .map(|c| c.id.as_str().to_string())
+        .collect();
     let run = |history: &mut History, steps: usize, reached: &mut Reached, frontier: &mut Frontier, rng: &mut Rng| {
         let mut last = None;
         let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -1581,14 +1592,25 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
             break;
         }
         let target = Target::of(&flow_of, open[rng.below(open.len())]);
-        let keys = keys_of(&frontier, &target.cell);
-        let from = (!keys.is_empty() && rng.chance(65)).then(|| {
+        // Where the run begins: a state kept at a round of the target's cell, or of the nearest cell before it that has
+        // one, which the run then carries on to the cell; from nothing, where none is kept and now and then.
+        let at = order.iter().position(|c| *c == target.cell).unwrap_or(0);
+        let own = !keys_of(&frontier, &target.cell).is_empty() && rng.chance(90);
+        let source = match own {
+            true => Some(target.cell.as_str()),
+            false => (0..=at)
+                .rev()
+                .map(|i| order[i].as_str())
+                .find(|c| !keys_of(&frontier, c).is_empty()),
+        };
+        let from = source.filter(|_| rng.chance(92)).map(|cell| {
+            let keys = keys_of(&frontier, cell);
             let states = &frontier[keys[rng.below(keys.len())]];
-            states[rng.below(states.len())].clone()
+            (states[rng.below(states.len())].clone(), cell == target.cell)
         });
         let mut history = match from {
-            Some(mut history) => {
-                history.quiet = 0;
+            Some((mut history, at_target)) => {
+                history.quiet = if at_target { 0 } else { rng.below(60) };
                 history
             }
             None => {
@@ -1608,6 +1630,10 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
         history.scene.reopens = [2, 4, 10][rng.below(3)];
         history.scene.speaks = [6, 20, 40][rng.below(3)];
         history.prefer.clear();
+        // A state of a datum unwritten is brought about by no return handing it in.
+        if let Some(datum) = target.datum.as_ref().filter(|_| target.unwritten && rng.chance(85)) {
+            history.prefer.insert(datum.clone(), 0);
+        }
         // What the work holds at the round changes some, before it is carried.
         for _ in 0..rng.below(4) {
             history.perturb(&mut reached, &target);
@@ -1666,14 +1692,21 @@ fn every_state_written_for(cells: &[&str], seed: u64) {
     assert!(
         open.is_empty() && gaps.is_empty(),
         "{} states of a datum that rounds stood in, and the tool does not write:\n{}\n\n{} of the {} states the tool writes \
-         for {cells:?} were stood in by no round:\n{}\n\nthe search: {}\n\nheld states the rounds stood in: {}",
+         for {cells:?} were stood in by no round:\n{}\n\nthe search: {}\n\nheld states the rounds stood in, and what ran the cell then:\n{}",
         gaps.len(),
         gaps.join("\n"),
         open.len(),
         wanted.len(),
         by_cell(&open),
         log.join("\n"),
-        held.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("; ")
+        (held.iter())
+            .map(|line| {
+                let example = &reached.examples[*line];
+                let why = example.split(", round").next().unwrap_or(example);
+                format!("{line} <- {}", why.chars().take(150).collect::<String>())
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
     );
 }
 
