@@ -450,7 +450,7 @@ describe('a when or a requires of several keys', () => {
 describe("a cell that takes the project's turn", () => {
   it('says in its panel that it takes the turn, and a cell that does not says nothing of it', () => {
     const panelOf = (takesTurn: boolean) => {
-      const page = draw({ state: 'compiled', flow: flowOf([cell('check', { takesTurn })]) });
+      const page = draw({ state: 'compiled', flow: flowOf([cell('check', { takesTurn })], {}) });
       click(page.querySelector('thead .cell-head .head-button'));
       return page.querySelector('section[aria-label="Cell check"]') as HTMLElement;
     };

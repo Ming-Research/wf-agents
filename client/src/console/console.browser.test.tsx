@@ -1275,7 +1275,7 @@ describe('the console page', () => {
     TRACK_KINDS.forEach((kind) => expect(swatch(kind)?.getAttribute('title')).toBe(TRACK_WORDS[kind]));
     expect(swatch('turn')?.getAttribute('title')).toBe('Waiting for its turn to check and merge');
     const colour = (kind: string) => getComputedStyle(swatch(kind) as Element).backgroundColor;
-    for (const kind of TRACK_KINDS.filter((kind) => kind !== 'turn')) expect(colour('turn')).not.toBe(colour(kind));
+    for (const other of TRACK_KINDS.filter((kind) => kind !== 'turn')) expect(colour('turn')).not.toBe(colour(other));
     // Once the pointer leaves, it takes the pointer no more at once, and is hidden once it has faded.
     await userEvent.unhover(mark);
     await expect.poll(() => panel().classList.contains('shown')).toBe(false);
