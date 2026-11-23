@@ -757,6 +757,15 @@ fn written_bare(text: &str) -> bool {
         .any(|noun| (lower.match_indices(&format!("{noun} {{}}"))).any(|(at, _)| !lower[..at].ends_with(ident)))
 }
 
+/// Whether a text writes by hand the letter a work's or an item's number is written with, before a place: `W{}` or
+/// `#{item}`, which the one writer of each number does (`store::WorkNumber`, `store::ItemNumber`).
+fn written_by_hand(text: &str) -> bool {
+    text.contains("#{") || (text.match_indices("W{")).any(|(at, _)| !text[..at].ends_with(ident))
+}
+
+/// The file of the one writer of a work's number and of an item's, which is the one place that writes their letters.
+const WRITER: &str = "crates/store/src/items.rs";
+
 #[test]
 fn no_source_writes_the_number_of_a_work_or_an_item_into_a_sentence_by_a_place_that_names_nothing() {
     let root = root();
@@ -765,16 +774,29 @@ fn no_source_writes_the_number_of_a_work_or_an_item_into_a_sentence_by_a_place_t
     for (path, scanned) in rust_sources() {
         let at = path.strip_prefix(&root).unwrap_or(&path).display().to_string();
         read += scanned.literals.len();
-        for literal in scanned.literals.iter().filter(|l| written_bare(&l.text)) {
+        let by_hand = at != WRITER;
+        let bad = |text: &str| written_bare(text) || (by_hand && written_by_hand(text));
+        for literal in scanned.literals.iter().filter(|l| bad(&l.text)) {
             found.push(format!("{at}:{}: \"{}\"", literal.line, literal.text));
         }
     }
     assert!(read > 1000, "the sources are read: {read} literals");
     assert!(
         found.is_empty(),
-        "these sentences write a number bare, which the engine writes as `W5` and `#5`, by one writer:\n{}",
+        "these sentences write a number bare or with its letter by hand, which the engine writes as `W5` and `#5` by \
+         one writer, whatever is filled in:\n{}",
         found.join("\n")
     );
+}
+
+#[test]
+fn the_letter_of_a_number_written_by_hand_before_a_place_is_found_and_other_uses_are_not() {
+    for by_hand in ["W{} is paused.", "of W{work}: it", "#{item} cancelled", "see (#{})"] {
+        assert!(written_by_hand(by_hand), "{by_hand}");
+    }
+    for fine in ["{work} is paused.", "{item} cancelled", "NEW{}", "a {w} b"] {
+        assert!(!written_by_hand(fine), "{fine}");
+    }
 }
 
 #[test]

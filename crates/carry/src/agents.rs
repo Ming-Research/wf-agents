@@ -317,7 +317,11 @@ impl Rounds for Agents {
                 Ok(Carried::Failed(why, failure, said, spent)) => match inner.held.fail(key) {
                     // Where the round took the work over its budget, the work is paused for that whatever the kind.
                     Some(Failing::Fail(reply)) => {
-                        let resets = resets(failure, &why, &said, &*inner.clock);
+                        // Told by what the program reported where the round was carried, as its kind is.
+                        let resets = (failure == Failure::UsageLimit)
+                            .then_some(said.resets)
+                            .flatten()
+                            .map(work::Time);
                         match inner.to_wait(&round, &spent) {
                             Some(over) => {
                                 // The two reasons are joined in the project's words, as two reasons to wait are, the
@@ -787,8 +791,7 @@ impl Inner {
         // the stream holds is read however the program exited: the one the command line took, or the last attempt of
         // one it gave up on, after which it exits with an error.
         let failed = |why: String, report: &str, said: failure::Said, spent: Option<Spent>| {
-            let kind = failure::of(report, &said, spent.as_ref());
-            Ok(Carried::Failed(why, kind, said, spent.unwrap_or_default()))
+            Ok(failed_round(why, report, said, spent, &*self.clock))
         };
         let command = &self.settings.agents.command;
         let read = match (read, status) {
@@ -1989,12 +1992,30 @@ fn let_run(work: &Work, run: RunId, number: usize, kind: Failure) -> bool {
 
 /// When the account's usage limit resets, where the failure is that limit and the program's stream or its report says
 /// when, the time now read by the clock.
-fn resets(failure: Failure, why: &str, said: &failure::Said, clock: &dyn Clock) -> Option<work::Time> {
+fn resets(failure: Failure, report: &str, said: &failure::Said, clock: &dyn Clock) -> Option<work::Time> {
     if failure != Failure::UsageLimit {
         return None;
     }
     let now = clock.now().ok()?;
-    failure::resets(why, said, now.0, &failure::zone_offset).map(work::Time)
+    failure::resets(report, said, now.0, &failure::zone_offset).map(work::Time)
+}
+
+/// A round that failed, with the reason in the engine's words, `why`, and what the program itself reported of it,
+/// `report`: the kind of the failure, and where that is the usage limit when it resets, are told by the report and by
+/// what the program's stream said in its fields, and by none of the engine's words. The time is kept in what the stream
+/// said (`resets`), as the failure's own.
+fn failed_round(
+    why: String,
+    report: &str,
+    mut said: failure::Said,
+    spent: Option<Spent>,
+    clock: &dyn Clock,
+) -> Carried {
+    let kind = failure::of(report, &said, spent.as_ref());
+    if kind == Failure::UsageLimit {
+        said.resets = resets(kind, report, &said, clock).map(|time| time.0);
+    }
+    Carried::Failed(why, kind, said, spent.unwrap_or_default())
 }
 
 /// How many compactions of the session the file of marks holds, a byte for each.
@@ -3474,6 +3495,44 @@ mod tests {
         .await;
         // The session's $0.03 in all, less the cent its line's earlier round cost; its call at its price is 800.
         assert_eq!(spent.usd_micros, 20_000);
+    }
+
+    // The kind of a failed round and when its usage limit resets are told by what the program reported, and no word of
+    // the engine's is read for either: a reason that says nothing of the limit gives both from the report alone, and a
+    // report that says no limit is no limit. Well under a millisecond; no other test holds the time a report gives.
+    #[test]
+    fn the_kind_of_a_failed_round_and_when_its_limit_resets_are_told_by_the_report_and_not_by_the_reason() {
+        struct At;
+        impl Clock for At {
+            fn now(&self) -> Result<work::Time, String> {
+                Ok(work::Time(1_792_958_400_000))
+            }
+        }
+        let reason = "The command line's result is an error.".to_string();
+        let said = failure::Said::default();
+        let limit = failed_round(
+            reason.clone(),
+            "Claude AI usage limit reached|1792962000",
+            said,
+            None,
+            &At,
+        );
+        let Carried::Failed(why, kind, said, _) = limit else {
+            panic!("a failed round")
+        };
+        assert_eq!((why.as_str(), kind), (reason.as_str(), Failure::UsageLimit));
+        assert_eq!(said.resets, Some(1_792_962_000_000));
+        let other = failed_round(
+            reason,
+            "API Error: 529 Overloaded resets 5pm",
+            failure::Said::default(),
+            None,
+            &At,
+        );
+        let Carried::Failed(_, kind, ..) = other else {
+            panic!("a failed round")
+        };
+        assert_ne!(kind, Failure::UsageLimit);
     }
 
     // A left try whose result says the account's usage limit refused it fails of that kind, which holds every work's

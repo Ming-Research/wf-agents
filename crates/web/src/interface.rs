@@ -295,7 +295,10 @@ async fn graph(
     let depth = query.depth.unwrap_or(3).max(1);
     match handle.read(move |driver| Graph::of(driver, item, way, depth)).await {
         Ok(Some(graph)) => Json(graph).into_response(),
-        Ok(None) => fail(StatusCode::NOT_FOUND, format!("There is no item #{item}.")),
+        Ok(None) => fail(
+            StatusCode::NOT_FOUND,
+            format!("There is no item {}.", store::ItemNumber(item)),
+        ),
         Err(refusal) => refused(&refusal),
     }
 }

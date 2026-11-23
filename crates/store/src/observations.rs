@@ -140,16 +140,22 @@ impl Observations {
             let text = (row.n.checked_sub(1).and_then(|i| texts.get(i)).cloned()).ok_or_else(|| Fault::Value {
                 table: "observations",
                 message: format!(
-                    "O{} is the text {} of the observations of what came back of W{}, run {}, round {}, which \
+                    "O{} is the text {} of the observations of what came back of {}, run {}, round {}, which \
                      has fewer",
-                    row.number, row.n, row.work, row.run, row.round
+                    row.number,
+                    row.n,
+                    WorkNumber(row.work),
+                    row.run,
+                    row.round
                 ),
             })?;
             let kept = row.kept.ok_or_else(|| Fault::Value {
                 table: "observations",
                 message: format!(
-                    "O{}: W{} has no time for its run {}'s finish",
-                    row.number, row.work, row.run
+                    "O{}: {} has no time for its run {}'s finish",
+                    row.number,
+                    WorkNumber(row.work),
+                    row.run
                 ),
             })?;
             let item = ItemNumber(row.item);

@@ -24,10 +24,10 @@ failed = "The round failed. The cause: {why}"
 # `limit` and `calls`, the cell's last `{runs}` runs in a row, each for what a cell after it wrote, or each asking for
 # calls and dealing with nothing; `returns` and `made`, its run at its limit of `{sent_back}` returns sent back or of
 # `{made}` calls made; `ruling`, a block the owner may write, `{block}`, keeping the cell's `requires` key `{key}` from
-# holding; `paused`, the engine's pause, `{reason}` its reason, a whole sentence, and `no_reason` where it gave none; `held`, the pause of
-# every work the engine set as it started again; `agents`, the agents' command line that cannot run, `{why}` what its
-# check or its round found, after a colon, and `mend`, what the owner does about it, which is done elsewhere than where the wait is
-# shown.
+# holding; `paused`, the engine's pause, `{reason}` its reason, a whole sentence, and `no_reason` where it gave none;
+# `held`, the pause of every work the engine set as it started again; `agents`, the agents' command line that cannot
+# run, `{why}` what its check or its round found, after a colon, and `mend`, what the owner does about it, which is done
+# elsewhere than where the wait is shown.
 [owner]
 limit = "The cell ran {runs} times in a row for what a cell after it wrote, which is its limit."
 calls = "The cell ran {runs} times in a row asking for calls and dealing with nothing, which is its limit."
@@ -43,8 +43,8 @@ mend = "Choose an account on the Settings view, add its token again, or install 
 # Why a stalled work rests, which no one waits on, made of these in a sentence, said beside the cell it stands at,
 # which none names: `waits` where that cell waits for its `requires` keys `{keys}`, or `last` where it is the last cell,
 # which nothing new runs; `{writers}` the cells that write what it waits for, `only` with `{cells}` them, or `none`;
-# then for each, `unrun` with `{cell}` it and `{because}` one of `skipped`, with `{keys}` the keys of its `when` that keep
-# it from running, `nothing_new`, or `held`, where the cell the work stands at holds it. A key or a cell is said as
+# then for each, `unrun` with `{cell}` it and `{because}` one of `skipped`, with `{keys}` the keys of its `when` that
+# keep it from running, `nothing_new`, or `held`, where the cell the work stands at holds it. A key or a cell is said as
 # `name`, `{name}` it; keys are joined by `and`, cells by `or`, and the parts by `then`.
 [stalled]
 waits = "It waits for {keys}, which {writers} can make hold"

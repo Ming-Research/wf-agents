@@ -180,7 +180,7 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
             Asked::Text { item, block, whole } => {
                 let items: Items = send(address, Method::GET, "/api/v1/items", None::<&()>).await?;
                 let Some(work) = items.items.iter().find(|i| i.number == item).map(|i| i.work.number) else {
-                    return Err(format!("There is no item #{item}."));
+                    return Err(format!("There is no item {}.", item_number(item)));
                 };
                 let page: WorkPage = send(address, Method::GET, &format!("/api/v1/works/{work}"), None::<&()>).await?;
                 let mut texts = Vec::new();
@@ -624,7 +624,7 @@ fn list(items: &Items, listing: &Listing) -> String {
         let after = if item.depends_on.is_empty() {
             String::new()
         } else {
-            let on: Vec<String> = item.depends_on.iter().map(|on| format!("#{on}")).collect();
+            let on: Vec<String> = item.depends_on.iter().map(|on| item_number(*on)).collect();
             format!(", after {}", on.join(", "))
         };
         let tags = match item.tags.is_empty() {
@@ -634,12 +634,12 @@ fn list(items: &Items, listing: &Listing) -> String {
         // What it does now says which items it waits for, as the engine says.
         let work = &item.work;
         lines.push(format!(
-            "#{} \"{}\" at {}, {}, W{} on {}{after}{tags}: {}",
-            item.number,
+            "{} \"{}\" at {}, {}, {} on {}{after}{tags}: {}",
+            item_number(item.number),
             item.title,
             level(item.level.as_deref()),
             project(item.project.as_deref()),
-            work.number,
+            work_number(work.number),
             work.flow,
             now(&work.now)
         ));
@@ -667,7 +667,7 @@ fn list(items: &Items, listing: &Listing) -> String {
 
 /// From where a list begins, as the end of a sentence.
 fn from_words(from: Option<u64>) -> String {
-    from.map_or_else(String::new, |from| format!(" from #{from} on"))
+    from.map_or_else(String::new, |from| format!(" from {} on", item_number(from)))
 }
 
 /// The most entries of each part of a work that grows with it, what happened to its item, its questions, its runs and
@@ -963,7 +963,7 @@ fn added(history: &ItemHistory, unchanged: bool) -> String {
     let after = if first.depends_on.is_empty() {
         String::new()
     } else {
-        let on: Vec<String> = first.depends_on.iter().map(|on| format!("#{on}")).collect();
+        let on: Vec<String> = first.depends_on.iter().map(|on| item_number(*on)).collect();
         format!(", after {}", on.join(", "))
     };
     let tags = match first.tags.is_empty() {
@@ -987,8 +987,8 @@ fn item_changed(what: &ItemChanged) -> String {
     match what {
         ItemChanged::Title { title } => format!("titled \"{title}\""),
         ItemChanged::Level { level } => format!("put at level {level}"),
-        ItemChanged::DependsOn { item } => format!("came to depend on #{item}"),
-        ItemChanged::NoLongerDependsOn { item } => format!("no longer depends on #{item}"),
+        ItemChanged::DependsOn { item } => format!("came to depend on {}", item_number(*item)),
+        ItemChanged::NoLongerDependsOn { item } => format!("no longer depends on {}", item_number(*item)),
         ItemChanged::Tagged { tag } => format!("tagged {tag}"),
         ItemChanged::Untagged { tag } => format!("no longer tagged {tag}"),
     }
@@ -1045,28 +1045,61 @@ fn changed(changes: &[ChangeAsked], done: &[bool], items: Option<&Items>) -> Str
     let lines: Vec<String> = (changes.iter().zip(done))
         .map(|(change, done)| match (change, *done) {
             (ChangeAsked::Title { item, title }, true) => {
-                format!("#{item} is titled \"{title}\"; the title it had is kept in its history.")
+                format!(
+                    "{item} is titled \"{title}\"; the title it had is kept in its history.",
+                    item = item_number(*item)
+                )
             }
-            (ChangeAsked::Title { item, title }, false) => format!("#{item} was titled \"{title}\" already."),
+            (ChangeAsked::Title { item, title }, false) => {
+                format!("{item} was titled \"{title}\" already.", item = item_number(*item))
+            }
             (ChangeAsked::Level { item, level }, true) => {
-                format!("#{item} is at level {level}: its work's rounds run on it from now on.")
+                format!(
+                    "{item} is at level {level}: its work's rounds run on it from now on.",
+                    item = item_number(*item)
+                )
             }
-            (ChangeAsked::Level { item, level }, false) => format!("#{item} was at level {level} already."),
+            (ChangeAsked::Level { item, level }, false) => {
+                format!("{item} was at level {level} already.", item = item_number(*item))
+            }
             (ChangeAsked::DependsOn { item, on }, true) if cancelled(*on) => {
-                format!("#{item} depends on #{on}, which is cancelled: its work does not wait for it.")
+                format!(
+                    "{item} depends on {on}, which is cancelled: its work does not wait for it.",
+                    item = item_number(*item),
+                    on = item_number(*on)
+                )
             }
             (ChangeAsked::DependsOn { item, on }, true) => {
-                format!("#{item} depends on #{on}: its work waits for it to merge.")
+                format!(
+                    "{item} depends on {on}: its work waits for it to merge.",
+                    item = item_number(*item),
+                    on = item_number(*on)
+                )
             }
-            (ChangeAsked::DependsOn { item, on }, false) => format!("#{item} depended on #{on} already."),
-            (ChangeAsked::NoLongerDependsOn { item, on }, _) => format!("#{item} no longer depends on #{on}."),
-            (ChangeAsked::Tag { item, tag }, true) => format!("#{item} is tagged {tag}."),
-            (ChangeAsked::Tag { item, tag }, false) => format!("#{item} was tagged {tag} already."),
-            (ChangeAsked::Untag { item, tag }, _) => format!("#{item} is no longer tagged {tag}."),
-            (ChangeAsked::Cancel { item }, _) => format!("#{item} is cancelled."),
+            (ChangeAsked::DependsOn { item, on }, false) => format!(
+                "{item} depended on {on} already.",
+                item = item_number(*item),
+                on = item_number(*on)
+            ),
+            (ChangeAsked::NoLongerDependsOn { item, on }, _) => format!(
+                "{item} no longer depends on {on}.",
+                item = item_number(*item),
+                on = item_number(*on)
+            ),
+            (ChangeAsked::Tag { item, tag }, true) => format!("{item} is tagged {tag}.", item = item_number(*item)),
+            (ChangeAsked::Tag { item, tag }, false) => {
+                format!("{item} was tagged {tag} already.", item = item_number(*item))
+            }
+            (ChangeAsked::Untag { item, tag }, _) => {
+                format!("{item} is no longer tagged {tag}.", item = item_number(*item))
+            }
+            (ChangeAsked::Cancel { item }, _) => format!("{item} is cancelled.", item = item_number(*item)),
             (ChangeAsked::Reopen { item }, _) => match work_of(*item) {
-                Some(work) => format!("#{item} is reopened, paused: let it on with `wf-agents resume {work}`."),
-                None => format!("#{item} is reopened, paused."),
+                Some(work) => format!(
+                    "{item} is reopened, paused: let it on with `wf-agents resume {work}`.",
+                    item = item_number(*item)
+                ),
+                None => format!("{item} is reopened, paused.", item = item_number(*item)),
             },
         })
         .collect();
@@ -1095,7 +1128,7 @@ fn plan_changes(answer: &PlanChanges, marked: bool) -> String {
                 let after = match depends_on.is_empty() {
                     true => String::new(),
                     false => {
-                        let on: Vec<String> = depends_on.iter().map(|on| format!("#{on}")).collect();
+                        let on: Vec<String> = depends_on.iter().map(|on| item_number(*on)).collect();
                         format!(", after {}", on.join(", "))
                     }
                 };
@@ -1104,15 +1137,15 @@ fn plan_changes(answer: &PlanChanges, marked: bool) -> String {
                     false => format!(", tagged {}", tags.join(", ")),
                 };
                 format!(
-                    "#{} added as \"{}\" at {}{after}{tags}",
-                    line.item,
+                    "{} added as \"{}\" at {}{after}{tags}",
+                    item_number(line.item),
                     line.title,
                     level(at.as_deref())
                 )
             }
-            PlanChange::Changed { change } => format!("#{} {}", line.item, item_changed(change)),
-            PlanChange::Cancelled => format!("#{} cancelled", line.item),
-            PlanChange::Reopened => format!("#{} reopened", line.item),
+            PlanChange::Changed { change } => format!("{} {}", item_number(line.item), item_changed(change)),
+            PlanChange::Cancelled => format!("{} cancelled", item_number(line.item)),
+            PlanChange::Reopened => format!("{} reopened", item_number(line.item)),
         };
         match groups.last_mut() {
             Some((time, why, said)) if *time == line.time && *why == line.why.as_deref() => said.push(what),
@@ -1137,8 +1170,8 @@ fn row(row: &Row) -> String {
         false => format!(", tagged {}", row.tags.join(", ")),
     };
     format!(
-        "#{} \"{}\" at {}{tags}, {}",
-        row.item,
+        "{} \"{}\" at {}{tags}, {}",
+        item_number(row.item),
         row.title,
         level(row.level.as_deref()),
         match row.standing {
@@ -1206,8 +1239,10 @@ fn hits_said(hits: &Hits, text: &str) -> String {
             n => format!(" ({n} more there)"),
         };
         lines.push(format!(
-            "#{} \"{}\", {field}: {}{again}",
-            hit.item, hit.title, hit.snippet
+            "{} \"{}\", {field}: {}{again}",
+            item_number(hit.item),
+            hit.title,
+            hit.snippet
         ));
     }
     if hits.more > 0 {
@@ -1287,8 +1322,8 @@ fn texts_of(page: &WorkPage, block: Option<&str>) -> Result<Vec<(String, u64)>, 
             found.map(|found| vec![found]).ok_or_else(|| {
                 let names: Vec<&str> = page.blocks.iter().map(|b| b.name.as_str()).collect();
                 format!(
-                    "#{} has no version of {name}: the blocks it has are {}.",
-                    page.summary.item,
+                    "{} has no version of {name}: the blocks it has are {}.",
+                    item_number(page.summary.item),
                     names.join(", ")
                 )
             })
@@ -1314,7 +1349,7 @@ const PARAGRAPH: usize = 240;
 /// The text of an item's blocks: each in short, of each section its heading and first paragraph, cut, with the length
 /// of the whole; or one whole, where asked. Without a block named, the other blocks the work has are named after.
 fn text_said(item: u64, page: &WorkPage, texts: &[(String, String)], whole: bool, named: bool) -> String {
-    let mut lines = vec![format!("#{item} \"{}\":", page.title)];
+    let mut lines = vec![format!("{} \"{}\":", item_number(item), page.title)];
     if texts.is_empty() {
         lines.push("  No person has written a block of it.".to_string());
     }
@@ -1495,7 +1530,7 @@ fn heed(line: &Line, now: u64) -> String {
                 _ => String::new(),
             };
             let why: Vec<String> = (items.iter())
-                .map(|idle| format!("#{} {}", idle.item, stuck(idle.why)))
+                .map(|idle| format!("{} {}", item_number(idle.item), stuck(idle.why)))
                 .collect();
             let none = match items.len() {
                 1 => "which is not going on",
@@ -1549,12 +1584,12 @@ fn observations_said(page: &ObservationsPage, from: Option<u64>, limit: usize) -
             None => "unread".to_string(),
         };
         lines.push(format!(
-            "O{}, {read}, kept {}: item #{} \"{}\", W{}, cell {}, run {}, round {}",
+            "O{}, {read}, kept {}: item {} \"{}\", {}, cell {}, run {}, round {}",
             o.number,
             utc(o.kept),
-            o.item,
+            item_number(o.item),
             cut_title(&o.title),
-            o.work,
+            work_number(o.work),
             o.cell,
             o.run,
             o.round
@@ -1699,7 +1734,7 @@ fn waited(waited: &Waited) -> String {
 
 /// Items by their numbers, each as an item's number is written: #5, #5 and #7, #5, #6 and #7.
 fn numbers(items: &[u64]) -> String {
-    let items: Vec<String> = items.iter().map(|item| format!("#{item}")).collect();
+    let items: Vec<String> = items.iter().map(|item| item_number(*item)).collect();
     match items.as_slice() {
         [] => "none".to_string(),
         [one] => one.clone(),
@@ -1761,11 +1796,11 @@ fn outage(outage: &Outage) -> String {
         _ => String::new(),
     };
     format!(
-        "{what} since {}. {until}{checked} Round {} of run {} of W{} met it. {}",
+        "{what} since {}. {until}{checked} Round {} of run {} of {} met it. {}",
         utc(outage.since),
         outage.round,
         outage.run,
-        outage.work,
+        work_number(outage.work),
         sentence(&outage.why)
     )
 }
@@ -1982,9 +2017,11 @@ fn system_said(system: &System, days: u64, limit: usize) -> String {
                     said.push(time_past("took", &time));
                 }
                 format!(
-                    "  W{work} of #{item}, round {round} of run {run} of {cell}, ended {}: {}",
+                    "  {work} of {item}, round {round} of run {run} of {cell}, ended {}: {}",
                     utc(*ended),
-                    said.join("; ")
+                    said.join("; "),
+                    work = work_number(*work),
+                    item = item_number(*item)
                 )
             }
             Past::Call {
@@ -1998,9 +2035,11 @@ fn system_said(system: &System, days: u64, limit: usize) -> String {
                 time,
                 size,
             } => format!(
-                "  W{work} of #{item}, call {call} of the tool {tool} by run {run} of {cell}, done {}: {}",
+                "  {work} of {item}, call {call} of the tool {tool} by run {run} of {cell}, done {}: {}",
                 utc(*done),
-                call_past(true, *time, *size).join("; ")
+                call_past(true, *time, *size).join("; "),
+                work = work_number(*work),
+                item = item_number(*item)
             ),
         });
     }
@@ -2048,9 +2087,11 @@ fn system_said(system: &System, days: u64, limit: usize) -> String {
                     )
                 });
                 format!(
-                    "  W{work} of #{item}, round {round} of run {run} of {cell}, since {}: {}{bounds}",
+                    "  {work} of {item}, round {round} of run {run} of {cell}, since {}: {}{bounds}",
                     utc(*began),
-                    so_far(time, "rounds of its cell")
+                    so_far(time, "rounds of its cell"),
+                    work = work_number(*work),
+                    item = item_number(*item)
                 )
             }
             UnderWay::Call {
@@ -2063,9 +2104,11 @@ fn system_said(system: &System, days: u64, limit: usize) -> String {
                 made,
                 time,
             } => format!(
-                "  W{work} of #{item}, call {call} of the tool {tool} by run {run} of {cell}, since {}: {}",
+                "  {work} of {item}, call {call} of the tool {tool} by run {run} of {cell}, since {}: {}",
                 utc(*made),
-                so_far(time, "calls of its tool")
+                so_far(time, "calls of its tool"),
+                work = work_number(*work),
+                item = item_number(*item)
             ),
         });
     }
