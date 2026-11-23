@@ -113,6 +113,7 @@ async fn a_wait_every_work_shares_is_given_once_for_all_and_as_what_each_work_it
         "checked": null,
         "until": { "kind": "checked", "at": resets },
         "holds": true,
+        "mayMove": false,
     });
     let items = get_json(router, "/api/v1/items").await;
     assert_eq!(items["outage"], outage);

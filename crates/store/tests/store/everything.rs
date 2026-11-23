@@ -3,7 +3,7 @@
 //! the agents may run under, each added, removed and taken; each kept across an opening, and a file made before the
 //! store kept one opening as if it had never been set.
 
-use store::{AccountAct, AccountRecord, EverythingPaused, PauseOfEverything, SCHEMA_VERSION};
+use store::{AccountAct, AccountRecord, AccountTaker, EverythingPaused, PauseOfEverything, SCHEMA_VERSION};
 
 use super::opening::{SCHEMA_1, columns, versions};
 use super::*;
@@ -145,6 +145,46 @@ fn a_file_made_before_the_pause_of_everything_was_kept_opens_with_none() {
 }
 
 #[test]
+fn whether_the_engine_may_move_to_another_account_at_a_limit_is_off_until_switched_and_holds_across_an_opening() {
+    let db = Db::new();
+    let mut store = db.open();
+    assert_eq!(store.moving_on(), Ok(false), "off until it is switched on");
+    store.set_moving_on(true, Time(START)).expect("it is kept");
+    assert_eq!(store.moving_on(), Ok(true));
+    store.set_moving_on(false, Time(START + 1000)).expect("it is kept");
+    assert_eq!(store.moving_on(), Ok(false));
+    store.set_moving_on(true, Time(START + 2000)).expect("it is kept");
+    drop(store);
+    assert_eq!(db.open().moving_on(), Ok(true), "the latest switch holds");
+}
+
+#[test]
+fn an_account_the_engine_took_keeps_who_took_it_and_the_reset_of_the_limit_it_left_across_an_opening() {
+    let db = Db::new();
+    let mut store = db.open();
+    let record = |name: &str, what: AccountAct, taker: AccountTaker, left_resets: Option<u64>, at: u64| AccountRecord {
+        name: name.to_string(),
+        what,
+        at: Time(START + at),
+        taker,
+        left_resets: left_resets.map(|t| Time(START + t)),
+    };
+    let kept = [
+        record("work", AccountAct::Added, AccountTaker::Owner, None, 0),
+        record("home", AccountAct::Added, AccountTaker::Owner, None, 1000),
+        record("work", AccountAct::Taken, AccountTaker::Owner, None, 2000),
+        record("home", AccountAct::Taken, AccountTaker::Engine, Some(900_000), 3000),
+        record("work", AccountAct::Taken, AccountTaker::Engine, None, 4000),
+    ];
+    for record in &kept {
+        store.keep_account(record).expect("it is kept");
+    }
+    assert_eq!(store.accounts(), Ok(kept.to_vec()));
+    drop(store);
+    assert_eq!(db.open().accounts(), Ok(kept.to_vec()));
+}
+
+#[test]
 fn every_account_added_removed_and_taken_is_given_back_in_order_with_its_name_and_when_across_an_opening() {
     let db = Db::new();
     let mut store = db.open();
@@ -153,6 +193,8 @@ fn every_account_added_removed_and_taken_is_given_back_in_order_with_its_name_an
         name: name.to_string(),
         what,
         at: Time(START + at),
+        taker: AccountTaker::Owner,
+        left_resets: None,
     };
     let kept = [
         record("work", AccountAct::Added, 0),

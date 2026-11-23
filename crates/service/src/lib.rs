@@ -133,6 +133,11 @@ pub enum Message {
         warm: bool,
         reply: oneshot::Sender<Result<(), Refusal>>,
     },
+    /// The owner lets the engine move to another account at a usage limit, or does not.
+    SetMovingOn {
+        moving: bool,
+        reply: oneshot::Sender<Result<(), Refusal>>,
+    },
     /// The owner sets how many rounds of agents may go on at once.
     Slots {
         slots: usize,
@@ -462,8 +467,21 @@ impl Service {
                 if let (Some(account), Some(said)) = (&under, heard.as_ref().and_then(|heard| heard.usage.clone())) {
                     accounts = self.driver.heard_usage(now, account, said);
                 }
-                let found = heard.map(|heard| (under, heard.found));
-                let todos = (self.driver.tick(now, found, host_reached)).map_err(Fault::Driver)?;
+                // A check to move to an account is kept as it was taken, and takes the account where it found it well;
+                // it is no time the driver was told.
+                let in_use = self.driver.accounts().in_use().map(str::to_string);
+                let todos = match (&wake.candidate, heard) {
+                    (Some(account), Some(heard)) => self.driver.tick_candidate(now, account, heard.found),
+                    (_, heard) => {
+                        let found = heard.map(|heard| (under, heard.found));
+                        self.driver.tick(now, found, host_reached)
+                    }
+                }
+                .map_err(Fault::Driver)?;
+                // An account the engine took is the pages' to be told.
+                accounts |= self.driver.accounts().in_use() != in_use.as_deref();
+                // What a check to move to an account found is the engine's own state, which no work's record holds.
+                engine |= wake.candidate.is_some();
                 self.hand(now, todos)?;
             }
             Message::Answered { work, run } => {
@@ -583,6 +601,32 @@ impl Service {
                     }
                 }
             }
+            Message::SetMovingOn { moving, reply } => {
+                let now = self.now()?;
+                match self.driver.set_moving_on(now, moving) {
+                    Ok(todos) => {
+                        let _ = reply.send(Ok(()));
+                        self.hand(now, todos)?;
+                        // What every work does now may have changed, though no record of one grew; and what the
+                        // accounts say did.
+                        let works: Vec<WorkNumber> = self.driver.works().map(|kept| kept.head.number).collect();
+                        let _ = self.changed.send(Changed {
+                            works,
+                            items: false,
+                            copies: false,
+                            accounts: true,
+                        });
+                    }
+                    Err(failed) => {
+                        let refusal = Refusal::Failed(failed);
+                        let stopped = stopped(&refusal);
+                        let _ = reply.send(Err(refusal));
+                        if let Some(fault) = stopped {
+                            return Err(fault);
+                        }
+                    }
+                }
+            }
             Message::Slots { slots, reply } => {
                 let now = self.now()?;
                 match self.driver.set_slots(now, slots) {
@@ -680,7 +724,7 @@ impl Service {
     /// of the outside or a look at the network, it is taken off the loop as the time comes.
     fn set_wake(&mut self) {
         let wake = self.driver.wake();
-        if self.wake.as_ref().map(|(w, _)| *w) == wake {
+        if self.wake.as_ref().map(|(w, _)| w) == wake.as_ref() {
             return;
         }
         let now = self.clock.now().ok();
@@ -698,8 +742,10 @@ impl Service {
             self.carriers.outside.clone(),
             self.carriers.host.clone(),
         );
-        // The outside is checked under the account in use as the time is set: taking another sets it anew.
-        let under = self.driver.accounts().in_use().map(str::to_string);
+        // The outside is checked under the account the wake names, to move to it, else the one in use as the time is
+        // set: taking another sets it anew.
+        let under = (wake.candidate.clone()).or_else(|| self.driver.accounts().in_use().map(str::to_string));
+        let set = wake.clone();
         let timer = tokio::spawn(async move {
             tokio::time::sleep(after).await;
             let heard = match wake.check {
@@ -719,7 +765,7 @@ impl Service {
                 host_reached,
             });
         });
-        self.wake = Some((wake, timer.abort_handle()));
+        self.wake = Some((set, timer.abort_handle()));
     }
 
     /// How long from now until this time; nothing where it has come, or the clock cannot be read, when the time is
@@ -1125,6 +1171,16 @@ impl Handle {
         let (reply, answer) = oneshot::channel();
         (self.to)
             .send(Message::KeepWarm { warm, reply })
+            .map_err(|_| Refusal::Gone)?;
+        answer.await.map_err(|_| Refusal::Gone)?
+    }
+
+    /// Lets the engine move to another account at the usage limit of the one in use, or does not: the engine's own
+    /// state, which holds when it starts again.
+    pub async fn set_moving_on(&self, moving: bool) -> Result<(), Refusal> {
+        let (reply, answer) = oneshot::channel();
+        (self.to)
+            .send(Message::SetMovingOn { moving, reply })
             .map_err(|_| Refusal::Gone)?;
         answer.await.map_err(|_| Refusal::Gone)?
     }
