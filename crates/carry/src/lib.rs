@@ -55,6 +55,7 @@ mod process;
 mod programs;
 pub mod projects;
 mod protected;
+pub mod repair;
 pub mod returns;
 pub mod session;
 pub mod settings;

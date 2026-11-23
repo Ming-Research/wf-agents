@@ -40,6 +40,7 @@ pub mod before_migration;
 mod flows;
 mod items;
 mod observations;
+pub mod repair;
 mod tables;
 
 use std::path::Path;

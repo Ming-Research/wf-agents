@@ -202,12 +202,11 @@ async fn a_session_lost_on_a_later_run_is_begun_again_with_the_task_and_the_runs
     );
 }
 
-/// The fake whose first call prints an error that cost eighty cents, every later call saying the session has cost
-/// eighty-five.
+/// The fake whose first call prints an error that cost eighty cents, every later call saying it spent five cents.
 fn erring() -> Fake {
     Fake {
         error_first: true,
-        cost: "0.85",
+        cost: "0.05",
         ..Fake::default()
     }
 }
