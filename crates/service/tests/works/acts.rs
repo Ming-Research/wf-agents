@@ -150,7 +150,10 @@ async fn a_run_let_go_on_is_not_let_go_on_a_second_time_and_a_call_there_is_none
     let (mut trial, work, call) = at_its_limit().await;
     trial.act(work, Act::GoOn { call }).unwrap();
     let done = trial.work(work).records.done.len();
-    assert!(trial.act(work, Act::GoOn { call }).is_err());
+    assert_eq!(
+        trial.act(work, Act::GoOn { call }),
+        Err(Refusal::Failed(Failed::Refused(Refused::AlreadyDone(call))))
+    );
     let nowhere = CallId(9999);
     assert_eq!(
         trial.act(work, Act::GoOn { call: nowhere }),
