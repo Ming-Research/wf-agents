@@ -34,8 +34,11 @@ of each part.
 
    Each part that keeps state over time (the deciding code, the loop, the driver, the store and the context manager)
    has histories of its own. A property is judged by the histories' own reading of the records, never by the code
-   under test. Each such test counts every case it is there to reach and fails where no history reached one, so that
-   no property passes by never being tried; a failing history gives its seed, which replays it. This layer is the one
+   under test: that a work rests waiting for someone, or is stalled, is read from the records by `Reading::rest`, and
+   a disagreement with what the deciding code says is a breach. Each such test counts every case it is there to reach
+   and fails where none did; those of the deciding code and of the engineer's flow count the histories that reached each
+   case, run more in batches until each has been reached in ten, and fail where one has not, so that no property passes
+   by a case tried once; a failing history gives its seed, which replays it. This layer is the one
    to catch a fault that needs an order of events nobody wrote down: a stop between two steps, a write while a round
    is under way, a return after a send-back.
 
@@ -45,6 +48,10 @@ of each part.
 
    Each flow the repository defines is compiled with the files beside the flows, the system prompt of each of its
    lines and the form of its return are made, and every situation an entry of each of its cells can reach is written.
+   The situations are derived from the flow by rules, and the context manager's histories hold the rules to the rounds
+   of real works, datum by datum: on the small flow of its tests, every state a datum stood in a round is one the
+   rules write, and every state they write was stood in by a round; on the engineer's flow, every state a round stood
+   in is one the rules write, but not yet the other way, as its histories reach only some of its cells and states.
    The deciding code's own walk goes through it every way a work can go within a bound, or through many random
    histories, checking at each decision the properties that flow must keep, such as no merge on what is not settled
    and every work coming to rest. This layer is the one to catch a change of a definition (a cell, a block, a

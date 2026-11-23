@@ -25,6 +25,14 @@
 //! lacked, several versions of a datum given `all` sent at once, a session reopened, lost and compacted, results given
 //! and a return sent back; each is counted, and a test of no history reaching one fails. A failing case prints its
 //! seed.
+//!
+//! The situations the tool writes (`wf-agents flow situations`) are held to the rounds the histories carry, datum by
+//! datum ([`stood`]: a real round is a product of every datum's own state, a written situation one cut of them): on the
+//! small flow in both directions, so that every state a datum stood in a round is one the tool writes, and every state it
+//! writes was stood in by a round of the histories, which is why the scripted history brings about what the random steps
+//! reach too seldom; on the engineer's flow, which these histories carry with the owner's words, questions and answers,
+//! only in the first direction: they reach part of its cells and of the states of each datum, so a state the tool
+//! writes that no round stood in is not held to there.
 
 mod support;
 

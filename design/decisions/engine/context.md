@@ -65,3 +65,7 @@ Which work and item a round belongs to is part of the message that the session k
 A datum a cell is given that has no version yet is left out of the message: no line says it has none.
 - rejected: an agent proposed a line for each, saying it has no version yet; the owner rejected it, because with nothing to read it takes no part.
 - replaced: Sending inputs that held nothing in every message anyway was on main; the owner changed it, because nothing should be sent for an input that holds nothing.
+
+### decision the-situations-tool-derives-its-situations-by-rules
+`wf-agents flow situations` derives a cell's situations from the flow by rules, which tests hold to the rounds of works of the repository's own flows.
+- rejected: an agent proposed that the tool search, for each situation, a history that reaches it with the real context manager and write only those it reaches; the owner rejected it, because the tool stays fast, with no new mechanism and no change in what the crates depend on.
