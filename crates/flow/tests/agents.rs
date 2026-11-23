@@ -547,3 +547,109 @@ fn the_first_message_of_a_fork_in_the_repositorys_flow_is_not_blank() {
     let first = &read.cost.fork.first;
     assert!(!first.trim().is_empty(), "a blank message is sent first");
 }
+
+// A time is the seconds its number and its unit make, as arithmetic gives them. A number of days, hours or minutes whose
+// seconds do not fit in 64 bits is no time the engine can wait for: it is refused, where it would stop the engine with
+// an overflow (a debug build) or wrap to a short time (a release build). A project's declaration is written by agents,
+// and one that cannot be used holds its project; it never stops the engine. Reference: u64::MAX is 18446744073709551615,
+// and 213503982334602 days, 5124095576030432 hours and 307445734561825861 minutes each make more seconds than that;
+// the next lower number of each makes fewer. Milliseconds.
+#[test]
+fn a_time_whose_seconds_do_not_fit_is_refused_and_one_that_just_fits_is_read() {
+    use std::time::Duration;
+    assert_eq!(
+        agents::span("213503982334601d").unwrap(),
+        Duration::from_secs(213_503_982_334_601 * 86_400)
+    );
+    assert_eq!(
+        agents::span("5124095576030431h").unwrap(),
+        Duration::from_secs(5_124_095_576_030_431 * 3600)
+    );
+    assert_eq!(
+        agents::span("307445734561825860m").unwrap(),
+        Duration::from_secs(307_445_734_561_825_860 * 60)
+    );
+    for wrong in [
+        "213503982334602d",
+        "5124095576030432h",
+        "307445734561825861m",
+        "18446744073709551616s",
+    ] {
+        assert!(agents::span(wrong).is_err(), "{wrong:?} is no time");
+    }
+    // Through the declaration: the fast workflow's limit that is none is refused with its key, and one that is a time
+    // is read.
+    let text = declaration_text();
+    let ci = |fast: &str| {
+        format!(
+            "{text}\n[ci.fast]\nworkflow = \"fast.yml\"\nrunner = \"github\"\ntoo_long = \"{fast}\"\n\n[ci.full]\n\
+             workflows = [\"ci.yml\"]\nrunner = \"github\"\ntoo_long = \"2h\"\n"
+        )
+    };
+    assert!(declared(&ci("2h")).is_ok());
+    let refused = declared(&ci("213503982334602d")).unwrap_err();
+    assert!(refused.contains("ci.fast.too_long"), "{refused}");
+}
+
+// A declaration whose lock commands are misspelled, or are not a list, is refused, where a declaration that leaves them
+// out names none: a misspelled key taken for none would leave an agent that writes unable to update a lock file with no
+// word of why, and a merge method or branch deletion of the wrong spelling or type would be taken for another. Reference:
+// the declaration's own table of keys (`Heavy`, `PullRequest`), and TOML's types. Milliseconds.
+#[test]
+fn a_misspelled_or_mistyped_lock_merge_or_deletion_setting_is_refused_not_taken_for_none() {
+    let text = declaration_text();
+    let heavy = "commands = [\"cargo\", \"npm\"]";
+    let pull = "\n[pull_request]\n";
+    for (what, wrong, said) in [
+        (
+            "misspelled locks",
+            text.replace(heavy, &format!("{heavy}\nlock = [\"cargo update\"]")),
+            "unknown field `lock`",
+        ),
+        (
+            "misspelled locks_except",
+            text.replace(heavy, &format!("{heavy}\nlock_except = [\"cargo update *\"]")),
+            "unknown field `lock_except`",
+        ),
+        (
+            "locks a string",
+            text.replace(heavy, &format!("{heavy}\nlocks = \"cargo update\"")),
+            "invalid type",
+        ),
+        (
+            "locks_except a string",
+            text.replace(heavy, &format!("{heavy}\nlocks_except = \"cargo update *\"")),
+            "invalid type",
+        ),
+        (
+            "merge method of another case",
+            format!("{text}{pull}merge_method = \"Squash\"\ndelete_branch = false\n"),
+            "pull_request.merge_method: one of squash, merge, rebase, not \"Squash\"",
+        ),
+        (
+            "merge method empty",
+            format!("{text}{pull}merge_method = \"\"\ndelete_branch = false\n"),
+            "pull_request.merge_method: one of squash, merge, rebase, not \"\"",
+        ),
+        (
+            "deletion a string",
+            format!("{text}{pull}merge_method = \"squash\"\ndelete_branch = \"false\"\n"),
+            "invalid type",
+        ),
+        (
+            "deletion left out",
+            format!("{text}{pull}merge_method = \"squash\"\n"),
+            "missing field `delete_branch`",
+        ),
+        (
+            "merge method left out",
+            format!("{text}{pull}delete_branch = false\n"),
+            "missing field `merge_method`",
+        ),
+        ("check left out", format!("{text}\n[local]\n"), "missing field `check`"),
+    ] {
+        let refused = declared(&wrong).expect_err(what);
+        assert!(refused.starts_with("main:wf-agents.toml: "), "{what}: {refused}");
+        assert!(refused.contains(said), "{what}: {refused}");
+    }
+}

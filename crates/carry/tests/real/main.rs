@@ -11,6 +11,7 @@
 mod accounts;
 mod budget;
 mod catching_up;
+mod declared;
 mod delivering;
 mod failing;
 mod forms;
