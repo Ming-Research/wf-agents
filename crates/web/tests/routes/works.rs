@@ -46,7 +46,7 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
     let input =
         |block: &str, current: Value| json!({ "block": block, "current": current, "known": null, "changed": false });
     // The request is new to the plan, whose run has dealt with nothing yet.
-    let for_the_request = json!([{ "kind": "changed", "block": "request", "was": null, "behind": false }]);
+    let for_the_request = json!([{ "kind": "changed", "block": "request", "workedFrom": null, "behind": false }]);
     let flow = get_json(&running.router, "/api/v1/flow").await["flow"].clone();
     // Each of the plan's three rounds hands in nothing and asks for nothing, so that the next is given why it was sent
     // back.
