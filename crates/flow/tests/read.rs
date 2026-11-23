@@ -71,7 +71,7 @@ fn a_directory_with_cells_is_read_laid_out_one_thing_to_a_file_with_what_it_may_
 
 #[test]
 fn files_by_their_paths_make_a_flow_laid_out_one_thing_to_a_file_as_a_directory_of_them_would() {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/laid_out/small");
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/project/small");
     let read = read(&dir).unwrap();
     let files = (read.cells.iter())
         .map(|(id, text)| (format!("cells/{id}.toml"), text.clone()))

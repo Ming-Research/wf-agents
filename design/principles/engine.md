@@ -32,7 +32,7 @@ Why: Other tools take up context for nothing and can be written to, and what an 
 
 ### principle refuse-as-little-as-must-be
 Every agent is refused only heavy work on the host's processor, such as building and testing, and writing beyond its worktree, such as pushing, besides what a read-only line is refused; the engine runs for it only what its own command line cannot, such as what needs credentials.
-Why: The worktree is the agent's own, and what it does there changes nobody else's work, while what it could reach beyond it the engine's own guards hold. Each command refused or handed to the engine costs a round more, and what the engine runs for an agent needs limits of its own.
+Why: The worktree is the agent's own, and what it does there changes nobody else's work; what it could reach beyond it the engine's own guards hold. A command refused or handed to the engine ends the round, and the next request carries the whole context again; what the engine runs needs limits too.
 
 ### principle stored-content-is-kept-small
 What is stored is kept under control: no large content is stored more than once.

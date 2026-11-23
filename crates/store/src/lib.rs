@@ -60,7 +60,7 @@ pub const SCHEMA: &str = include_str!("../../../db/schema.sql");
 
 /// The version of [`SCHEMA`]. A database made with an earlier one is migrated to it as it is opened; one made with
 /// any other is not opened.
-pub const SCHEMA_VERSION: u32 = 24;
+pub const SCHEMA_VERSION: u32 = 25;
 
 /// A step of the store after a migration's SQL.
 type Step = fn(&Connection) -> Result<(), Fault>;
@@ -150,6 +150,9 @@ const MIGRATIONS: &[Migration] = &[
     Migration::sql(include_str!(
         "../../../db/migrations/202611221500-keep-what-the-forks-of-rounds-cost.sql"
     )),
+    Migration::sql(include_str!(
+        "../../../db/migrations/202611221600-record-who-took-an-account-and-keep-the-switch-that-moves-on.sql"
+    )),
 ];
 
 // The migrations bring a database of every earlier version to this one.
@@ -171,14 +174,26 @@ pub struct PauseOfEverything {
     pub at: Time,
 }
 
-/// An account the agents' program may run under, added, removed or taken by the owner as the one the agents run under,
-/// by the name the owner gave it, at this time: what the store keeps of it, every one in order. Its token is kept
-/// outside the store.
+/// An account the agents' program may run under, added, removed or taken as the one the agents run under, by the name
+/// the owner gave it, at this time: what the store keeps of it, every one in order. Its token is kept outside the
+/// store.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AccountRecord {
     pub name: String,
     pub what: AccountAct,
     pub at: Time,
+    /// Who did it: the owner, or the engine, which only takes an account, at a usage limit.
+    pub taker: AccountTaker,
+    /// For an account the engine took, when the usage limit of the account it left resets, where that was said; none
+    /// otherwise.
+    pub left_resets: Option<Time>,
+}
+
+/// Who took an account as the one the agents run under.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum AccountTaker {
+    Owner,
+    Engine,
 }
 
 /// What was done to an account.
@@ -308,6 +323,13 @@ pub trait Storage {
 
     /// Keeps that the sessions of works that wait are kept warm from this time, or are not.
     fn keep_warm(&mut self, warm: bool, at: Time) -> Result<(), Fault>;
+
+    /// Whether the engine may move to another account at the usage limit of the one in use, as it was last switched;
+    /// it may not where it was never switched, as in a store that never kept it.
+    fn moving_on(&self) -> Result<bool, Fault>;
+
+    /// Keeps that the engine may move to another account at a usage limit from this time, or may not.
+    fn set_moving_on(&mut self, moving: bool, at: Time) -> Result<(), Fault>;
 
     /// Every account added, removed or taken, in the order they were kept; none in a store that never kept one.
     fn accounts(&self) -> Result<Vec<AccountRecord>, Fault>;
@@ -503,22 +525,43 @@ impl Storage for Store {
         Ok(())
     }
 
+    fn moving_on(&self) -> Result<bool, Fault> {
+        let latest = (self.db)
+            .query_row("SELECT moving FROM moving_on ORDER BY n DESC LIMIT 1", [], |row| {
+                row.get::<_, bool>(0)
+            })
+            .optional()?;
+        Ok(latest.unwrap_or(false))
+    }
+
+    fn set_moving_on(&mut self, moving: bool, at: Time) -> Result<(), Fault> {
+        (self.db).execute(
+            "INSERT INTO moving_on (moving, time) VALUES (?1, ?2)",
+            rusqlite::params![moving, at.0],
+        )?;
+        Ok(())
+    }
+
     fn accounts(&self) -> Result<Vec<AccountRecord>, Fault> {
-        let mut query = (self.db).prepare("SELECT name, what, time FROM accounts ORDER BY n")?;
+        let mut query = (self.db).prepare("SELECT name, what, time, taker, left_resets FROM accounts ORDER BY n")?;
         let rows = query.query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
                 row.get::<_, u64>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, Option<u64>>(4)?,
             ))
         })?;
         let mut records = Vec::new();
         for row in rows {
-            let (name, what, time) = row?;
+            let (name, what, time, taker, left_resets) = row?;
             records.push(AccountRecord {
                 name,
                 what: tables::from_name("accounts", what)?,
                 at: Time(time),
+                taker: tables::from_name("accounts", taker)?,
+                left_resets: left_resets.map(Time),
             });
         }
         Ok(records)
@@ -526,9 +569,10 @@ impl Storage for Store {
 
     fn keep_account(&mut self, record: &AccountRecord) -> Result<(), Fault> {
         let what = tables::name("accounts", &record.what)?;
+        let taker = tables::name("accounts", &record.taker)?;
         (self.db).execute(
-            "INSERT INTO accounts (name, what, time) VALUES (?1, ?2, ?3)",
-            rusqlite::params![record.name, what, record.at.0],
+            "INSERT INTO accounts (name, what, time, taker, left_resets) VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![record.name, what, record.at.0, taker, record.left_resets.map(|t| t.0)],
         )?;
         Ok(())
     }
