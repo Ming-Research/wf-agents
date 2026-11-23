@@ -765,11 +765,17 @@ export function fixtureSource(start = Date.now()): Source {
     }
   };
   return {
-    // Each work with the questions the owner may answer ahead counted as the engine counts them, from the questions as
-    // they stand now.
-    loadItems: () => {
-      for (const i of data.items) i.work.ahead = aheadOf(questions[i.number] ?? [], i.work.waits ?? []);
-      return Promise.resolve(structuredClone(data));
+    items: {
+      // Each work with the questions the owner may answer ahead counted as the engine counts them, from the questions
+      // as they stand now.
+      loadItems: () => {
+        for (const i of data.items) i.work.ahead = aheadOf(questions[i.number] ?? [], i.work.waits ?? []);
+        return Promise.resolve(structuredClone(data));
+      },
+      changes: (onChanged) => {
+        listeners.add(onChanged);
+        return () => listeners.delete(onChanged);
+      },
     },
     loadWork: (work) => {
       try {

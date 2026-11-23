@@ -1,25 +1,20 @@
 // Where the console reads the items and the works, and sends what the owner does: the interface (`works-api.ts`), or,
 // when the page's address has `?fixtures`, the made-up items of `fixtures.ts`, so that the console can be looked at
-// with no server behind it.
+// with no server behind it. The items of the interface are read from the feed the bar and the list of works read them
+// from, once for the whole page (works/source.ts).
 
 import { type Heard, listenShared } from '../changes';
 import { usesFixtures } from '../mock-data';
-import {
-  type Act,
-  type Items,
-  type VersionPage,
-  type WorkPage,
-  act,
-  loadItems,
-  loadVersion,
-  loadWork,
-} from '../works-api';
+import { type Act, type VersionPage, type WorkPage, act, loadVersion, loadWork } from '../works-api';
+import { INTERFACE, type ItemsFeed } from '../works/source';
 import { fixtureSource } from './fixtures';
 
 export type { Heard };
 
 export interface Source {
-  loadItems: () => Promise<Items>;
+  /// What the items are read from: every part of the page that reads them from one feed shares one read of them
+  /// (works/source.ts, `useItemsOf`).
+  items: ItemsFeed;
   loadWork: (work: number) => Promise<WorkPage>;
   /// The content of a version of a block of a work, by its number among the block's versions.
   loadVersion: (work: number, block: string, number: number) => Promise<VersionPage>;
@@ -29,9 +24,9 @@ export interface Source {
 }
 
 /// The interface: `GET /api/v1/changes` says, as server-sent events, each time something happened, on the stream the
-/// whole page shares (`changes.ts`).
+/// whole page shares (`changes.ts`); the items are read from the interface as the bar and the list of works read them.
 export const interfaceSource: Source = {
-  loadItems,
+  items: INTERFACE,
   loadWork,
   loadVersion,
   act,
