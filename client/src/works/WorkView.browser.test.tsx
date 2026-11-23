@@ -1,6 +1,8 @@
 // A work's page opened on the address of one of its rounds, in a real browser (Chromium), whose layout and scrolling are
 // its own: the round the address names is brought into view in the item's window, which scrolls to it, and the page
 // itself does not move, as it would if the window were scrolled to the round while it was still out of the page's view.
+// The browser is made short, so that the round lies below what the window shows until the window is scrolled to it; and
+// the round is judged against the browser's own view as well as the window's, so that a window left out of the page fails.
 
 import '../styles/tokens.css';
 import '../styles/parts.css';
@@ -11,6 +13,7 @@ import '../styles/works.css';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
+import { page as browserPage } from 'vitest/browser';
 
 import {
   fixtureCall,
@@ -50,7 +53,8 @@ const source: Source = {
 };
 
 let unmount: (() => void) | undefined;
-afterEach(() => {
+afterEach(async () => {
+  await browserPage.viewport(1280, 800);
   unmount?.();
   unmount = undefined;
   document.body.innerHTML = '';
@@ -59,6 +63,7 @@ afterEach(() => {
 
 describe("a work's page opened on a round's address", () => {
   it("scrolls the item's window to the round, in view, and leaves the page where it was", async () => {
+    await browserPage.viewport(1280, 360);
     const page = fixtureWork(41);
     const run = page.steps.find((s) => s.kind === 'run');
     if (run?.kind !== 'run' || run.rounds.length < 2) throw new Error('the first run did not run twice');
@@ -76,12 +81,20 @@ describe("a work's page opened on a round's address", () => {
     await expect.poll(() => host.querySelector('section.cw-fold-chosen')).not.toBeNull();
     const body = host.querySelector('aside .drawer-body') as HTMLElement;
     const lit = host.querySelector('section.cw-fold-chosen') as HTMLElement;
-    // The section lies in the window's scrolling part, the part of it that is seen.
+    // The window has scrolled, and the section's middle lies in the part of it that is seen, inside the browser's view.
+    expect(body.scrollHeight).toBeGreaterThan(body.clientHeight);
     await expect
       .poll(() => {
         const seen = body.getBoundingClientRect();
         const at = lit.getBoundingClientRect();
-        return at.top >= seen.top && at.top <= seen.bottom && at.left >= seen.left && at.right <= seen.right;
+        const middle = (at.top + at.bottom) / 2;
+        return (
+          body.scrollTop > 0 &&
+          middle >= seen.top &&
+          middle <= seen.bottom &&
+          at.left >= Math.max(seen.left, 0) &&
+          at.right <= Math.min(seen.right, window.innerWidth)
+        );
       })
       .toBe(true);
     // The page itself has not been scrolled to it.
