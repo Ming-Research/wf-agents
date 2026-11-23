@@ -587,9 +587,10 @@ fn lettered(text: &str) -> Vec<String> {
 #[test]
 fn no_string_of_the_flows_files_writes_a_numbers_letter_before_the_place_the_engine_fills_with_one_wherever_it_stands()
 {
-    let hidden: toml::Value = "text = '''\nIn it:\n#{item} is done\n'''\nlast = \"W{work}\"\n"
+    let hidden: toml::Table = "text = '''\nIn it:\n#{item} is done\n'''\nlast = \"W{work}\"\n"
         .parse()
         .unwrap();
+    let hidden = toml::Value::Table(hidden);
     let mut found = Vec::new();
     strings(&hidden, &mut found);
     let found: Vec<String> = found.iter().flat_map(|text| lettered(text)).collect();
@@ -602,7 +603,8 @@ fn no_string_of_the_flows_files_writes_a_numbers_letter_before_the_place_the_eng
     let mut read = 0;
     for dir in ["agents", "data"] {
         for (path, text) in toml_files(&flow.join(dir)) {
-            let value: toml::Value = text.parse().unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+            let table: toml::Table = text.parse().unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+            let value = toml::Value::Table(table);
             let mut all = Vec::new();
             strings(&value, &mut all);
             read += all.len();
