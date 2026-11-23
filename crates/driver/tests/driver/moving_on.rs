@@ -308,22 +308,26 @@ fn nothing_moves_while_everything_is_paused_and_the_account_found_well_is_taken_
     assert_eq!(h.d().moves().len(), 1);
 }
 
-// An account found well in one wait is not taken in a later wait that the rounds met after the first ended: a check
-// speaks of the wait it was taken in ([`driver::Driver::tick`]), and the account is checked again in the second.
+// An account found well in one wait is not taken in a later wait: a check speaks of the wait it was taken in
+// ([`driver::Driver::tick`]), and a wait ends when a round that began after its latest failed round comes back, so the
+// limit met again after that is a new wait, in which the account is checked again.
 #[test]
 fn an_account_found_well_in_an_earlier_wait_is_not_taken_in_a_later_one() {
-    let (mut h, a, _) = under(&["first", "second"]);
+    let (mut h, a, b) = under(&["first", "second"]);
     let first_resets = Time(h.clock + HOUR);
     fails(&mut h, a, Failure::UsageLimit, Some(first_resets));
     // Found well while the switch is off: kept, and taken by nobody.
     let at = Time(h.clock + 1);
     assert_eq!(h.tick_candidate(at, "second", Found::Well), vec![]);
-    // The first's own check at its reset finds it well: the wait is over and the round is handed out again.
+    // The first's own check at its reset finds it well, the round is handed out again, and it comes back: the wait ends.
     let todos = h.tick(first_resets, Some(Found::Well));
     assert_eq!(agents_rounds(&todos), vec![(a, "write".to_string(), 2)]);
     h.ran_under(a, "first");
+    h.hands_in(a, &[("text", None)]);
+    assert_eq!(h.d().outage(), None, "a round begun after the failed one came back");
+    // The other work's round, begun before, meets the limit under the first again: a new wait.
     let second_resets = Time(h.clock + 5 * HOUR);
-    fails(&mut h, a, Failure::UsageLimit, Some(second_resets));
+    fails(&mut h, b, Failure::UsageLimit, Some(second_resets));
     let outage = h.d().outage().expect("a new wait stands");
     assert!(outage.holds());
     // Switched on, the account is checked in this wait, and not taken for what was found in the one before.
