@@ -2177,6 +2177,7 @@ mod tests {
                 cells: Vec::new(),
                 spent: Spent::default(),
                 pinged: Spent::default(),
+                forked: Spent::default(),
                 last: None,
                 from: None,
                 bar: String::new(),
@@ -2485,6 +2486,7 @@ mod tests {
                     at: n,
                     why: None,
                 }),
+                skipped: None,
             })
             .collect();
         WorkPage {
@@ -2885,12 +2887,9 @@ mod tests {
 /// the file the words name.
 const FORK_FIELD: usize = 4_000;
 
-/// The share of what the session held below which a fork is said not to have been read from the cache.
-const READ_ENOUGH: u64 = 80;
-
 /// What a fork answered, in words: each field of its return that holds something, by its key, each cut at
 /// [`FORK_FIELD`] characters, saying where it is kept whole; else what its program said; then what it cost, the share
-/// of the session its first request read from the cache, said plainly where under [`READ_ENOUGH`] percent; where the
+/// of the session its first request read from the cache, said plainly where it missed it ([`driver::cache::missed`]); where the
 /// session went on past the round asked of, that the fork began at that round's end; and where the account the session
 /// ran under was removed, or it ran under none, that the fork ran under the account in use instead.
 pub fn forked_said(page: &ForkPage) -> String {
@@ -2924,7 +2923,7 @@ pub fn forked_said(page: &ForkPage) -> String {
         _ => None,
     };
     match (share, page.expired) {
-        (Some((share, read, held)), _) if share >= READ_ENOUGH => out.push_str(&format!(
+        (Some((share, read, held)), _) if !driver::cache::missed(read, held) => out.push_str(&format!(
             "Its first request read {share}% of the session from the cache ({read} of the {held} tokens it held).\n"
         )),
         (Some((share, read, held)), Some(minutes)) => out.push_str(&format!(
@@ -2933,7 +2932,7 @@ pub fn forked_said(page: &ForkPage) -> String {
         )),
         (Some((share, read, held)), None) => out.push_str(&format!(
             "Its first request read only {share}% of the session from the cache ({read} of the {held} tokens it held), \
-             under {READ_ENOUGH}%: the fork did not begin as the session did, and was not read from the cache.\n"
+             under half: the fork did not begin as the session did, and was not read from the cache.\n"
         )),
         (None, _) => out.push_str("What its first request read from the cache, or what the session held, is not known.\n"),
     }
@@ -3025,9 +3024,23 @@ mod fork_tests {
             ..page()
         };
         assert!(forked_said(&under).contains(
-            "read only 30% of the session from the cache (3000 of the 10000 tokens it held), under 80%: the fork did \
+            "read only 30% of the session from the cache (3000 of the 10000 tokens it held), under half: the fork did \
              not begin as the session did, and was not read from the cache."
         ));
+        // The one test of a miss, a round's and a fork's: under half. A fork that read 60% read the session, and one
+        // that read 40% did not.
+        let said = |read| {
+            forked_said(&ForkPage {
+                read: Some(read),
+                ..page()
+            })
+        };
+        assert!(said(6_000).contains("Its first request read 60% of the session from the cache"));
+        assert!(said(4_000).contains("Its first request read only 40% of the session from the cache"));
+        assert!(
+            said(5_000).contains("Its first request read 50% of the session from the cache"),
+            "half is not under"
+        );
         let expired = ForkPage {
             read: Some(0),
             expired: Some(42),

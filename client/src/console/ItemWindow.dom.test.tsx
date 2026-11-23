@@ -934,6 +934,21 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
     expect(sent).toEqual([[12, { kind: 'answer', question: 'measure', version: 30, option: 2 }]]);
   });
 
+  it("says why the cell of a question does not run, in the stall's words, on a question that holds nothing, and says nothing on one that runs", async () => {
+    const why = '`design` does not run, because it is skipped, `deep = yes` not holding.';
+    const el = drawAsking(
+      { kind: 'next', cell: 'implement' },
+      [],
+      [question('folded', { skipped: why }), question('plain')],
+    );
+    // A question is drawn once the texts that may point to it are read.
+    await act(async () => undefined);
+    const cards = [...el.querySelectorAll('.cw-choice')];
+    expect(cards.map((c) => c.querySelector('.cw-choice-skipped')?.textContent ?? null)).toEqual([why, null]);
+    // It holds nothing: the card is plain, as one the work has gone on past.
+    expect(cards.map((c) => c.className)).toEqual(['cw-choice', 'cw-choice']);
+  });
+
   it('shows a question the work goes on past by the option it recommends, not counted while no merge waits on it, and sends its answer', async () => {
     const sent: Sent = [];
     const later = question('later', { recommends: 2 });

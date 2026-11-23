@@ -62,7 +62,7 @@ Besides what its own file names, every agent cell of a flow reads every cell's q
 - replaced: Naming the discussion and the questions in the context of each cell was on main; the owner changed it, because what every cell takes is part of the flow and is named once, so that the whole work knows what was asked, answered and said.
 
 ### decision a-datum-of-a-cell-s-own-is-made-where-a-cell-names-it
-A per-cell or per-line datum, such as a cell's questions, is made for a cell or line only where some cell names it: in what it watches, reads or writes, or in its conditions.
+A per-cell datum, such as a cell's questions, is made for a cell only where some cell names it: in what it watches, reads or writes, or in its conditions.
 - replaced: Making such a datum only where a cell names it in what it watches, reads or writes was on main; the owner changed it, because a datum named only in a condition, such as whether the better way was handed in, must exist too.
 
 ### decision a-cell-names-a-block-once

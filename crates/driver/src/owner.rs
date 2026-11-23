@@ -90,7 +90,7 @@ pub fn waits(
     let mut waits = Vec::new();
     // A round under way goes on under a pause, and a run that answers the owner's words begins under it: the pause
     // holds the work once they are done.
-    if let Decision::Fault(_) | Decision::Busy { .. } | Decision::Abandon { .. } = decision {
+    if let Decision::Fault(_) | Decision::Busy { .. } | Decision::Hurry { .. } | Decision::Abandon { .. } = decision {
         return waits;
     }
     let pause_holds = !matches!(decision, Decision::Run { .. });

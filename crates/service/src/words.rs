@@ -193,6 +193,7 @@ pub fn refused_words(refused: &Refused) -> String {
         Refused::NotAChoice { block } => format!("the block {block} is no choice, and is written with a value"),
         Refused::NoSuchCell(cell) => format!("the flow has no cell {cell}"),
         Refused::NoRoundUnderWay(run) => format!("no round of run {} is under way", run.0),
+        Refused::NoSuchRound { run, round } => format!("run {} has no round {round} that began", run.0),
         Refused::NoSuchCall(call) => format!("the work has no call {}", call.0),
         Refused::AlreadyDone(call) => format!("call {} has its result already", call.0),
         Refused::NoSuchLine(line) => format!("the flow has no cell on the line {line}"),

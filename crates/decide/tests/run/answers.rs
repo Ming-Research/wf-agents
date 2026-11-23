@@ -163,3 +163,12 @@ fn a_block_committed_that_does_not_run_the_act_does_not_answer_it() {
     let unmet = vec![Unmet::Unanswered { block: "check".into() }];
     assert_eq!(step(vec![round], &answering(true)), send_back(unmet));
 }
+
+#[test]
+fn a_round_told_to_hand_in_what_it_has_that_answers_the_check_with_nothing_new_is_still_sent_back() {
+    let mut s = answering(true);
+    s.told.hurried = true;
+    let round = answer(&["request", "check"], vec![prose("plan")], &[], vec![]);
+    let unmet = vec![Unmet::Unanswered { block: "check".into() }];
+    assert_eq!(step(vec![round], &s), send_back(unmet));
+}

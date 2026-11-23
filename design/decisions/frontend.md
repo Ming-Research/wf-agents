@@ -144,6 +144,7 @@ A cell of a work that ended with no run takes the strip's dash, with the words "
 - replaced: Saying such a cell was skipped was on main; the owner changed it, because skipped is read by walking the whole flow again, the very reading that showed a cell of a flow the work never ran on as skipped.
 
 ### decision a-work-on-no-version-is-drawn-from-its-records
-A work on no version has a column for each id its runs name, in the order they first ran, with no title or line; its card shows its item as added, with no talk, and says its flow was not kept.
+A work on no version has a column for each id its runs name, in order of first run, with no title or line; its card has no talk, shows the installed card's data it has and says its flow was not kept.
 - rejected: an agent proposed naming its cells by the titles of the flow installed; the owner rejected it, because where an id was given again, a title would name another cell.
 - rejected: an agent proposed reading its talk with the owner from its records; the owner rejected it, because the records do not say which datum was which cell's talk.
+- replaced: A card of what people wrote for the work before its first run was on main; the owner changed it, because that held only the background, and the item's window never showed the work's plan_owner, which the store holds.

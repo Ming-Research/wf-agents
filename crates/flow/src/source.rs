@@ -3,8 +3,8 @@
 //! A flow is a directory. Laid out one thing to a file, it holds `flow.toml` for what is the flow's as a whole, and one
 //! file to each cell, line, block and named test, in `cells/`, `lines/`, `blocks/` (in directories of their own, as
 //! deep as is useful) and `tests/`, each named by the thing it defines. What every flow shares is beside the flows,
-//! defined once: the engine's own data in `../data/`, which a flow names among those it uses, and those each cell or
-//! each line has its own of, made where a cell names them; and the sets of rules for the agents that a line names, in
+//! defined once: the engine's own data in `../data/`, which a flow names among those it uses, and those each cell
+//! has its own of, made where a cell names them; and the sets of rules for the agents that a line names, in
 //! `../agents/rules/rules.toml`. Written
 //! before that layout, a flow is `flow.toml` holding its lines, blocks and named tests, one `<cell id>.toml` beside it
 //! for each cell, and in `rules/` one `<name>.md` for each set of rules for the agents that a line's system prompt
@@ -38,12 +38,11 @@ pub const TESTS_DIR: &str = "tests";
 pub const TASK_EXTENSION: &str = "md";
 
 /// The directory beside the flows, from a flow's directory, that holds the engine's own data, as deep as is useful:
-/// each defined once for every flow, and used by a flow that names it. In its `of_a_cell/` ([`OF_A_CELL`]) and
-/// `of_a_line/` ([`OF_A_LINE`]), each a datum every cell or every line has its own of, its file's `name` holding
-/// `{cell}`, the cell's id in small letters, or `{line}`, the line's name: such a datum is made where a cell names it.
+/// each defined once for every flow, and used by a flow that names it. In its `of_a_cell/` ([`OF_A_CELL`]), each a
+/// datum every cell has its own of, its file's `name` holding `{cell}`, the cell's id in small letters: such a datum is
+/// made where a cell names it.
 pub const DATA_DIR: &str = "../data";
 pub const OF_A_CELL: &str = "of_a_cell";
-pub const OF_A_LINE: &str = "of_a_line";
 
 /// The path, from a flow's directory, of the file beside the flows that names the sets of rules for the agents a line
 /// may take: [`agents::RULES_FILE`].
@@ -468,6 +467,11 @@ pub struct BlockFile {
     /// latest version and the work's change against main changes nothing in the project's design tree.
     #[serde(default)]
     pub answers_in_the_tree: bool,
+    /// Its lines name entries of the project's design tree, one to a line, as the project's `[tree_format]` refers to
+    /// one: a return that writes it is sent back for a line that names none the tree on the work's branch holds, and a
+    /// round is given each entry named whole in place of the names, as the tree's latest version has it.
+    #[serde(default)]
+    pub names_tree_entries: bool,
 }
 
 /// Who changes what a source outside the work writes of a block, by their acts: the owner, as the record of the
@@ -520,6 +524,11 @@ pub struct LaidOutBlockFile {
     /// latest version and the work's change against main changes nothing in the project's design tree.
     #[serde(default)]
     pub answers_in_the_tree: bool,
+    /// Its lines name entries of the project's design tree, one to a line, as the project's `[tree_format]` refers to
+    /// one: a return that writes it is sent back for a line that names none the tree on the work's branch holds, and a
+    /// round is given each entry named whole in place of the names, as the tree's latest version has it.
+    #[serde(default)]
+    pub names_tree_entries: bool,
 }
 
 /// Who writes a block from outside the cells, as `from` says it: whether the owner does, and the source outside the
@@ -549,6 +558,7 @@ impl From<LaidOutBlockFile> for BlockFile {
             changed_by: block.changed_by,
             with_nothing_but: block.with_nothing_but,
             answers_in_the_tree: block.answers_in_the_tree,
+            names_tree_entries: block.names_tree_entries,
         }
     }
 }

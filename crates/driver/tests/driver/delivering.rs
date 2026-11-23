@@ -24,7 +24,6 @@ fn engineer() -> Compiled {
             "words",
             DEPENDENCIES,
             "main",
-            "session",
             "start",
             "head",
             "tree",

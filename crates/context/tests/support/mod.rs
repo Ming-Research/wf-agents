@@ -331,6 +331,7 @@ impl Sim {
             main: main.as_ref(),
             compared: &compared(),
             changes,
+            given_as: &BTreeMap::new(),
             named: &self.named,
             results: &BTreeMap::new(),
         };

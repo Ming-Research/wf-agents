@@ -245,13 +245,17 @@ pub struct Summary {
     pub now: Now,
     /// Each cell of its flow as it stands for this work, in the order of the walk.
     pub cells: Vec<CellNow>,
-    /// What all its rounds that ended took, and its keep-warm pings, which count in what it spent as its rounds do:
-    /// `rounds` counts its rounds alone.
+    /// What all its rounds that ended took, and its keep-warm pings and its forks, which count in what it spent as its
+    /// rounds do: `rounds` counts its rounds alone.
     pub spent: Spent,
     /// What the keep-warm pings of its sessions took, each ping counted as a round, none of them under way for any
     /// time the page counts.
     #[serde(default)]
     pub pinged: Spent,
+    /// What the forks of its rounds' sessions took, each fork counted as a round, none of them under way for any time
+    /// the page counts.
+    #[serde(default)]
+    pub forked: Spent,
     /// When something last happened to it; none where nothing has.
     pub last: Option<u64>,
     /// When its first round began; none before it has one.
@@ -790,6 +794,10 @@ pub struct QuestionPage {
     pub recommends: Option<u64>,
     /// The owner's answer to the latest version.
     pub answer: Option<AnswerPage>,
+    /// Why its cell does not run now, said as a stalled work says it, where its condition does not hold; none while it
+    /// does. A question of a cell that does not run holds the work at no cell.
+    #[serde(default)]
+    pub skipped: Option<String>,
 }
 
 /// An option of a question.
@@ -821,8 +829,9 @@ impl QuestionPage {
     }
 
     /// Each question of the work, as it stands, numbered as the version the work is on names each cell's questions.
-    fn all(kept: &Kept<'_>) -> Vec<QuestionPage> {
+    fn all(kept: &Kept<'_>) -> Result<Vec<QuestionPage>, Broken> {
         let work = kept.work;
+        let skipped = decide::skipped(&kept.flow.flow, &work.records);
         (decide::questions::questions(&work.records).into_iter())
             .map(|(name, q)| {
                 let (ask, options, recommends, withdrawn, tree) = match work.question(q.latest) {
@@ -844,7 +853,18 @@ impl QuestionPage {
                     Some(work::Question::Withdrawn { why, .. }) => (None, Vec::new(), None, Some(why.clone()), false),
                     None => (None, Vec::new(), None, None, false),
                 };
-                QuestionPage {
+                // Why its cell does not run says why a question that stands holds nothing: one answered or withdrawn
+                // holds nothing and has nothing to be answered, so it says none.
+                let skipped = match (skipped.get(&q.latest.cell), q.unanswered()) {
+                    (Some(keys), true) => {
+                        let on: Vec<CellKey> = (keys.iter())
+                            .map(|key| key_of(kept, key))
+                            .collect::<Result<_, Broken>>()?;
+                        Some(skipped_words(&kept.flow.waits.stalled, &q.latest.cell.to_string(), &on))
+                    }
+                    _ => None,
+                };
+                Ok(QuestionPage {
                     name: name.to_string(),
                     cell: q.latest.cell.to_string(),
                     version: kept.question_version(&q.latest.cell, q.latest.at),
@@ -860,7 +880,8 @@ impl QuestionPage {
                         at: a.at.0,
                         why: a.why.clone(),
                     }),
-                }
+                    skipped,
+                })
             })
             .collect()
     }
@@ -1339,6 +1360,8 @@ pub enum Unmet {
     /// It hands in the change while the question of this name, marked `tree`, has the owner's answer and the work's
     /// change changes nothing in the design tree.
     TreeUnchanged { name: String },
+    /// A line of a block that names entries of the design tree names none the tree on the work's branch holds.
+    NotAnEntry { line: String },
     /// It deals with what an act after its cell wrote, and leaves nothing new that runs the act and no question with an
     /// answer to come.
     Unanswered { block: String },
@@ -1869,7 +1892,7 @@ impl ForkPage {
         ForkPage {
             answer: forked.answer,
             text: forked.text,
-            usd_micros: forked.usd_micros,
+            usd_micros: forked.spent.usd_micros,
             read: forked.read,
             held: forked.held,
             expired: forked.expired,
@@ -2128,11 +2151,9 @@ impl Summary {
         };
         let cells = match &view.decision {
             Decision::Ended(_) => {
-                (OutlineView::of(kept.on.outline(), &work.records, &|id| kept.came_from(id).cloned())
-                    .cells
-                    .into_iter())
-                .map(|cell| ended(&cell.id))
-                .collect()
+                let came_from = |id: &CellId| kept.came_from(id).cloned();
+                let outline = OutlineView::of(kept.on.outline(), &kept.flow.card, &work.records, &came_from);
+                outline.cells.into_iter().map(|cell| ended(&cell.id)).collect()
             }
             _ => (view.cells.iter())
                 .map(|cell| CellNow {
@@ -2166,7 +2187,8 @@ impl Summary {
         let waits: Vec<Wait> = (driver.waits_on_owner_at(number, view, held, &every.at_once).into_iter())
             .map(Wait::of)
             .collect();
-        let ahead = QuestionPage::ahead(&QuestionPage::all(&kept), &waits);
+        let ahead = QuestionPage::ahead(&QuestionPage::all(&kept)?, &waits);
+        let beside = spent_beside_rounds(work, &|_| true);
         Ok(Summary {
             number: kept.head.number.0,
             item: kept.head.item.0,
@@ -2179,8 +2201,9 @@ impl Summary {
             now,
             cells,
             spent: (runs.iter().fold(Spent::default(), |sum, run| sum.with(run.spent)))
-                .with(pinged(work, &|_| true).as_no_round()),
-            pinged: pinged(work, &|_| true),
+                .with(beside.all().as_no_round()),
+            pinged: beside.pinged,
+            forked: beside.forked,
             last: work.moments.last().map(|moment| moment.at.0),
             from: (runs.iter().flat_map(|run| &run.rounds)).map(|round| round.began).min(),
             bar: bar(kept, &every.held, when),
@@ -2527,9 +2550,10 @@ impl Now {
                     })
                     .collect::<Result<_, Broken>>()?,
             },
-            Decision::Run { cell, .. } | Decision::GoOn { cell, .. } | Decision::Abandon { cell, .. } => {
-                Now::Next { cell: cell.to_string() }
-            }
+            Decision::Run { cell, .. }
+            | Decision::GoOn { cell, .. }
+            | Decision::Hurry { cell, .. }
+            | Decision::Abandon { cell, .. } => Now::Next { cell: cell.to_string() },
             // A stalled work that its own pause holds is shown paused: it is the pauser's to let on.
             Decision::Stalled { at, .. } if decide::paused(&work.records) => Now::paused(work, at)?,
             Decision::Stalled { at, on, by } => {
@@ -2580,34 +2604,59 @@ impl Now {
 /// cell it stands at is said beside it by every reader, and the sentence does not name it.
 fn stalled_words(words: &flow::agents::StalledWords, on: &[CellKey], by: &[Stalling]) -> String {
     use flow::agents::fill;
-    let name = |name: &str| fill(&words.name, &[("name", name)]);
-    let keys = |keys: &[CellKey]| {
-        keys.iter()
-            .map(|key| name(&key.words))
-            .collect::<Vec<_>>()
-            .join(&words.and)
-    };
     let writers = match by.is_empty() {
         true => words.none.clone(),
         false => {
-            let cells: Vec<String> = by.iter().map(|stalling| name(&stalling.cell)).collect();
+            let cells: Vec<String> = by.iter().map(|stalling| name_words(words, &stalling.cell)).collect();
             fill(&words.only, &[("cells", &cells.join(&words.or))])
         }
     };
     let waits = match on.is_empty() {
-        false => fill(&words.waits, &[("keys", &keys(on)), ("writers", &writers)]),
+        false => fill(&words.waits, &[("keys", &keys_words(words, on)), ("writers", &writers)]),
         true => fill(&words.last, &[("writers", &writers)]),
     };
     let unrun = (by.iter()).map(|stalling| {
         let why = match &stalling.why {
-            Unrun::Skipped { on } => fill(&words.skipped, &[("keys", &keys(on))]),
+            Unrun::Skipped { on } => skipped_why(words, on),
             Unrun::NothingNew {} => words.nothing_new.clone(),
             Unrun::Held {} => words.held.clone(),
         };
-        fill(&words.unrun, &[("cell", &name(&stalling.cell)), ("because", &why)])
+        unrun_words(words, &stalling.cell, &why)
     });
     let parts: Vec<String> = std::iter::once(waits).chain(unrun).collect();
     flow::agents::sentence(&parts.join(&words.then))
+}
+
+/// Why a cell does not run where its condition does not hold, in one sentence in the words of a stalled work: the cell,
+/// and the keys of its `when` that keep it from running.
+fn skipped_words(words: &flow::agents::StalledWords, cell: &str, on: &[CellKey]) -> String {
+    flow::agents::sentence(&unrun_words(words, cell, &skipped_why(words, on)))
+}
+
+/// A cell that does not run, and because of what, in the words of a stalled work.
+fn unrun_words(words: &flow::agents::StalledWords, cell: &str, because: &str) -> String {
+    flow::agents::fill(
+        &words.unrun,
+        &[("cell", &name_words(words, cell)), ("because", because)],
+    )
+}
+
+/// That a cell is skipped, its keys not holding, in the words of a stalled work.
+fn skipped_why(words: &flow::agents::StalledWords, on: &[CellKey]) -> String {
+    flow::agents::fill(&words.skipped, &[("keys", &keys_words(words, on))])
+}
+
+/// A key or a cell, in the words of a stalled work.
+fn name_words(words: &flow::agents::StalledWords, name: &str) -> String {
+    flow::agents::fill(&words.name, &[("name", name)])
+}
+
+/// Keys joined as a stalled work says them.
+fn keys_words(words: &flow::agents::StalledWords, keys: &[CellKey]) -> String {
+    (keys.iter())
+        .map(|key| name_words(words, &key.words))
+        .collect::<Vec<_>>()
+        .join(&words.and)
 }
 
 /// A key of a cell's `when` or `requires` as the page shows it: a named test with its words, or a key on a block's value
@@ -2679,20 +2728,53 @@ impl Spent {
     }
 }
 
-/// What the keep-warm pings of the work that ended at a time `within` takes took, each counted as a round.
-pub(crate) fn pinged(work: &work::Work, within: &dyn Fn(u64) -> bool) -> Spent {
-    (work.pinged.iter())
-        .filter(|p| work.time_of(p.at).is_some_and(|at| within(at.0)))
-        .fold(Spent::default(), |sum, p| {
-            sum.with(Spent {
-                usd_micros: p.spent.usd_micros,
-                input_tokens: p.spent.input_tokens,
-                cached_tokens: p.spent.cached_tokens,
-                output_tokens: p.spent.output_tokens,
+/// What the work's calls beside its rounds that ended at a time `within` took, each counted as a round: its keep-warm
+/// pings and its forks, apart.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Beside {
+    pub pinged: Spent,
+    pub forked: Spent,
+}
+
+impl Beside {
+    /// What all of them took together.
+    pub(crate) fn all(&self) -> Spent {
+        self.pinged.with(self.forked)
+    }
+}
+
+/// What each call of the work beside its rounds that ended at a time `within` took, each counted as a round, with the
+/// time of its place: the one reading of what a work spent beside its rounds that the pages share
+/// ([`work::Work::spent_beside_rounds`]).
+pub(crate) fn beside_rounds(work: &work::Work, within: &dyn Fn(u64) -> bool) -> Vec<(u64, work::BesideKind, Spent)> {
+    (work.spent_beside_rounds().into_iter())
+        .filter_map(|call| {
+            let at = work.time_of(call.at).map(|at| at.0).filter(|at| within(*at))?;
+            let one = Spent {
+                usd_micros: call.spent.usd_micros,
+                input_tokens: call.spent.input_tokens,
+                cached_tokens: call.spent.cached_tokens,
+                output_tokens: call.spent.output_tokens,
                 working_ms: 0,
                 rounds: 1,
-            })
+            };
+            Some((at, call.kind, one))
         })
+        .collect()
+}
+
+/// What the work's calls beside its rounds that ended at a time `within` took, the keep-warm pings and the forks apart.
+pub(crate) fn spent_beside_rounds(work: &work::Work, within: &dyn Fn(u64) -> bool) -> Beside {
+    (beside_rounds(work, within).into_iter()).fold(Beside::default(), |sum, (_, kind, one)| match kind {
+        work::BesideKind::Ping => Beside {
+            pinged: sum.pinged.with(one),
+            ..sum
+        },
+        work::BesideKind::Fork => Beside {
+            forked: sum.forked.with(one),
+            ..sum
+        },
+    })
 }
 
 impl WorkPage {
@@ -2826,12 +2908,14 @@ impl WorkPage {
             project: kept.item.project.clone(),
             tags: kept.item.tags.clone(),
             history: ItemHistory::of(kept.item),
-            outline: OutlineView::of(kept.on.outline(), records, &|id| kept.came_from(id).cloned()),
+            outline: OutlineView::of(kept.on.outline(), &kept.flow.card, records, &|id| {
+                kept.came_from(id).cloned()
+            }),
             flow: (!ended).then(|| Flow::of(kept.flow)),
             cells: if ended { Vec::new() } else { cells },
             blocks,
             steps,
-            questions: QuestionPage::all(&kept),
+            questions: QuestionPage::all(&kept)?,
             speaking: if ended { Vec::new() } else { Speaking::all(&kept) },
         }))
     }
@@ -3258,6 +3342,7 @@ impl Unmet {
                 changes: changes.clone(),
             },
             UnmetOf::TreeUnchanged { name } => Unmet::TreeUnchanged { name: name.clone() },
+            UnmetOf::NotAnEntry { line } => Unmet::NotAnEntry { line: line.clone() },
             UnmetOf::Unanswered { block } => Unmet::Unanswered {
                 block: block.to_string(),
             },
@@ -3616,6 +3701,7 @@ pub(crate) mod tests {
             options: Vec::new(),
             recommends: None,
             answer: None,
+            skipped: None,
         };
         let answered = QuestionPage {
             answer: Some(AnswerPage {
@@ -3771,6 +3857,22 @@ pub(crate) mod tests {
         );
     }
 
+    // A question of a cell that does not run says why in the words a stalled work says a cell does not run in, so that
+    // the same thing reads the same wherever it is said.
+    #[test]
+    fn a_question_of_a_skipped_cell_says_why_in_the_words_of_a_stalled_work() {
+        let flow = flow();
+        let words = &flow.waits.stalled;
+        let key = |words: &str| CellKey {
+            test: words.to_string(),
+            words: words.to_string(),
+        };
+        assert_eq!(
+            skipped_words(words, "review", &[key("big = yes"), key("ready")]),
+            "`review` does not run, because it is skipped, `big = yes` and `ready` not holding."
+        );
+    }
+
     #[test]
     fn a_stalled_work_is_said_in_one_sentence_in_the_words_beside_the_flows_its_names_marked() {
         let flow = flow();
@@ -3838,10 +3940,14 @@ pub(crate) mod tests {
                      request = \"last_and_latest\"\nwrite_questions = \"all\"\nwrite_words = \"all\"\n";
         let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"text\", \"main\"]\n\
                      outputs = [\"merged\"]\n";
+        compiled(text, &[("write", write), ("merge", merge)])
+    }
+
+    /// The flow of this definition and these cells' files, with the repository's words beside it.
+    fn compiled(text: &str, cells: &[(&str, &str)]) -> flow::Compiled {
         let source = Source {
             flow: text.to_string(),
-            cells: [("write", write), ("merge", merge)]
-                .iter()
+            cells: (cells.iter())
                 .map(|(id, text)| (id.to_string(), text.to_string()))
                 .collect(),
             files: [(
@@ -3857,6 +3963,126 @@ pub(crate) mod tests {
             ..Has::default()
         };
         compile(&source, &has).expect("the definition compiles")
+    }
+
+    /// A design the owner's `deep` turns on, a writer, and the merge: each of the first two may ask the owner and be
+    /// spoken to.
+    fn skipping() -> flow::Compiled {
+        let text = r#"
+            name = "skipping"
+            order = ["design", "write", "merge"]
+            [limits]
+            runs = 3
+            returns = 2
+            calls = 3
+            [lines.main]
+            [blocks.request]
+            people = true
+            [blocks.deep]
+            values = ["yes", "no"]
+            people = true
+            [blocks.main]
+            outside = "main"
+            [blocks.design]
+            [blocks.text]
+            [blocks.design_questions]
+            outside = "answer"
+            [blocks.design_words]
+            outside = "words"
+            [blocks.write_questions]
+            outside = "answer"
+            [blocks.write_words]
+            outside = "words"
+            [blocks.merged]
+            shown = true
+        "#;
+        let asks = |title: &str, block: &str, own: &str| {
+            format!(
+                "title = \"{title}\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Do it.\"\n\
+                 watches = [\"request\", \"{own}_questions\", \"{own}_words\"]\n\
+                 outputs = [\"{block}\", \"{own}_questions\", \"{own}_words\"]\n{when}{reads}[kinds]\n\
+                 request = \"last_and_latest\"\n{own}_questions = \"all\"\n{own}_words = \"all\"\n{kind}",
+                when = if own == "design" {
+                    "when = { deep = \"yes\" }\n"
+                } else {
+                    ""
+                },
+                reads = if own == "write" { "reads = [\"design\"]\n" } else { "" },
+                kind = if own == "write" { "design = \"latest\"\n" } else { "" }
+            )
+        };
+        let (design, write) = (asks("Design", "design", "design"), asks("Write", "text", "write"));
+        let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"text\", \"main\"]\n\
+                     outputs = [\"merged\"]\n";
+        compiled(text, &[("design", &design), ("write", &write), ("merge", merge)])
+    }
+
+    // A question of a cell whose condition does not hold says why its cell does not run, in the words a stalled work
+    // says it in; one of a cell that runs says nothing, and the cell applying again takes what was said away.
+    #[test]
+    fn a_question_of_a_skipped_cell_is_drawn_with_why_and_one_of_a_cell_that_runs_with_none() {
+        use decide::{Questioned, Started};
+
+        let flow = skipping();
+        let mut work = Work::default();
+        let r = &mut work.records;
+        let wrote = |block: &str, value: Option<&str>, at: u64| Written {
+            block: block.into(),
+            by: Outsider::Person,
+            matters: true,
+            value: value.map(str::to_string),
+            empty: false,
+            said_to: None,
+            at: Seq(at),
+        };
+        r.written.push(wrote("request", None, 1));
+        r.written.push(wrote("deep", Some("no"), 2));
+        for (run, cell, at) in [(1, "design", 3), (2, "write", 4)] {
+            r.started.push(Started {
+                run: RunId(run),
+                cell: cell.into(),
+                at: Seq(at),
+                because: Vec::new(),
+                basis: BTreeMap::new(),
+            });
+        }
+        let asked = |name: &str, cell: &str, run: u64, at: u64| Questioned {
+            name: name.to_string(),
+            cell: cell.into(),
+            run: RunId(run),
+            engine: false,
+            waits: true,
+            withdrawn: false,
+            at: Seq(at),
+        };
+        r.questions.push(asked("how", "design", 1, 5));
+        r.questions.push(asked("which", "write", 2, 6));
+        let said = |work: &Work| -> BTreeMap<String, Option<String>> {
+            let stored = Stored::new("skipping");
+            let on = driver::On::installed_flow(&flow);
+            let kept = stored.kept(&flow, &on, work);
+            let pages = QuestionPage::all(&kept).expect("the questions are drawn");
+            pages.into_iter().map(|q| (q.name, q.skipped)).collect()
+        };
+        let skipped = said(&work);
+        assert_eq!(
+            skipped["how"].as_deref(),
+            Some("`design` does not run, because it is skipped, `deep = yes` not holding.")
+        );
+        assert_eq!(skipped["which"], None);
+        // Answered, its question says nothing of why its cell does not run.
+        let mut answered = work.clone();
+        answered.records.answers.push(decide::Answered {
+            question: "how".to_string(),
+            version: Seq(5),
+            option: 1,
+            why: None,
+            at: Seq(7),
+        });
+        assert_eq!(said(&answered)["how"], None);
+        // The owner turns the design on: its cell applies, and its question says nothing of why it does not run.
+        work.records.written.push(wrote("deep", Some("yes"), 8));
+        assert_eq!(said(&work)["how"], None);
     }
 
     // Each version is named by who wrote it as a round is told it (decision a-version-is-told-by-the-line-that-wrote-it),
@@ -4082,7 +4308,7 @@ pub(crate) mod tests {
         let (installed, on, work) = asked_on_an_earlier_version();
         let stored = Stored::new("asking");
         let kept = stored.kept(&installed, &on, &work);
-        let numbered: Vec<_> = (QuestionPage::all(&kept).into_iter())
+        let numbered: Vec<_> = (QuestionPage::all(&kept).expect("the questions are read").into_iter())
             .map(|q| (q.name, q.version))
             .collect();
         assert_eq!(numbered, [("which".to_string(), Some(1))]);
@@ -4148,6 +4374,64 @@ pub(crate) mod tests {
             ..Has::default()
         };
         compile(&source, &has).expect("the deliver flow compiles")
+    }
+
+    // What a work spent beside its rounds is told by kind, each call counted as a round, and by when it ended: a ping and
+    // a fork that ended at different times. Microseconds.
+    #[test]
+    fn what_a_work_spent_beside_its_rounds_is_told_by_kind_and_by_when_each_call_ended() {
+        let mut work = Work::default();
+        for (from, at) in [(1, 1_000), (10, 5_000)] {
+            work.moments.push(work::Moment {
+                from: decide::Seq(from),
+                at: Time(at),
+            });
+        }
+        work.pinged.push(work::Pinged {
+            at: decide::Seq(2),
+            line: "engineer".to_string(),
+            session: 0,
+            spent: work::Spent {
+                usd_micros: 20_000,
+                input_tokens: 5,
+                cached_tokens: 100,
+                output_tokens: 1,
+                ..Default::default()
+            },
+            failed: None,
+        });
+        work.forked.push(work::Forked {
+            at: decide::Seq(11),
+            run: decide::RunId(1),
+            round: 1,
+            usd_micros: 300_000,
+            input_tokens: 120,
+            cached_tokens: 18_100,
+            output_tokens: 30,
+        });
+        let each = |usd_micros, input_tokens, cached_tokens, output_tokens| Spent {
+            usd_micros,
+            input_tokens,
+            cached_tokens,
+            output_tokens,
+            working_ms: 0,
+            rounds: 1,
+        };
+        let all = spent_beside_rounds(&work, &|_| true);
+        assert_eq!(all.pinged, each(20_000, 5, 100, 1));
+        assert_eq!(all.forked, each(300_000, 120, 18_100, 30));
+        assert_eq!((all.all().usd_micros, all.all().rounds), (320_000, 2));
+        let early = spent_beside_rounds(&work, &|at| at < 2_000);
+        assert_eq!(
+            (early.pinged.rounds, early.forked.rounds),
+            (1, 0),
+            "only the ping had ended"
+        );
+        let kinds: Vec<work::BesideKind> = beside_rounds(&work, &|_| true)
+            .into_iter()
+            .map(|(_, kind, _)| kind)
+            .collect();
+        assert_eq!(kinds, [work::BesideKind::Ping, work::BesideKind::Fork]);
     }
 
     // The bar of a work going on is the one it keeps as it ends (decision a-work-keeps-what-its-time-went-to): drawn

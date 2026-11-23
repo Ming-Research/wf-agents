@@ -4,15 +4,15 @@
 use std::collections::BTreeMap;
 
 use decide::{
-    Abandoned, Answered, BlockId, CallId, Called, CellId, Done, Finished, LetGo, Pause, PutIn, Questioned, Returned,
-    Round, RunId, Seq, Started, Write, Written, holds_nothing,
+    Abandoned, Answered, BlockId, CallId, Called, CellId, Done, Finished, Hurried, LetGo, Pause, PutIn, Questioned,
+    Returned, Round, RunId, Seq, Started, Write, Written, holds_nothing,
 };
 use rusqlite::{Connection, Row, params};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use work::{
-    Filled, KeptTime, Measured, Measures, Moment, Observed, OnFlow, Pinged, Pulled, Ran, RanOn, Session, Spent, Time,
-    Work,
+    Filled, Forked, KeptTime, Measured, Measures, Moment, Observed, OnFlow, Pinged, Pulled, Ran, RanOn, Session, Spent,
+    Time, Work,
 };
 
 use crate::{Divergence, Entry, Fault, WorkNumber};
@@ -159,6 +159,20 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
         w,
         |row| {
             Ok(PutIn {
+                at: Seq(row.get(0)?),
+                run: RunId(row.get(1)?),
+                block: BlockId(row.get(2)?),
+                version: Seq(row.get(3)?),
+            })
+        },
+    )?;
+
+    r.hurried = rows(
+        db,
+        "SELECT at, run, block, version FROM hurried WHERE work = ?1 ORDER BY at",
+        w,
+        |row| {
+            Ok(Hurried {
                 at: Seq(row.get(0)?),
                 run: RunId(row.get(1)?),
                 block: BlockId(row.get(2)?),
@@ -452,6 +466,23 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
             })
         },
     )?;
+    out.forked = rows(
+        db,
+        "SELECT at, run, round, usd_micros, input_tokens, cached_tokens, output_tokens FROM forked WHERE work = ?1 \
+         ORDER BY at",
+        w,
+        |row| {
+            Ok(Forked {
+                at: Seq(row.get(0)?),
+                run: RunId(row.get(1)?),
+                round: row.get(2)?,
+                usd_micros: row.get(3)?,
+                input_tokens: row.get(4)?,
+                cached_tokens: row.get(5)?,
+                output_tokens: row.get(6)?,
+            })
+        },
+    )?;
     out.pulls = rows(
         db,
         "SELECT at, number, url FROM pulls WHERE work = ?1 ORDER BY at",
@@ -533,6 +564,7 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     let finished = grown("finished", &h.finished, &g.finished, |e| Entry::At(e.at))?;
     let abandoned = grown("abandoned", &h.abandoned, &g.abandoned, |e| Entry::At(e.at))?;
     let put_in = grown("put_in", &h.put_in, &g.put_in, |e| Entry::At(e.at))?;
+    let hurried = grown("hurried", &h.hurried, &g.hurried, |e| Entry::At(e.at))?;
     let written = grown("written", &h.written, &g.written, |e| Entry::At(e.at))?;
     let questions = grown("questions", &h.questions, &g.questions, |e| Entry::At(e.at))?;
     let answers = grown("answers", &h.answers, &g.answers, |e| Entry::At(e.at))?;
@@ -574,6 +606,7 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     })?;
     let measured = grown("measured", &held.measured, &given.measured, |m| Entry::At(m.at))?;
     let pinged = grown("pinged", &held.pinged, &given.pinged, |p| Entry::At(p.at))?;
+    let forked = grown("forked", &held.forked, &given.forked, |f| Entry::At(f.at))?;
     let pulls = grown("pulls", &held.pulls, &given.pulls, |p| Entry::At(p.at))?;
     let on_flow = grown("on_flow", &held.flows, &given.flows, |f| Entry::At(f.at))?;
     let kept_time = grown("kept_time", &held.kept_time, &given.kept_time, |k| Entry::At(k.at))?;
@@ -648,6 +681,12 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     for d in put_in {
         db.execute(
             "INSERT INTO put_in (work, at, run, block, version) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![w, d.at.0, d.run.0, d.block.0, d.version.0],
+        )?;
+    }
+    for d in hurried {
+        db.execute(
+            "INSERT INTO hurried (work, at, run, block, version) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![w, d.at.0, d.run.0, d.block.0, d.version.0],
         )?;
     }
@@ -840,6 +879,22 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
                 s.context_tokens,
                 s.compactions,
                 p.failed
+            ],
+        )?;
+    }
+    for f in forked {
+        db.execute(
+            "INSERT INTO forked (work, at, run, round, usd_micros, input_tokens, cached_tokens, output_tokens) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                w,
+                f.at.0,
+                f.run.0,
+                f.round,
+                f.usd_micros,
+                f.input_tokens,
+                f.cached_tokens,
+                f.output_tokens
             ],
         )?;
     }
