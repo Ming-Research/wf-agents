@@ -33,8 +33,9 @@ impl Place {
     }
 }
 
-/// Where the work is done, the commit of the main branch it started from, and whether its branch was there already, as
-/// a work's that was cancelled and reopened, whose cancel kept its branch, or one whose start was cut off.
+/// Where the work is done, the commit of the main branch it started from (the latest commit of main its branch holds,
+/// whatever the branch was made at), and whether its branch was there already, as a work's that was cancelled and
+/// reopened, whose cancel kept its branch, or one whose start was cut off.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Started {
     pub place: Place,
@@ -54,6 +55,18 @@ pub fn place(data: &Path, tag: &str, work: WorkNumber) -> Place {
         branch: format!("work-{name}"),
         dir: data.join(WORKTREES).join(name),
     }
+}
+
+/// Whether the name is one the engine gives a work's branch, `work-<the work's number>-<an installation's tag>`, of any
+/// installation: a branch of that name is a work's, and what is on it is not the engine's to close.
+pub fn is_a_works_branch(name: &str) -> bool {
+    let Some((number, tag)) = name.strip_prefix("work-").and_then(|rest| rest.split_once('-')) else {
+        return false;
+    };
+    !number.is_empty()
+        && number.chars().all(|c| c.is_ascii_digit())
+        && tag.len() == 8
+        && tag.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 /// What a git command gave: whether it exited with 0, and its standard output and error.
@@ -233,9 +246,17 @@ fn text(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
-/// Makes the work's branch from `from`, the head of main as the host gives it, and its worktree, keeping both where
-/// they are made already.
-pub async fn start(project: &Project, place: &Place, from: &str) -> Result<Started, String> {
+/// Whether the work's branch is made already, as a work's that was cancelled and reopened, or one whose start was cut
+/// off, has it.
+pub(crate) async fn branch_made(project: &Project, place: &Place) -> Result<bool, String> {
+    let found = said(&project.repo, &["rev-parse", "--verify", "--quiet", &place.reference()]).await?;
+    Ok(found.ok)
+}
+
+/// Makes the work's branch at `at`, the commit its work starts from: the head of main as the host gives it, or what its
+/// item continues; and its worktree, keeping both where they are made already. `main` is the head of main, by which
+/// the commit of main the branch started from is worked out.
+pub async fn start(project: &Project, place: &Place, at: &str, main: &str) -> Result<Started, String> {
     configuration(project, place).await?;
     let repo = &project.repo;
     let branch = place.reference();
@@ -261,10 +282,24 @@ pub async fn start(project: &Project, place: &Place, from: &str) -> Result<Start
         if kept {
             git(repo, &["worktree", "add", &dir, &place.branch]).await?;
         } else {
-            git(repo, &["worktree", "add", "-b", &place.branch, &dir, from]).await?;
+            // A branch with no history in common with main could never be merged into it. It is refused before the
+            // branch is made: a branch made is taken as it is by the next start, which reads nothing of what the item
+            // continues, so the work would stay stuck at it.
+            let shared = said(repo, &["merge-base", main, at]).await?;
+            match shared.code {
+                Some(0) => {}
+                Some(1) => {
+                    return Err(format!(
+                        "the commit {at} has no history in common with main, which is {main}: a branch made there \
+                         could never be merged into main, so the work's branch is not made"
+                    ));
+                }
+                _ => return Err(format!("git merge-base {main} {at}: {}", shared.err)),
+            }
+            git(repo, &["worktree", "add", "-b", &place.branch, &dir, at]).await?;
         }
     }
-    let from = git(repo, &["merge-base", from, &branch]).await?;
+    let from = git(repo, &["merge-base", main, &branch]).await?;
     Ok(Started {
         place: place.clone(),
         from,
