@@ -948,11 +948,13 @@ pub struct CellDetail {
 pub enum Cause {
     /// It had no record, as a run started before a cell ran only for what is new says.
     NoRecord,
-    /// The block is new to the cell. `was` is the version the cell consumed, by its number; `behind` says every new
-    /// version was written by a cell after this one.
+    /// The block is new to the cell. `worked_from` is the version the cell last worked from as the run began, by its
+    /// number: the latest of the one it consumed, one it wrote and one the owner ruled on, which a message to it names
+    /// alike; for a cause recorded before that was recorded, the `was` it recorded, the one it consumed. `behind` says
+    /// every new version was written by a cell after this one.
     Changed {
         block: String,
-        was: Option<u64>,
+        worked_from: Option<u64>,
         behind: bool,
     },
     /// The results of the calls its earlier runs asked for are all in.
@@ -2923,9 +2925,16 @@ impl Cause {
     fn of(cause: &CauseOf, records: &Records) -> Result<Cause, Broken> {
         Ok(match cause {
             CauseOf::NoRecord => Cause::NoRecord,
-            CauseOf::Changed { block, was, behind } => Cause::Changed {
+            // The version the cell last worked from, as the run began; a cause recorded before that was recorded has
+            // the `was` it recorded, the one it consumed.
+            CauseOf::Changed {
+                block,
+                was,
+                worked,
+                behind,
+            } => Cause::Changed {
                 block: block.to_string(),
-                was: was.map(|at| numbered(records, block, at)).transpose()?,
+                worked_from: worked.or(*was).map(|at| numbered(records, block, at)).transpose()?,
                 behind: *behind,
             },
             CauseOf::Results { calls } => Cause::Results {
@@ -4519,5 +4528,41 @@ pub(crate) mod tests {
         assert_eq!(settled(true, false, false), CellState::NotYet);
         assert_eq!(settled(true, true, true), CellState::Again);
         assert_eq!(settled(true, true, false), CellState::Done);
+    }
+
+    // The page names, for why a cell ran, the version the cell last worked from as the run began, which is the one a
+    // message to it names: the cell's own write or the owner's ruling that is later than the version it consumed. A
+    // cause recorded before that was recorded has the version it consumed. Milliseconds; the one test of which number
+    // of a cause the page takes.
+    #[test]
+    fn the_page_names_the_version_a_cell_last_worked_from_and_the_one_it_consumed_where_none_was_recorded() {
+        let mut records = Records::default();
+        for at in [1, 2, 4] {
+            records.written.push(Written {
+                block: "plan".into(),
+                by: Outsider::Person,
+                matters: true,
+                value: None,
+                empty: false,
+                said_to: None,
+                at: Seq(at),
+            });
+        }
+        let plan = BlockId::from("plan");
+        let cause = |was, worked| CauseOf::Changed {
+            block: plan.clone(),
+            was,
+            worked,
+            behind: false,
+        };
+        let named = |cause: CauseOf| match Cause::of(&cause, &records).expect("the versions are the work's") {
+            Cause::Changed { worked_from, .. } => worked_from,
+            other => panic!("{other:?}"),
+        };
+        // It consumed the first version, and last worked from the third, which the owner ruled on.
+        assert_eq!(named(cause(Some(Seq(1)), Some(Seq(4)))), Some(3));
+        // A cause kept without it names the version consumed, and one that consumed none and worked from none, none.
+        assert_eq!(named(cause(Some(Seq(2)), None)), Some(2));
+        assert_eq!(named(cause(None, None)), None);
     }
 }
