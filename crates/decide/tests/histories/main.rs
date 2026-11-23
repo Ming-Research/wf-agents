@@ -28,7 +28,7 @@
 //!   acts, cancelling the work. At a rest they answer a call for them, or let a cell go on at a limit, three times in
 //!   five. Where the cells ask, people answer a question that stands at any act now and then, the latest version of it
 //!   or an earlier one; and where the work waits for an answer, they give it in half their acts, and turn off the
-//!   condition of the cell it waits at in a quarter, so that the question holds the work at a cell that is skipped.
+//!   condition of the cell it waits at in a quarter, so that the question stands at a cell that is skipped, and holds nothing.
 //! - agents: each round ends with a return drawn from all the form allows, which the histories' engine judges with
 //!   `decide::run::next` and what `decide::told` gives, as the engine's loop does: it does the cell's work in most,
 //!   dealing with each of what ran the round with a chance of four in five and writing each output with three in five,
@@ -527,6 +527,24 @@ impl History {
                 self.engine(run);
                 true
             }
+            Decision::Hurry { run, cell, .. } => {
+                let run = *run;
+                self.w.hurry();
+                self.note(format!("{cell}'s round is told to hand in what it has"));
+                // The round is given the telling before it ends in half of them, the engine knowing so after the
+                // round's carrier says it was.
+                if self.rng.chance(50) {
+                    let hurried = self.w.records.hurried.last().expect("the round was told").clone();
+                    let at = self.w.tick();
+                    self.w.records.put_in.push(PutIn {
+                        run,
+                        block: hurried.block,
+                        version: hurried.version,
+                        at,
+                    });
+                }
+                true
+            }
             Decision::Abandon { run, cell, .. } => {
                 let run = *run;
                 let before = self.consumed_by(cell);
@@ -597,7 +615,10 @@ impl History {
         assert!(under_way <= 1, "{under_way} runs have a round under way");
         if under_way == 1 {
             assert!(
-                matches!(decision, Decision::Busy { .. } | Decision::Abandon { .. }),
+                matches!(
+                    decision,
+                    Decision::Busy { .. } | Decision::Hurry { .. } | Decision::Abandon { .. }
+                ),
                 "a round is under way and the walk decides {decision:?}"
             );
         }
