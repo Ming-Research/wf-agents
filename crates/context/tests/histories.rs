@@ -41,7 +41,7 @@ use flow::{CellSpec, InputKind, Listed};
 use support::{Given as Round, Sim};
 
 /// How many histories are run.
-const SEEDS: u64 = 60;
+const SEEDS: u64 = 90;
 
 /// How many steps each takes.
 const STEPS: usize = 120;
@@ -163,7 +163,7 @@ struct History {
 
 impl History {
     fn new(seed: u64) -> History {
-        let mut sim = Sim::new();
+        let mut sim = Sim::of(support::limited(), support::words());
         sim.takes_main = true;
         let mut history = History {
             sim,
@@ -178,8 +178,8 @@ impl History {
         history
     }
 
-    /// The owner starts the work by writing what people write that runs the flow's first agent's cell, as the tool says
-    /// a work starts.
+    /// The owner starts the work by writing the first of what people write that runs the flow's first agent's cell, as
+    /// the tool says a work starts.
     fn start(&mut self) {
         let flow = &self.sim.flow;
         let first = (flow.flow.cells().iter())
@@ -187,8 +187,9 @@ impl History {
             .find(|c| c.kind == flow::Kind::Agent)
             .expect("an agent's cell");
         let blocks: Vec<String> = (first.watches.iter())
-            .filter(|t| !t.is_group() && flow.blocks[&BlockId::from(t.name.as_str())].writers.people)
+            .find(|t| !t.is_group() && flow.blocks[&BlockId::from(t.name.as_str())].writers.people)
             .map(|t| t.name.clone())
+            .into_iter()
             .collect();
         for block in blocks {
             let content = self.content(&block);
@@ -225,7 +226,10 @@ impl History {
     fn step(&mut self, reached: &mut Reached) {
         let roll = self.rng.below(100);
         if roll < 14 {
-            let block = ["request", "notes", "tree", "plan", "opinions", "finish", "verdict"][self.rng.below(7)];
+            let blocks = [
+                "request", "notes", "tree", "plan", "opinions", "finish", "finish", "verdict", "verdict",
+            ];
+            let block = blocks[self.rng.below(blocks.len())];
             let content = self.content(block);
             match block {
                 "verdict" => {
@@ -366,6 +370,22 @@ impl History {
                     value,
                 });
             }
+        }
+        // A block the cell may not write is handed in beside the rest in one return of twenty-five, which is sent back.
+        if self.rng.chance(4) {
+            let others: Vec<BlockId> = (self.sim.flow.blocks.keys())
+                .filter(|b| !self.sim.flow.flow.cells()[place].outputs.contains(b))
+                .cloned()
+                .collect();
+            let block = others[self.rng.below(others.len())].clone();
+            let value = self.sim.flow.blocks[&block].values.as_ref().map(|v| v[0].clone());
+            let content = value.clone().unwrap_or_else(|| self.content(block.as_str()));
+            writes.push(Handed {
+                block,
+                content,
+                matters: true,
+                value,
+            });
         }
         Came::hands_in(writes)
     }

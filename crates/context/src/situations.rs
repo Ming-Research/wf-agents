@@ -2,18 +2,19 @@
 //! for whoever reads what the cell is sent in each: the entry, what it watches that ran it, and how its session stands
 //! with each datum of its context; and, apart, each other thing a round may be given.
 //!
-//! An entry is `first`, where the cell has worked from nothing; `later`, where the cell ran before in the same
-//! session, which holds every part of the message it keeps, and whose last return handed in blocks; `reopened`,
-//! where the cell ran before and its session was begun anew, or compacted, since, and the cell is the first entered in
-//! it, so that it holds nothing; or `reopened_after_read`, where the session was begun anew or compacted since the cell
-//! ran, and another cell of its line was entered in it first, so that it holds what that cell was sent, and what its
-//! return handed in, but nothing of what only this cell was sent. On a first entry the session holds nothing where the cell is the first of its line in
-//! the flow's order; otherwise it goes on from the cell of the line before it, and holds each part of the message kept
-//! alike for both, the work's line, and what that cell's return handed in, where it writes any block.
+//! An entry is `first`, where the cell has worked from nothing; `later`, where the cell was entered before in the same
+//! session, which holds every part of the message it keeps; `reopened`, where the cell ran before and its session was
+//! begun anew since, so that it holds nothing; `compacted`, where the session was compacted as the cell's last round
+//! ended, and holds what that return handed in and no part of the message; or `reopened_after_read`, where the session
+//! was begun anew or compacted since the cell ran, and another cell of its line was entered in it first, so that it
+//! holds what that cell was sent and what its return handed in, and of the message only what it has in common with
+//! this cell. On a first entry the session holds nothing where the cell is the first of its line in the flow's order or
+//! the session was begun anew; otherwise it goes on from the cell of the line before it, and holds each part of the
+//! message kept alike for both, and what that cell's return handed in, where it writes any block and handed one in.
 //!
 //! What it watches that ran it is each datum or group alone, those whose blocks one cell's return writes together, and
 //! all of them at once. What is written as a line's session begins anew runs no later entry; on a first entry, where
-//! everything written is new to the cell, every datum it watches that the work starts with runs it as well: what people
+//! everything written is new to the cell, the datum the work starts with runs it as well: the first of what people
 //! write that runs the flow's first agent's cell.
 //!
 //! A datum is certainly written when the cell runs where the work starts with it, or where the cells before it in the
@@ -26,26 +27,29 @@
 //!
 //! A datum the cell watches that ran it is new to it: the session lacks it, or holds it from a cell of the line that
 //! is given it or writes it, as the version last worked from or the latest, or as one the cell never worked from; of a
-//! group, one datum of the group at least is new. A datum it watches that did not run the cell, or one the
-//! cell alone writes, is new to it never: unwritten on a first entry, held on a later one, lacking on one reopened,
-//! lacking or, where another cell of its line is given it or writes it, held on one reopened after another cell read,
-//! and unwritten on any where it is not certainly written. A block the cell writes that nothing else gives it is given
-//! only where the session lacks its latest: lacking or, held from a cell of the line, held on a first entry where it
-//! may be written before; held on a later one, or lacking where another writes it too; lacking on one reopened; lacking
-//! or, held from another cell of the line, held on one reopened after another cell read; and unwritten on any where it
-//! is not certainly written. Any other datum stands any way the entry allows: unwritten
-//! where it is not certainly written, lacking, held from a cell of the line, or, on a later entry, held as last worked
-//! from, latest, or with nothing new. A datum whose versions the carrier compares itself, given `last_and_latest`, that
-//! stands lacking is unread: the session holds none of it.
+//! group, one datum of the group at least is new. Any other datum the cell is given, the cell's own writes aside,
+//! stands any way the entry allows, since a version of it may be written while the run is under way: unwritten where
+//! it is not certainly written, lacking, held from a cell of the line, or, on a later entry, held as last worked from,
+//! latest, or with nothing new. A datum only the cell writes is never new to it: unwritten on a first entry, held on a
+//! later one, held or, where its return handed in none, lacking on one compacted, lacking on one reopened, and lacking
+//! or, held from another cell of the line, held on one reopened after another cell read, and unwritten on any where it
+//! is not certainly written. A block the cell writes that nothing else gives it is given only where the session lacks
+//! its latest: lacking or, held from a cell of the line, held on a first entry where it may be written before; held on
+//! a later one, or lacking where another writes it too; held or lacking on one compacted; lacking on one reopened;
+//! lacking or, held from another cell of the line, held on one reopened after another cell read; and unwritten on any
+//! where it is not certainly written. A datum whose versions the carrier compares itself, given `last_and_latest`, that
+//! stands lacking is unread: the session holds none of it, and on a first entry it may hold an earlier version, which
+//! it is told what changed since.
 //!
 //! A datum's text is the builder's from its kind and from how the session stands with it alone, so a product of every
 //! datum's own states repeats the same texts: it is counted ([`combinations`]), and the situations hold every state of
-//! each datum with the data in two classes, each standing alike where it can: those of what ran the cell, and the rest;
-//! a datum that cannot stand as its class does is unwritten where it may be, else lacking. Besides, on a later entry
-//! run by the first datum or group the cell watches, with the data of what ran it held as last worked from and the rest
-//! held: the result of a call of each kind and why a return was sent back, which come after a return that handed in
-//! nothing, each come of taking main in where the cell takes it, new to the session, and an entry after a return that
-//! handed in nothing.
+//! each datum: the data of what ran the cell and the rest each stand alike where they can, in every pair of states,
+//! and each datum that stands in a state of its own goes through its states as the situations go on; a datum that
+//! cannot stand as its class does is unwritten where it may be, else lacking. Besides, on a later entry run by the
+//! first datum or group the cell watches, with the data of what ran it held as last worked from and the rest held: the
+//! result of a call of each kind the engine gives a round and why a return was sent back, which come after a return that
+//! handed in nothing, each come of taking main in where the cell takes it, new to the session, and an entry after a
+//! return that handed in nothing; and, where the cell takes main in, one that holds what came of it.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -69,18 +73,27 @@ enum Entry {
     First,
     Later,
     Reopened,
+    /// The session was compacted as the cell's last round ended, and holds what its return handed in.
+    Compacted,
     /// The session was begun anew since the cell ran, and another cell of its line was entered in it first.
     ReopenedAfterRead,
 }
 
 impl Entry {
-    const ALL: [Entry; 4] = [Entry::First, Entry::Later, Entry::Reopened, Entry::ReopenedAfterRead];
+    const ALL: [Entry; 5] = [
+        Entry::First,
+        Entry::Later,
+        Entry::Reopened,
+        Entry::Compacted,
+        Entry::ReopenedAfterRead,
+    ];
 
     fn name(self) -> &'static str {
         match self {
             Entry::First => "first",
             Entry::Later => "later",
             Entry::Reopened => "reopened",
+            Entry::Compacted => "compacted",
             Entry::ReopenedAfterRead => "reopened_after_read",
         }
     }
@@ -310,14 +323,15 @@ impl<'a> Reach<'a> {
         reach
     }
 
-    /// Whether the work starts with the datum: people write it, and it runs the flow's first agent's cell.
+    /// Whether the work starts with the datum: the first of what people write that runs the flow's first agent's cell.
     fn starts_with(&self, block: &BlockId) -> bool {
         let flow = self.flow;
         let first = (flow.flow.cells().iter())
             .filter_map(|c| flow.cells.iter().find(|s| s.id == c.id))
             .find(|c| c.kind == Kind::Agent);
-        let people = flow.blocks.get(block).is_some_and(|d| d.writers.people);
-        people && first.is_some_and(|c| (c.watches.iter()).any(|t| !t.is_group() && t.name == block.as_str()))
+        let people = |name: &str| flow.blocks.get(&BlockId::from(name)).is_some_and(|d| d.writers.people);
+        let starting = first.and_then(|c| c.watches.iter().find(|t| !t.is_group() && people(&t.name)));
+        starting.is_some_and(|t| t.name == block.as_str())
     }
 
     /// Whether the cells before the one at this place that may write the datum run whichever way the conditions go, as
@@ -375,7 +389,7 @@ impl<'a> Reach<'a> {
     fn newly(&self, entry: Entry, may_hold: bool) -> Vec<Stands> {
         match entry {
             Entry::First if may_hold => vec![Stands::Lacks, Stands::HoldsLast, Stands::HoldsNew],
-            Entry::First | Entry::Reopened => vec![Stands::Lacks],
+            Entry::First | Entry::Reopened | Entry::Compacted => vec![Stands::Lacks],
             Entry::Later => vec![Stands::Lacks, Stands::HoldsLast, Stands::HoldsLatest, Stands::HoldsNew],
             Entry::ReopenedAfterRead if may_hold => {
                 vec![Stands::Lacks, Stands::HoldsLast, Stands::HoldsLatest, Stands::HoldsNew]
@@ -401,7 +415,7 @@ impl<'a> Reach<'a> {
                 Stands::HoldsNew,
                 Stands::Holds,
             ]),
-            Entry::Reopened => states.push(Stands::Lacks),
+            Entry::Reopened | Entry::Compacted => states.push(Stands::Lacks),
             Entry::ReopenedAfterRead => {
                 states.push(Stands::Lacks);
                 if may_hold {
@@ -440,6 +454,7 @@ impl<'a> Reach<'a> {
                     Entry::First => vec![],
                     Entry::Later => vec![Stands::Holds],
                     Entry::Reopened => vec![Stands::Lacks],
+                    Entry::Compacted => vec![Stands::Holds],
                     Entry::ReopenedAfterRead => {
                         let mut states = vec![Stands::Lacks];
                         states.extend(self.holdable(entry, block).then_some(Stands::Holds));
@@ -467,6 +482,7 @@ impl<'a> Reach<'a> {
                         states
                     }
                     Entry::Reopened => vec![Stands::Lacks],
+                    Entry::Compacted => vec![Stands::Holds, Stands::Lacks],
                     Entry::ReopenedAfterRead => {
                         let mut states = vec![Stands::Lacks];
                         states.extend(self.holdable(entry, block).then_some(Stands::Holds));
@@ -608,12 +624,19 @@ impl<'a> Reach<'a> {
         classes
     }
 
-    /// The parts of the message the session keeps, but what came of taking main in, which is the run's.
-    fn kept(&self) -> Vec<String> {
+    /// The parts of the message the session keeps, in the order of the message, but what came of taking main in, which
+    /// is the run's, unless `main` says it is held.
+    fn kept(&self, main: bool) -> Vec<String> {
         (self.words.message.parts.iter())
-            .filter(|p| p.kind.is_some() && p.part != Part::Context && p.part != Part::Main)
+            .filter(|p| p.kind.is_some() && p.part != Part::Context && (main || p.part != Part::Main))
             .map(|p| p.part.name().to_string())
             .collect()
+    }
+
+    /// Whether the cell writes any block, so that a return of it can hand something in.
+    fn writes(&self) -> bool {
+        let place = self.flow.flow.place(&self.cell.id);
+        place.is_some_and(|p| !self.flow.flow.cells()[p].outputs.is_empty())
     }
 
     /// What the session may hold as the entry begins, each way once, each with the part of the name that tells it
@@ -642,15 +665,16 @@ impl<'a> Reach<'a> {
                 add(Vec::new(), false, Some("fresh".to_string()));
             }
             Entry::Later => {
-                add(self.kept(), true, None);
+                add(self.kept(false), self.writes(), None);
                 // A cell that takes main in holds what came of it where its run's earlier round was sent it.
                 if self.cell.takes_main {
-                    let mut held = self.kept();
-                    held.push(Part::Main.name().to_string());
-                    add(held, true, Some("main_held".to_string()));
+                    add(self.kept(true), self.writes(), Some("main_held".to_string()));
                 }
             }
             Entry::Reopened => add(Vec::new(), false, None),
+            // Its session holds what its return handed in, and none of the message.
+            Entry::Compacted if self.writes() => add(Vec::new(), true, None),
+            Entry::Compacted => {}
             Entry::ReopenedAfterRead => {
                 for other in &self.others {
                     let (holds, after_hand_in) = self.after(other);

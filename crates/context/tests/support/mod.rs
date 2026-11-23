@@ -140,8 +140,18 @@ verdict = "latest"
 
 /// The small flow, compiled.
 pub fn flow() -> Compiled {
+    compiled(FLOW)
+}
+
+/// The small flow with a limit of two on the runs of a cell in a row that only ask for calls, so that the owner is asked
+/// to let a cell go on.
+pub fn limited() -> Compiled {
+    compiled(&FLOW.replace("calls = 1000", "calls = 2"))
+}
+
+fn compiled(flow: &str) -> Compiled {
     let source = Source {
-        flow: FLOW.to_string(),
+        flow: flow.to_string(),
         cells: (CELLS.iter())
             .map(|(id, text)| (id.to_string(), text.to_string()))
             .collect::<BTreeMap<_, _>>(),

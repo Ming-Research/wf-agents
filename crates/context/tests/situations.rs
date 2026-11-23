@@ -54,12 +54,7 @@ fn a_cell_after_another_of_its_line_is_entered_first_after_its_hand_in_and_may_h
     assert!(
         first
             .iter()
-            .any(|n| n.name.contains("-fresh-") && n.situation.holds.is_empty())
-    );
-    assert!(
-        first
-            .iter()
-            .any(|n| n.name.contains("-after_nothing_handed_in-") && !n.situation.after_hand_in)
+            .any(|n| n.situation.holds.is_empty() && !n.situation.after_hand_in)
     );
     // The session may hold the request and the plan, which the plan read and wrote, as data the build never worked
     // from; never the code, which nothing before the build on its line reads or writes.
@@ -143,7 +138,8 @@ fn a_session_reopened_after_another_cell_of_its_line_was_read_in_it_holds_what_t
     assert!(!stands("code").contains(&Stands::HoldsNew));
     // What it holds of the message is what it has in common with the cell read first, which its task is not.
     assert!(after.iter().all(|n| !n.situation.holds.contains(&"task".to_string())));
-    assert!(after.iter().any(|n| !n.situation.holds.is_empty()));
+    // Whether the return of the cell read first handed in blocks or did not.
+    assert!(after.iter().any(|n| n.situation.after_hand_in) && after.iter().any(|n| !n.situation.after_hand_in));
 }
 
 #[test]
