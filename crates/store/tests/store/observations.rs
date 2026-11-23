@@ -1,7 +1,6 @@
-//! The observations: a run keeps, as it finishes, those of the return it was taken on and of each return of it sent
-//! back that no later return of it was made in a session holding, each once, with where it came from and unread; an
-//! architect adds others; each has a title and tags, and is changed with a reason, taken in by an item or deleted; and
-//! the owner reads each once.
+//! The observations: a run keeps, as it finishes, those of each return of it, the ones sent back and the one it was
+//! taken on, each once, with where it came from and unread; an architect adds others; each has a title and tags, and is
+//! changed with a reason, taken in by an item or deleted; and the owner reads each once.
 
 use store::{
     FromRound, ItemNumber, NewObservation, NotMade, Observation, ObservationChange, Observations, Refusal, TagCount,
@@ -89,8 +88,11 @@ fn each_observation_of_a_return_taken_is_kept_once_with_where_it_came_from_and_u
     assert_eq!(kept(&path), both);
 }
 
+// A return sent back is completed by the next, which says only what was wrong, so no later return says again what an
+// earlier one observed: each return of a run keeps its own, whatever sessions the rounds ran in
+// (decision a-sent-back-return-is-completed-by-what-is-missing).
 #[test]
-fn a_return_sent_back_keeps_no_observation_where_the_return_taken_was_made_in_its_session() {
+fn each_return_of_a_run_keeps_its_own_observations_the_one_sent_back_and_the_one_taken() {
     let mut d = Driver::saved();
     d.wrote("request", Outsider::Person, None);
     let run = running(&d);
@@ -104,117 +106,34 @@ fn a_return_sent_back_keeps_no_observation_where_the_return_taken_was_made_in_it
         "the return was taken"
     );
     let path = d.saving.as_ref().expect("saved").db.path.clone();
-    assert_eq!(kept(&path), Vec::<Observation>::new());
-    // The run's next round says it again, and its return is taken: that one is kept, from the second round.
-    d.end(handing_in(&[("text", None)], &["Said again in the return taken."]));
-    let taken: Vec<(u64, String, RunId, usize)> = (kept(&path).into_iter())
-        .map(|o| {
-            let round = o.round.expect("kept from a round");
-            (o.number, o.text, round.run, round.round)
-        })
-        .collect();
-    assert_eq!(taken, [(1, "Said again in the return taken.".to_string(), run, 2)]);
-}
-
-/// The writer's line begins a new session, for this reason, as the next thing that happens to the work is taken, as the
-/// driver records one: the round that thing begins runs in it.
-fn anew_with_the_next_event(d: &mut Driver, why: engine::Why) {
-    d.anew_before_the_next_round("main", why);
-}
-
-/// The try of the round under way begins.
-fn tries(d: &mut Driver) {
-    let run = running(d);
-    let on = engine::RanOn {
-        level: "2".to_string(),
-        model: "a model".to_string(),
-        effort: None,
-        directory: None,
-        account: None,
+    let kept_now = |path: &Path| -> Vec<(u64, String, RunId, usize)> {
+        let mut all: Vec<_> = (kept(path).into_iter())
+            .map(|o| {
+                let round = o.round.expect("kept from a round");
+                (o.number, o.text, round.run, round.round)
+            })
+            .collect();
+        all.reverse();
+        all
     };
-    d.on(Event::Ran { run, attempt: 1, on });
-}
-
-/// What the work keeps of the observations, oldest first: the text and the round of each.
-fn said(path: &Path) -> Vec<(String, usize)> {
-    let mut all: Vec<(String, usize)> = (kept(path).into_iter())
-        .map(|o| (o.text, o.round.expect("kept from a round").round))
-        .collect();
-    all.reverse();
-    all
-}
-
-#[test]
-fn a_return_sent_back_keeps_its_observations_where_the_return_taken_was_made_in_a_new_session() {
-    let mut d = Driver::saved();
-    d.wrote("request", Outsider::Person, None);
-    // The first round is sent back, and a session was begun anew for its context, as records kept before the program
-    // compacted a session instead still hold: the second runs in a session that never saw what the first returned, and
-    // its return taken says nothing of the first's observation.
-    anew_with_the_next_event(&mut d, engine::Why::Limit { context: 9, limit: 5 });
-    d.end(Came {
-        said: observing(&["Said in the first session."]),
-        ..wanting()
-    });
-    tries(&mut d);
-    d.end(handing_in(&[("text", None)], &["Said in the second session."]));
-    let path = d.saving.as_ref().expect("saved").db.path.clone();
-    assert_eq!(
-        said(&path),
-        [
-            ("Said in the first session.".to_string(), 1),
-            ("Said in the second session.".to_string(), 2)
-        ]
+    // A run keeps its observations as it finishes: until then none is kept.
+    assert!(
+        kept_now(&path).is_empty(),
+        "an observation was kept before its run finished"
     );
-}
-
-#[test]
-fn of_the_returns_sent_back_in_one_session_only_the_last_is_kept_once_a_later_session_takes_the_run_on() {
-    let mut d = Driver::saved();
-    d.wrote("request", Outsider::Person, None);
-    // Two rounds sent back in the first session, the second saying again what still holds of the first's; then the
-    // third, in a new session the owner asked for, is taken.
-    d.end(Came {
-        said: observing(&["The first said, and taken back."]),
-        ..wanting()
-    });
-    anew_with_the_next_event(&mut d, engine::Why::Owner);
-    d.end(Came {
-        said: observing(&["The second said."]),
-        ..wanting()
-    });
-    tries(&mut d);
-    d.end(handing_in(&[("text", None)], &["The third said."]));
-    let path = d.saving.as_ref().expect("saved").db.path.clone();
+    // The next return says what was wrong with it only, and is taken: its observation is kept beside the first.
+    d.end(handing_in(&[("text", None)], &["Said in the return taken."]));
     assert_eq!(
-        said(&path),
-        [("The second said.".to_string(), 2), ("The third said.".to_string(), 3)]
+        kept_now(&path),
+        [
+            (1, "Said in a return sent back.".to_string(), run, 1),
+            (2, "Said in the return taken.".to_string(), run, 2)
+        ]
     );
     // Saved again whole, the work keeps nothing more.
     let s = d.saving.as_mut().expect("saved after each event");
     s.store.save(s.work, &d.work).expect("the work is saved again");
-    assert_eq!(said(&path).len(), 2);
-}
-
-#[test]
-fn a_return_sent_back_keeps_its_observations_where_its_session_was_compacted_before_the_return_taken() {
-    let mut d = Driver::saved();
-    d.wrote("request", Outsider::Person, None);
-    anew_with_the_next_event(&mut d, engine::Why::Compacted);
-    d.end(Came {
-        said: observing(&["Said before the compaction."]),
-        ..wanting()
-    });
-    tries(&mut d);
-    d.end(handing_in(&[("text", None)], &["Said after it."]));
-    let path = d.saving.as_ref().expect("saved").db.path.clone();
-    assert_eq!(
-        said(&path),
-        [
-            ("Said before the compaction.".to_string(), 1),
-            ("Said after it.".to_string(), 2)
-        ]
-    );
+    assert_eq!(kept_now(&path).len(), 2);
 }
 
 #[test]

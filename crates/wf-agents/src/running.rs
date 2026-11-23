@@ -63,7 +63,15 @@ pub fn works_page(address: SocketAddr) -> String {
     format!("http://{address}/#/works")
 }
 
-pub fn run(data: &Path, flows: &Flows, with: With, port: u16) -> ExitCode {
+/// Runs the engine on the data directory. `new` says that the directory is to get a store of its own: a directory that
+/// holds a store is run in as it is, and one that holds none is run in only with it, so that a directory that is no data
+/// directory is never made into one by being named. That is asked before anything is made in the directory, the hold
+/// and the program's flows included.
+pub fn run(data: &Path, flows: &Flows, with: With, port: u16, new: bool) -> ExitCode {
+    if let Some(why) = directory_refusal(data, new) {
+        eprintln!("{why}");
+        return ExitCode::FAILURE;
+    }
     // The program's own flows are taken out only once the data directory is held, so that a second engine that is
     // refused changes nothing of the files the first runs on.
     let (mut held, dirs) = match flows {
@@ -89,7 +97,7 @@ pub fn run(data: &Path, flows: &Flows, with: With, port: u16) -> ExitCode {
     };
     // The one project of a script's items, named before what carries the works out is read.
     let scripted = script_projects(&with);
-    let Some((flows, with)) = read(data, dirs, &with) else {
+    let Some((flows, with)) = read(dirs, &with) else {
         return ExitCode::FAILURE;
     };
     // Held until the process ends.
@@ -456,18 +464,35 @@ pub(crate) fn hold(data: &Path) -> Result<File, String> {
     }
 }
 
+/// Why the directory cannot be run in, where it cannot: it is no directory, it holds a store and `--new` asks for one,
+/// or it holds none and `--new` is not given. Nothing is made in it either way.
+fn directory_refusal(data: &Path, new: bool) -> Option<String> {
+    if !data.is_dir() {
+        return Some(format!(
+            "{}: no such directory: the data directory is made before the engine runs in it",
+            data.display()
+        ));
+    }
+    let store = data.join(store::FILE);
+    match (store.exists(), new) {
+        (true, true) => Some(format!(
+            "{}: the data directory holds a store already: start the engine without --new",
+            data.display()
+        )),
+        (false, false) => Some(format!(
+            "{}: the directory holds no store, and no engine makes one in a directory it was not told is new: start the \
+             engine with --new to make the data directory's store here",
+            data.display()
+        )),
+        _ => None,
+    }
+}
+
 /// The flows compiled and what carries the works out, checked against them; or none, having said everything wrong
 /// with them. A script is checked only against flows that all compiled, so that it is not told of a flow missing for
 /// that.
-fn read(data: &Path, dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>, Read)> {
+fn read(dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>, Read)> {
     let mut wrong = false;
-    if !data.is_dir() {
-        eprintln!(
-            "{}: no such directory: the data directory is made before the engine runs in it",
-            data.display()
-        );
-        wrong = true;
-    }
     let mut flows = Vec::new();
     let mut compiled_all = true;
     for dir in dirs {

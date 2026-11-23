@@ -6,6 +6,7 @@
 use std::collections::VecDeque;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
+use service::OpenPull;
 use store::Continues;
 
 use super::{Asking, Branch, Failed, Host, Named, NotMerged, Verdict};
@@ -177,6 +178,10 @@ impl Host for Fake {
 
     fn pull_at(&self, number: u64) -> Option<String> {
         Some(format!("https://host.example/pull/{number}"))
+    }
+
+    async fn open_pulls(&self) -> Result<Option<Vec<OpenPull>>, String> {
+        Ok(None)
     }
 }
 

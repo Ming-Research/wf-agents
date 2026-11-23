@@ -77,3 +77,7 @@ Asked to stop, the engine begins no round of any work and ends once the rounds u
 As a program the engine runs ends by itself, what it left in its group is stopped, TERM then KILL 3 s later, and its work's records count it with the program, a fork's too.
 - rejected: an agent proposed waiting for what a program left to end by itself, its time and cost counted in its round; the owner rejected it, because the round would hold its slot for output nobody reads, and a service left running would never let it end.
 - replaced: Leaving what a program left in its group running, unwatched and uncounted, was on main; the owner changed it, because it went on running and spending where nobody saw it, while nobody reads what it does once its program has ended.
+
+### decision data-directory-is-made-on-purpose
+The engine makes a data directory's store only when started with `--new`, and refuses `--new` where the directory holds a store, so that a named directory is never taken for a new data directory.
+- rejected: an agent proposed no switch: a directory that holds a store is run in, one that holds none is refused unless it holds only a known list of entries; the owner rejected it, because the list is arbitrary and an empty wrong directory is not caught.

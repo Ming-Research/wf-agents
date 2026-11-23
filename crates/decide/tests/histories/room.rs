@@ -30,6 +30,7 @@ fn paused_itself(records: &Records) -> Records {
         at: Seq(last_place(records).0 + 1),
         by: Pauser::Owner,
         why: None,
+        waits_for: Vec::new(),
     });
     own
 }

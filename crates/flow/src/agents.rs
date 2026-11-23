@@ -1110,6 +1110,9 @@ pub struct SentBack {
     pub between: String,
     /// What follows the list.
     pub again: String,
+    /// What follows the list where the return it is for stands for nothing of what the next gives: it asked for calls,
+    /// or it could not be read, so the next gives it whole.
+    pub again_whole: String,
     /// The words of each thing that can be wrong with a return.
     pub faults: SentBackFaults,
     /// Why what came back could not be read as a return, which [`SentBackFaults::unreadable`] says in its `{why}`.

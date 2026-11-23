@@ -20,10 +20,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use decide::{
-    CallId, Called, Done, Finished, Hurried, Outsider, Pauser, PutIn, Returned, Room, Round, RunId, Seq, Started, Who,
-    Write, Written,
+    CallId, Called, Done, Finished, Hurried, Outsider, Pauser, PutIn, Returned, Round, RunId, Seq, Started, Who, Write,
+    Written,
 };
-use engine::{Ask, Came, Effect, Event, Gate, Given, Handed, Spent, Time, Work, handle, handle_then, pending};
+use engine::{Ask, Came, Effect, Event, Given, Handed, Spent, Time, Work, handle, pending};
 use flow::{Compiled, Has, Source, compile};
 use rusqlite::Connection;
 use rusqlite::types::Value;
@@ -208,9 +208,6 @@ struct Driver {
     ended: u64,
     /// Where the work is saved after each thing that happens, when it is.
     saving: Option<Saving>,
-    /// What the driver records for the work after the next thing that happens to it, before the walk begins any round
-    /// ([`Driver::anew_before_the_next_round`]).
-    follows: Vec<Event>,
 }
 
 /// A work saved after each thing that happens to it, and loaded back each time from a store opened anew on the file.
@@ -229,7 +226,6 @@ impl Driver {
             clock: START,
             ended: 0,
             saving: None,
-            follows: Vec::new(),
         }
     }
 
@@ -252,23 +248,11 @@ impl Driver {
         effects
     }
 
-    /// Gives the engine the event at the driver's next second, saving nothing, and then, before the walk, what the
-    /// driver records after it ([`Driver::anew_before_the_next_round`]).
+    /// Gives the engine the event at the driver's next second, saving nothing.
     fn take(&mut self, event: Event) -> Vec<Effect> {
         self.clock += 1000;
         let now = Time(self.clock);
-        let follows = std::mem::take(&mut self.follows);
-        let then = |_: &Compiled, _: &Work| follows.clone();
-        handle_then(&self.flow, &mut self.work, now, event, Room::FREE, Gate::Open, &then).expect("the event is taken")
-    }
-
-    /// The line begins a new session, for this reason, as the driver records one: after the next thing that happens to
-    /// the work and before the walk, so that a round that thing begins runs in it.
-    fn anew_before_the_next_round(&mut self, line: &str, why: engine::Why) {
-        self.follows.push(Event::Anew {
-            line: line.to_string(),
-            why,
-        });
+        handle(&self.flow, &mut self.work, now, event).expect("the event is taken")
     }
 
     /// Where the work is saved, saves it and checks that it loads back as it is.
@@ -512,10 +496,12 @@ fn history(d: &mut Driver) {
     d.end(Came::asks(vec![tool("b"), tool("c")]));
     d.answer();
     d.end(hands_in(&[("text", None)]));
-    // The judge asks for a tool during a pause: the call is made, and entering it again waits for the resume.
+    // The judge asks for a tool during a pause that says why and the items it waits for: the call is made, and entering
+    // it again waits for the resume.
     d.on(Event::Paused {
         by: Pauser::Owner,
-        why: None,
+        why: Some("After the base.".to_string()),
+        waits_for: vec![12, 14],
     });
     d.end(Came::asks(vec![tool("f")]));
     d.answer();
