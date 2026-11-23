@@ -101,6 +101,27 @@ fn the_engineers_flow_gives_the_design_review_the_list_of_the_works_under_way_an
     assert_eq!(flow.blocks[&parallel].planned_in, Some(BlockId::from("plan_files")));
 }
 
+// The files a plan names are one of the plan's blocks: every cell of the engineer's flow that is given the plan's
+// `plan_agent` is given `plan_files` as well, in the same way, so that no cell reads a plan without the files it names,
+// or an older version of them than of the plan beside it. Fails where a cell names one of the two and not the other, or
+// gives them different kinds (reference: the group `plan` of `flow/engineer/flow.toml`, whose members every cell that
+// reads the group reads alike). Milliseconds.
+#[test]
+fn every_cell_given_the_plan_is_given_the_files_it_names_in_the_same_way() {
+    let outline = Outline::of(&engineer());
+    let mut with_the_plan = 0;
+    for cell in &outline.cells {
+        let kind = |block: &str| {
+            (cell.given.iter())
+                .find(|g| g.block == BlockId::from(block))
+                .map(|g| (g.kind, g.list))
+        };
+        assert_eq!(kind("plan_files"), kind("plan_agent"), "{}", cell.id);
+        with_the_plan += usize::from(kind("plan_agent").is_some());
+    }
+    assert!(with_the_plan >= 8, "only {with_the_plan} cells are given the plan");
+}
+
 #[test]
 fn the_engineer_s_outline_holds_each_cell_in_order_with_what_reading_a_work_on_it_needs() {
     let flow = engineer();

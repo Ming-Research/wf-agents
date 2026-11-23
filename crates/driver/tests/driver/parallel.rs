@@ -196,3 +196,40 @@ fn after_a_restart_every_list_is_given_again() {
     assert_eq!(lists, [("one", a), ("two", b)]);
     assert_eq!(h.dm().parallel(), vec![]);
 }
+
+// A work that is cancelled leaves the list and, once its item is reopened, is on it again: it is a work that has not
+// ended and has started a run, which is all the list asks (reference: the module documentation of `driver::parallel`).
+// Fails where a work cancelled once stays off the list for good. Milliseconds.
+#[test]
+fn a_cancelled_work_is_on_its_projects_list_again_once_its_item_is_reopened() {
+    let mut h = H::with(vec![planned()]);
+    let (item, a) = h.add_let_on(planned_item("a", "one"));
+    let (_, b) = h.add_let_on(planned_item("b", "one"));
+    h.dm().parallel();
+    h.changes(vec![(item, driver::Asked::Cancel)])
+        .expect("the item is cancelled");
+    let asks = h.dm().parallel();
+    assert_eq!(asks.len(), 1, "{asks:?}");
+    assert_eq!(listed(&asks[0]).iter().map(|w| w.0).collect::<Vec<_>>(), [b.0]);
+    h.changes(vec![(item, driver::Asked::Reopen)])
+        .expect("the item is reopened");
+    let asks = h.dm().parallel();
+    assert_eq!(asks.len(), 1, "{asks:?}");
+    assert_eq!(listed(&asks[0]).iter().map(|w| w.0).collect::<Vec<_>>(), [a.0, b.0]);
+}
+
+// A change in one project is asked for that project alone: the list of another project, which is the same, is not given
+// to be made again. Fails where every project's list is asked for after any work changes. Milliseconds.
+#[test]
+fn a_change_in_one_project_asks_for_that_project_s_list_alone() {
+    let mut h = H::with(vec![planned()]);
+    let (_, first) = h.add_let_on(planned_item("a", "one"));
+    let (_, second) = h.add_let_on(planned_item("b", "one"));
+    h.add_let_on(planned_item("c", "two"));
+    assert_eq!(h.dm().parallel().len(), 2);
+    h.through(first);
+    let asks = h.dm().parallel();
+    assert_eq!(asks.len(), 1, "{asks:?}");
+    assert_eq!(asks[0].project, "one");
+    assert_eq!(listed(&asks[0]).iter().map(|w| w.0).collect::<Vec<_>>(), [second.0]);
+}
