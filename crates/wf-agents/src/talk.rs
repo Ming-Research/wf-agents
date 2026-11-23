@@ -15,7 +15,10 @@ use hyper_util::rt::TokioIo;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use web::attention::{Attention, Line, Stuck};
-use web::observations::{Observation, ObservationsPage};
+use web::observations::{
+    NewObservation, Observation, ObservationAdded, ObservationChangeAsked, ObservationChanges, ObservationsChanged,
+    ObservationsPage, TagsPage,
+};
 use web::plan::{Candidates, Field, Graph, Hits, Node, PlanChange, PlanChanges, Row, Standing, Tags};
 use web::system::{LeftOf, Past, Rest, System, UnderWay};
 use web::works::{
@@ -90,10 +93,18 @@ pub enum Asked {
         block: Option<String>,
         whole: bool,
     },
-    /// The observations, the newest first, from this number down, at most this many.
+    /// The observations that are shown, the newest first, from this number down, at most this many.
     Observations {
         from: Option<u64>,
         limit: usize,
+        showing: Showing,
+    },
+    /// An observation an architect adds.
+    AddObservation(NewObservation),
+    /// Changes of observations made together, for this reason.
+    ChangeObservations {
+        why: String,
+        changes: Vec<ObservationChangeAsked>,
     },
     /// What needs whoever plans the work since the mark, waiting for it at most this many seconds; with no time, as
     /// long as it takes.
@@ -181,7 +192,8 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
             }
             Asked::Tags => {
                 let tags: Tags = send(address, Method::GET, "/api/v1/plan/tags", None::<&()>).await?;
-                Ok(tags_said(&tags))
+                let observed: TagsPage = send(address, Method::GET, "/api/v1/observations/tags", None::<&()>).await?;
+                Ok(tags_said(&tags, &observed))
             }
             Asked::Text { item, block, whole } => {
                 let items: Items = send(address, Method::GET, "/api/v1/items", None::<&()>).await?;
@@ -197,9 +209,23 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
                 }
                 Ok(text_said(item, &page, &texts, whole, block.is_some()))
             }
-            Asked::Observations { from, limit } => {
+            Asked::Observations { from, limit, showing } => {
                 let page: ObservationsPage = send(address, Method::GET, "/api/v1/observations", None::<&()>).await?;
-                Ok(observations_said(&page, from, limit))
+                Ok(observations_said(&page, &showing, from, limit))
+            }
+            Asked::AddObservation(observation) => {
+                let added: ObservationAdded =
+                    send(address, Method::POST, "/api/v1/observations", Some(&observation)).await?;
+                Ok(format!("Added observation O{}.", added.number))
+            }
+            Asked::ChangeObservations { why, changes } => {
+                let asked = ObservationChanges {
+                    why,
+                    changes: changes.clone(),
+                };
+                let done: ObservationsChanged =
+                    send(address, Method::POST, "/api/v1/observations/changes", Some(&asked)).await?;
+                Ok(observations_changed(&changes, &done.changed))
             }
             Asked::Everything(act) => {
                 send::<(), _>(address, Method::POST, "/api/v1/engine/acts", Some(&act)).await?;
@@ -729,6 +755,128 @@ const STARTED_HELD: &str = "The engine started with works going on and holds eve
 
 /// The most items `list` gives in one answer, and the most entries of a part of a work `show` gives alone.
 const LISTED: usize = 100;
+
+/// Which observations a list gives: those carrying the tag alone, where one is given; those of the project alone,
+/// where one is given; and those an item took in that is not cancelled, only where `all`.
+#[derive(Clone, Debug, Default)]
+pub struct Showing {
+    pub tag: Option<String>,
+    pub project: Option<String>,
+    pub all: bool,
+}
+
+/// The observation an architect adds: its text, from the words given or from a file, its title, its tags, the project
+/// it is of and the project that reported it.
+pub fn new_observation(
+    project: String,
+    reported_by: String,
+    title: Option<String>,
+    tags: Vec<String>,
+    text: Option<String>,
+    file: Option<&std::path::Path>,
+) -> Result<NewObservation, String> {
+    let text = match (text, file) {
+        (Some(text), None) => text,
+        (None, Some(path)) => std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?,
+        _ => return Err("An observation is given its text by --text or by --file, one of them.".to_string()),
+    };
+    Ok(NewObservation {
+        text,
+        title,
+        tags,
+        project,
+        reported_by,
+    })
+}
+
+/// The changes `wf-agents change-observations` is given, each `OBSERVATION:KIND` or `OBSERVATION:KIND=VALUE`, in the
+/// order given.
+pub fn observation_changes(given: &[String]) -> Result<Vec<ObservationChangeAsked>, String> {
+    let usage = |given: &str, why: &str| {
+        format!(
+            "{given:?} is no change: {why}. A change is OBSERVATION:KIND or OBSERVATION:KIND=VALUE, the observation \
+             its number with or without the O, the kind one of title=TEXT, tag=TAG, untag=TAG, taken-in-by=ITEM and \
+             delete"
+        )
+    };
+    let mut changes = Vec::new();
+    for change in given {
+        let Some((observation, rest)) = change.split_once(':') else {
+            return Err(usage(change, "it names no observation before a colon"));
+        };
+        let observation: u64 = (observation.trim().trim_start_matches('O').parse())
+            .map_err(|_| usage(change, "what is before the colon is no observation's number"))?;
+        let (kind, value) = match rest.split_once('=') {
+            Some((kind, value)) => (kind, Some(value.to_string())),
+            None => (rest, None),
+        };
+        let text = |value: Option<String>| value.ok_or_else(|| usage(change, "it needs a value after ="));
+        changes.push(match kind {
+            "title" => ObservationChangeAsked::Title {
+                observation,
+                title: text(value)?,
+            },
+            "tag" => ObservationChangeAsked::Tag {
+                observation,
+                tag: text(value)?,
+            },
+            "untag" => ObservationChangeAsked::Untag {
+                observation,
+                tag: text(value)?,
+            },
+            "taken-in-by" => {
+                let item = (value
+                    .as_deref()
+                    .map(|v| v.trim().trim_start_matches('#').parse::<u64>()))
+                .and_then(Result::ok)
+                .ok_or_else(|| usage(change, "it needs an item's number after ="))?;
+                ObservationChangeAsked::TakenIn { observation, item }
+            }
+            "delete" => {
+                if value.is_some() {
+                    return Err(usage(change, "it takes no value"));
+                }
+                ObservationChangeAsked::Delete { observation }
+            }
+            _ => return Err(usage(change, "its kind is none of these")),
+        });
+    }
+    Ok(changes)
+}
+
+/// What came of each change of observations, a line each, in the order asked.
+fn observations_changed(changes: &[ObservationChangeAsked], done: &[bool]) -> String {
+    let lines: Vec<String> = (changes.iter().zip(done))
+        .map(|(change, done)| match (change, *done) {
+            (ObservationChangeAsked::Title { observation, title }, true) => {
+                format!("O{observation} is titled \"{title}\".")
+            }
+            (ObservationChangeAsked::Title { observation, title }, false) => {
+                format!("O{observation} was titled \"{title}\" already.")
+            }
+            (ObservationChangeAsked::Tag { observation, tag }, true) => format!("O{observation} is tagged {tag}."),
+            (ObservationChangeAsked::Tag { observation, tag }, false) => {
+                format!("O{observation} was tagged {tag} already.")
+            }
+            (ObservationChangeAsked::Untag { observation, tag }, true) => {
+                format!("O{observation} is no longer tagged {tag}.")
+            }
+            (ObservationChangeAsked::Untag { observation, tag }, false) => {
+                format!("O{observation} was not tagged {tag}.")
+            }
+            (ObservationChangeAsked::TakenIn { observation, item }, true) => {
+                format!("O{observation} is taken in by {}.", item_number(*item))
+            }
+            (ObservationChangeAsked::TakenIn { observation, item }, false) => {
+                format!("O{observation} was taken in by {} already.", item_number(*item))
+            }
+            (ObservationChangeAsked::Delete { observation }, _) => {
+                format!("O{observation} is deleted: its text and why stay in the records.")
+            }
+        })
+        .collect();
+    lines.join("\n")
+}
 
 /// Which items a list gives: those carrying the tag alone, where one is given; from the item given; and those that
 /// ended, merged or cancelled, only where `all`.
@@ -1504,12 +1652,29 @@ fn graph_nodes(lines: &mut Vec<String>, nodes: &[Node], indent: usize) {
 }
 
 /// The tags items carry, a line each.
-fn tags_said(tags: &Tags) -> String {
-    if tags.tags.is_empty() {
-        return "No item carries a tag.".to_string();
+fn tags_said(tags: &Tags, observed: &TagsPage) -> String {
+    let mut names: Vec<&str> = (tags.tags.iter().map(|t| t.tag.as_str()))
+        .chain(observed.tags.iter().map(|t| t.tag.as_str()))
+        .collect();
+    names.sort_unstable();
+    names.dedup();
+    if names.is_empty() {
+        return "No item or observation carries a tag.".to_string();
     }
-    let lines: Vec<String> = (tags.tags.iter())
-        .map(|tag| format!("{}: {} open of {}", tag.tag, tag.open, tag.items))
+    let lines: Vec<String> = (names.into_iter())
+        .map(|name| {
+            let mut parts = Vec::new();
+            if let Some(tag) = tags.tags.iter().find(|t| t.tag == name) {
+                parts.push(format!("{} open of {}", tag.open, tag.items));
+            }
+            if let Some(tag) = observed.tags.iter().find(|t| t.tag == name) {
+                parts.push(format!(
+                    "{} not handled of {} observations",
+                    tag.unhandled, tag.carrying
+                ));
+            }
+            format!("{name}: {}", parts.join("; "))
+        })
         .collect();
     lines.join("\n")
 }
@@ -1768,13 +1933,28 @@ fn cut_title(title: &str) -> String {
     }
 }
 
-/// The observations from the number given down, the newest first, each as a line saying where it came from and whether
-/// the owner read it, then its whole text indented; and how many more there are, with the command that gives them.
-fn observations_said(page: &ObservationsPage, from: Option<u64>, limit: usize) -> String {
+/// The observations shown, from the number given down, the newest first, each as a line saying where it came from and
+/// whether the owner read it, a line of what it is of, its title, tags and the item that took it in where there is
+/// anything to say, then its whole text indented; and how many more there are, with the command that gives them. An
+/// observation an item that is not cancelled took in is left out unless `all`.
+fn observations_said(page: &ObservationsPage, showing: &Showing, from: Option<u64>, limit: usize) -> String {
     if page.observations.is_empty() {
         return "There are no observations.".to_string();
     }
-    let down: Vec<&Observation> = (page.observations.iter())
+    let shown: Vec<&Observation> = (page.observations.iter())
+        .filter(|o| showing.all || !o.handled)
+        .filter(|o| showing.tag.as_ref().is_none_or(|tag| o.tags.contains(tag)))
+        .filter(|o| {
+            showing
+                .project
+                .as_ref()
+                .is_none_or(|project| o.project.as_ref() == Some(project))
+        })
+        .collect();
+    if shown.is_empty() {
+        return "No observation is shown: those taken in by an item are left out unless --all is given.".to_string();
+    }
+    let down: Vec<&Observation> = (shown.into_iter())
         .filter(|o| from.is_none_or(|from| o.number <= from))
         .collect();
     if down.is_empty() {
@@ -1786,25 +1966,50 @@ fn observations_said(page: &ObservationsPage, from: Option<u64>, limit: usize) -
             Some(at) => format!("read {}", utc(at)),
             None => "unread".to_string(),
         };
-        lines.push(format!(
-            "O{}, {read}, kept {}: item {item} \"{}\", {}, cell {}, run {}, round {}",
-            o.number,
-            utc(o.kept),
-            cut_title(&o.title),
-            work_number(o.work),
-            o.cell,
-            o.run,
-            o.round,
-            item = item_number(o.item),
-        ));
+        let came = match &o.round {
+            Some(r) => format!(
+                "item {item} \"{}\", {}, cell {}, run {}, round {}",
+                cut_title(&r.item_title),
+                work_number(r.work),
+                r.cell,
+                r.run,
+                r.round,
+                item = item_number(r.item),
+            ),
+            None => format!("reported by {}", o.reported_by.as_deref().unwrap_or("no project")),
+        };
+        lines.push(format!("O{}, {read}, kept {}: {came}", o.number, utc(o.kept)));
+        let mut facts = Vec::new();
+        if o.round.is_none() {
+            facts.push(format!("of {}", o.project.as_deref().unwrap_or("no project")));
+        }
+        if let Some(title) = &o.title {
+            facts.push(format!("title \"{}\"", cut_title(title)));
+        }
+        if !o.tags.is_empty() {
+            facts.push(format!("tags {}", o.tags.join(", ")));
+        }
+        if let Some(item) = o.taken_in_by {
+            let cancelled = if o.handled { "" } else { ", which is cancelled" };
+            facts.push(format!("taken in by {}{cancelled}", item_number(item)));
+        }
+        if !facts.is_empty() {
+            lines.push(format!("  {}", facts.join("; ")));
+        }
         lines.extend(o.text.trim().lines().map(|line| format!("  {line}")));
     }
     if let Some(next) = down.get(limit) {
-        lines.push(format!(
-            "And {} more, older: wf-agents observations --from {}",
-            down.len() - limit,
-            next.number
-        ));
+        let mut more = format!("wf-agents observations --from {}", next.number);
+        if let Some(tag) = &showing.tag {
+            more.push_str(&format!(" --tag {tag}"));
+        }
+        if let Some(project) = &showing.project {
+            more.push_str(&format!(" --project {project}"));
+        }
+        if showing.all {
+            more.push_str(" --all");
+        }
+        lines.push(format!("And {} more, older: {more}", down.len() - limit));
     }
     lines.join("\n")
 }
@@ -2492,14 +2697,32 @@ mod tests {
         Observation {
             number,
             text: text.to_string(),
-            work: 3,
-            item: 2,
-            title: "Greet the user".to_string(),
-            cell: "plan".to_string(),
-            run: 4,
-            round: 1,
+            title: None,
+            tags: Vec::new(),
+            project: Some("wf-agents".to_string()),
+            reported_by: Some("wf-agents".to_string()),
+            round: Some(web::observations::Round {
+                work: 3,
+                item: 2,
+                item_title: "Greet the user".to_string(),
+                cell: "plan".to_string(),
+                run: 4,
+                round: 1,
+            }),
             kept: 1_800_000_000_000,
             read,
+            taken_in_by: None,
+            handled: false,
+        }
+    }
+
+    /// An observation an architect added, of this project and reported by that one.
+    fn an_added_observation(number: u64, text: &str, project: &str, reported_by: &str) -> Observation {
+        Observation {
+            round: None,
+            project: Some(project.to_string()),
+            reported_by: Some(reported_by.to_string()),
+            ..observation(number, text, None)
         }
     }
 
@@ -2513,22 +2736,206 @@ mod tests {
             ],
         };
         assert_eq!(
-            observations_said(&page, None, 2),
+            observations_said(&page, &Showing::default(), None, 2),
             "O3, unread, kept 2027-01-15 08:00 UTC: item #2 \"Greet the user\", W3, cell plan, run 4, round 1\n  Third.\n  \
              In two lines.\nO2, read 2027-01-15 08:01 UTC, kept 2027-01-15 08:00 UTC: item #2 \"Greet the user\", W3, \
              cell plan, run 4, round 1\n  Second.\nAnd 1 more, older: wf-agents observations --from 1"
         );
-        let down = observations_said(&page, Some(2), 20);
+        let down = observations_said(&page, &Showing::default(), Some(2), 20);
         assert!(down.starts_with("O2, read ") && down.ends_with("  First."), "{down}");
         assert!(!down.contains("O3") && !down.contains("more"), "{down}");
         assert_eq!(
-            observations_said(&page, Some(0), 20),
+            observations_said(&page, &Showing::default(), Some(0), 20),
             "No observation is numbered O0 or lower."
         );
         let none = ObservationsPage {
             observations: Vec::new(),
         };
-        assert_eq!(observations_said(&none, None, 20), "There are no observations.");
+        assert_eq!(
+            observations_said(&none, &Showing::default(), None, 20),
+            "There are no observations."
+        );
+    }
+
+    #[test]
+    fn the_line_of_an_added_observation_says_who_reported_it_what_it_is_of_and_its_title_tags_and_taker() {
+        let mut one = an_added_observation(5, "The merge cell names no tests.", "wf-agents", "compiler");
+        one.title = Some("Name the tests".to_string());
+        one.tags = vec!["flow".to_string(), "tests".to_string()];
+        let page = ObservationsPage {
+            observations: vec![one.clone()],
+        };
+        assert_eq!(
+            observations_said(&page, &Showing::default(), None, 20),
+            "O5, unread, kept 2027-01-15 08:00 UTC: reported by compiler\n  of wf-agents; title \"Name the tests\"; tags \
+             flow, tests\n  The merge cell names no tests."
+        );
+        // An item that is cancelled took it in: it is said, and it is shown without --all.
+        one.taken_in_by = Some(12);
+        let page = ObservationsPage {
+            observations: vec![one],
+        };
+        assert!(
+            observations_said(&page, &Showing::default(), None, 20)
+                .contains("tags flow, tests; taken in by #12, which is cancelled\n"),
+        );
+    }
+
+    #[test]
+    fn observations_are_filtered_by_tag_and_project_and_the_handled_are_left_out_unless_all() {
+        let mut tagged = an_added_observation(4, "Tagged.", "wf-agents", "wf-agents");
+        tagged.tags = vec!["flow".to_string()];
+        let mut handled = an_added_observation(3, "Handled.", "wf-agents", "wf-agents");
+        handled.tags = vec!["flow".to_string()];
+        handled.taken_in_by = Some(7);
+        handled.handled = true;
+        let page = ObservationsPage {
+            observations: vec![
+                tagged,
+                handled,
+                an_added_observation(2, "Another project's.", "compiler", "compiler"),
+                an_added_observation(1, "Untagged.", "wf-agents", "wf-agents"),
+            ],
+        };
+        let numbers = |showing: &Showing| -> Vec<String> {
+            let said = observations_said(&page, showing, None, 20);
+            said.lines()
+                .filter(|l| l.starts_with('O'))
+                .map(|l| l[..2].to_string())
+                .collect()
+        };
+        let by_tag = Showing {
+            tag: Some("flow".to_string()),
+            ..Showing::default()
+        };
+        assert_eq!(numbers(&by_tag), ["O4"]);
+        assert_eq!(numbers(&Showing { all: true, ..by_tag }), ["O4", "O3"]);
+        let by_project = Showing {
+            project: Some("compiler".to_string()),
+            ..Showing::default()
+        };
+        assert_eq!(numbers(&by_project), ["O2"]);
+        assert_eq!(numbers(&Showing::default()), ["O4", "O2", "O1"]);
+        // What is left to give is asked for with the same filters.
+        let limited = observations_said(
+            &page,
+            &Showing {
+                all: true,
+                ..Showing::default()
+            },
+            None,
+            1,
+        );
+        assert!(
+            limited.ends_with("And 3 more, older: wf-agents observations --from 3 --all"),
+            "{limited}"
+        );
+        let none = Showing {
+            tag: Some("nothing".to_string()),
+            ..Showing::default()
+        };
+        assert!(observations_said(&page, &none, None, 20).starts_with("No observation is shown"));
+    }
+
+    #[test]
+    fn tags_lists_a_tag_only_observations_carry_beside_the_items_tags() {
+        let items = Tags {
+            tags: vec![web::plan::TagCount {
+                tag: "page".to_string(),
+                items: 3,
+                open: 2,
+            }],
+        };
+        let observed = TagsPage {
+            tags: vec![
+                web::observations::TagCount {
+                    tag: "flow".to_string(),
+                    carrying: 4,
+                    unhandled: 1,
+                },
+                web::observations::TagCount {
+                    tag: "page".to_string(),
+                    carrying: 1,
+                    unhandled: 1,
+                },
+            ],
+        };
+        assert_eq!(
+            tags_said(&items, &observed),
+            "flow: 1 not handled of 4 observations\npage: 2 open of 3; 1 not handled of 1 observations"
+        );
+        assert_eq!(tags_said(&items, &TagsPage { tags: Vec::new() }), "page: 2 open of 3");
+        assert_eq!(
+            tags_said(&Tags { tags: Vec::new() }, &TagsPage { tags: Vec::new() }),
+            "No item or observation carries a tag."
+        );
+    }
+
+    #[test]
+    fn changes_of_observations_are_read_by_kind_and_a_wrong_one_is_refused() {
+        let given = |changes: &[&str]| observation_changes(&changes.iter().map(|c| c.to_string()).collect::<Vec<_>>());
+        assert_eq!(
+            given(&[
+                "O31:taken-in-by=#12",
+                "32:title=Fix the test",
+                "33:tag=flow",
+                "O34:untag=flow",
+                "35:delete"
+            ]),
+            Ok(vec![
+                ObservationChangeAsked::TakenIn {
+                    observation: 31,
+                    item: 12
+                },
+                ObservationChangeAsked::Title {
+                    observation: 32,
+                    title: "Fix the test".to_string()
+                },
+                ObservationChangeAsked::Tag {
+                    observation: 33,
+                    tag: "flow".to_string()
+                },
+                ObservationChangeAsked::Untag {
+                    observation: 34,
+                    tag: "flow".to_string()
+                },
+                ObservationChangeAsked::Delete { observation: 35 },
+            ])
+        );
+        for wrong in [
+            "31",
+            "x:delete",
+            "31:merge=12",
+            "31:delete=1",
+            "31:taken-in-by",
+            "31:taken-in-by=x",
+            "31:tag",
+        ] {
+            assert!(given(&[wrong]).is_err(), "{wrong} was read");
+        }
+    }
+
+    #[test]
+    fn an_observation_is_given_its_text_by_words_or_by_a_file_and_never_by_neither_or_both() {
+        let new = |text: Option<&str>, file: Option<&str>| {
+            let file = file.map(std::path::Path::new);
+            new_observation(
+                "wf-agents".to_string(),
+                "compiler".to_string(),
+                None,
+                vec!["flow".to_string()],
+                text.map(str::to_string),
+                file,
+            )
+        };
+        let made = new(Some("Words."), None).expect("words are a text");
+        assert_eq!(
+            (made.text.as_str(), made.project.as_str(), made.reported_by.as_str()),
+            ("Words.", "wf-agents", "compiler")
+        );
+        assert!(new(None, None).is_err());
+        assert!(new(Some("Words."), Some("a-file")).is_err());
+        assert!(new(None, Some("/no/such/file")).is_err());
     }
 
     // The list says what is down while the wait holds, as the latest check found it, since when, and when the engine

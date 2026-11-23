@@ -707,7 +707,7 @@ export function fixtureSource(start = Date.now()): Source {
     throw new Error(`There is no work ${workName(work)}`);
   };
   const told = (work: number) => {
-    const c: Changed = { works: [work], items: true, copies: false, accounts: false };
+    const c: Changed = { works: [work], items: true, copies: false, accounts: false, observations: false };
     window.setTimeout(() => listeners.forEach((on) => on(c)), 0);
   };
   const change = (s: Summary, what: Act) => {

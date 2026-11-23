@@ -2,23 +2,11 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
-use http_body_util::BodyExt;
 use serde_json::json;
 use tower::ServiceExt;
 
 use crate::copies::serving_with_handle;
-use crate::{post, running};
-
-/// The next event of the stream, past the comments that keep it open.
-async fn next(body: &mut Body) -> String {
-    loop {
-        let frame = body.frame().await.unwrap().unwrap();
-        let text = String::from_utf8(frame.into_data().unwrap().to_vec()).unwrap();
-        if !text.starts_with(':') {
-            return text;
-        }
-    }
-}
+use crate::{next, post, running};
 
 #[tokio::test(start_paused = true)]
 async fn the_stream_says_as_it_opens_that_everything_may_have_changed_and_then_each_change() {
@@ -43,7 +31,7 @@ async fn the_stream_says_as_it_opens_that_everything_may_have_changed_and_then_e
     // As it opens it says that everything may have changed, the copies of the database too.
     assert_eq!(
         next(&mut body).await,
-        "data: {\"works\":[1],\"items\":true,\"copies\":true,\"accounts\":true}\n\n"
+        "data: {\"works\":[1],\"items\":true,\"copies\":true,\"accounts\":true,\"observations\":true}\n\n"
     );
 
     // A pause of a work added paused is one more pause, and so changes it.
@@ -55,12 +43,12 @@ async fn the_stream_says_as_it_opens_that_everything_may_have_changed_and_then_e
     );
     assert_eq!(
         next(&mut body).await,
-        "data: {\"works\":[1],\"items\":false,\"copies\":false,\"accounts\":false}\n\n"
+        "data: {\"works\":[1],\"items\":false,\"copies\":false,\"accounts\":false,\"observations\":false}\n\n"
     );
     assert_eq!(post(router, "/api/v1/items", &item("Second")).await.0, StatusCode::OK);
     assert_eq!(
         next(&mut body).await,
-        "data: {\"works\":[2],\"items\":true,\"copies\":false,\"accounts\":false}\n\n"
+        "data: {\"works\":[2],\"items\":true,\"copies\":false,\"accounts\":false,\"observations\":false}\n\n"
     );
     assert_eq!(
         post(router, "/api/v1/works/1/acts", &json!({ "kind": "resume" }))
@@ -70,12 +58,12 @@ async fn the_stream_says_as_it_opens_that_everything_may_have_changed_and_then_e
     );
     assert_eq!(
         next(&mut body).await,
-        "data: {\"works\":[1],\"items\":false,\"copies\":false,\"accounts\":false}\n\n"
+        "data: {\"works\":[1],\"items\":false,\"copies\":false,\"accounts\":false,\"observations\":false}\n\n"
     );
     // The plan's round begins when the work is let on, and ends a second and a half later.
     assert_eq!(
         next(&mut body).await,
-        "data: {\"works\":[1],\"items\":false,\"copies\":false,\"accounts\":false}\n\n"
+        "data: {\"works\":[1],\"items\":false,\"copies\":false,\"accounts\":false,\"observations\":false}\n\n"
     );
 }
 
@@ -94,6 +82,25 @@ async fn the_stream_says_that_the_copies_changed_when_a_step_of_keeping_them_end
     handle.copies_changed();
     assert_eq!(
         next(&mut body).await,
-        "data: {\"works\":[],\"items\":false,\"copies\":true,\"accounts\":false}\n\n"
+        "data: {\"works\":[],\"items\":false,\"copies\":true,\"accounts\":false,\"observations\":false}\n\n"
+    );
+}
+
+// An observation is added or changed beside the loop, so it is not the loop that says so: the stream says it with a
+// change that holds no work and no item, and the page reads the observations again on it.
+#[tokio::test(start_paused = true)]
+async fn the_stream_says_that_the_observations_changed_when_one_was_added_or_changed() {
+    let (router, _records, _dir, handle) = serving_with_handle(true, 7);
+    let request = Request::builder().uri("/api/v1/changes").body(Body::empty()).unwrap();
+    let response = router.clone().oneshot(request).await.unwrap();
+    let mut body = response.into_body();
+    assert!(
+        next(&mut body).await.contains("\"observations\":true"),
+        "everything may have changed"
+    );
+    handle.observations_changed();
+    assert_eq!(
+        next(&mut body).await,
+        "data: {\"works\":[],\"items\":false,\"copies\":false,\"accounts\":false,\"observations\":true}\n\n"
     );
 }
