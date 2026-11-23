@@ -50,8 +50,9 @@ Work whose need can be judged only once a result is in is not an item: it is wri
 An item's title says the work to be done, never a state that reads as done.
 - rejected: an agent proposed a title that states the result wanted, such as that more than half of the architect's calls are technical; the owner rejected it, because a title is an action, not a result.
 
-### decision a-background-opens-with-three-paragraphs
-An item's background opens with three short paragraphs: what it is to do, why (with one case, and only the conclusion about a cause), and the result wanted; never how to do it.
+### decision a-background-tells-the-story
+An item's background tells, for a reader new to the problem: the part of the system and what it does, what happened with one case, why it is a problem, and what is to be done; never how.
+- replaced: A background of three short paragraphs, opening with what the item is to do in a sentence, was on main; the owner changed it, because the backgrounds began with no subject and named things they never said what they were.
 - replaced: A single first paragraph saying what the item is, why it is to be done, what brought it about and the result wanted was on main; the owner changed it, because the three mixed into one paragraph read badly.
 
 ### decision which-item-starts-first

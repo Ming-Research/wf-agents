@@ -148,10 +148,17 @@ reports (`wf-agents wait`):
 - **Title**, of an item and of an observation alike: in `owner.language`. It says the work to be done, never a state
   that reads as done. At most as many words as `items.title_max` says, a Chinese character counting as one, and the
   limit is no length to fill. No conditions, numbers or internal names.
-- **Background**: in `owner.language`. It opens with three short paragraphs: what the item is to do, in a sentence;
-  why: the problem in a sentence, one case of it, with when and where it was found, and of a cause only the conclusion;
-  and the result wanted. Never how to do it, which the work's research finds. It names the owner as the owner, never as
-  "you".
+- **Background**: in `owner.language`. It is written for a reader who knows the project but has not met this problem,
+  and it tells the story in this order:
+  1. What part of the system it is about: what that part is and what it does, in plain words.
+  2. What happened: when and where it was seen, and what was seen, with one real case. Of a cause, only what was found.
+  3. Why that is a problem: what goes wrong, or what the owner cannot do.
+  4. What is to be done, and the result wanted.
+  Each of the four is a sentence or two: the background is short, and the work's research finds the rest. Where the
+  item joins several problems, each gets its own story of a sentence or two under its own heading. Every sentence has a
+  subject that acts. Every name, such as a file, a test, a cell, a command or an item's number, is said in plain words
+  where it first appears. Never how to do it, which the work's research finds. It names the owner as the owner, never
+  as "you".
   The acceptance is the work's plan's, not the background's. The background is written before the work begins; once it
   has begun, the background changes only where what the item asks changes, never for its wording, since a change runs
   the work's cells again.
