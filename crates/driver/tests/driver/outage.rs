@@ -420,6 +420,28 @@ fn taking_another_account_has_the_outside_checked_at_once_under_it() {
     assert_eq!(agents_rounds(&todos), vec![(a, "write".to_string(), 2)]);
 }
 
+// Taking the account that is in use changes nothing: no round is run again, what the checks found stands, and no check
+// is asked for at once.
+#[test]
+fn taking_the_account_already_in_use_changes_nothing() {
+    let (mut h, a, _) = two_under_accounts();
+    fails(&mut h, a, Failure::CannotRun, None);
+    let first = next_check(&h);
+    h.tick(first, Some(down(Failure::CannotRun)));
+    let found = h.d().outage().and_then(|o| o.checked);
+    assert!(found.is_some(), "the check found the outside down");
+    let due = next_check(&h);
+    let todos = h.take_account("first");
+    assert!(todos.is_empty(), "a round was run again");
+    assert_eq!(h.d().accounts().in_use(), Some("first"));
+    assert_eq!(
+        h.d().outage().and_then(|o| o.checked),
+        found,
+        "what the checks found stands"
+    );
+    assert_eq!(next_check(&h), due, "no check was asked for at once");
+}
+
 /// What a history knows of the accounts from what it told the driver alone: the accounts added, the one it took, the
 /// account each agent's round was handed out with, by its work, run and number, and each account whose usage limit
 /// stands, from a round under it that met the limit until a check under it found the outside well.
