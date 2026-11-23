@@ -106,7 +106,7 @@ pub(crate) fn cell(flow: &Compiled) -> &CellSpec {
 
 /// What is written beside the flows, as the flow crate's tests have it.
 pub(crate) fn words() -> flow::agents::Agents {
-    let beside = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../flow/tests/laid_out");
+    let beside = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../flow/tests/project");
     flow::agents::read(&beside).expect("the words beside the flows of the tests are read")
 }
 

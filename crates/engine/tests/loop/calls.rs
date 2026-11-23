@@ -4,9 +4,9 @@
 use super::*;
 
 #[test]
-fn each_thing_asked_for_is_one_call_for_a_tool_with_nobody_and_for_a_person_with_that_person() {
+fn each_tool_asked_for_is_one_call_the_engine_makes_with_nobody_to_answer_it() {
     let (mut w, write, _) = W::requested();
-    let effects = w.returns(write, Came::asks(vec![tool("search"), question(Who::Architect)]));
+    let effects = w.returns(write, Came::asks(vec![tool("search"), tool("fetch")]));
     let calls = calls_of(&effects);
     assert_eq!(
         calls
@@ -15,23 +15,49 @@ fn each_thing_asked_for_is_one_call_for_a_tool_with_nobody_and_for_a_person_with
             .collect::<Vec<_>>(),
         vec![
             (write, Call::Asked(tool("search"))),
-            (write, Call::Asked(question(Who::Architect)))
+            (write, Call::Asked(tool("fetch")))
         ]
     );
     let on: Vec<_> = (w.work.records.called.iter())
         .map(|c| (c.call, c.run, c.on.clone()))
         .collect();
-    assert_eq!(
-        on,
-        vec![(calls[0].0, write, None), (calls[1].0, write, Some(Who::Architect))]
-    );
+    assert_eq!(on, vec![(calls[0].0, write, None), (calls[1].0, write, None)]);
     assert_eq!(w.work.calls.get(&calls[0].0), Some(&Call::Asked(tool("search"))));
+}
+
+#[test]
+fn a_return_that_asks_for_a_person_fails_its_round_and_pauses_its_work_with_the_reason_and_makes_no_call() {
+    let (mut w, write, _) = W::requested();
+    assert_eq!(
+        w.returns(write, Came::asks(vec![tool("search"), question(Who::Owner)])),
+        vec![]
+    );
+    let r = &w.work.records;
+    assert_eq!(r.returned.iter().filter(|e| e.run == write).count(), 1);
+    assert!(r.called.is_empty());
+    assert!(w.work.calls.is_empty());
+    assert!(r.finished.is_empty());
+    assert!(matches!(
+        w.work.back.get(&(write, 1)),
+        Some(engine::Back::Failed {
+            failure: decide::run::Failure::Other,
+            ..
+        })
+    ));
+    let pause = decide::pause(r).expect("the work is paused");
+    assert_eq!(pause.by, Pauser::Engine);
+    assert_eq!(
+        pause.why.as_deref(),
+        Some("the carrier returned a call for a person to answer, which the engine does not make")
+    );
+    // Let on, the run has its next round, given what the round that failed was given.
+    assert_eq!(w.on(Event::Resumed), vec![round_effect(write, "write", 2, Given::Task)]);
 }
 
 #[test]
 fn a_return_that_asks_ends_its_run_having_dealt_with_nothing_and_its_cell_waits_for_every_result() {
     let (mut w, write, request) = W::requested();
-    let effects = w.returns(write, Came::asks(vec![tool("search"), question(Who::Architect)]));
+    let effects = w.returns(write, Came::asks(vec![tool("search"), tool("fetch")]));
     let calls: Vec<CallId> = calls_of(&effects).iter().map(|(c, ..)| *c).collect();
     let finished = w.work.records.finished.last().expect("the run finished");
     assert_eq!((finished.run, finished.writes.clone()), (write, vec![]));
@@ -93,7 +119,7 @@ fn a_calls_result_is_kept() {
 #[test]
 fn a_run_kept_resting_at_its_calls_from_before_a_return_that_asks_ended_its_run_finishes_making_none_again() {
     let (mut w, write, request) = W::requested();
-    let asks = vec![tool("search"), question(Who::Owner)];
+    let asks = vec![tool("search"), tool("fetch")];
     let calls: Vec<CallId> = calls_of(&w.returns(write, Came::asks(asks.clone())))
         .iter()
         .map(|(c, ..)| *c)
@@ -124,7 +150,7 @@ fn a_run_kept_resting_at_its_calls_from_before_a_return_that_asks_ended_its_run_
 #[test]
 fn a_run_kept_resting_at_the_owners_word_at_the_old_limit_of_calls_makes_what_it_asked_for_once_let_go() {
     let (mut w, write, request) = W::requested();
-    let asks = vec![tool("search"), question(Who::Owner)];
+    let asks = vec![tool("search"), tool("fetch")];
     w.returns(write, Came::asks(asks.clone()));
     // The work as an engine kept it before: the return that asked was taken without ending its run, and the owner's
     // word at the limit of calls was asked for before any of its calls was made.

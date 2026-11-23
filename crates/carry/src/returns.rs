@@ -1,7 +1,7 @@
 //! What an agent returns at the end of a round, read against the cell it was entered for. Every return of a line is in
 //! one form, made of the flow and of what is written beside it ([`flow::form`]), which the agents' program is given
 //! with every call: one of two kinds, a return that asks the engine for tools or one that does the cell's work. A
-//! return is put into the form's shape where it is not in it but means it, as the old engine read one, and then read:
+//! return is put into the form's shape where it is not in it but means it, and then read:
 //! what it dealt with, by the names of what the cell is given, each datum by its name and a group by the group's; each
 //! block it writes in `outputs`, a choice with its value and its line of why kept as its content, and the cell's own
 //! questions, the block the engine's source of answers writes ([`flow::ANSWER`]), read as the questions it asks, which
@@ -159,7 +159,7 @@ fn questions_blocks<'f>(flow: &'f Compiled, cell: &CellSpec) -> Vec<&'f str> {
         .collect()
 }
 
-/// A return put into the shape of the form when it is not in it but means it, as the old engine read one
+/// A return put into the shape of the form when it is not in it but means it
 /// (`as_taken`): the whole form, or the one object that wraps it, written as a string; the form wrapped one level in an
 /// object of one key that is no kind of return; a kind, or the blocks a cell writes, written as a string; a kind left
 /// out or null; a list left out, null or written as a string, the questions among the blocks included; and, in a
