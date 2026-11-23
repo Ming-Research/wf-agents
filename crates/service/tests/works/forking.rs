@@ -5,7 +5,7 @@
 
 use decide::RunId;
 use engine::Event;
-use service::{Act, ForkFailed, Forked, Refusal};
+use service::{Act, ForkFailed, Forked, Message, Refusal};
 use store::WorkNumber;
 use work::Spent;
 
@@ -26,8 +26,14 @@ impl Trial {
             tokio::select! {
                 asked = &mut ask => return asked,
                 message = self.inbox.recv() => {
-                    let message = message.expect("the loop's channel stays open");
-                    self.service.take(message).expect("the loop takes it");
+                    match message.expect("the loop's channel stays open") {
+                        // What a carrier says happened counts as answered, as `step` counts it, so that a work's
+                        // letting go answered while the fork is asked is not left open.
+                        Message::Happened { work, event } => {
+                            self.happened(work, event);
+                        }
+                        message => self.service.take(message).expect("the loop takes it"),
+                    }
                 }
             }
         }

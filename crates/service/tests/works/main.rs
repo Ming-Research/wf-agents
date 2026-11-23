@@ -299,6 +299,12 @@ impl Trial {
             }
             _ => panic!("only the carriers and the timers send to the loop in these tests"),
         };
+        Some(self.happened(work, event))
+    }
+
+    /// The loop takes what a carrier said happened to the work, the unit it answers counted as answered, and what must
+    /// always hold is checked; says what it was.
+    fn happened(&mut self, work: WorkNumber, event: Event) -> Event {
         let unit = match &event {
             Event::Returned { run, .. } | Event::Failed { run, .. } => {
                 Some(Unit::Round(work, *run, self.began(work, *run)))
@@ -316,7 +322,7 @@ impl Trial {
             .expect("the loop takes it");
         self.steps += 1;
         self.check();
-        Some(taken)
+        taken
     }
 
     /// Takes what comes until the work's decision is as `wanted` says, and gives it; fails where nothing more comes
