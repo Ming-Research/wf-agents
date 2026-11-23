@@ -1969,10 +1969,7 @@ fn outage_over(outage: &Outage) -> String {
         _ => "a round failed for a cause every work shares",
     });
     let well = match outage.until {
-        Until::Well { at } => format!(
-            " The engine's check at {} found it well, and every work goes on.",
-            utc(at)
-        ),
+        Until::Well { at } => format!(" The engine's check at {} found it well.", utc(at)),
         Until::Checked { .. } | Until::Looked { .. } => String::new(),
     };
     format!(
@@ -2976,7 +2973,7 @@ mod tests {
         assert_eq!(
             heed(&line, 3 * hour),
             "The agents' command line could not run from 1970-01-01 01:00 UTC. The engine's check at 1970-01-01 02:00 \
-             UTC found it well, and every work goes on. Round 1 of run 2 of W1 met it. Not logged in."
+             UTC found it well. Round 1 of run 2 of W1 met it. Not logged in."
         );
     }
 
