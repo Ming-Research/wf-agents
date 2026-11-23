@@ -146,6 +146,10 @@ struct Reach<'a> {
     before: Vec<&'a CellSpec>,
     /// The other cells of its line.
     others: Vec<&'a CellSpec>,
+    /// Whether it is the last cell of the flow, whose run finishing ends the work, a run that only asked for calls
+    /// included: it never worked from anything, is never entered again once a run of it finished, and is given the
+    /// result of no call.
+    last: bool,
 }
 
 /// What a session holds as an entry begins, with the name of the cell it goes on from where that tells the entries of
@@ -175,6 +179,9 @@ pub fn situations(
         }
     };
     for entry in Entry::ALL {
+        if reach.last && !matches!(entry, Entry::First | Entry::Later) {
+            continue;
+        }
         for ran in reach.ran(entry) {
             let data = reach.classes(&ran.watched);
             // A class's state that none of its data can stand in gives nothing of its own.
@@ -249,6 +256,9 @@ pub fn combinations(
     let reach = Reach::of(flow, words, cell, reopened, compared);
     let mut count: u128 = 0;
     for entry in Entry::ALL {
+        if reach.last && !matches!(entry, Entry::First | Entry::Later) {
+            continue;
+        }
         for ran in reach.ran(entry) {
             let data = reach.classes(&ran.watched);
             let mut product: u128 = 1;
@@ -316,6 +326,7 @@ impl<'a> Reach<'a> {
             starts: BTreeSet::new(),
             before,
             others,
+            last: place + 1 == flow.flow.cells().len(),
         };
         let given: Vec<BlockId> = reach.given.iter().map(|g| g.block.clone()).collect();
         reach.starts = given.iter().filter(|b| reach.starts_with(b)).cloned().collect();
@@ -496,6 +507,14 @@ impl<'a> Reach<'a> {
             .any(|t| !t.is_group() && t.name == block.as_str());
         if self.starts.contains(block) && watches && *class == Class::Rest && entry != Entry::First {
             states.retain(|s| *s != Stands::HoldsNew);
+        }
+        // The last cell worked from nothing, so that the session holds what it was sent in an earlier round of its run,
+        // never as the version it last worked from.
+        if self.last && entry == Entry::Later {
+            states.retain(|s| matches!(s, Stands::Unwritten | Stands::Lacks | Stands::HoldsNew));
+            if states.is_empty() {
+                states.push(Stands::Unwritten);
+            }
         }
         states
     }
@@ -796,9 +815,11 @@ impl<'a> Reach<'a> {
         };
         let data: BTreeMap<String, Stands> = (self.classes(&ran.watched).into_iter())
             .map(|(block, class)| {
-                let stands = match class {
-                    Class::Fired | Class::Grouped => Stands::HoldsLast,
-                    Class::Rest | Class::Never | Class::Output => Stands::Holds,
+                let stands = match (class, self.last) {
+                    (Class::Fired | Class::Grouped | Class::Rest, true) => Stands::HoldsNew,
+                    (Class::Never | Class::Output, true) => Stands::Unwritten,
+                    (Class::Fired | Class::Grouped, false) => Stands::HoldsLast,
+                    (Class::Rest | Class::Never | Class::Output, false) => Stands::Holds,
                 };
                 (block.to_string(), stands)
             })
@@ -818,7 +839,7 @@ impl<'a> Reach<'a> {
                 situation,
             };
             if n == 0 {
-                for key in CALLS.iter().filter(|key| !UNREACHED.contains(key)) {
+                for key in CALLS.iter().filter(|key| !UNREACHED.contains(key) && !self.last) {
                     let results = vec![key.to_string()];
                     let situation = Situation {
                         results,

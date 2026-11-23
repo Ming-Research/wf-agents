@@ -35,7 +35,7 @@ use context::text::as_written;
 use context::{Entered, Form, Piece, Situation, Stands};
 use decide::run::Unmet;
 use decide::{BlockId, CallId, CellId, Decision, Outsider, RunId, Seq, Waited, Who, Writer, decide};
-use engine::{Ask, Back, Came, Event, Fill, Given, Handed, Why};
+use engine::{Ask, Back, Call, Came, Event, Fill, Given, Handed, Why};
 use flow::agents::Part;
 use flow::{CellSpec, InputKind, Listed};
 use support::{Given as Round, Sim};
@@ -145,6 +145,8 @@ struct Reached {
     unread: usize,
     /// A block the cell writes, given by nothing else, sent as the session lacked its latest.
     outputs: usize,
+    /// The owner's word to a run at its limit.
+    at_limit: usize,
     /// What the entries of real rounds stood in, by [`stood`].
     real: BTreeSet<String>,
 }
@@ -386,6 +388,12 @@ impl History {
         };
         let going_on = self.sim.enter(round, false);
         let anew = self.sim.enter(round, true);
+        if self.forced.is_some() {
+            eprintln!(
+                "scripted {} round {}: new {:?}, data {:?}",
+                round.cell, round.number, going_on.situation.new, going_on.situation.data
+            );
+        }
         self.check(round, &going_on, &held, reached);
         self.check(round, &anew, &Held::default(), reached);
         let lost = !begins && self.rng.chance(10);
@@ -1028,6 +1036,9 @@ fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() 
                 history.script(&mut reached);
             }
             reached.put_in += history.sim.work.records.put_in.len();
+            reached.at_limit += (history.sim.work.calls.values())
+                .filter(|c| matches!(c, Call::AtLimit(_)))
+                .count();
         }));
         if let Err(e) = ran {
             eprintln!("the history of seed {seed} failed");
@@ -1071,6 +1082,7 @@ fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() 
         ("a new version given that said what one held said", reached.said_again),
         ("the tree sent to a session that held none of it", reached.unread),
         ("an output the session lacked sent", reached.outputs),
+        ("a run at the limit of its returns", reached.at_limit),
     ] {
         assert!(n > 0, "no history reached {what}");
     }
