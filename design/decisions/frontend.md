@@ -115,6 +115,10 @@ The page shows no number by which the engine tracks a run, a round, a call or a 
 - replaced: A run's number and the engine's counters of sessions, calls, tries and rounds on the Step, the usage and the System view was on main; the owner changed it, because they told him nothing and served no purpose.
 - replaced: An event's number in the record, written after an at sign, to name a moment of a work was on main; the owner changed it, because that number could not be read, but a time can.
 
+### decision the-usage-tells-four-kinds-of-tokens-apart
+A work's usage (Usage tab, round panel, System view) tells tokens sent fresh, written to the cache, read from it and given back; those a record does not tell fresh from written stand apart.
+- replaced: Tokens told as sent, read from the cache and given back, the sent counting those written to the cache with those sent fresh, was on main; the owner changed it, because a write to the cache costs more than a send fresh, an hour's twice as much, and he could not see where the money went.
+
 ### decision the-browser-tells-the-owner-what-waits
 While the page is open, a browser notification tells the owner of each work that starts waiting for him, naming its cell and why; a click opens the console at that wait's card.
 - rejected: an agent proposed a notification sent by a script on the machine the server runs on; the owner rejected it, because he uses the page in Chrome, and the server runs on his machine only by chance.

@@ -438,7 +438,7 @@ impl Sim {
             self.anew(&line, Why::Compacted);
         }
         let spent = Spent {
-            input_tokens: 100,
+            uncached_tokens: 100,
             output_tokens: 10,
             compactions,
             ..Spent::default()
