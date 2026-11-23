@@ -586,7 +586,14 @@ describe("the Step of the work's item window", () => {
   it('shows why a return was sent back, and a way round', async () => {
     const { page } = await drawWork(41);
     await chooseRun(page, 1);
-    expect(step(page).textContent).toContain('it handed in code, which the cell may not write');
+    // The reason is its key in `sent_back.toml` and the value recorded under its name, with no sentence of the page's own.
+    const reason = step(page).querySelector('.reasons li');
+    expect(Array.from(reason?.querySelectorAll('.mono') ?? []).map((e) => e.textContent)).toEqual([
+      'not_an_output',
+      'block',
+      'code',
+    ]);
+    expect(step(page).textContent).not.toContain('which the cell may not write');
     await chooseRun(page, 7);
     expect(step(page).querySelector('.way-back')?.textContent).toContain('by a cell after it: a way round');
   });
