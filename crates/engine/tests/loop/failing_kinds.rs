@@ -140,23 +140,20 @@ fn a_round_that_failed_for_another_cause_pauses_the_work_with_a_sentence_and_the
 // Every reason the engine stores as it pauses a work for a failed round is a sentence of the words beside the flows,
 // the cause after a colon, whatever the cause is. The sentences are written here as they stand in `waits.toml`, and the
 // cause as the round's carrier gave it, with a full stop added, so that a reason that is only the cause, or the cause
-// before a sentence, or a sentence with no colon, fails.
+// before a sentence, or a sentence with no colon, fails. All four are compared at once, so that one failing shows each
+// that does.
 #[test]
 fn each_reason_a_failed_round_pauses_the_work_with_is_a_sentence_and_its_cause_after_a_colon() {
-    let paused = |w: &W| {
-        decide::pause(&w.work.records)
-            .expect("the work is paused")
-            .why
-            .clone()
-            .unwrap_or_default()
+    let paused = |w: &W| match decide::pause(&w.work.records) {
+        Some(pause) => pause.why.clone().unwrap_or_default(),
+        None => "the work is not paused".to_string(),
     };
+    let failed = PASSING + 1;
+    let mut got = Vec::new();
 
     let (mut w, write, _) = W::requested();
     w.on(failed_as(write, Failure::PromptTooLong));
-    assert_eq!(
-        paused(&w),
-        "Running the round again cannot help. The cause: it failed: PromptTooLong."
-    );
+    got.push(("too long", paused(&w)));
 
     let (mut w, write, _) = W::requested();
     for _ in 0..PASSING {
@@ -164,36 +161,47 @@ fn each_reason_a_failed_round_pauses_the_work_with_is_a_sentence_and_its_cause_a
         w.done(call);
     }
     w.on(failed_as(write, Failure::Passing));
-    let failed = PASSING + 1;
-    assert_eq!(
-        paused(&w),
-        format!(
-            "The round failed in passing {failed} times in a row, and running it again has not helped. The cause: it \
-             failed: Passing."
-        )
-    );
+    got.push(("in passing", paused(&w)));
 
     let (mut w, write, _) = W::requested();
     w.on(failed_as(write, Failure::Flagged));
     w.on(failed_as(write, Failure::Flagged));
-    assert_eq!(
-        paused(&w),
-        "The service's safety check flagged the round again, in the new session its line was given. The cause: it \
-         failed: Flagged."
-    );
+    got.push(("flagged again", paused(&w)));
 
     let (mut w, write, _) = W::requested();
     for _ in 0..=PASSING {
         w.on(failed_as(write, Failure::Offline));
         w.on(Event::Look);
     }
-    assert_eq!(
-        paused(&w),
-        format!(
-            "The round failed {failed} times in a row for a cause outside every work. It was tried again each time \
-             the engine's check found the outside working. The cause: it failed: Offline."
-        )
-    );
+    got.push(("outside every work", paused(&w)));
+
+    let want = [
+        (
+            "too long",
+            "Running the round again cannot help. The cause: it failed: PromptTooLong.".to_string(),
+        ),
+        (
+            "in passing",
+            format!(
+                "The round failed in passing {failed} times in a row, and running it again has not helped. The cause: \
+                 it failed: Passing."
+            ),
+        ),
+        (
+            "flagged again",
+            "The service's safety check flagged the round again, in the new session its line was given. The cause: it \
+             failed: Flagged."
+                .to_string(),
+        ),
+        (
+            "outside every work",
+            format!(
+                "The round failed {failed} times in a row for a cause outside every work. It was tried again each \
+                 time the engine's check found the outside working. The cause: it failed: Offline."
+            ),
+        ),
+    ];
+    assert_eq!(got, want);
 }
 
 #[test]
