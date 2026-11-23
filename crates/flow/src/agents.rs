@@ -10,8 +10,8 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 
 use crate::{InputKind, Listed};
 
@@ -894,7 +894,7 @@ pub struct Unread {
 /// `{name}` a name as the return wrote it or, of what it dealt with, the datum's or the group's name, `{value}` a value it wrote,
 /// `{values}` the values of a choice, each between backticks, `{version}` a version's number, `{why}` why what came
 /// back could not be read and `{changes}` what git says the worktree holds that is not committed.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct SentBackFaults {
     pub asks_nothing: String,
@@ -948,6 +948,15 @@ pub struct SentBackFaults {
     pub word_owed: String,
     /// `{block}` a verdict written with `{value}`, which does not pass, and no version of its dialogue, `{name}`.
     pub no_point: String,
+}
+
+impl SentBackFaults {
+    /// The words of the thing wrong that `agents/return/sent_back.toml` keeps under this key, as they are written, with
+    /// no place filled; none where it keeps none.
+    pub fn text(&self, key: &str) -> Option<String> {
+        let fields = serde_json::to_value(self).ok()?;
+        fields.get(key)?.as_str().map(str::to_string)
+    }
 }
 
 /// Where a field's words go in the part on returning.

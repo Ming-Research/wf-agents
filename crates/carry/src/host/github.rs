@@ -695,7 +695,8 @@ impl<A: Api> Host for GitHub<A> {
             }
         };
         // The commit is pushed to a branch of its own for this call, never to the work's branch, which the check before
-        // the merge pushes: a push there would make GitHub run the full workflows on the pull request each time.
+        // the merge pushes: a commit named only to be run, such as one that shows a new test red on the code before the
+        // change, must not land on the work's branch.
         let trying = trial_branch(branch, asking);
         self.push_to(&commit, &format!("refs/heads/{trying}"), false).await?;
         let request = fast::Request {
