@@ -1212,8 +1212,10 @@ impl H {
             }
             assert!(
                 self.kept_as_pending(todo),
-                "given before the store holds that it is to be done: {todo:?}; the store holds {:?}",
-                self.kept_pending(todo.work)
+                "given before the store holds that it is to be done: {todo:?}; the store holds {:?}\nstored: {:?}\nin memory: {:?}\nall todos: {todos:?}",
+                self.kept_pending(todo.work),
+                self.reader.load(todo.work).map(|w| w.records),
+                self.d().work(todo.work).map(|k| k.work.records.clone())
             );
             self.outstanding.push(todo.clone());
         }
