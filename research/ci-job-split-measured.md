@@ -16,9 +16,12 @@ commits with no parent or no changed file are left out, and a commit counts when
 
 ## What reads the tree's real files (read on 2026-11-23)
 
-No test of the Rust crates or of the page reads a file of the repository's own design tree. A search of `crates/` and
-`client/` for `design/` finds only trees the tests make in a temporary directory, and `crates/web/build.rs` and the
-manifests do not name `design`. `design/lint.py`, `design/lint_test.py`, `docs/check_citations.py` and
+No test of the Rust crates or of the page reads a file of the repository's own design tree. A search of `crates/` for
+`design/` finds only paths in made data: trees the tests make in a temporary directory, text of fixtures and strings,
+and a project declaration that is a fixture (`crates/flow/tests/project/project.toml`); `client/` has no `design/` at
+all, and `crates/web/build.rs` and the manifests do not name `design`. The tests that read the repository's own files
+read `flow/` and `.github/workflows/` (a search of `crates/` for `CARGO_MANIFEST_DIR` and `include_str!`), which a
+change of only `design/` does not touch. `design/lint.py`, `design/lint_test.py`, `docs/check_citations.py` and
 `docs/check_citations_test.py` are run by the job `tree` of `ci.yml`, and the first and third also by the lint of
 `fast.yml`; no test runs them.
 
