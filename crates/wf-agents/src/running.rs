@@ -685,6 +685,11 @@ mod tests {
         };
         project.repo = dir.join(name);
         repository(&project.repo, declaration);
+        // A project on GitHub branches from the main its host last gave, which is a reference of the remote's.
+        if let Some(github) = &project.github {
+            let kept = format!("refs/remotes/{}/{}", github.remote, project.main);
+            git(&project.repo, &["update-ref", &kept, "refs/heads/main"]);
+        }
         settings.projects.insert(name.to_string(), project);
     }
 

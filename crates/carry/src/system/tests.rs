@@ -125,7 +125,13 @@ fn a_lines_system_prompt_holds_its_parts_in_their_order_with_the_settings_they_n
         ),
         "{engineer}"
     );
-    assert!(engineer.contains("`.github/workflows/`: change what is there only where the work needs it. Never"));
+    assert!(
+        engineer.contains(
+            "`.github/workflows/` and `wf-agents.toml`: change what is there only where the work needs it. \
+             Never"
+        ),
+        "{engineer}"
+    );
     assert!(
         engineer.contains("\n- `protected_changes`: for each file the project protects"),
         "{engineer}"

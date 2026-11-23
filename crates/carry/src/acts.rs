@@ -2083,7 +2083,7 @@ mod tests {
     async fn the_local_host_continues_a_branch_of_the_repository_and_no_pull_request() {
         let repo = Repo::new("true");
         let old = aside(&repo, "old.txt", "Old.\n");
-        let host = Local::new(repo.project.clone());
+        let host = Local::new(repo.project.clone(), repo.check.clone());
         assert_eq!(
             host.continued(&store::Continues::Branch("aside".to_string())).await,
             Ok(old)
