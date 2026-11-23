@@ -27,14 +27,15 @@ program's embedded `index.html` is not the page of the checkout it was built in.
 | The same, with the variable left in the environment of the builds the test runs. | The program built from `b` carries the page of `a`; the test failed in 0.309 s. The test's own process held `WF_CHECKOUT` with the value of the repository's checkout, which nextest gives each test from the config's `[env]` where the variable is not set, and cargo does not replace a variable that is set unless `force` is true. | failure measured, run 45173314281; nextest's rule read in `nextest_runner/cargo_config/env.rs` (nexte.st/rustdoc/src/nextest_runner/cargo_config/env.rs.html) |
 | Why the first two fail. | A build script's `rerun-if-changed` paths count as changed only when a file is newer than the output of the script's last run (`LocalFingerprint::RerunIfChanged`, compared by modification time). Every file of `b` is older than the build of `a`, so `b` is taken as unchanged. A variable named by `rerun-if-env-changed` is read from the config's `[env]` first, then from the process, and its value is part of the fingerprint (`LocalFingerprint::from_env`), so a value that differs between checkouts makes cargo run the script again. | read, `compiler/fingerprint/mod.rs` of rust-lang/cargo's main branch on 2026-11-23, not of the 1.99.1 toolchain the repository pins |
 
-Each check of the test was watched failing once, on a script made wrong in one way (runs 45180570315 and the one after
-it, at the commits named in the log of the branch):
+Each check of the test was watched failing once, on a script made wrong in one way (runs 45180570315, at fdb59e3f3, and
+45189713721, at d9a422691):
 
 | Wrong script | Result | How known |
 |---|---|---|
 | A script that watches a file that is not there, so that cargo runs it on every build. | The second build says `Compiling`: the check of `a_build_with_nothing_changed_compiles_nothing_again` can fail, and the word it looks for is the one cargo uses. 0.598 s. | measured, run 45180570315 |
 | The check of the stamp replaced by an empty list of sources. | A page whose source changed after the page was built is built in with no error, so `a_page_not_built_from_the_sources_at_hand_is_not_built_in` fails on it. 0.480 s. | measured, run 45180570315 |
-| The watch of `client/dist` left out; the page's `index.html` written again with other text. | The program still carries the new text: rustc itself watches the files `include_bytes!` reads, so a changed file is never missed. The watch is for a change of the files' names, as a built page's assets change theirs. The test was written to change the names, since a change of text could not tell the script from one without the watch. | measured, run 45180570315 |
+| The watch of `client/dist` left out; the page's `index.html` written again with other text. | The program still carries the new text: rustc itself watches the files `include_bytes!` reads, so a changed file is never missed. The first form of `a_page_built_again_is_the_page_the_next_build_embeds` could not tell this script from the right one. 0.600 s. | measured, run 45180570315 |
+| The same script, and the page built again as `npm run build` leaves it: an asset of one name taken away, one of another name put in, `index.html` written again. | The second build fails. The cause is inferred, since the message was not kept: the list of the page's files that the script wrote the first time names a file that is gone. The rewritten test, which makes this change and expects the right script to build and to carry the new files, is red on it. 0.272 s. | failure measured, run 45189713721; cause inferred |
 
 ## 3. What was not tried
 
