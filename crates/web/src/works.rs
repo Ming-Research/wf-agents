@@ -852,7 +852,7 @@ impl QuestionPage {
                 // Why its cell does not run says why a question that stands holds nothing: one answered or withdrawn
                 // holds nothing and has nothing to be answered, so it says none.
                 let skipped = match (skipped.get(&q.latest.cell), q.unanswered()) {
-                    (Some(keys), _) => {
+                    (Some(keys), true) => {
                         let on: Vec<CellKey> = (keys.iter())
                             .map(|key| key_of(kept, key))
                             .collect::<Result<_, Broken>>()?;
