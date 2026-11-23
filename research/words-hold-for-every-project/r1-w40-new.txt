@@ -1,0 +1,19 @@
+The next round of this item is given the task below, and the project's guide holds one more line, quoted below. Use no tool. Answer in your return, in English and briefly: (1) the first thing you would do for this item; (2) where you would see the fault happen, and what you would take as having seen it; (3) for each of (1) and (2), the sentence of the task or of the guide you went by, quoted.
+
+Item:
+让分叉一件工作的某一轮时照那件工作跑过的那版流程读那一格，Flow 页说出装着的是哪一版、磁盘上的文件和它一样不一样。
+
+引擎里的 #21 让工作按它跑过的版本读记录，可还有两处读的是别的版本。例：W21 的 I1（2026-11-21）查出，分叉一轮时（`crates/service/src/lib.rs` 1310 行前后）给的是装着的流程，一件在早先的版本上结束的工作，格子改号以后分叉读到的是它从没跑过的那一格；W21 的 D1（2026-11-18）查出，Flow 页（`GET /api/v1/flow`）每次请求都从磁盘读流程文件，引擎跑的却是它启动时编好的那一版，改过或拉过流程目录以后，页面显示的定义没有一件工作在跑，页面也不说。原因是这两处写在有版本以前。
+
+要的结果：分叉读的格子就是那件工作当时跑的那一格；Flow 页说出装着的版本，磁盘上的文件不一样时说清。
+
+New line of the project's guide:
+- A fault of the owner's page is seen in a real browser, not in a simulated page (`docs/testing.md`, item 8).
+
+Task:
+Research how to do what the item asks, starting from the tree you read. Check that what the item says is true, where
+it can be seen. For a fault it reports, see the fault happen where it really shows, such as in the program on its own
+data, and find its root cause. A cause read from the code, or a test in a stand-in, such as a mock or a simulation of
+where it shows, has not seen it. For something it asks for, check that it is not there already. If it is still not true
+after looking as far as the tools reach, ask the owner how to go on, in a question that waits. Commit a test with the
+project's tests, and anything else you make in `project.research`. If the design itself is at fault, say so.
