@@ -1086,14 +1086,28 @@ fn the_design_review_is_sent_the_latest_list_of_the_works_under_way_and_no_earli
 }
 
 // A new version of the list of the works under way runs no cell: the work that has gone on past the design review to
-// the implementation, and is written a new list, is still given the implementation's round, not the review's. Fails
-// where a cell watches the list, so that the review, or another, is run by it (reference: design document
-// `data-and-context`, 5: a datum a cell only reads runs nothing). Milliseconds.
+// the implementation is written new lists while the implementation's round is under way, and the round that comes after
+// the implementation is the same as where no list was written. A round under way is never replaced, so it is the next
+// round that shows a cell run by the list. Fails where a cell watches the list, so that the review, or another, is run
+// by it (reference: design document `data-and-context`, 5: a datum a cell only reads runs nothing). Milliseconds.
 #[test]
 fn a_new_list_of_the_works_under_way_given_after_the_review_runs_no_cell() {
-    let (mut sim, implementation) = until("I1");
-    sim.wrote("parallel", &works_under_way("a.rs"), None, Outsider::Outside);
-    assert_eq!(sim.round().as_ref(), Some(&implementation));
-    sim.wrote("parallel", &works_under_way("b.rs"), None, Outsider::Outside);
-    assert_eq!(sim.round().as_ref(), Some(&implementation));
+    let after_the_implementation = |lists: bool| {
+        let (mut sim, implementation) = until("I1");
+        if lists {
+            sim.wrote("parallel", &works_under_way("a.rs"), None, Outsider::Outside);
+            sim.wrote("parallel", &works_under_way("b.rs"), None, Outsider::Outside);
+        }
+        assert_eq!(sim.round().as_ref(), Some(&implementation));
+        tried(&mut sim, &implementation);
+        sim.hands_in(&implementation, &[("code", "abc", None)]);
+        let next = sim.round().expect("a round is given after the implementation");
+        sim.cell(&next).id.as_str().to_string()
+    };
+    let without = after_the_implementation(false);
+    assert_ne!(
+        without, "P1",
+        "the review runs again after the implementation with no list"
+    );
+    assert_eq!(after_the_implementation(true), without);
 }
