@@ -66,8 +66,8 @@ check = "./test.sh"
 # # The gh command line, or a path to it.
 # gh = "gh"
 # # The runners the project's repository has: `github` for GitHub's own machines, and the label of each self-hosted
-# # runner registered for it. A workflow of the project (its `ci.fast` and `ci.full` in flow/project.toml) names the
-# # runner it runs on, and is not run where the repository lacks it.
+# # runner registered for it. A workflow of the project (its `ci.fast`, `ci.full` and `ci.measure` in
+# # flow/project.toml) names the runner it runs on, and is not run where the repository lacks it.
 # runners = ["github"]
 
 [agents]

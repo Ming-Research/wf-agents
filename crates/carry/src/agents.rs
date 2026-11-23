@@ -727,6 +727,7 @@ impl Inner {
                     let before = before_messages(&on, round.account.as_deref(), &system, &form);
                     let command = self.command(
                         &dir,
+                        &of.beside.project.environment,
                         &on,
                         &system,
                         &permissions,
@@ -1047,12 +1048,13 @@ impl Inner {
     /// The program's command line for a round on what it runs on, with its line's system prompt, of a line with these
     /// permissions, given the form of return of its flow, in the session, begun or gone on in, in the worktree, which
     /// the program compacts at the installation's `sessions.compact_at`, given the program's directory and the token of
-    /// the account it runs under; where `refusing` says so, with every use of a tool refused but the return's
+    /// the account it runs under and the variables its project's declaration names; where `refusing` says so, with every use of a tool refused but the return's
     /// ([`cli::refusing`]), as a keep-warm ping runs.
     #[allow(clippy::too_many_arguments)]
     fn command(
         &self,
         dir: &Path,
+        declared: &BTreeMap<String, String>,
         on: &RanOn,
         system: &str,
         permissions: &Permissions,
@@ -1087,6 +1089,7 @@ impl Inner {
                 agents,
                 &profile,
                 crate::programs::engine().iter().cloned(),
+                declared,
                 token,
             ))
             .current_dir(dir);
@@ -1537,6 +1540,7 @@ impl Inner {
         write(&compacted.again, b"").await.map_err(failed)?;
         let command = self.command(
             &dir,
+            &of.beside.project.environment,
             &on,
             &system,
             &permissions,
@@ -1911,6 +1915,7 @@ impl Inner {
                 agents,
                 &profile,
                 crate::programs::engine().iter().cloned(),
+                &of.beside.project.environment,
                 token,
             ))
             .current_dir(dir);
