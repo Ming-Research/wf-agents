@@ -3055,6 +3055,32 @@ mod tests {
         );
     }
 
+    // A fork whose question's result holds no return and no words says why with the sentence of the words beside the
+    // flows, which ends in a stop: the reason is one sentence with one stop, not the sentence's stop and the fork's own.
+    // One fork of a stand-in program: a few tens of milliseconds.
+    #[tokio::test]
+    async fn a_fork_that_wrote_no_answer_says_why_in_one_sentence_with_one_stop() {
+        let dir = tempfile::tempdir().expect("a directory");
+        let data = std::path::absolute(dir.path()).expect("absolute");
+        let (agents, _repo, fork) = forking(&data);
+        let no_return = r#"{"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.5,"usage":{"input_tokens":20,"cache_creation_input_tokens":0,"cache_read_input_tokens":9100,"output_tokens":20}}"#;
+        write_program(
+            &data,
+            &[
+                FORK_STREAM[0],
+                FIRST_CALL,
+                FORK_STREAM[3],
+                FORK_STREAM[4],
+                SECOND_CALL,
+                no_return,
+            ],
+        );
+        let failed = agents.inner.fork(&fork).await.expect_err("no answer");
+        assert!(failed.why.starts_with("The fork wrote no answer: "), "{}", failed.why);
+        assert!(failed.why.ends_with("structured return."), "{}", failed.why);
+        assert!(!failed.why.contains(".."), "{}", failed.why);
+    }
+
     #[tokio::test]
     async fn a_fork_of_a_round_its_session_went_on_past_begins_at_that_rounds_last_message() {
         let dir = tempfile::tempdir().expect("a directory");
