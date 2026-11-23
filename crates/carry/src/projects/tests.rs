@@ -58,8 +58,8 @@ fn said() -> NoProject {
     }
 }
 
-/// The words beside the flows of the result of a call withdrawn.
-const WITHDRAWN: &str = "Withdrawn: its run was abandoned before it had its result.";
+/// Words, unlike the files' own, for the result of a call withdrawn.
+const WITHDRAWN: &str = "Dropped, no answer came.";
 
 /// The carriers of the one project `one`, and what reaches them.
 fn by_project<T: ?Sized>(reached: Arc<T>) -> ByProject<T> {

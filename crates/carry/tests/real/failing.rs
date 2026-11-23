@@ -309,4 +309,8 @@ async fn a_failed_round_that_takes_the_work_over_its_budget_says_both() {
         .expect("a reason");
     assert!(why.contains(crate::GAVE_UP), "{why}");
     assert!(why.contains("over its budget of $0.50"), "{why}");
+    // The failure is said by a sentence of the words beside the flows with its cause after a colon, then the budget's
+    // sentence follows, so that the reason reads as sentences through.
+    assert!(why.starts_with("The round failed too. The cause: "), "{why}");
+    assert!(why.contains(". It has spent $"), "{why}");
 }

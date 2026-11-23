@@ -137,6 +137,64 @@ fn a_round_that_failed_for_another_cause_pauses_the_work_with_a_sentence_and_the
     assert_eq!(pause.why.as_deref(), Some(said.as_str()));
 }
 
+// Every reason the engine stores as it pauses a work for a failed round is a sentence of the words beside the flows,
+// the cause after a colon, whatever the cause is. The sentences are written here as they stand in `waits.toml`, and the
+// cause as the round's carrier gave it, with a full stop added, so that a reason that is only the cause, or the cause
+// before a sentence, or a sentence with no colon, fails.
+#[test]
+fn each_reason_a_failed_round_pauses_the_work_with_is_a_sentence_and_its_cause_after_a_colon() {
+    let paused = |w: &W| {
+        decide::pause(&w.work.records)
+            .expect("the work is paused")
+            .why
+            .unwrap_or_default()
+    };
+
+    let (mut w, write, _) = W::requested();
+    w.on(failed_as(write, Failure::PromptTooLong));
+    assert_eq!(
+        paused(&w),
+        "Running the round again cannot help. The cause: it failed: PromptTooLong."
+    );
+
+    let (mut w, write, _) = W::requested();
+    for _ in 0..PASSING {
+        let (call, ..) = wait_of(&w.on(failed_as(write, Failure::Passing)));
+        w.done(call);
+    }
+    w.on(failed_as(write, Failure::Passing));
+    let failed = PASSING + 1;
+    assert_eq!(
+        paused(&w),
+        format!(
+            "The round failed in passing {failed} times in a row, and running it again has not helped. The cause: it \
+             failed: Passing."
+        )
+    );
+
+    let (mut w, write, _) = W::requested();
+    w.on(failed_as(write, Failure::Flagged));
+    w.on(failed_as(write, Failure::Flagged));
+    assert_eq!(
+        paused(&w),
+        "The service's safety check flagged the round again, in the new session its line was given. The cause: it \
+         failed: Flagged."
+    );
+
+    let (mut w, write, _) = W::requested();
+    for _ in 0..=PASSING {
+        w.on(failed_as(write, Failure::Offline));
+        w.on(Event::Look);
+    }
+    assert_eq!(
+        paused(&w),
+        format!(
+            "The round failed {failed} times in a row for a cause outside every work. It was tried again each time \
+             the engine's check found the outside working. The cause: it failed: Offline."
+        )
+    );
+}
+
 #[test]
 fn a_cause_every_work_shares_pauses_nothing_and_the_shut_gate_holds_only_agents_rounds() {
     let (mut w, write, _) = W::requested();

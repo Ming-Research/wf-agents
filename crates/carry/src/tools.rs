@@ -584,13 +584,14 @@ mod tests {
         assert!(!old.exists() && !young.exists());
     }
 
-    /// What the tools say, in words of the shape the files beside the flows give them.
+    /// What the tools say, in words of the shape the files beside the flows give them and unlike what they say, so that
+    /// a result in these words is read from them and from no text of the code.
     pub(super) fn said() -> Said {
         Said {
             unread: Some("The request cannot be read: {error}".to_string()),
-            could_not: "The check could not be run: {why}".to_string(),
-            withdrawn: "Withdrawn: its run was abandoned before it had its result.".to_string(),
-            no_such_tool: "No such tool: {name}. The tools are: {tools}.".to_string(),
+            could_not: "No check ran ({why}).".to_string(),
+            withdrawn: "Dropped, no answer came.".to_string(),
+            no_such_tool: "{name} is no tool here; the tools are {tools}.".to_string(),
         }
     }
 
@@ -622,6 +623,32 @@ mod tests {
         );
         assert!(said.no_such_tool.contains("{name}") && said.no_such_tool.contains("{tools}"));
         assert!(said.withdrawn.starts_with("Withdrawn: "), "{}", said.withdrawn);
+        // The words the other tests give the tools are not these, so that a test that reads a result in them is read
+        // from the words it is given.
+        let fixture = tests::said();
+        assert_ne!(fixture.could_not, said_of_files().could_not);
+        assert_ne!(fixture.withdrawn, said_of_files().withdrawn);
+        assert_ne!(fixture.no_such_tool, said_of_files().no_such_tool);
+    }
+
+    fn said_of_files() -> Said {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+        let beside = flow::agents::read(&root).expect("what is written beside the flows is read");
+        Said::of(&beside).expect("the tool's file says it")
+    }
+
+    // The tools say what the files hold whatever that is: words changed in the files are the words of the results.
+    #[test]
+    fn the_tools_say_the_words_of_the_files_whatever_they_are() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+        let mut beside = flow::agents::read(&root).expect("what is written beside the flows is read");
+        beside.calls.withdrawn = "word one".to_string();
+        beside.calls.no_such_tool = "word two {name} {tools}".to_string();
+        beside.tools.get_mut(RUN_TESTS).unwrap().could_not_check = Some("word three {why}".to_string());
+        let said = Said::of(&beside).expect("the tool's file says it");
+        assert_eq!(said.withdrawn, "word one");
+        assert_eq!(said.no_such_tool, "word two {name} {tools}");
+        assert_eq!(said.could_not, "word three {why}");
     }
 
     #[tokio::test]
@@ -672,7 +699,7 @@ mod tests {
         for name in ["ci", "check", "check_before"] {
             assert_eq!(
                 answered(&repo, name).await,
-                format!("No such tool: {name}. The tools are: query, run_tests.")
+                format!("{name} is no tool here; the tools are query, run_tests.")
             );
         }
     }
@@ -722,15 +749,8 @@ mod tests {
         assert!(began.elapsed() < Duration::from_secs(20), "the command was stopped");
     }
 
-    // The pull request the tool brings up to date is named as the work's merge is: by the work's number before the work
-    // wrote a name for it, and never by the title of its item, which is in the owner's language. The host is asked by
-    // the call, which it finds what it ran for again by after the engine started again.
-    #[tokio::test]
-    async fn the_host_is_asked_by_the_call_and_given_the_name_of_the_works_merge_never_its_items_title() {
-        let repo = Repo::new("true");
-        git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
-        let host = Fake::new("unused").runs("The tests passed.");
-        let tools = Tools::new(host, repo.project.clone(), repo.data.clone(), TAG.to_string(), said());
+    /// A call of `run_tests` of the work, as the loop makes it.
+    fn run_tests_call() -> ToolCall {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/flow");
         let has = flow::Has {
             sources: ["tree", "main"].map(str::to_string).into(),
@@ -745,7 +765,7 @@ mod tests {
             depends_on: Vec::new(),
             tags: Vec::new(),
         };
-        let call = ToolCall {
+        ToolCall {
             work: WORK,
             flow: Arc::new(flow),
             run: decide::RunId(1),
@@ -754,12 +774,49 @@ mod tests {
             input: String::new(),
             item: store::Item::new(store::ItemNumber(1), work::Time(0), first, Vec::new()),
             kept: Arc::new(work::Work::default()),
-        };
+        }
+    }
+
+    // The pull request the tool brings up to date is named as the work's merge is: by the work's number before the work
+    // wrote a name for it, and never by the title of its item, which is in the owner's language. The host is asked by
+    // the call, which it finds what it ran for again by after the engine started again.
+    #[tokio::test]
+    async fn the_host_is_asked_by_the_call_and_given_the_name_of_the_works_merge_never_its_items_title() {
+        let repo = Repo::new("true");
+        git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+        let host = Fake::new("unused").runs("The tests passed.");
+        let tools = Tools::new(host, repo.project.clone(), repo.data.clone(), TAG.to_string(), said());
+        let call = run_tests_call();
         let (to, mut said) = tokio::sync::mpsc::unbounded_channel();
         tools.call(call, CallReply::new(WORK, CallId(2), to));
         said.recv().await.expect("the call is answered");
         assert_eq!(tools.inner.host.titles(), ["Work W1"]);
         assert_eq!(tools.inner.host.askings(), [Asking::Call(CallId(2))]);
+    }
+
+    // A call of a tool that is withdrawn with nothing of it running has the result of a call withdrawn, in the words
+    // the tools were given.
+    #[tokio::test]
+    async fn a_tool_call_withdrawn_has_the_result_the_words_given_the_tools_say() {
+        let repo = Repo::new("true");
+        let tools = Tools::new(
+            Fake::new("unused"),
+            repo.project.clone(),
+            repo.data.clone(),
+            TAG.to_string(),
+            said(),
+        );
+        let call = run_tests_call();
+        let (to, mut down) = tokio::sync::mpsc::unbounded_channel();
+        tools.withdraw(call, CallReply::new(WORK, CallId(2), to));
+        let Some(service::Message::Happened {
+            event: engine::Event::Done { result, .. },
+            ..
+        }) = down.recv().await
+        else {
+            panic!("the call has its result");
+        };
+        assert_eq!(result, said().withdrawn);
     }
 
     #[test]
@@ -853,7 +910,7 @@ mod tests {
         let host = Fake::new("main");
         let said = answered_on(&host, &repo, RUN_TESTS, "").await;
         let why = crate::host::fake::NO_TOOLS;
-        assert_eq!(said, format!("The check could not be run: {why}"));
+        assert_eq!(said, format!("No check ran ({why})."));
         assert_eq!(host.asked(), [Asked::RunTests(Named::default())]);
     }
 }

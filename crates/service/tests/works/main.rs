@@ -168,6 +168,11 @@ impl Trial {
         Trial::opened_with(trial_script(), (None, None), calls)
     }
 
+    /// The loop with this script, on an empty store, the result of a call the engine ends itself being these words.
+    pub fn with_script_and_calls(script: Script, calls: flow::agents::Calls) -> Trial {
+        Trial::opened_with(script, (None, None), calls)
+    }
+
     /// The loop with the trial's script, on an empty store, whose agents' rounds run in sessions kept warm: every round
     /// runs on one model, and a line that waits has its session pinged 55 minutes after its last call, at most twice
     /// in a wait. The owner has taken an account, which a session is kept warm only under.

@@ -214,6 +214,30 @@ async fn a_round_that_fails_in_passing_is_given_again_once_its_wait_is_over_and_
     assert!(kept.records.pauses.iter().all(|p| p.by == Pauser::Owner));
 }
 
+// The engine's wait before such a round is tried again ends with the result the carriers' words give it, and only
+// theirs.
+#[tokio::test(start_paused = true)]
+async fn the_wait_before_a_failed_round_is_tried_again_ends_with_the_result_the_carriers_words_give_it() {
+    let calls = flow::agents::Calls {
+        waited: "WAITED: another word".to_string(),
+        ..Scripted::calls()
+    };
+    assert_ne!(calls.waited, Scripted::calls().waited);
+    let mut trial = Trial::with_script_and_calls(failing_as("passing", None), calls.clone());
+    let (_, work) = trial.add("Greet the user", &[]);
+    trial.act(work, Act::Resume).unwrap();
+    trial.step().await.unwrap();
+    trial.answer(work, "Yes, by name.");
+    let event = trial.step().await.unwrap();
+    assert!(matches!(&event, Event::Failed { .. }), "{event:?}");
+    assert_eq!(trial.drive(work).await, Decision::Ended(End::Merged));
+    let kept = trial.work(work);
+    let wait = (kept.calls.iter())
+        .find_map(|(id, call)| matches!(call, Call::Wait { .. }).then_some(*id))
+        .expect("the round's failure made a wait");
+    assert_eq!(kept.results[&wait], calls.waited);
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_stop_at_any_step_of_a_work_whose_round_fails_in_passing_changes_nothing() {
     let (without, steps) = history_of(failing_as("passing", None), &[]).await;
