@@ -61,7 +61,7 @@ reports (`wf-agents wait`):
 
 - Every parent and child pass the test of a dependency (section 5).
 - The roots are only the few things the project delivers.
-- No item has more than ten items side by side under it, and items on one level do not wait for each other.
+- No item has more than ten open items side by side under it, and items on one level do not wait for each other.
 - Items on one topic, one thing or things close and alike, are one item; no item joins unrelated things.
 - Nothing is there twice: before an item is added, the unfinished ones are searched for one that already says it.
 - Every held item says what it waits for.
@@ -85,9 +85,9 @@ reports (`wf-agents wait`):
    fits under no deliver item shows a deliver item not yet named: name it first. Nothing goes to a root, or into an item
    that holds whatever fits nowhere, because it is urgent, small, or seems to belong nowhere.
 5. Items are grouped by what is delivered, never by topic, by who asked, by where it came from, or by the kind of work.
-6. Split layer by layer, each part something the whole is not delivered without. More than ten side by side means the
-   arrangement is wrong: the few of them that make one thing go under one deliver item that says that thing, never a
-   class.
+6. Split layer by layer, each part something the whole is not delivered without. More than ten open side by side, not
+   counting those merged or cancelled, means the arrangement is wrong: the few of them that make one thing go under one
+   deliver item that says that thing, never a class.
 7. The children of an item do not wait for each other; where one must come first, it goes under the one that waits for
    it. A last measurement, comparison or wrapping up of everything under an item is that item's own work: the item is
    then a work item, and what is under it is what it waits for.
@@ -157,10 +157,11 @@ reports (`wf-agents wait`):
   Where the item joins several problems, parts 1, 3 and 4 are said once, and each problem is one numbered line between
   them: what is wrong, with its case. The whole background, references included, aims at about 300 characters as
   `wf-agents show` counts them. This is a guide, not a hard limit; a story far longer belongs to an item that is too
-  big (section 6). Sentences
-  are short, and each has a subject that acts. Every name, such as a file, a test, a cell or a command, is said in
-  plain words where it first appears, and an item by its number and its title. Never how to do it, which the work's
-  research finds. It names the owner as the owner, never as "you".
+  big (section 6). Sentences are short, and each has a subject that acts. Every name, such as a file, a test, a cell or
+  a command, is said in plain words where it first appears, and an item by its number and its title. How to do it is
+  the work's research's to find; the background gives only, under its reference, the first conclusions the owner and
+  the architect reached on it, marked, in the background's language, as first conclusions for reference only. It names
+  the owner as the owner, never as "you".
   The acceptance is the work's plan's, not the background's. The background is written before the work begins; once it
   has begun, the background changes only where what the item asks changes, never for its wording, since a change runs
   the work's cells again.
@@ -183,3 +184,8 @@ reports (`wf-agents wait`):
   of when to start, no dependency and no reason to join them; the later one's background says so.
 - An item not to start yet is added held, its background saying what it waits for, something whose coming can be
   seen: an item merged, or the owner's word.
+- A held item is one that will be done. An item that will not be done is cancelled, saying why, never left held.
+- An item that changes what the owner's page shows or how it looks is held and never let on: a work cannot find in
+  the code where it goes and what it shows, and the owner tunes it as he sees it. The owner and the architect talk it
+  through and build it in their session, one at a time; once it merges, the item is cancelled, its reason naming the
+  pull request that did it.

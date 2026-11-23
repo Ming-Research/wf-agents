@@ -92,6 +92,10 @@ Three check boxes over the tree's corner, Open, Done and Cancelled, one under an
 Selecting an item that is off the screen, or half under the window, moves the tree only until the item is wholly in the part of the view the window leaves free.
 - replaced: Moving the tree to put such an item in the middle of that free part was on main; the owner changed it, because moving it to the middle was too heavy.
 
+### decision showing-an-item-in-the-tree-flashes-its-card
+A click on the item's title in its window brings the item into view and flashes its soft light once, wider and stronger, easing back to rest.
+- replaced: A click on the title that only moved the tree was on main; the owner changed it, because with the card already in view beside the window the click did nothing he could see.
+
 ### decision an-item-is-found-from-the-trees-corner
 A field under the boxes finds any item by its number, its path from its root or a part of its title, eight at most; a pick selects it, its kind ticked and the folds over it opened.
 - replaced: Finding an item only by scrolling the tree was on main; the owner changed it, because once many items were imported he could not find one he looked for.
