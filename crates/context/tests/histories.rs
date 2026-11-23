@@ -35,10 +35,12 @@ use context::text::as_written;
 use context::{Entered, Form, Piece, Situation, Stands};
 use decide::run::Unmet;
 use decide::{BlockId, CallId, CellId, Decision, Outsider, RunId, Seq, Waited, Who, Writer, decide};
+use engine::spoken::{self, To};
 use engine::{Ask, Back, Call, Came, Event, Fill, Given, Handed, Why};
 use flow::agents::Part;
 use flow::{CellSpec, InputKind, Listed};
 use support::{Given as Round, Sim};
+use work::{Question, Way};
 
 /// How many histories are run.
 const SEEDS: u64 = 90;
@@ -48,6 +50,10 @@ const SCRIPTED: u64 = 6;
 
 /// How many steps each takes.
 const STEPS: usize = 120;
+
+/// How many histories of the engineer's flow are run, and how many steps each takes.
+const ENGINEER_SEEDS: u64 = 30;
+const ENGINEER_STEPS: usize = 300;
 
 pub struct Rng(u64);
 
@@ -151,9 +157,48 @@ struct Reached {
     real: BTreeSet<String>,
 }
 
+/// What a history of a flow does beside carrying its rounds.
+struct Scene {
+    /// The blocks people or the outside write now and then, a block named twice written twice as often.
+    writes: Vec<&'static str>,
+    /// The lines of the flow, whose sessions the owner reopens now and then.
+    lines: Vec<String>,
+    /// Whether what each round is sent is held to the test's own account of the design, which the small flow's blocks
+    /// are all the kinds of; the engineer's flow is held to what the tool writes alone.
+    models: bool,
+    /// Whether the owner speaks to the cells that take words and answers the questions cells ask.
+    talks: bool,
+}
+
+impl Scene {
+    fn small() -> Scene {
+        Scene {
+            writes: vec![
+                "request", "notes", "tree", "plan", "opinions", "finish", "finish", "verdict", "verdict",
+            ],
+            lines: vec!["engineer".to_string(), "reviewer".to_string()],
+            models: true,
+            talks: false,
+        }
+    }
+
+    /// People and the outside write what the work reads from them: the background, and the branch's tree and head. The
+    /// items it depends on have merged as it starts.
+    fn engineer(sim: &Sim) -> Scene {
+        let lines = sim.flow.lines.keys().cloned().collect();
+        Scene {
+            writes: vec!["background", "tree", "tree", "head", "head"],
+            lines,
+            models: false,
+            talks: true,
+        }
+    }
+}
+
 /// One history, and the test's account beside it.
 struct History {
     sim: Sim,
+    scene: Scene,
     rng: Rng,
     /// What each line's session holds.
     lines: BTreeMap<String, Held>,
@@ -179,8 +224,13 @@ impl History {
     fn new(seed: u64) -> History {
         let mut sim = Sim::of(support::limited(), support::words());
         sim.takes_main = true;
+        History::of(sim, Scene::small(), seed)
+    }
+
+    fn of(sim: Sim, scene: Scene, seed: u64) -> History {
         let mut history = History {
             sim,
+            scene,
             rng: Rng::new(seed),
             lines: BTreeMap::new(),
             worked: BTreeMap::new(),
@@ -194,8 +244,12 @@ impl History {
     }
 
     /// The owner starts the work by writing the first of what people write that runs the flow's first agent's cell, as
-    /// the tool says a work starts.
+    /// the tool says a work starts, the items it depends on having merged where the flow waits for them.
     fn start(&mut self) {
+        let flow = &self.sim.flow;
+        if flow.blocks.contains_key(&BlockId::from("dependencies")) {
+            self.sim.wrote("dependencies", "", Some("merged"), Outsider::Outside);
+        }
         let flow = &self.sim.flow;
         let first = (flow.flow.cells().iter())
             .filter_map(|c| flow.cells.iter().find(|s| s.id == c.id))
@@ -241,35 +295,83 @@ impl History {
     fn step(&mut self, reached: &mut Reached) {
         let roll = self.rng.below(100);
         if roll < 22 {
-            let blocks = [
-                "request", "notes", "tree", "plan", "opinions", "finish", "finish", "verdict", "verdict",
-            ];
-            let block = blocks[self.rng.below(blocks.len())];
+            let block = self.scene.writes[self.rng.below(self.scene.writes.len())];
             self.put(block);
         } else if roll < 26 {
-            let line = if self.rng.chance(50) { "engineer" } else { "reviewer" };
-            self.sim.anew(line, Why::Owner);
-            self.lines.insert(line.to_string(), Held::default());
+            let line = self.scene.lines[self.rng.below(self.scene.lines.len())].clone();
+            self.sim.anew(&line, Why::Owner);
+            self.lines.insert(line, Held::default());
             reached.reopened += 1;
+        } else if self.scene.talks && roll < 32 && self.speaks() {
+            // The owner spoke or answered.
         } else if let Some(round) = self.sim.round() {
             self.carry(&round, reached);
         } else if let Some(call) = self.sim.calls().first() {
             self.sim.done(*call, "the rows");
         } else if !self.lets_go() {
-            self.put("request");
+            let block = self.scene.writes[self.rng.below(self.scene.writes.len())];
+            self.put(block);
         }
     }
 
-    /// A person writes the block anew.
+    /// A person or the outside writes the block anew: a choice with one of its values.
     fn put(&mut self, block: &str) {
         let content = self.content(block);
-        match block {
-            "verdict" => {
-                let value = ["yes", "no"][self.rng.below(2)];
-                self.sim.wrote(block, value, Some(value), Outsider::Person);
+        let declared = &self.sim.flow.blocks[&BlockId::from(block)];
+        let by = if declared.writers.people {
+            Outsider::Person
+        } else {
+            Outsider::Outside
+        };
+        match declared.values.clone() {
+            Some(values) => {
+                let value = &values[self.rng.below(values.len())];
+                self.sim.wrote(block, value, Some(value.as_str()), by);
             }
-            _ => self.sim.writes(block, &content),
+            None => self.sim.wrote(block, &content, None, by),
         }
+    }
+
+    /// The owner says a few words to a cell that takes them, or answers a question that stands unanswered. Says whether
+    /// either was possible.
+    fn speaks(&mut self) -> bool {
+        if self.rng.chance(50) && self.answers() {
+            return true;
+        }
+        let cells: Vec<CellId> = (self.sim.flow.cells.iter())
+            .filter(|c| spoken::words_of(&self.sim.flow, &c.id).is_some())
+            .map(|c| c.id.clone())
+            .collect();
+        let to = To::Cell(cells[self.rng.below(cells.len())].clone());
+        if spoken::receiver(&self.sim.flow, &self.sim.work, &to).is_err() {
+            return false;
+        }
+        let words = format!("Do it again, {}", self.count);
+        self.sim.take(Event::Said { to, words });
+        true
+    }
+
+    /// The owner answers a question that stands with no answer, by either option. Says whether there was one.
+    fn answers(&mut self) -> bool {
+        let records = &self.sim.work.records;
+        let unanswered: Vec<(String, u64)> = (decide::questions::questions(records).into_iter())
+            .filter(|(_, q)| q.unanswered())
+            .filter_map(|(name, q)| {
+                let number = engine::asked::number_of(&self.sim.flow, records, &q.latest.cell, q.latest.at);
+                Some((name.to_string(), number?))
+            })
+            .collect();
+        if unanswered.is_empty() {
+            return false;
+        }
+        let (question, version) = unanswered[self.rng.below(unanswered.len())].clone();
+        let option = 1 + self.rng.below(2) as u64;
+        self.sim.take(Event::Answer {
+            question,
+            version,
+            option,
+        });
+        true
     }
 
     /// The owner does what the work waits for: lets a cell at its limit go on, or answers a call of a run that reached
@@ -288,6 +390,7 @@ impl History {
                     self.sim.done(call, "Go on.");
                     return true;
                 }
+                Waited::Answer { .. } if self.answers() => return true,
                 _ => {}
             }
         }
@@ -382,6 +485,12 @@ impl History {
 
     /// Carries the round out, checking what it is sent.
     fn carry(&mut self, round: &Round, reached: &mut Reached) {
+        // A cell of the engine's own is sent nothing: it hands in what it writes.
+        if self.sim.cell(round).line.is_none() {
+            let came = self.came(round);
+            self.sim.returns(round, came, 0);
+            return;
+        }
         let line = self.sim.line(round);
         let begins = self.sim.begins(round);
         let held = if begins {
@@ -452,7 +561,9 @@ impl History {
                 held.versions.entry(w.block.clone()).or_default().insert(f.at);
                 held.taken.push((w.block.clone(), f.at));
             }
-            self.worked_from(round, f);
+            if self.scene.models {
+                self.worked_from(round, f);
+            }
         }
     }
 
@@ -526,7 +637,37 @@ impl History {
                 value,
             });
         }
-        Came::hands_in(writes)
+        let mut came = Came::hands_in(writes);
+        came.said.questions = self.questions(&cell);
+        came
+    }
+
+    /// A question of the cell's own in one return of twelve, where its cell takes the owner's answers: it waits for the
+    /// answer in one of two.
+    fn questions(&mut self, cell: &CellSpec) -> Vec<Question> {
+        let compiled = &self.sim.flow;
+        let answered = (cell.watches.iter()).any(|t| t.of_source(compiled, flow::ANSWER).is_some());
+        if !self.scene.talks || !answered || !self.rng.chance(8) {
+            return Vec::new();
+        }
+        let name = format!("{}_{}", cell.id, self.sim.work.records.questions.len());
+        let way = |does: &str, follows: &str| Way {
+            does: does.to_string(),
+            follows: follows.to_string(),
+        };
+        vec![Question::Asked {
+            ask: format!("Which way for {name}?"),
+            name,
+            waits: self.rng.chance(50),
+            tree: None,
+            recommends: Some(1),
+            options: vec![
+                way("the short way", "less to read"),
+                way("the long way", "more to read"),
+            ],
+            about: None,
+            reasons: Default::default(),
+        }]
     }
 
     /// The versions the run that finished worked from, by the cell's account: of a datum that runs the cell, the one
@@ -741,6 +882,10 @@ impl History {
     fn check(&self, round: &Round, entered: &Entered, held: &Held, reached: &mut Reached) {
         let sim = &self.sim;
         let cell = sim.cell(round);
+        if !self.scene.models {
+            reached.real.extend(stood(cell, &entered.situation));
+            return;
+        }
         assert_eq!(
             entered.fills,
             self.expected(round, entered, held),
@@ -944,7 +1089,7 @@ fn stood(cell: &CellSpec, s: &Situation) -> Vec<String> {
 fn written(sim: &Sim) -> BTreeSet<String> {
     let mut lines = BTreeSet::new();
     for cell in sim.flow.cells.iter().filter(|c| c.kind == flow::Kind::Agent) {
-        let all = context::situations::situations(&sim.flow, &sim.words, cell, REOPENED, &support::compared());
+        let all = context::situations::situations(&sim.flow, &sim.words, cell, REOPENED, &sim.compared);
         for named in all {
             lines.extend(stood(cell, &named.situation));
         }
@@ -952,13 +1097,13 @@ fn written(sim: &Sim) -> BTreeSet<String> {
     lines
 }
 
-/// The source no block of the small flow is written by.
+/// The source that writes a block of a line as its session begins anew, and none of the small flow's blocks.
 const REOPENED: &str = "session";
 
 /// The lines in the first set and not in the second, cut to how many a failure says.
 fn missing(a: &BTreeSet<String>, b: &BTreeSet<String>) -> String {
     let all: Vec<&String> = a.difference(b).collect();
-    let shown: Vec<&str> = all.iter().take(60).map(|s| s.as_str()).collect();
+    let shown: Vec<&str> = all.iter().take(200).map(|s| s.as_str()).collect();
     format!("{} of them:\n{}", all.len(), shown.join("\n"))
 }
 
@@ -1090,6 +1235,43 @@ fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() 
     assert!(
         reached.real.is_subset(&written) && written.is_subset(&reached.real),
         "rounds stood in what the tool does not write, {gaps}\n\nthe tool writes what no round stood in, {nothing}"
+    );
+}
+
+/// How many of the lines are of each cell.
+fn per_cell(lines: &BTreeSet<String>) -> String {
+    let mut cells: BTreeMap<&str, usize> = BTreeMap::new();
+    for line in lines {
+        *cells.entry(line.split(':').next().unwrap_or("")).or_default() += 1;
+    }
+    format!("{cells:?}")
+}
+
+#[test]
+fn the_rounds_of_works_of_the_engineer_s_flow_stand_in_what_the_tool_writes_for_its_cells() {
+    let mut reached = Reached::default();
+    for seed in 0..ENGINEER_SEEDS {
+        let sim = support::engineer_sim();
+        let scene = Scene::engineer(&sim);
+        let mut history = History::of(sim, scene, seed);
+        let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            for _ in 0..ENGINEER_STEPS {
+                history.step(&mut reached);
+            }
+        }));
+        if let Err(e) = ran {
+            eprintln!("the history of seed {seed} failed");
+            std::panic::resume_unwind(e);
+        }
+    }
+    let written = written(&support::engineer_sim());
+    let (gaps, nothing) = (missing(&reached.real, &written), missing(&written, &reached.real));
+    assert!(
+        reached.real.is_subset(&written) && written.is_subset(&reached.real),
+        "rounds stood in what the tool does not write, {gaps}\n\nthe tool writes what no round stood in, {nothing}\n\nof the \
+         rounds, by cell: {}\nof the tool, by cell: {}",
+        per_cell(&reached.real),
+        per_cell(&written)
     );
 }
 

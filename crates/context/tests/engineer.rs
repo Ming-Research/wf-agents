@@ -4,46 +4,13 @@
 
 mod support;
 
-use std::collections::BTreeSet;
-use std::path::Path;
-
 use context::Stands;
 use decide::{BlockId, CellId, Outsider, Pauser, Seq};
 use engine::spoken::{self, NoOne, To};
 use engine::{Came, Effect, Event, Handed};
-use flow::{Compiled, Has};
-use support::Sim;
+use flow::Compiled;
+use support::{Sim, engineer, root};
 use work::{Question, Said, Way};
-
-/// The directory that holds the repository's flows.
-fn root() -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow")
-}
-
-/// The engineer's flow, compiled against what the engine has for it, as `wf-agents` compiles it.
-fn engineer() -> Compiled {
-    let beside = flow::agents::read(&root()).expect("the files beside the flows are read");
-    let source = flow::read(&root().join("engineer")).expect("the engineer's flow is read");
-    let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<BTreeSet<_>>();
-    let has = Has {
-        sources: names(&[
-            "answer",
-            "asked",
-            "dependencies",
-            "handed_in",
-            "main",
-            "session",
-            "start",
-            "head",
-            "tree",
-            "words",
-        ]),
-        acts: names(&["start", "check", "merge", "deliver"]),
-        tools: names(&["query", "run_tests"]),
-        system: flow::system::reserved(&beside).into_iter().collect(),
-    };
-    flow::compile(&source, &has).expect("the engineer's flow compiles")
-}
 
 #[test]
 fn the_implementation_entered_first_after_the_plan_names_each_datum_its_session_holds_with_its_version() {

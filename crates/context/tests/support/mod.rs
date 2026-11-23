@@ -219,6 +219,8 @@ pub struct Sim {
     pub takes_main: bool,
     /// The settings the words may name, with their values: none.
     pub named: Settings,
+    /// The blocks whose versions the carrier compares itself, and so says what changed in.
+    pub compared: BTreeSet<BlockId>,
     time: u64,
 }
 
@@ -241,6 +243,7 @@ impl Sim {
             work: Work::default(),
             takes_main: false,
             named: Settings::default(),
+            compared: compared(),
             time: 0,
         }
     }
@@ -349,7 +352,7 @@ impl Sim {
         let carried = context::Carried {
             about: FOR,
             main: main.as_ref(),
-            compared: &compared(),
+            compared: &self.compared,
             changes,
             named: &self.named,
             results: &BTreeMap::new(),
@@ -366,16 +369,16 @@ impl Sim {
             .expect("the round began")
             .at;
         let versions = decide::versions(&self.work.records.before(began));
-        let block = BlockId::from("tree");
-        let tree: Vec<Seq> = versions
-            .get(&block)
-            .map_or_else(Vec::new, |vs| vs.iter().map(|v| v.at).collect());
-        let Some((latest, earlier)) = tree.split_last() else {
-            return Changes::new();
-        };
-        (earlier.iter())
-            .map(|at| ((block.clone(), *at), changed(*at, *latest)))
-            .collect()
+        let mut changes = Changes::new();
+        for block in &self.compared {
+            let all: Vec<Seq> = versions
+                .get(block)
+                .map_or_else(Vec::new, |vs| vs.iter().map(|v| v.at).collect());
+            if let Some((latest, earlier)) = all.split_last() {
+                changes.extend(earlier.iter().map(|at| ((block.clone(), *at), changed(*at, *latest))));
+            }
+        }
+        changes
     }
 
     /// Whether the round begins its line's session, as the records count it.
@@ -562,4 +565,54 @@ pub fn carry(sim: &mut Sim, blocks: &[(&str, &str, Option<&str>)]) -> Entered {
     sim.tries(&round, 1, entered.fills.clone());
     sim.hands_in(&round, blocks);
     entered
+}
+
+/// The directory that holds the repository's flows.
+pub fn root() -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow")
+}
+
+/// The blocks of the flow whose versions the carrier compares itself: those a source of the work's branch writes, the
+/// tree and the head, as the carrier names them (`carry::compared`).
+pub fn compared_in(flow: &Compiled) -> BTreeSet<BlockId> {
+    (flow.blocks.iter())
+        .filter(|(_, declared)| matches!(declared.writers.outside.as_deref(), Some("tree" | "head")))
+        .map(|(block, _)| block.clone())
+        .collect()
+}
+
+/// The engineer's flow, compiled against what the engine has for it, as `wf-agents` compiles it.
+pub fn engineer() -> Compiled {
+    let beside = flow::agents::read(&root()).expect("the files beside the flows are read");
+    let source = flow::read(&root().join("engineer")).expect("the engineer's flow is read");
+    let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<BTreeSet<_>>();
+    let has = Has {
+        sources: names(&[
+            "answer",
+            "asked",
+            "dependencies",
+            "handed_in",
+            "main",
+            "session",
+            "start",
+            "head",
+            "tree",
+            "words",
+        ]),
+        acts: names(&["start", "check", "merge", "deliver"]),
+        tools: names(&["query", "run_tests"]),
+        system: flow::system::reserved(&beside).into_iter().collect(),
+    };
+    flow::compile(&source, &has).expect("the engineer's flow compiles")
+}
+
+/// A work of the engineer's flow, taken in the way the carrier takes it: main taken in as runs of the cells that take it
+/// in start, and what changed in the tree and the head said by the carrier.
+pub fn engineer_sim() -> Sim {
+    let beside = flow::agents::read(&root()).expect("the files beside the flows are read");
+    let flow = engineer();
+    let mut sim = Sim::of(flow, beside);
+    sim.compared = compared_in(&sim.flow);
+    sim.takes_main = true;
+    sim
 }
