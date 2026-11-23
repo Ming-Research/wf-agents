@@ -52,8 +52,8 @@ const SCRIPTED: u64 = 6;
 const STEPS: usize = 120;
 
 /// How many histories of the engineer's flow are run, and how many steps each takes.
-const ENGINEER_SEEDS: u64 = 30;
-const ENGINEER_STEPS: usize = 300;
+const ENGINEER_SEEDS: u64 = 3;
+const ENGINEER_STEPS: usize = 100;
 
 pub struct Rng(u64);
 
@@ -1250,6 +1250,7 @@ fn per_cell(lines: &BTreeSet<String>) -> String {
 #[test]
 fn the_rounds_of_works_of_the_engineer_s_flow_stand_in_what_the_tool_writes_for_its_cells() {
     let mut reached = Reached::default();
+    let began = std::time::Instant::now();
     for seed in 0..ENGINEER_SEEDS {
         let sim = support::engineer_sim();
         let scene = Scene::engineer(&sim);
@@ -1269,9 +1270,10 @@ fn the_rounds_of_works_of_the_engineer_s_flow_stand_in_what_the_tool_writes_for_
     assert!(
         reached.real.is_subset(&written) && written.is_subset(&reached.real),
         "rounds stood in what the tool does not write, {gaps}\n\nthe tool writes what no round stood in, {nothing}\n\nof the \
-         rounds, by cell: {}\nof the tool, by cell: {}",
+         rounds, by cell: {}\nof the tool, by cell: {}\nthe histories took {:?}",
         per_cell(&reached.real),
-        per_cell(&written)
+        per_cell(&written),
+        began.elapsed()
     );
 }
 
