@@ -137,7 +137,7 @@ jobs:
           path: ${{ runner.temp }}/page.xml
           if-no-files-found: ignore
 
-  # The Rust format, the form of the design tree's files and clippy with warnings as errors, beside the tests.
+  # The Rust format and clippy with warnings as errors, beside the tests.
   lint:
     runs-on: [self-hosted, 14900k]
     # Not for a fork's pull request: its code must not run on the owner's machine.
@@ -163,12 +163,6 @@ jobs:
       # Formatting first: it needs no build, so a misformatted push fails in seconds.
       - name: Format
         run: cargo fmt --all --check
-      # The design tree's files against the forms of design/README.md: it needs no build either.
-      - name: Design tree
-        run: python3 design/lint.py
-      # The tests of that check, each on a small tree of its own: they need no build either.
-      - name: Test the design tree's check
-        run: python3 design/lint_test.py
       # The page is built into the binary (crates/web/build.rs), so it is built before anything compiles that crate. Its
       # build of the files as they are is kept for every runner of the machine (as fast.yml keeps it), and its
       # dependencies are installed only when their lock changed.

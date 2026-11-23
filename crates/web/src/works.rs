@@ -1366,6 +1366,9 @@ pub enum Unmet {
     TreeUnchanged { name: String },
     /// A line of a block that names entries of the design tree names none the tree on the work's branch holds.
     NotAnEntry { line: String },
+    /// The files of the design tree on the work's branch, which its change against main changes, have these faults in
+    /// their forms, each as a line.
+    TreeForm { lines: Vec<String> },
     /// It deals with what an act after its cell wrote, and leaves nothing new that runs the act and no question with an
     /// answer to come.
     Unanswered { block: String },
@@ -3341,6 +3344,7 @@ impl Unmet {
             },
             UnmetOf::TreeUnchanged { name } => Unmet::TreeUnchanged { name: name.clone() },
             UnmetOf::NotAnEntry { line } => Unmet::NotAnEntry { line: line.clone() },
+            UnmetOf::TreeForm { lines } => Unmet::TreeForm { lines: lines.clone() },
             UnmetOf::Unanswered { block } => Unmet::Unanswered {
                 block: block.to_string(),
             },

@@ -100,9 +100,6 @@ jobs:
         run: npm run lint
       - name: Format
         run: cargo fmt --all --check
-      # The design tree's files against the forms of design/README.md, as the full CI checks them.
-      - name: Design tree
-        run: python3 design/lint.py
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 

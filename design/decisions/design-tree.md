@@ -102,25 +102,27 @@ Comments are not part of the code, and where a comment and an entry disagree, th
 - replaced: Counting a comment as part of what the code shows, so that a reason for one place was written as its comment and not in the tree, was on main; the owner changed it, because a comment can say anything, so no rule could rest on it.
 - rejected: an agent proposed rules telling apart what goes into a comment and what goes into the tree, with one place being one file; the owner rejected it, because the README is not about comments, which may say anything as long as they do not go against the tree.
 
-### decision the-readme-holds-the-standards-alone
-The README holds only the tree's standards: no example, nothing specific to one project, and no step of a flow by which a change is asked for, written or reviewed.
-- replaced: Steps in which a decision's plan states it, its change writes it and its review checks it was on main; the owner changed it, because the README sets the tree's standards and the flow sets how they are kept: here it is a question, elsewhere it need not be.
+### decision the-rules-hold-the-standards-alone
+The tree's rules text holds only the tree's standards: no example, nothing specific to one project, and no step of a flow by which a change is asked for, written or reviewed.
+- replaced: Steps in which a decision's plan states it, its change writes it and its review checks it was on main; the owner changed it, because the rules set the tree's standards and the flow sets how they are kept: here it is a question, elsewhere it need not be.
 - rejected: an agent proposed naming examples in the rules, and the owner's rulings on border cases as precedents; the owner rejected it, because the tree is not built for this project alone, and for another project every example fails.
 
-### decision the-trees-rules-are-its-readme
-The tree's rules are its README, `design/README.md`, which AGENTS.md points to for the agents that work in the repository.
+### decision the-trees-rules-are-wf-agents-own
+The tree's rules are a text in wf-agents' flow files, the same for every project, which the flow gives every agent and the repository's guide points to.
+- replaced: The tree's rules as a README in each project's tree, named in its declaration, was on main; the owner changed it, because with each project writing its own, agents had to learn them again in each project, and the checks differed.
 - replaced: The tree's rules as a skill in a submodule of each project was on main; the owner changed it, because a skill is not always active, and the tree is needed most of the time.
 - rejected: the owner proposed giving the tree's rules only as a rule of the flow, with AGENTS.md saying nothing about the tree; the owner rejected it, because agents that work in the repository outside the flow read AGENTS.md and found no rules for the tree.
 - rejected: an agent proposed writing the tree's own rules as entries at the top of the tree; the owner rejected it, because the tree is about the project, and rules about the tree are not in it.
 
 ### decision limits-stand-only-where-the-check-holds-them
-The README sets a limit on an entry only where its form or the check enforces it: a first line of at most 200 characters, and every other line of at most 300.
+The tree's rules set a limit on an entry only where its form or the check enforces it: a first line of at most 200 characters, and every other line of at most 300.
 - replaced: Rules and limits in the README's prose, such as no identifier from the code and a reason resting on judgment saying so, was on main; the owner changed it, because a limit in the README is of no use unless a machine checks it, since agents copy the entries that are there.
 
-### decision the-check-is-a-python-script-beside-the-tree
-`design/lint.py`, a Python script beside the tree, checks the forms of its files by pattern; CI's lint job runs it, and it can be run by hand with no arguments from any directory.
-- rejected: an agent proposed the checker as a Rust crate sharing one parser with the engine and the page; the owner rejected it, because Python needs no compiling and no toolchain, and runs at once for so small a check.
+### decision the-engine-checks-the-trees-forms
+The engine checks the forms of the tree's files with Rust code that shares the code that finds an entry; no project carries a check of its own.
+- replaced: A Python script beside each project's tree, which its CI ran and agents ran by hand, was on main; the owner changed it, because the check is wf-agents' and must be the same for every project.
 - replaced: The tree's forms kept only by its README and the reviews, with no check, was on main; the owner changed it, because a limit holds only under a mechanical check, and CI costs a lot, so an agent checks the tree before CI does.
+- rejected: an agent proposed the Python script carried with the flow and run by the engine; the owner rejected it, because every host would need python3, each check starts a process, the tree is read in two languages kept alike by hand, and its tests stay outside cargo.
 
 ### decision the-tree-is-written-in-english
 The tree is written in English, as AGENTS.md says everything in the repository is.

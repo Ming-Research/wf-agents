@@ -463,6 +463,101 @@ async fn a_line_not_written_as_a_reference_or_naming_an_entry_the_tree_lacks_of_
     assert_eq!(unknown, Ok(expected.map(str::to_string).to_vec()));
 }
 
+/// The tree's rules as this repository gives them: the format and the words of each fault.
+fn rules() -> flow::agents::Tree {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+    flow::agents::acts(&root).expect("the tree's rules are read").tree
+}
+
+// The forms of the files at a commit are told in the flow's words, one line for each fault, the data they name held by
+// the commit where it holds a file or a directory of that path, with or without a slash at its end, and by no path that
+// is not a plain path from the repository's root, which git is not asked of. Only the files of markdown under the
+// directories of the kinds are read. Well under a second alone, on a repository of a few commits, with one run of git
+// for the files and one for the data; no other test holds the reading from git to the data a commit holds.
+#[tokio::test]
+async fn the_forms_of_the_files_at_a_commit_are_told_with_the_data_the_commit_holds() {
+    let (_repo, place) = started().await;
+    write(&place.dir, "research/rounds/summary.md", "Rounds.\n");
+    write(&place.dir, "research/note.md", "Note.\n");
+    write(
+        &place.dir,
+        "design/decisions/notes.txt",
+        "Not a file of the tree, and in no form.\n",
+    );
+    let data = |path: &str| {
+        format!("- rejected: an agent proposed one; the owner rejected it, because none (data: `{path}`).")
+    };
+    let lines: Vec<String> = [
+        "research/note.md",
+        "research/rounds",
+        "research/rounds/",
+        "research/missing.md",
+        "../outside.md",
+        "/etc/passwd",
+    ]
+    .map(data)
+    .to_vec();
+    let text = format!(
+        "# Extra\n\nWhat the tests add.\n\n### decision keep-it\nIt holds.\n{}\n",
+        lines.join("\n")
+    );
+    let commit = write(&place.dir, "design/decisions/extra.md", &text);
+    let told = formed(&place.dir, "design/", &rules(), &commit)
+        .await
+        .expect("the files are read");
+    let is_missing = |line: usize, path: &str| {
+        format!("design/decisions/extra.md:{line}: decision keep-it: the data `{path}` is not in the repository")
+    };
+    assert_eq!(
+        told,
+        [
+            is_missing(10, "research/missing.md"),
+            is_missing(11, "../outside.md"),
+            is_missing(12, "/etc/passwd")
+        ]
+    );
+}
+
+// The files of the tree are held to their forms only where the work's change against main changes the tree: a fault
+// main holds is said of no work that leaves the tree alone, and of one that changes it, whatever file it changes in it,
+// since a fault in the tree may be of the change in any other file of it. Well under a second alone, on a repository of
+// a few commits; it catches a look made on a tree the work did not change.
+#[tokio::test]
+async fn the_forms_are_held_only_where_the_works_change_changes_the_tree() {
+    let repo = Repo::new("true");
+    let main = repo.project.repo.clone();
+    write(
+        &main,
+        "design/decisions/faulty.md",
+        "# Faulty\n\nWhat it covers.\n\n### decision keep-it\nIt holds.\n",
+    );
+    let started = git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+    let place = started.place;
+    let rules = rules();
+    let said = |commit: String, place: Place| {
+        let (project, rules) = (repo.project.clone(), rules.clone());
+        async move { unformed(&project, &place, "main", "design/", &rules, &commit).await }
+    };
+    let commit = write(&place.dir, "farewell.txt", "Bye.\n");
+    assert_eq!(
+        said(commit, place.clone()).await,
+        Ok(Vec::new()),
+        "the work leaves the tree alone"
+    );
+    let commit = write(&place.dir, "design/decisions/other.md", "# Other\n\nWhat it covers.\n");
+    let told = said(commit, place.clone()).await.expect("the tree is looked at");
+    let fault = "design/decisions/faulty.md:6: decision keep-it: a decision has a `rejected` or a `replaced` line, or \
+                 more, under its first line";
+    assert_eq!(told, [fault]);
+    let commit = remove(&place.dir, "design/decisions/other.md");
+    let told = said(commit, place.clone()).await.expect("the tree is looked at");
+    assert_eq!(
+        told,
+        Vec::<String>::new(),
+        "the change to the tree is none once the file is removed"
+    );
+}
+
 // Nothing of how an entry is found is the engine's own: a tree elsewhere, of one kind in a directory of its own, with
 // its own heading and way of referring, is checked and given by those, and an entry in this repository's form in it is
 // none.
@@ -565,29 +660,29 @@ fn files_under(root: &Path, dir: &Path, into: &mut Vec<(String, String)>) {
     }
 }
 
-// This repository's own declaration (`[tree_format]` of `flow/project.toml`, with its words in
-// `flow/agents/message/given.toml`) finds every entry of this repository's own design tree as the tree's rules
-// (`design/README.md`) write one, and gives each whole. By those rules the principles are in `principles/` and the
-// decisions in `decisions/`, an entry begins `### principle <name>` or `### decision <name>`, "each line of an entry"
-// is "one line of the file" and one blank line is between entries: so an entry is its heading and the lines after it
-// up to a blank line or the file's end. Each is given under its file, the principles' files before the decisions', in
-// the order of their paths (acceptance 2), and none of the names is unknown. The rules' own templates, which
-// `design/README.md` writes as headings in its code fences, are no entry: that file is under neither directory.
+// The tree's format (`[format]` of `flow/agents/tree.toml`, with its words in `flow/agents/message/given.toml`) finds
+// every entry of this repository's own design tree as the tree's rules (`flow/agents/tree_rules.md`) write one, and
+// gives each whole. By those rules the principles are in `principles/` and the decisions in `decisions/`, an entry
+// begins `### principle <name>` or `### decision <name>`, "each line of an entry" is "one line of the file" and one
+// blank line is between entries: so an entry is its heading and the lines after it up to a blank line or the file's
+// end. Each is given under its file, the principles' files before the decisions', in the order of their paths
+// (acceptance 2), and none of the names is unknown. The rules' own templates, which `flow/agents/tree_rules.md` writes
+// as headings in its code fences, are no entry: that file is not in the tree.
 //
 // Alone it takes 0.34 s in CI, copying the whole tree (55 files, 313 KB when it was written) into a repository of its
-// own, and grows with the tree. It is the only test of the real declaration against the real tree, which the tests of
+// own, and grows with the tree. It is the only test of the real format against the real tree, which the tests of
 // the format each write by hand: a heading form, a directory or the words of `given.toml` that no longer match the
 // tree would pass them all. It cannot take a sample of the tree, since an entry the format misses could be in any file,
 // and it is no part of another test, whose small trees are what make their faults readable.
 #[tokio::test]
-async fn this_repository_s_declaration_finds_and_gives_whole_every_entry_of_its_own_design_tree() {
+async fn this_repository_s_tree_format_finds_and_gives_whole_every_entry_of_its_own_design_tree() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let agents = flow::agents::read(&root.join("flow")).expect("the files beside the flows are read");
-    let format = (agents.project.tree_format.clone()).expect("the declaration gives the format of the tree");
+    let format = agents.acts.tree.format.clone();
     let tree = agents.project.tree.clone();
     let words = agents.given.entries.clone();
     let design = tree.trim_end_matches('/');
-    let readme = std::fs::read_to_string(root.join(design).join("README.md")).expect("the tree's rules are read");
+    let readme = std::fs::read_to_string(root.join("flow/agents/tree_rules.md")).expect("the tree's rules are read");
     for template in ["### principle <a-short-name>", "### decision <a-short-name>"] {
         assert!(
             readme.lines().any(|line| line == template),
@@ -626,7 +721,6 @@ async fn this_repository_s_declaration_finds_and_gives_whole_every_entry_of_its_
         }
         assert!(references.len() > before, "the tree holds entries of the kind {kind}");
     }
-    std::fs::write(place.dir.join(design).join("README.md"), &readme).expect("the rules are written");
     run(&place.dir, &["add", design]);
     run(&place.dir, &["commit", "-q", "-m", "Write the design tree"]);
     let commit = run(&place.dir, &["rev-parse", "HEAD"]);

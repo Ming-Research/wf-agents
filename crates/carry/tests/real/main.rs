@@ -131,6 +131,9 @@ pub struct Fake {
     /// none, [`NO_SUCH_ENTRY`], until a round of it is told its return was sent back for that line; and whether the
     /// build rewrites the entry the plan names, [`GREETING_ENTRY`], committing it with its file.
     pub names_entries: bool,
+    /// Whether the build writes a decision of the design tree that is not in the forms of the tree's rules, until a
+    /// round of it is told its return was sent back for that, when it writes it as they say.
+    pub ill_formed_tree: bool,
 }
 
 /// The file of the design tree that holds the entry the fake's plan names, where it names entries.
@@ -139,6 +142,8 @@ pub const GREETING_FILE: &str = "design/decisions/greeting.md";
 pub const GREETING_ENTRY: &str = "decision greet-by-name";
 /// A line the fake's plan writes among the entries it names, which names no entry of the design tree.
 pub const NO_SUCH_ENTRY: &str = "decision greet-with-a-song";
+/// The file of the design tree the fake's build writes, where its tree is ill-formed until it is told so.
+pub const FORMED_FILE: &str = "design/decisions/formed.md";
 
 /// How much of the account's week every call that says its usage says is used.
 pub const USED: f64 = 0.04;
@@ -176,6 +181,7 @@ impl Default for Fake {
             says_usage: false,
             tree_question: false,
             names_entries: false,
+            ill_formed_tree: false,
         }
     }
 }
@@ -631,8 +637,17 @@ case "$first" in
                 git add design/built.md
             fi
             if [ '{names_entries}' = yes ]; then
-                printf '# Greeting\n\n### {entry}\nGreet by the first name.\n\n### decision greet-once\nGreet once.\n' > '{entry_file}'
+                printf '# Greeting\n\nHow the work greets.\n\n### {entry}\nGreet by the first name.\n- rejected: an agent proposed greeting no one; the owner rejected it, because it names no one.\n\n### decision greet-once\nGreet once.\n- rejected: an agent proposed greeting twice; the owner rejected it, because once is enough.\n' > '{entry_file}'
                 git add '{entry_file}'
+            fi
+            if [ '{ill_formed}' = yes ]; then
+                mkdir -p design/decisions
+                if grep -q 'not in the forms the tree' "$log/$n.stdin"; then
+                    printf '# Formed\n\nWhat it covers.\n\n### decision formed-right\nA first line.\n- rejected: an agent proposed a second line; the owner rejected it, because one is enough.\n' > '{formed_file}'
+                else
+                    printf '# Formed\n\nWhat it covers.\n\n### decision formed-wrong\nA first line only.\n' > '{formed_file}'
+                fi
+                git add '{formed_file}'
             fi
             if [ '{moves}' = yes ] && [ ! -f "$log/moved" ]; then
                 touch "$log/moved"
@@ -715,6 +730,8 @@ fi
         tree_question = yes(fake.tree_question),
         tree_mark = fake.tree_question,
         names_entries = yes(fake.names_entries),
+        ill_formed = yes(fake.ill_formed_tree),
+        formed_file = FORMED_FILE,
         entry = GREETING_ENTRY,
         no_such_entry = NO_SUCH_ENTRY,
         entry_file = GREETING_FILE,
@@ -797,12 +814,11 @@ pub fn made_repository(repo: &Path) {
     git_in(repo, &["commit", "-q", "-m", "Design"]);
 }
 
-/// The project's guide, constitution and tree rules, by their paths in the test repository, which `project.toml`
+/// The project's guide and constitution, by their paths in the test repository, which `project.toml`
 /// beside the repository's flows names, with their texts.
-pub const PROJECT_FILES: [(&str, &str); 3] = [
+pub const PROJECT_FILES: [(&str, &str); 2] = [
     ("AGENTS.md", "# The test project\n\nWhat its agents need to know.\n"),
     ("design/constitution.md", "# Its constitution\n"),
-    ("design/README.md", "# The rules of its tree\n"),
 ];
 
 /// A project in the repository at `repo`, on its local repository, with this check.

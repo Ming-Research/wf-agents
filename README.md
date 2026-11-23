@@ -2,7 +2,7 @@
 
 wf-agents runs coding agents through a defined flow.
 
-- `design/`: the design tree. [design/README.md](design/README.md) says how it is read and changed; `constitution.md`
+- `design/`: the design tree. [flow/agents/tree_rules.md](flow/agents/tree_rules.md) says how it is read and changed; `constitution.md`
   holds what wf-agents is for and its lasting values; `principles/` holds the rules whatever is made later must
   follow; `decisions/` holds what one thing does and why, where the code does not show the why; `docs/` holds the
   designs that hold only as a whole, which may be ahead of the code.

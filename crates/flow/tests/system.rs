@@ -103,8 +103,9 @@ fn the_system_prompt_is_the_same_bytes_for_every_cell_of_a_line_and_every_sessio
     assert!(cells(&flow, "engineer").len() > 1);
 }
 
-// The parts stand in the order `session.toml` names them: the project's files, each headed by its path; the sets of
-// rules the line takes, in its order; the engine's words; how a cell returns.
+// The parts stand in the order `session.toml` names them: the project's files, each headed by its path; the tree's
+// rules, which are the engine's words; the sets of rules the line takes, in its order; the engine's words; how a cell
+// returns.
 #[test]
 fn a_lines_system_prompt_holds_the_parts_session_toml_names_in_its_order() {
     let (flow, agents) = (engineer(), beside());
@@ -117,7 +118,7 @@ fn a_lines_system_prompt_holds_the_parts_session_toml_names_in_its_order() {
         [
             (Of::Project, "guide", "AGENTS.md"),
             (Of::Project, "constitution", "design/constitution.md"),
-            (Of::Project, "tree_rules", "design/README.md"),
+            (Of::Words, "tree_rules.md", "flow/agents/tree_rules.md"),
             (Of::Rules, "general", "flow/agents/rules/general.md"),
             (Of::Rules, "engineering", "flow/agents/rules/engineering.md"),
             (Of::Words, "how_you_work_here.md", "flow/agents/how_you_work_here.md"),

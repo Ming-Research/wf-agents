@@ -467,9 +467,9 @@ pub struct BlockFile {
     /// latest version and the work's change against main changes nothing in the project's design tree.
     #[serde(default)]
     pub answers_in_the_tree: bool,
-    /// Its lines name entries of the project's design tree, one to a line, as the project's `[tree_format]` refers to
-    /// one: a return that writes it is sent back for a line that names none the tree on the work's branch holds, and a
-    /// round is given each entry named whole in place of the names, as the tree's latest version has it.
+    /// Its lines name entries of the project's design tree, one to a line, as the tree's format (`agents/tree.toml`)
+    /// refers to one: a return that writes it is sent back for a line that names none the tree on the work's branch
+    /// holds, and a round is given each entry named whole in place of the names, as the tree's latest version has it.
     #[serde(default)]
     pub names_tree_entries: bool,
 }
@@ -524,9 +524,9 @@ pub struct LaidOutBlockFile {
     /// latest version and the work's change against main changes nothing in the project's design tree.
     #[serde(default)]
     pub answers_in_the_tree: bool,
-    /// Its lines name entries of the project's design tree, one to a line, as the project's `[tree_format]` refers to
-    /// one: a return that writes it is sent back for a line that names none the tree on the work's branch holds, and a
-    /// round is given each entry named whole in place of the names, as the tree's latest version has it.
+    /// Its lines name entries of the project's design tree, one to a line, as the tree's format (`agents/tree.toml`)
+    /// refers to one: a return that writes it is sent back for a line that names none the tree on the work's branch
+    /// holds, and a round is given each entry named whole in place of the names, as the tree's latest version has it.
     #[serde(default)]
     pub names_tree_entries: bool,
 }

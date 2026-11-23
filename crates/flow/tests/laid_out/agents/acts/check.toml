@@ -49,6 +49,7 @@ failed = "no"
 [found]
 conflict = "The branch does not merge into {main} at {head} without a conflict:\n{files}\n{kinds}"
 tree_unchanged = "Not in the tree against {main}:\n{questions}"
+tree_form = "Not in form with {main} taken in:\n{faults}"
 protected = "Protected, asked in {question}:\n{files}"
 protected_unread = "Protected, not looked at: {why}"
 empty = "Nothing against {main} at {head}."

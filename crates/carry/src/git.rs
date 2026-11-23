@@ -158,6 +158,35 @@ pub(crate) async fn git_with(dir: &Path, with: &With, args: &[&str]) -> Result<S
 /// arguments, so that no path is read as an option; one that holds a line break, which that input cannot carry, is
 /// refused.
 pub(crate) async fn blobs(dir: &Path, commit: &str, paths: &[&str]) -> Result<Vec<Option<Vec<u8>>>, String> {
+    let out = cat_file(dir, commit, paths, "--batch").await?;
+    batch(&out, paths.len())
+}
+
+/// Whether the commit holds each of these paths, a file or a directory, in their order, as one run of
+/// `git cat-file --batch-check` in the directory says; the paths are given as [`blobs`] gives its own.
+pub(crate) async fn holds(dir: &Path, commit: &str, paths: &[&str]) -> Result<Vec<bool>, String> {
+    if paths.is_empty() {
+        return Ok(Vec::new());
+    }
+    let out = cat_file(dir, commit, paths, "--batch-check").await?;
+    let text = String::from_utf8_lossy(&out);
+    let lines: Vec<&str> = text.lines().collect();
+    if lines.len() != paths.len() {
+        return Err(format!(
+            "git cat-file --batch-check said {} lines for {} paths",
+            lines.len(),
+            paths.len()
+        ));
+    }
+    Ok(lines
+        .into_iter()
+        .map(|line| !(line.ends_with(" missing") || line.ends_with(" ambiguous")))
+        .collect())
+}
+
+/// What one run of `git cat-file` in `mode` gives for each of these paths of the commit, which it is given on its
+/// input one to a line.
+async fn cat_file(dir: &Path, commit: &str, paths: &[&str], mode: &str) -> Result<Vec<u8>, String> {
     use tokio::io::AsyncWriteExt;
     if let Some(path) = paths.iter().find(|p| p.contains('\n')) {
         return Err(format!(
@@ -169,7 +198,7 @@ pub(crate) async fn blobs(dir: &Path, commit: &str, paths: &[&str]) -> Result<Ve
         .arg("-C")
         .arg(dir)
         .args(SAFE)
-        .args(["cat-file", "--batch"])
+        .args(["cat-file", mode])
         .env_clear()
         .envs(crate::programs::kept().iter().cloned())
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -200,9 +229,9 @@ pub(crate) async fn blobs(dir: &Path, commit: &str, paths: &[&str]) -> Result<Ve
     let output = output?;
     if !output.status.success() {
         let said = String::from_utf8_lossy(&output.stderr).trim_end().to_string();
-        return Err(format!("git cat-file --batch failed in {}: {said}", dir.display()));
+        return Err(format!("git cat-file {mode} failed in {}: {said}", dir.display()));
     }
-    batch(&output.stdout, paths.len())
+    Ok(output.stdout)
 }
 
 /// The objects a run of `git cat-file --batch` gave for this many lines of its input, in their order: each one's

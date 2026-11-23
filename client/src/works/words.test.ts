@@ -360,6 +360,9 @@ describe('why a run ran, in words', () => {
     expect(unmetWords({ kind: 'notAnEntry', line: 'decision no-such-entry' })).toBe(
       'it named decision no-such-entry, which is no entry of the design tree on the work\'s branch',
     );
+    expect(unmetWords({ kind: 'treeForm', lines: ['design/decisions/a.md:3: a', 'design/decisions/a.md:4: b'] })).toBe(
+      'it ended its round with 2 faults in the forms of the design tree\'s files',
+    );
     expect(unmetWords({ kind: 'wordOwed', name: 'review', watched: ['code', 'title'] })).toBe(
       'it dealt with review, woken by a point in it, and answered none of its points, changed none of code, title, and asked no question the work waits for',
     );

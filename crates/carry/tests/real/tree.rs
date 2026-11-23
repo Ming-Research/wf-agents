@@ -1,7 +1,8 @@
 //! The design tree on the work's branch as a block of the work: a version where the start made the branch, where the
 //! branch took main in, and where a round of the work committed to the tree, which that round's run hands in; and a
 //! change handed in only with the owner's answers to the questions marked `tree` in the tree; and a block whose lines
-//! name entries of the tree, checked as it is handed in and given as the entries it names.
+//! name entries of the tree, checked as it is handed in and given as the entries it names; and a change of the tree
+//! held to the forms of the tree's rules.
 
 use decide::Writer;
 use decide::run::Unmet;
@@ -9,7 +10,7 @@ use service::Act;
 use store::WorkNumber;
 use work::Given;
 
-use crate::{Fake, GREETING_ENTRY, GREETING_FILE, NO_SUCH_ENTRY, On, Real, ended, git_in};
+use crate::{FORMED_FILE, Fake, GREETING_ENTRY, GREETING_FILE, NO_SUCH_ENTRY, On, Real, ended, git_in};
 
 /// A check that fails the first time, moving main by a commit of a file of the design tree as it does, and passes after.
 const MOVES_DESIGN_ONCE: &str = "test -f ../moved || { touch ../moved; \
@@ -144,6 +145,38 @@ async fn a_change_handed_in_while_an_answer_marked_tree_is_not_in_the_design_tre
         .iter()
         .filter(|call| call.of("Build") && call.stdin.contains(sent_back));
     assert_eq!(told.count(), 1, "the build is told once why its return was sent back");
+}
+
+// The build commits a decision of the design tree that has no line of an approach turned down, which the tree's rules
+// require, and hands in its change: the return is sent back, told the file, the line and what is wrong, and told once;
+// its next return, with the decision written as the rules say, is taken. The change to the tree is the work's own, and
+// the check before the merge, on the commit that would merge, finds it in its forms.
+#[tokio::test]
+async fn a_change_that_leaves_the_design_tree_out_of_its_forms_is_sent_back_until_it_is_in_them() {
+    let fake = Fake {
+        ill_formed_tree: true,
+        ..Fake::default()
+    };
+    let mut real = Real::trial(fake);
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| ended(&real.decision(work))).await;
+    let kept = real.work(work);
+    let build = real.run_of(work, "build");
+    let line = format!(
+        "{FORMED_FILE}:6: decision formed-wrong: a decision has a `rejected` or a `replaced` line, or more, under its \
+         first line"
+    );
+    let unformed = Unmet::TreeForm {
+        lines: vec![line.clone()],
+    };
+    assert_eq!(kept.given.get(&(build, 2)), Some(&Given::SentBack(vec![unformed])));
+    assert_eq!(kept.given.get(&(build, 3)), None, "taken at its second round");
+    let calls = real.calls();
+    let told = calls
+        .iter()
+        .filter(|call| call.of("Build") && call.stdin.contains(&format!("fix them all:\n{line}")));
+    assert_eq!(told.count(), 1, "the build is told once what is wrong with the tree");
 }
 
 // The plan names entries of the design tree with a line that names none, and is sent back for that line alone; its

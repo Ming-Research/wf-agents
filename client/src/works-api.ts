@@ -483,6 +483,9 @@ export type Unmet =
   | { kind: 'treeUnchanged'; name: string }
   /// A line of a block that names entries of the design tree names none the tree on the work's branch holds.
   | { kind: 'notAnEntry'; line: string }
+  /// The files of the design tree on the work's branch, which its change against main changes, have these faults in
+  /// their forms, each as a line.
+  | { kind: 'treeForm'; lines: string[] }
   | { kind: 'unanswered'; block: string }
   /// It names as dealt with a dialogue it holds as the maker, woken by a point in it, and answers none of its points
   /// there, changes none of what the other side watches and asks no question the work waits for.

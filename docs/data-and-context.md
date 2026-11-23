@@ -138,13 +138,13 @@ new session lacks it.
     at its start names in `tree_entries` each entry of the tree that bears on the item, one to a line, and the cell
     that writes the plan names it again, whole, where the plan reaches further. A cell that reads `tree_entries` is
     given, in place of the names, each entry named whole, under its file, as the tree's latest version on the branch
-    has it, and each name that version no longer holds said so; the project's `[tree_format]` says how an entry is
-    found and named. A return whose line names no entry of the tree at the head of the branch is sent back. From the
-    entries the agent reads further as the tree's rules say, for what they leave out. A session reopened is filled
-    with the entries as with any datum it lacks, and nothing reads the tree again for it; one of a work that has no
-    `tree_entries` yet has nothing to be given, and reads the tree for itself, as the rules say. The tree runs no cell:
-    a changed tree reaches the next cell that enters the session as the files that changed (23), and the entries
-    given before stay as the session took them.
+    has it, and each name that version no longer holds said so; the tree's format, which the flow's files give
+    (`agents/tree.toml`), says how an entry is found and named. A return whose line names no entry of the tree at the
+    head of the branch is sent back. From the entries the agent reads further as the tree's rules say, for what they
+    leave out. A session reopened is filled with the entries as with any datum it lacks, and nothing reads the tree
+    again for it; one of a work that has no `tree_entries` yet has nothing to be given, and reads the tree for itself,
+    as the rules say. The tree runs no cell: a changed tree reaches the next cell that enters the session as the files
+    that changed (23), and the entries given before stay as the session took them.
 
 26. A session reopened while a round is under way is no case of its own. The round did not end and consumed nothing
     (8): the cell whose round did not end runs again, and is filled with all its data.

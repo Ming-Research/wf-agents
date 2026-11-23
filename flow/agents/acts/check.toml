@@ -48,13 +48,16 @@ failed = "no"
 # `{files}` the files in conflict, `{kinds}` the kinds of their conflicts; in `protected`, the files the work's own
 # change touches under the paths the project protects, one to a line, and `{question}` the name of the question the
 # engine asks the owner of them; `{why}` why that change could not be looked at; in `empty`, `{main}` and `{head}` as
-# above, where the commit checked holds nothing that main does not; in `tree_unchanged`, `{questions}` the names of the
-# questions marked `tree` that have the owner's answer to their latest version, one to a line, where the work's change
-# against main changes nothing in the design tree, and `{main}` as above. Where both `conflict` and `tree_unchanged`
-# are found, both are said, a blank line between.
+# above, where the commit checked holds nothing that main does not; in `tree_form`, `{faults}` each fault in the forms
+# of the design tree's files of the commit that would merge, main taken in, one to a line, as `agents/tree.toml` words
+# it, and `{main}` as above, where the work's change against main changes the tree; in `tree_unchanged`, `{questions}`
+# the names of the questions marked `tree` that have the owner's answer to their latest version, one to a line, where
+# the work's change against main changes nothing in the design tree, and `{main}` as above. Where both `conflict` and
+# `tree_unchanged` are found, both are said, a blank line between.
 [found]
 conflict = "The branch does not merge into {main} at {head} without a conflict:\n{files}\n{kinds}"
 tree_unchanged = "These questions are marked `tree` and have the owner's answer, but the work's change against {main} changes nothing in the design tree: write the option taken in each into the tree, as its rules say.\n{questions}"
+tree_form = "The commit that would merge, with {main} taken in, has files of the design tree that are not in the forms the tree's rules give. Each is a file, a line and what is wrong:\n{faults}"
 protected = "The work changes files the project protects, and the owner has not let this change merge. It merges only once the owner lets it, or once the work no longer changes those files. The engine asks the owner in the question `{question}`, and the work receives the answer as the owner's.\n{files}"
 protected_unread = "The engine could not look at the change to the files the project protects, and the work does not merge until it can: {why}"
 empty = "The work's branch changes nothing against {main} at {head}: there is nothing to merge."

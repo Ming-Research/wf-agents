@@ -643,7 +643,7 @@ mod tests {
         ] {
             git(&repo, &["config", key, value]);
         }
-        for path in ["AGENTS.md", "design/constitution.md", "design/README.md"] {
+        for path in ["AGENTS.md", "design/constitution.md"] {
             std::fs::write(repo.join(path), "Some text.\n").unwrap();
         }
         // The project's declaration, the one beside the repository's flows.
@@ -763,15 +763,15 @@ mod tests {
             "{faults:?}"
         );
         let repo = &settings.projects["example"].repo;
-        git(repo, &["rm", "-q", "design/README.md"]);
-        git(repo, &["commit", "-q", "-m", "No rules"]);
+        git(repo, &["rm", "-q", "design/constitution.md"]);
+        git(repo, &["commit", "-q", "-m", "No constitution"]);
         let faults = start_faults(&settings, &beside, &compiled);
         assert_eq!(faults.len(), lines.len() + 1, "{faults:?}");
         assert_eq!(
             faults.last().map(String::as_str),
             Some(
-                "projects.example: project.toml: the file tree_rules, design/README.md, is not on main, refs/heads/main, \
-                 where works branch from"
+                "projects.example: project.toml: the file constitution, design/constitution.md, is not on main, \
+                 refs/heads/main, where works branch from"
             )
         );
     }

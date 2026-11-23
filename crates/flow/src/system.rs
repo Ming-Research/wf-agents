@@ -702,13 +702,13 @@ mod tests {
     #[test]
     fn each_named_setting_has_its_value_beside_it_and_an_unknown_one_has_none() {
         let text = "Write in `owner.language`; at most `agents.subagents.most`; name tests as `project.test_names` \
-                    says, in `project.research`. Not `agents.slots`, `owner.voice`, `design/README.md`, `plan` or \
+                    says, in `project.research`. Not `agents.slots`, `owner.voice`, `design/constitution.md`, `plan` or \
                     `owner.language is`. Again `owner.language`.";
         assert_eq!(
             settings().named_in(text).unwrap(),
             "Write in `owner.language` (Chinese); at most `agents.subagents.most` (3); name tests as \
              `project.test_names` (By its own name.) says, in `project.research` (research/). Not `agents.slots`, \
-             `owner.voice`, `design/README.md`, `plan` or `owner.language is`. Again `owner.language` (Chinese)."
+             `owner.voice`, `design/constitution.md`, `plan` or `owner.language is`. Again `owner.language` (Chinese)."
         );
         assert_eq!(
             settings().names().collect::<Vec<_>>(),

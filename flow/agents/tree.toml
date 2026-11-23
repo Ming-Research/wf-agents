@@ -1,0 +1,45 @@
+# The design tree's rules as the engine carries them, the same for every project; the text of the rules is
+# `tree_rules.md`, which the session gives every agent. Here is what the engine reads of them: how an entry is found and
+# referred to, and the words of each fault it finds in the forms of the tree's files, which a round of a line that may
+# change the work is told of where the work's change changes the tree, and the check before the merge says.
+
+# How an entry is found and referred to, as the rules write it: each kind with the directory under the project's tree
+# (`tree` of its declaration) that holds its files, in the order the rules read them; the line an entry begins with,
+# running to the line before the next such line or to its file's end; and how a text refers to an entry, as a line of a
+# block whose file says `names_tree_entries` names one. `{kind}` stands for a kind, `{name}` for the entry's name. The
+# check of the files' forms has the form of each entry by its kind's name, `principle` and `decision`.
+[format]
+kinds = [{ kind = "principle", dir = "principles/" }, { kind = "decision", dir = "decisions/" }]
+heading = "### {kind} {name}"
+reference = "{kind} {name}"
+
+# The words of each fault, each said as one line of a list. Filled in a run: `{path}` the file from the root of the
+# repository, `{line}` the number of the line; `{entry}` the words of `entry` where the fault is in an entry and
+# nothing where it is in the file; `{text}` what is wrong, from the words below. `{count}` is the number of characters a
+# part holds and `{most}` the most it may; `{kind}` and `{name}` an entry's kind and name; `{dir}` the directory under
+# the tree that holds the files of a kind; `{heading}` the line an entry of that kind begins with, `<name>` standing for
+# its name; `{what}` the work, item or date a line names; `{data}` a path a line gives as its data; `{file}` and `{line}`
+# where a name is taken; `{is}` the kind a name is of.
+[faults]
+line = "{path}:{line}: {entry}{text}"
+entry = "{kind} {name}: "
+not_text = "the file is not text, so its forms cannot be read"
+opens = "a file opens with `# <title>`, a blank line and one line of what it covers"
+covers = "the line of what the file covers is one line, and a blank line follows it"
+blank_lines = "two entries are parted by one blank line, and no blank line ends the file"
+heading = "an entry of {dir} opens with `{heading}`"
+name_shape = "the name is not lowercase words joined by hyphens"
+principle_form = "a principle is its rule on one line and its reason on one line after `Why: `"
+rule_long = "the rule is {count} characters, over {most}"
+why_empty = "the reason after `Why: ` is empty"
+why_long = "the reason is {count} characters, over {most}"
+decision_first = "a decision's first line says what holds now"
+first_long = "the first line is {count} characters, over {most}"
+no_lines = "a decision has a `rejected` or a `replaced` line, or more, under its first line"
+line_form = "not a line in the form of a `rejected` or a `replaced` line"
+line_long = "the line is {count} characters, over {most}"
+names_a_moment = "names a work, an item or a date: {what}"
+data_missing = "the data `{data}` is not in the repository"
+name_taken = "the name is taken by {file}:{line}"
+unknown = "names {kind} {name}, which no file holds"
+wrong_kind = "names {kind} {name}, which is a {is}"

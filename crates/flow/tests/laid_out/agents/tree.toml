@@ -1,0 +1,29 @@
+# The tree's rules of the tests: how an entry is found, and the words of each fault in the forms of its files.
+[format]
+kinds = [{ kind = "principle", dir = "principles/" }, { kind = "decision", dir = "decisions/" }]
+heading = "### {kind} {name}"
+reference = "{kind} {name}"
+
+[faults]
+line = "{path}:{line}: {entry}{text}"
+entry = "{kind} {name}: "
+not_text = "not text"
+opens = "a file does not open as it should"
+covers = "the line of what it covers is wrong"
+blank_lines = "blank lines are wrong"
+heading = "an entry of {dir} opens with `{heading}`"
+name_shape = "the name is wrong"
+principle_form = "a principle is its rule and its reason"
+rule_long = "the rule is {count} over {most}"
+why_empty = "the reason is empty"
+why_long = "the reason is {count} over {most}"
+decision_first = "a decision's first line is wrong"
+first_long = "the first line is {count} over {most}"
+no_lines = "a decision has no approach line"
+line_form = "the line is not in form"
+line_long = "the line is {count} over {most}"
+names_a_moment = "names {what}"
+data_missing = "no data `{data}`"
+name_taken = "the name is taken by {file}:{line}"
+unknown = "names {kind} {name}, which no file holds"
+wrong_kind = "names {kind} {name}, which is a {is}"

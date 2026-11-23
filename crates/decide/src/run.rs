@@ -427,10 +427,14 @@ pub enum Unmet {
     /// branch as the round ended.
     TreeUnchanged { name: String },
     /// The return writes a block whose lines name entries of the design tree (`names_tree_entries` of its file), and
-    /// this line of it is not written as the project's `[tree_format]` refers to an entry, or names one that the tree
-    /// at the head of the work's branch does not hold: as the engine found it, looking at the branch as the round
-    /// ended.
+    /// this line of it is not written as the tree's format (`agents/tree.toml`) refers to an entry, or names one that
+    /// the tree at the head of the work's branch does not hold: as the engine found it, looking at the branch as the
+    /// round ended.
     NotAnEntry { line: String },
+    /// The round of a line that may change the work ended with a return that asks for no call, the work's change against
+    /// main changes the design tree, and the files of the tree on the branch, as the round left it, have these faults in
+    /// their forms, each as a line worded by the flow: as the engine found it, looking at the branch as the round ended.
+    TreeForm { lines: Vec<String> },
     /// The return deals with what an act of the engine's after its cell wrote, the block, and leaves new nothing that
     /// runs that act, neither by what it hands in, the work's head it committed among it, nor by a question that
     /// stands for the owner's answer, and nothing that runs it is new to it already ([`Answer`]): the act reads no
