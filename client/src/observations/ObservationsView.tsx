@@ -1,10 +1,10 @@
 // The observations: what agents came across beyond their works, each a text of a return its run kept as it finished,
 // and what an architect added, the newest first. A row is the text, cut to three lines and whole on pointing at it,
 // the number of an item in it a link to the item (`itemNumbers.tsx`), with where it came from on the line under it: its
-// number, and for one a run kept the work's run and round, which opens the work with that run chosen, the cell and the
-// item, or for one an architect added the project that reported it, and when it was kept. One the owner has not read
-// is marked, and has the button that marks it read; one read is muted and says when. The list is read again on each
-// change the stream tells of, since a run that finishes keeps the observations of its return and an architect adds and
+// number, and for one a run kept the work, which opens it with that run and round chosen, the cell and the item, or for
+// one an architect added the project that reported it, and when it was kept. One the owner has not read is marked, and
+// has the button that marks it read; one read is muted and says when. The list is read again on each change the stream
+// tells of, since a run that finishes keeps the observations of its return and an architect adds and
 // changes them, and whenever the stream of changes opens again; a read that fails keeps the list as it was and says so.
 
 import { useCallback, useState } from 'react';
@@ -18,9 +18,9 @@ import {
   loadObservations,
   readObservation,
 } from '../observations-api';
-import { Attr, Button } from '../parts';
+import { Attr, Button, RoundLink } from '../parts';
 import { useChanges, useReading } from '../works/source';
-import { clock, fullTime, itemName, workName } from '../works/words';
+import { clock, fullTime, itemName } from '../works/words';
 
 /// Where the view reads the observations from, and sends the owner's reading of one.
 export interface ObservationsSource {
@@ -142,13 +142,7 @@ function Row({ o, sending, onMarkRead }: { o: Observation; sending: boolean; onM
           <span className="mono">O{o.number}</span>
           {o.round !== null ? (
             <>
-              <a
-                className="link mono"
-                href={`#/works/${o.round.work}/runs/${o.round.run}`}
-                title="Open the work with this run chosen"
-              >
-                {workName(o.round.work)}
-              </a>
+              <RoundLink work={o.round.work} run={o.round.run} round={o.round.round} />
               <Attr name="cell" value={o.round.cell} />
               <span className="observation-item" title={o.round.itemTitle}>
                 <span className="mono">{itemName(o.round.item)}</span> {o.round.itemTitle}

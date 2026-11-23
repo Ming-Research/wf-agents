@@ -152,6 +152,33 @@ describe('the System view', () => {
     expect(texts(under, 'tbody td:first-child')).toEqual(running.map((i) => `W${i.work.number}`));
   });
 
+  it('opens the work with the round of its row chosen, from each row of the rounds under way, sent back and failed', async () => {
+    const s = sources();
+    const sentBack = { work: 41, item: 141, cell: 'plan', run: 2, round: 3, began: Date.now(), spent: null };
+    s.system.loadSystem = async (weeks) => ({ ...fixtureSystem(weeks), sentBack: [sentBack] });
+    const { container } = draw(<SystemView period="week" />, s);
+    await settle();
+    const hrefs = (root: ParentNode) =>
+      [...root.querySelectorAll('tbody tr')].map((tr) => tr.querySelector('td a')?.getAttribute('href'));
+    // The rounds under way: each work's round, as the work's state says it.
+    const running = fixtureItems().items.flatMap((i) => (i.work.now.kind === 'round' ? [{ work: i.work.number, now: i.work.now }] : []));
+    expect(running.length).toBeGreaterThan(0);
+    expect(hrefs(part(container, 'Now').querySelectorAll('table')[0])).toEqual(
+      running.map((r) => `#/works/${r.work}/runs/${r.now.run}/rounds/${r.now.round}`),
+    );
+    const wrong = part(container, 'Gone wrong');
+    // The rounds sent back, unfolded by their count.
+    const tile = [...wrong.querySelectorAll('button.tile')].find((t) => t.textContent?.includes('Rounds sent back')) as HTMLElement;
+    act(() => tile.click());
+    const failed = fixtureSystem([0]).failed;
+    expect(failed).toHaveLength(1);
+    expect(hrefs(wrong.querySelectorAll('table')[0])).toEqual(['#/works/41/runs/2/rounds/3']);
+    expect(hrefs(wrong.querySelectorAll('table')[1])).toEqual([
+      `#/works/${failed[0].work}/runs/${failed[0].run}/rounds/${failed[0].round}`,
+    ]);
+    expect(wrong.querySelector('table a')?.getAttribute('title')).toBe('Open the work with this round chosen');
+  });
+
   it('says, while a stop of the engine stands, when the engine is expected to end and how long each round has to go', async () => {
     const s = sources({ slots: 3, taken: 1, paused: null, keepWarm: true, stopping: { since: Date.now(), atOnce: false } });
     const running = fixtureItems().items.filter((i) => i.work.now.kind === 'round');

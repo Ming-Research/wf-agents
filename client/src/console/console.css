@@ -460,7 +460,7 @@
    blurred glow in the stop's own colour, as far out and as strong as the console's (decision
    what-the-owner-points-at-stands-in-a-soft-light). */
 .cw-choice.cw-stop-chosen {
-  box-shadow: 0 0 9px 4px color-mix(in srgb, var(--stop-colour) 45%, transparent);
+  box-shadow: 0 0 var(--glow-blur) var(--glow-spread) color-mix(in srgb, var(--stop-colour) var(--glow-strength), transparent);
 }
 
 /* The button that ends a stop is in the stop's colour, red, as its frame is, so that it belongs to the card; a card
