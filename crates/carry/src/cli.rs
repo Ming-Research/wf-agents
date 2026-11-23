@@ -17,7 +17,8 @@
 //! which at a return given up on ends with the last refusal, quoting the attempt where it could not be parsed.
 //! Beginning a session whose id is taken says on the standard error `Session ID <id> is already in use.`, and going on
 //! in one there is none of says `No conversation found with session ID: <id>`; both print nothing on the standard
-//! output.
+//! output. Version 2.1.327 says the second in the `errors` of a result with `is_error` set instead, which is the one
+//! line it prints, and exits with 1.
 
 use std::path::{Path, PathBuf};
 
@@ -34,9 +35,9 @@ use crate::permissions::Permissions;
 use crate::settings::Agents;
 use crate::{cost, failure};
 
-/// What the command line says on its standard error when a session is begun under an id that has one already.
+/// What the command line says when a session is begun under an id that has one already.
 pub const IN_USE: &str = "is already in use";
-/// What the command line says on its standard error when a session that is not there is gone on in.
+/// What the command line says when a session that is not there is gone on in.
 pub const NOT_FOUND: &str = "No conversation found with session ID";
 
 /// Whether a round begins its line's session or goes on in it.
@@ -57,11 +58,11 @@ impl Begin {
         }
     }
 
-    /// Whether what the command line said on its standard error means the session is to be begun the other way.
-    pub fn refused(self, stderr: &str) -> bool {
+    /// Whether what the command line said means the session is to be begun the other way.
+    pub fn refused(self, said: &str) -> bool {
         match self {
-            Begin::New => stderr.contains(IN_USE),
-            Begin::Resume => stderr.contains(NOT_FOUND),
+            Begin::New => said.contains(IN_USE),
+            Begin::Resume => said.contains(NOT_FOUND),
         }
     }
 }
@@ -432,6 +433,17 @@ struct Result {
     structured_output: Option<Value>,
 }
 
+impl Result {
+    /// What the result says went wrong: its text and its errors, each without its quote of an attempt at the return.
+    fn said(&self) -> String {
+        (self.result.iter().chain(&self.errors))
+            .map(|said| without_quote(said))
+            .filter(|said| !said.is_empty())
+            .collect::<Vec<_>>()
+            .join("; ")
+    }
+}
+
 #[derive(Debug, Default, Deserialize)]
 struct Usage {
     #[serde(default)]
@@ -489,8 +501,8 @@ const PARTIAL: &str = r#"{"type":"stream_event""#;
 /// version, as its first line tells it.
 #[derive(Debug, Default)]
 pub struct Stream {
-    /// Whether it gave any line.
-    any: bool,
+    /// How many lines it gave.
+    lines: usize,
     /// Its result: the last it gave.
     result: Option<Value>,
     attempts: Attempts,
@@ -558,7 +570,7 @@ impl Stream {
     /// the session's own agent, so that what is kept rebuilds the attempts and the calls again, as a try its engine did
     /// not see end is read, and holds each token of the model's once.
     pub fn line(&mut self, line: &[u8]) -> bool {
-        self.any = true;
+        self.lines += 1;
         let Ok(text) = std::str::from_utf8(line) else {
             return true;
         };
@@ -620,7 +632,25 @@ impl Stream {
 
     /// Whether the stream gave any line.
     pub fn is_empty(&self) -> bool {
-        !self.any
+        self.lines == 0
+    }
+
+    /// Whether the command line refused to begin the session, or to go on in it, the way the round tried, which is
+    /// then tried the other way: it said so on its standard error and printed nothing, or printed only a result that
+    /// says so ([`Stream::refusal`]).
+    pub fn refused(&self, begin: Begin, stderr: &str) -> bool {
+        (self.is_empty() && begin.refused(stderr)) || self.refusal() == Some(begin)
+    }
+
+    /// The way the command line refused to begin the session or to go on in it, where all the stream holds is a result
+    /// that is an error saying so; none where it holds anything else, as where the program reached the model.
+    pub fn refusal(&self) -> Option<Begin> {
+        let result = self.result.as_ref().filter(|_| self.lines == 1)?;
+        let result = Result::deserialize(result).ok().filter(|result| result.is_error)?;
+        let said = result.said();
+        [Begin::New, Begin::Resume]
+            .into_iter()
+            .find(|begin| begin.refused(&said))
     }
 
     /// Whether the stream gave a result.
@@ -744,11 +774,7 @@ impl Stream {
             };
         }
         // What it says goes back to the agent where the return is sent back: its quote of the attempt is left out.
-        let said = (result.result.iter().chain(&result.errors))
-            .map(|said| without_quote(said))
-            .filter(|said| !said.is_empty())
-            .collect::<Vec<_>>()
-            .join("; ");
+        let said = result.said();
         let why = match result.subtype.as_deref() {
             Some(subtype) if subtype != "success" => {
                 format!("the command line's result is an error ({subtype}): {said}")
@@ -1717,6 +1743,57 @@ mod tests {
         assert!(!Begin::New.refused(not_found));
         assert!(Begin::Resume.refused(not_found));
         assert_eq!(Begin::New.other(), Begin::Resume);
+    }
+
+    // The command line refuses a session on its standard error with nothing on its standard output, or, as version
+    // 2.1.327 does, in a result like the one a real round kept, which is the one line it prints. A stream that holds
+    // anything besides that result is no refusal. Well under a second alone; no other test reads a refusal from a
+    // stream.
+    #[test]
+    fn a_session_refused_on_the_standard_error_or_in_a_result_alone_is_tried_the_other_way() {
+        let id = "6a1f3c2e-8d4b-4e7a-9c5f-2b8e1d0a7f43";
+        let not_found = format!("No conversation found with session ID: {id}");
+        let in_use = format!("Error: Session ID {id} is already in use.");
+        let stream = |lines: &[String]| {
+            let mut stream = Stream::default();
+            for line in lines {
+                stream.line(line.as_bytes());
+            }
+            stream
+        };
+        let failed = |is_error: bool, said: &str| {
+            let usage = json!({ "input_tokens": 0, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0,
+                "output_tokens": 0 });
+            json!({ "type": "result", "subtype": "error_during_execution", "duration_ms": 0, "is_error": is_error,
+                "num_turns": 0, "session_id": id, "total_cost_usd": 0, "usage": usage, "errors": [said] })
+            .to_string()
+        };
+
+        let empty = stream(&[]);
+        assert!(empty.refused(Begin::Resume, &not_found));
+        assert!(empty.refused(Begin::New, &in_use));
+        assert!(!empty.refused(Begin::New, &not_found));
+        assert!(!empty.refused(Begin::Resume, "Prompt is too long"));
+
+        let lost = stream(&[failed(true, &not_found)]);
+        assert_eq!(lost.refusal(), Some(Begin::Resume));
+        assert!(lost.refused(Begin::Resume, ""));
+        assert!(!lost.refused(Begin::New, ""));
+        let taken = stream(&[failed(true, &in_use)]);
+        assert_eq!(taken.refusal(), Some(Begin::New));
+        assert!(taken.refused(Begin::New, ""));
+        assert!(!taken.refused(Begin::Resume, ""));
+
+        let init = json!({ "type": "system", "subtype": "init", "claude_code_version": "2.1.327" }).to_string();
+        for not in [
+            stream(&[failed(true, "Prompt is too long")]),
+            stream(&[failed(false, &not_found)]),
+            stream(&[init.clone(), failed(true, &not_found)]),
+            stream(&[failed(true, &not_found), init]),
+        ] {
+            assert_eq!(not.refusal(), None);
+            assert!(!not.refused(Begin::Resume, &not_found));
+        }
     }
 
     #[test]
