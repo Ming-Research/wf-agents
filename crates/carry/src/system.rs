@@ -11,11 +11,12 @@
 //! session only as a new one (principle one-form-of-return-for-a-session). So a line begins a new session at its next
 //! round where its session began with another system prompt or form than a new one would begin with now, or where a
 //! new one cannot be made ([`changed`]; decision `a-changed-system-prompt-or-form-begins-a-new-session`). A file of
-//! the project is never read through a symbolic link ([`read_within`]). The engine fills three places of the texts
+//! the project is never read through a symbolic link ([`read_within`]). The engine fills four places of the texts
 //! ([`Filling`]): `{your_line}`, what the line may do in the worktree
 //! ([`Permissions::told`](crate::permissions::Permissions::told)); `{store}`, what the engine's records
-//! hold, as [`crate::store`] gives it; and `{named_checks}`, the checks an agent may name to
-//! `run_tests`, in the words its file gives for how the installation runs the project's CI. Each setting the texts name, but in a file of the project, is given with
+//! hold, as [`crate::store`] gives it; `{named_checks}`, the checks an agent may name to
+//! `run_tests`, in the words its file gives for how the installation runs the project's CI; and `{measure}`, what that
+//! tool says of naming measurements, where the project declares a workflow that times them. Each setting the texts name, but in a file of the project, is given with
 //! its value beside it: the project's from its `project.toml`, and the installation's that `agents/installation.toml`
 //! names, from these settings ([`named`]); so is each setting a message names, in the cell's task, in what the cell
 //! does when a datum it watches is new, and in the words of what the cell returns (crate `context`), with these
@@ -126,6 +127,8 @@ pub struct Filling {
     pub named: flow::system::Settings,
     /// What fills `{named_checks}`; none where no tool's file gives words for how the installation runs its CI.
     pub named_checks: Option<String>,
+    /// What fills `{measure}`; none where no tool's file gives words for it.
+    pub measure: Option<String>,
     /// What fills `{store}`: what the schema's comments say of the store where the settings open it to the agents, and
     /// the tool's file's words that it is not open where they do not ([`crate::store`]).
     pub store: String,
@@ -134,11 +137,15 @@ pub struct Filling {
 /// The place of a tool's words that says which checks an agent may name.
 const NAMED_CHECKS: &str = "named_checks";
 
+/// The place of a tool's words that says an agent may name measurements, where the project has a workflow that times them.
+const MEASURE: &str = "measure";
+
 /// What the engine puts into the texts, as these settings and the files beside the flows say. `{named_checks}` is
 /// filled with the words its tool's file gives for how the installation runs the project's CI, as the host takes a
 /// check named: by the project's fast workflow alone (`ci.fast` of its declaration), and only one it runs by name
 /// (`checks`), each between backticks for `{checks}` in `named`, or `none_named` where it runs none by name; where the
-/// project declares no workflows, nothing is run, `whole`.
+/// project declares no workflows, nothing is run, `whole`. `{measure}` is filled with `declared` of its tool's file's words
+/// where the project declares a measure workflow (`ci.measure`), and with `none` where it does not.
 pub fn filling(settings: &Settings, beside: &Agents) -> Filling {
     let ways = beside.tools.values().find_map(|tool| tool.places.get(NAMED_CHECKS));
     let fast = beside.project.ci.as_ref().map(|ci| &ci.fast);
@@ -150,23 +157,29 @@ pub fn filling(settings: &Settings, beside: &Agents) -> Filling {
         Some(_) => ways.get("none_named").cloned(),
         None => ways.get("whole").cloned(),
     });
+    let measures = beside.project.ci.as_ref().is_some_and(|ci| ci.measure.is_some());
+    let measure = (beside.tools.values())
+        .find_map(|tool| tool.places.get(MEASURE))
+        .and_then(|ways| ways.get(if measures { "declared" } else { "none" }).cloned());
     // Settings that cannot open the store are refused as the carriers are made, before any prompt is.
     let store = crate::store(settings, beside).unwrap_or_default();
     Filling {
         named: named(settings, beside),
         named_checks,
+        measure,
         store,
     }
 }
 
 /// What fills each place of the texts the engine fills, by its name, for a line whose agents are told `your_line` of
 /// what they may do in the worktree: `your_line`, that; `store`, what the engine's records hold, as `filling` has it;
-/// `named_checks`, as `filling` has it. None for any other.
+/// `named_checks` and `measure`, as `filling` has them. None for any other.
 fn filled(name: &str, your_line: &str, filling: &Filling) -> Option<String> {
     match name {
         "your_line" => Some(your_line.to_string()),
         "store" => Some(filling.store.clone()),
         NAMED_CHECKS => filling.named_checks.clone(),
+        MEASURE => filling.measure.clone(),
         _ => None,
     }
 }
@@ -240,6 +253,15 @@ pub fn faults(settings: &Settings, beside: &Agents, flow: &Compiled) -> Vec<Stri
                 crate::head::HEAD
             ));
         }
+    }
+    // The words name how a measurement is named, as the project's own setting says: a project with a measure workflow
+    // that gives none would send its agents the bare name of a setting.
+    let measures = beside.project.ci.as_ref().is_some_and(|ci| ci.measure.is_some());
+    if measures && !beside.project.project.contains_key("measure_names") {
+        add(format!(
+            "{}: declares [ci.measure] and gives no `measure_names` in [project], which the words of run_tests name",
+            flow::agents::DECLARATION
+        ));
     }
     // The flow's texts a message sends, and the words of what a cell returns, which a message gives each setting they
     // name with its value as the system prompt does.

@@ -1,14 +1,15 @@
 // The observations: what agents came across beyond their works, each a text of a return its run kept as it finished,
 // and what an architect added, the newest first. A row is the text, cut to three lines and whole on pointing at it,
-// with where it came from on the line under it: its number, and for one a run kept the work's run and round, which opens the
-// work with that run chosen, the cell and the item, or for one an architect added the project that reported it, and
-// when it was kept. One the owner has not read is marked, and has the button that marks it read; one read is muted and
-// says when. The list is read again on each change the stream tells of, since a run that finishes keeps the
-// observations of its return and an architect adds and changes them, and whenever the stream of changes opens again; a
-// read that fails keeps the list as it was and says so.
+// the number of an item in it a link to the item (`itemNumbers.tsx`), with where it came from on the line under it: its
+// number, and for one a run kept the work's run and round, which opens the work with that run chosen, the cell and the
+// item, or for one an architect added the project that reported it, and when it was kept. One the owner has not read
+// is marked, and has the button that marks it read; one read is muted and says when. The list is read again on each
+// change the stream tells of, since a run that finishes keeps the observations of its return and an architect adds and
+// changes them, and whenever the stream of changes opens again; a read that fails keeps the list as it was and says so.
 
 import { useCallback, useState } from 'react';
 
+import { linkItemNumbers, useItemTitles } from '../itemNumbers';
 import { Legend, UnreadMark } from '../marks';
 import { usesFixtures } from '../mock-data';
 import {
@@ -129,12 +130,13 @@ export function ObservationsList({ page, failed = null, source, onRead }: {
 /// read, or when it was read.
 function Row({ o, sending, onMarkRead }: { o: Observation; sending: boolean; onMarkRead: () => void }) {
   const unread = o.read === null;
+  const titles = useItemTitles();
   return (
     <li className={unread ? 'observation' : 'observation observation-read'} data-observation={o.number}>
       <span className="observation-mark">{unread && <UnreadMark />}</span>
       <div className="observation-body">
         <p className="observation-text" title={o.text}>
-          {o.text}
+          {linkItemNumbers(o.text, titles)}
         </p>
         <p className="observation-facts">
           <span className="mono">O{o.number}</span>

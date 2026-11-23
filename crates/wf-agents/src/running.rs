@@ -666,7 +666,9 @@ mod tests {
     // Every project's faults are said at once, each with its project's key: a declaration main does not hold, or one
     // that names no heavy commands, does not keep the others from being looked at; two projects that name one
     // repository are refused, and so is a lock command of the settings that a project's heavy command falls under
-    // whole. A lock command that falls under what every agent is refused is no project's fault, and is said once.
+    // whole; so is a variable a declaration names that the engine, the settings or the agents' program own, and a time
+    // limit of its workflows that is no time. A lock command that falls under what every agent is refused is no project's
+    // fault, and is said once.
     #[test]
     fn every_projects_fault_is_said_at_once_with_its_key_and_one_of_no_project_once() {
         let dir = tempfile::tempdir().expect("a directory");
@@ -699,7 +701,50 @@ mod tests {
         std::fs::write(lacking.join(flow::agents::DECLARATION), unheavy).unwrap();
         git(&lacking, &["add", "."]);
         git(&lacking, &[&who[..], &["commit", "-q", "-m", "Declared"][..]].concat());
-        for (name, repo) in [("other", other), ("lacking", lacking)] {
+        // The same declaration naming, for the agents' command line, a variable the engine owns, one the agents'
+        // program reads itself and one the settings keep of the engine's environment.
+        settings.agents.env = vec!["LANGUAGE".to_string()];
+        let unsafe_repo = dir.path().join("unsafe");
+        std::fs::create_dir_all(unsafe_repo.join("flow")).unwrap();
+        std::fs::create_dir_all(unsafe_repo.join("design")).unwrap();
+        for path in ["AGENTS.md", "design/constitution.md", "design/README.md"] {
+            std::fs::write(unsafe_repo.join(path), "Some text.\n").unwrap();
+        }
+        git(&unsafe_repo, &["init", "-q", "-b", "main"]);
+        let (_, kept) = declared
+            .split_once("\n[environment]\n")
+            .expect("the declaration names its environment");
+        let named = declared.replace(
+            kept,
+            "PATH = \"/elsewhere\"\nANTHROPIC_BASE_URL = \"https://example.com\"\nLANGUAGE = \"en\"\n",
+        );
+        std::fs::write(unsafe_repo.join(flow::agents::DECLARATION), named).unwrap();
+        git(&unsafe_repo, &["add", "."]);
+        git(
+            &unsafe_repo,
+            &[&who[..], &["commit", "-q", "-m", "Declared"][..]].concat(),
+        );
+        // The same declaration whose workflows' time limits are no times.
+        let untimed = dir.path().join("untimed");
+        std::fs::create_dir_all(untimed.join("flow")).unwrap();
+        std::fs::create_dir_all(untimed.join("design")).unwrap();
+        for path in ["AGENTS.md", "design/constitution.md", "design/README.md"] {
+            std::fs::write(untimed.join(path), "Some text.\n").unwrap();
+        }
+        git(&untimed, &["init", "-q", "-b", "main"]);
+        let slow = declared
+            .replace("too_long = \"2h\"", "too_long = \"two hours\"")
+            .replace("too_long = \"30m\"", "too_long = \"30\"");
+        assert_ne!(slow, declared, "the declaration names the limits that are replaced");
+        std::fs::write(untimed.join(flow::agents::DECLARATION), slow).unwrap();
+        git(&untimed, &["add", "."]);
+        git(&untimed, &[&who[..], &["commit", "-q", "-m", "Declared"][..]].concat());
+        for (name, repo) in [
+            ("other", other),
+            ("lacking", lacking),
+            ("unsafe", unsafe_repo),
+            ("untimed", untimed),
+        ] {
             let mut project = example.clone();
             project.repo = repo;
             settings.projects.insert(name.to_string(), project);
@@ -709,7 +754,7 @@ mod tests {
         let faults = start_faults(&settings, &beside, &[engineer()]);
         let cargo = "agents.permissions.locks: \"cargo\" would allow all of the heavy command \"cargo\" \
                      (flow/project.toml [heavy])";
-        assert_eq!(faults.len(), 6, "{faults:?}");
+        assert_eq!(faults.len(), 13, "{faults:?}");
         assert_eq!(
             faults[0],
             "agents.permissions.locks: \"git push\" falls under \"git push\", which every agent is refused \
@@ -733,6 +778,31 @@ mod tests {
             "{faults:?}"
         );
         assert_eq!(faults[5], format!("projects.same: {cargo}"));
+        assert_eq!(faults[6], format!("projects.unsafe: {cargo}"));
+        assert_eq!(
+            faults[7],
+            "projects.unsafe: flow/project.toml [environment]: ANTHROPIC_BASE_URL is read by the agents' program \
+             itself, which it would change in a round beside what the records name"
+        );
+        assert_eq!(
+            faults[8],
+            "projects.unsafe: flow/project.toml [environment]: LANGUAGE is one the installation's agents.env keeps of \
+             the engine's environment, which a declared value would override"
+        );
+        assert_eq!(
+            faults[9],
+            "projects.unsafe: flow/project.toml [environment]: PATH is the engine's own, which it gives every round \
+             itself"
+        );
+        assert_eq!(faults[10], format!("projects.untimed: {cargo}"));
+        assert_eq!(
+            faults[11],
+            "projects.untimed: flow/project.toml [ci.full]: too_long: \"two hours\" is no time such as 90m or 2h"
+        );
+        assert_eq!(
+            faults[12],
+            "projects.untimed: flow/project.toml [ci.measure]: too_long: \"30\" is no time such as 90m or 2h"
+        );
     }
 
     // The flows given are beside one directory, whose files every flow shares; flows from two are refused.
