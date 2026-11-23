@@ -1,4 +1,4 @@
-# What a line's session begins with: its system prompt, these parts in this order (design statement 24). The program
+# What a line's session begins with: its system prompt, these parts in this order. The program
 # takes it once, as the session begins, and keeps it: a change of a part reaches a session only when it is reopened.
 #
 # A part is one of: `project`, a file of the project that `../project.toml` names, read from the work's worktree as the

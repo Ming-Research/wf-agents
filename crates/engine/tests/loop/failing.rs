@@ -156,3 +156,76 @@ fn failed_rounds_count_against_no_limit() {
         vec![(write, Call::AtLimit(Limit::Returns { sent_back: 2 }))]
     );
 }
+
+/// What a return that asks for a person, and hands in a block beside, comes to: the engine takes it as a round that
+/// failed, so what it hands in is not written. (Reference: the engine's own rule in `take` that the return of a run that
+/// no carrier can mend is a failed round, and that a failed round keeps nothing of what came back.)
+fn asking_for_a_person_and_handing_in() -> Came {
+    Came {
+        asks: vec![question(Who::Owner)],
+        ..hands_in(&[("text", None)])
+    }
+}
+
+#[test]
+fn a_return_that_asks_for_a_person_hands_nothing_in_and_keeps_what_the_round_took() {
+    let (mut w, write, _) = W::requested();
+    let written = w.work.records.written.len();
+    assert_eq!(
+        w.returns_spending(write, asking_for_a_person_and_handing_in(), spent(7)),
+        vec![]
+    );
+    // The block it handed in is not written, no run finished and no call was made.
+    assert_eq!(w.work.records.written.len(), written);
+    assert!(w.work.records.finished.is_empty());
+    assert!(w.work.records.called.is_empty());
+    assert_eq!(w.work.spent.get(&(write, 1)), Some(&spent(7)));
+    assert!(matches!(
+        w.work.back.get(&(write, 1)),
+        Some(Back::Failed {
+            failure: Failure::Other,
+            ..
+        })
+    ));
+    assert!(decide::paused(&w.work.records));
+}
+
+#[test]
+fn a_return_that_asks_for_a_person_after_its_work_was_cancelled_ends_and_pauses_nothing_as_a_failure_does() {
+    let (mut w, write, _) = W::requested();
+    assert_eq!(w.on(Event::Cancelled { why: None }), vec![Effect::Stop { run: write }]);
+    let release = vec![Effect::Release { end: End::Cancelled }];
+    assert_eq!(
+        w.returns_spending(write, asking_for_a_person_and_handing_in(), spent(1)),
+        release
+    );
+    assert!(!decide::paused(&w.work.records));
+    // What came back is dropped, as what comes back from a stopped round is; what it took is kept.
+    assert_eq!(w.work.back.get(&(write, 1)), None);
+    assert_eq!(w.work.spent.get(&(write, 1)), Some(&spent(1)));
+    assert!(w.work.records.called.is_empty());
+    assert_eq!(w.decision(), Decision::Ended(End::Cancelled));
+}
+
+#[test]
+fn a_return_that_asks_for_a_person_from_a_run_with_no_round_under_way_is_refused_leaving_the_work_as_it_was() {
+    let (mut w, write, _) = W::requested();
+    assert_eq!(
+        w.refused(Event::Returned {
+            run: RunId(99),
+            came: Came::asks(vec![question(Who::Owner)]),
+            spent: spent(1),
+        }),
+        Refused::NoRoundUnderWay(RunId(99))
+    );
+    // The round that failed has ended: a second return of it is refused as any return of an ended round is.
+    w.returns(write, Came::asks(vec![question(Who::Owner)]));
+    assert_eq!(
+        w.refused(Event::Returned {
+            run: write,
+            came: Came::asks(vec![question(Who::Owner)]),
+            spent: spent(1),
+        }),
+        Refused::NoRoundUnderWay(write)
+    );
+}

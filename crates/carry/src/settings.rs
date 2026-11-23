@@ -394,7 +394,7 @@ fn user() -> String {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Subagents {
-    /// How many at most in one round; 3 where none is given, as the engine on `old-main` had it.
+    /// How many at most in one round; 3 where none is given.
     #[serde(default = "most_subagents")]
     pub most: u32,
 }
@@ -1690,7 +1690,7 @@ mod tests {
         assert!(refused.contains("the repository of the project other"), "{refused}");
     }
 
-    // The subagents an agent may start are three where the settings give none, as on `old-main`, or as they say.
+    // The subagents an agent may start are three where the settings give none, or as they say.
     #[test]
     fn the_subagents_are_three_where_the_settings_give_none() {
         let settings = Settings::read(SAMPLE).unwrap();

@@ -171,6 +171,11 @@ jobs:
       # The tests of that check, each on a small tree of its own: they need no build either.
       - name: Test the design tree's check
         run: python3 design/lint_test.py
+      # Every citation of a paragraph of a document in docs/ against that document: it needs no build either.
+      - name: Citations of the documents
+        run: python3 docs/check_citations.py
+      - name: Test the citations' check
+        run: python3 docs/check_citations_test.py
       # The page is built into the binary (crates/web/build.rs), so it is built before anything compiles that crate. Its
       # build of the files as they are is kept for every runner of the machine (as fast.yml keeps it), and its
       # dependencies are installed only when their lock changed.
