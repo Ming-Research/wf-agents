@@ -1,7 +1,7 @@
 // The console's search, which shows only while it is used: `/` opens it over the middle of the console's top, where
 // what it finds has room under it. It finds an item by its number or a part of its title, over every item, open, done
-// or cancelled (`findItems`), and lists what it finds, each row the item's number, its title and how it stands; while it
-// finds any, the tree lights them and dims the rest, as it does round the item under the pointer. The arrow keys or the
+// or cancelled (`findItems`), and lists what it finds, each row the item's number, its title and how it stands. While it
+// is open the tree is dimmed, but for what it finds, lit as round the item under the pointer. The arrow keys or the
 // pointer move in the list, which changes nothing in the tree, and Enter or a click picks the row they stand on, which
 // the console then shows. A pick, Escape, or a press anywhere else closes it. What is typed and not yet picked is kept in the browser, and shows again
 // the next time it opens (principle typed-words-are-kept); a pick or Escape empties it.
@@ -32,8 +32,8 @@ export function Find({ data, onPick, onClose, onFound }: {
   onPick: (id: number) => void;
   /// Told that the search is to close: at a pick, at Escape, and when the keys go anywhere else.
   onClose: () => void;
-  /// Told the numbers of the items found as they change, and none as the search closes.
-  onFound: (ids: number[]) => void;
+  /// Told the numbers of the items found as they change, from none as it opens, and that it is closed as it closes.
+  onFound: (ids: number[] | null) => void;
 }) {
   const [query, setQuery] = useState(() => read(KEPT) ?? '');
   // The row of the list the arrow keys stand on.
@@ -45,7 +45,7 @@ export function Find({ data, onPick, onClose, onFound }: {
     tell.current = { onFound };
   });
   useEffect(() => tell.current.onFound(found.map((i) => i.number)), [found]);
-  useEffect(() => () => tell.current.onFound([]), []);
+  useEffect(() => () => tell.current.onFound(null), []);
   const type = (q: string) => {
     setQuery(q);
     setAt(0);

@@ -102,8 +102,8 @@ A click on the item's title in its window brings the item into view and flashes 
 - replaced: Finding an item by its path from its root, as 26-27, was on main; the owner changed it, because with the search he needs no path.
 
 ### decision what-the-search-finds-is-lit-in-the-tree
-While the search finds items, the tree lights them and dims the rest, as round the item under the pointer; the row the keys or the pointer stand on moves nothing in the tree.
-- replaced: The tree left as it was while the search was open was on main; the owner changed it, because he wanted what the search finds to stand out in the tree as the item under the pointer does.
+While the search is open the tree is dimmed, as round the item under the pointer, but for the items it finds; the row the keys or the pointer stand on moves nothing in the tree.
+- replaced: The tree left as it was while the search was open was on main; the owner changed it, because he wanted the tree to dim as the search opens, as Spotlight does, and what it finds to stand out as the item under the pointer does.
 - rejected: the owner proposed that the row the keys or the pointer stand on bring its item into view; the owner rejected it, because a key pressed or a pointer passing by mistake moves the tree away from what he looks at.
 - replaced: Finding an item only by scrolling the tree was on main; the owner changed it, because once many items were imported he could not find one he looked for.
 

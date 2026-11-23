@@ -552,11 +552,16 @@ export function linksStrength(dim: number): number {
 }
 
 /// How strong each of the dashed `ways` is to be drawn, by the item whose link up it is: every one at full strength
-/// while nothing is `lit`; while something is, one whose two ends are both lit at full strength, and the others as dim
-/// as the links once the items are dimmed.
-export function wayAims(ways: Iterable<number>, parent: ArrayLike<number>, lit: Set<number>): Map<number, number> {
+/// while the tree is not `dimming`, as while nothing is `lit`; while it is, as while something is lit or the search is
+/// open, one whose two ends are both lit at full strength, and the others as dim as the links once the items are dimmed.
+export function wayAims(
+  ways: Iterable<number>,
+  parent: ArrayLike<number>,
+  lit: Set<number>,
+  dimming = lit.size > 0,
+): Map<number, number> {
   const aims = new Map<number, number>();
-  for (const i of ways) aims.set(i, lit.size === 0 || (lit.has(i) && lit.has(parent[i])) ? 1 : linksStrength(DIM));
+  for (const i of ways) aims.set(i, !dimming || (lit.has(i) && lit.has(parent[i])) ? 1 : linksStrength(DIM));
   return aims;
 }
 
@@ -1249,9 +1254,9 @@ export class SnapScene {
   private dim = 1;
   /// The items in focus: the one the pointer last rested on with what joins it, kept while the pointer moves on.
   private inFocus = new Set<number>();
-  /// The items the console's search finds while it is open, by number: lit as the items in focus are, so that the
-  /// others are dimmed; none while it is closed or finds nothing.
-  private found: number[] = [];
+  /// While the console's search is open, the items it finds, by number: lit as the items in focus are, every other
+  /// item dimmed, all of them while it finds nothing; none while it is closed.
+  private found: number[] | null = null;
   /// The item the pointer was over at the last frame, and since when it has been over it (or over none).
   private hoverWas = -1;
   private hoverAt = 0;
@@ -2918,9 +2923,9 @@ export class SnapScene {
     this.dirty.add(why);
   }
 
-  /// Lights the items numbered `ids`, which the console's search finds, and dims the others, as the items in focus
-  /// do; none lights nothing.
-  find(ids: number[]): void {
+  /// Lights the items numbered `ids`, which the console's search finds while it is open, and dims every other, as
+  /// the items in focus do; none, while the search is closed, lights and dims nothing.
+  find(ids: number[] | null): void {
     this.mark('find');
     this.found = ids;
   }
@@ -3170,9 +3175,12 @@ export class SnapScene {
     if (this.under >= 0 && rested > DWELL_ON) this.inFocus = chain;
     else if (this.under < 0 && rested > DWELL_OFF) this.inFocus = new Set();
     const focus = this.inFocus;
-    // The items the search finds, while it is open, lit as the items in focus are.
-    const finding = new Set(this.found.flatMap((id) => (this.real.has(id) ? [this.real.get(id) as number] : [])));
-    const aim = focus.size > 0 || chosen.size > 0 || finding.size > 0 ? DIM : 1;
+    // While the search is open, every item is dimmed but those it finds, lit as the items in focus are.
+    const searching = this.found !== null;
+    const finding = new Set(
+      (this.found ?? []).flatMap((id) => (this.real.has(id) ? [this.real.get(id) as number] : [])),
+    );
+    const aim = focus.size > 0 || chosen.size > 0 || searching ? DIM : 1;
     this.dim = eased(this.dim, aim, step);
     if (this.dim !== aim) easing = true;
     for (const i of drawn) {
@@ -3190,7 +3198,7 @@ export class SnapScene {
     // Where a way's strength eases, or a dot's changes, what stands of the ways is built again at it. A root's dot is
     // as strong as the ways from it are lit; another's as the way into its item.
     let strengthened = false;
-    for (const [i, to] of wayAims(this.runWays, t.parent, shining)) {
+    for (const [i, to] of wayAims(this.runWays, t.parent, shining, aim !== 1)) {
       const had = this.runStrength.get(i);
       const now = eased(had ?? to, to, step);
       if (now !== had) strengthened = true;
@@ -3199,7 +3207,7 @@ export class SnapScene {
     const dotStrength = (k: number) =>
       t.parent[k] >= 0
         ? (this.runStrength.get(k) ?? 1)
-        : shining.size === 0 || shining.has(k)
+        : aim === 1 || shining.has(k)
           ? 1
           : linksStrength(this.dim);
     const dotsNow = this.litDots.map(dotStrength);

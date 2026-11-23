@@ -1148,15 +1148,18 @@ describe('the console page', () => {
     await expect.poll(() => field()?.value).toBe('');
   });
 
-  it('lights the items it finds and dims the rest while it is open, as round the item under the pointer, and lets the pointer choose a row', async () => {
+  it('dims the tree while it is open, lighting what it finds as round the item under the pointer, and lets the pointer choose a row', async () => {
     const scene = await drawn();
     const near = (id: number, to: number) => Math.abs((scene.brightness(id) ?? -1) - to);
+    // Open, with nothing typed, every item dims.
     await userEvent.keyboard('/');
+    await expect.poll(() => near(1, DIM)).toBeLessThan(0.01);
+    expect(near(26, DIM)).toBeLessThan(0.01);
     await userEvent.fill(field() as HTMLInputElement, 'Fold the items under');
     await expect.poll(found).toEqual(['#26']);
-    // Item 26, found, stays bright; item 1, drawn and not found, dims.
-    await expect.poll(() => near(1, DIM)).toBeLessThan(0.01);
-    expect(near(26, 1)).toBeLessThan(0.01);
+    // Item 26, found, lights up; item 1, drawn and not found, stays dimmed.
+    await expect.poll(() => near(26, 1)).toBeLessThan(0.01);
+    expect(near(1, DIM)).toBeLessThan(0.01);
     // The pointer chooses the row it is over, as the arrow keys do.
     await userEvent.fill(field() as HTMLInputElement, 'fold');
     await expect.poll(found).toEqual(['#26', '#27', '#30', '#31']);
@@ -1165,10 +1168,11 @@ describe('the console page', () => {
     await expect
       .poll(() => rows().map((r) => r.getAttribute('aria-selected')))
       .toEqual(['false', 'false', 'true', 'false']);
-    // Closed, it lights nothing any more.
+    // Closed, it dims nothing any more.
     await userEvent.keyboard('{Escape}');
     await expect.poll(field).toBeNull();
     await expect.poll(() => near(1, 1)).toBeLessThan(0.01);
+    expect(near(26, 1)).toBeLessThan(0.01);
   });
 
   it('opens the folds over an item it picks, ticking the box of its kind where it was not, and selects it', async () => {
