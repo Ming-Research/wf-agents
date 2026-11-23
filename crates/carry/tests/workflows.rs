@@ -1,5 +1,5 @@
 //! The repository's two CI workflows as the engine relies on them. The engine runs the workflows the project declares
-//! (`ci` in flow/project.toml) by hand on the commit it gives, finds its own run by the value it gives (`call`) in the
+//! (`ci` in wf-agents.toml) by hand on the commit it gives, finds its own run by the value it gives (`call`) in the
 //! run's name, and judges a run by the conclusions of its jobs and by the JUnit of its tests in the artifact
 //! `test-results`; so a job renamed, or added to the wrong workflow, or a trigger changed, or JUnit left out, changes
 //! what a green run means. GitHub is the reference for the workflow syntax; the comments at the head of each workflow

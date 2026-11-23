@@ -561,7 +561,7 @@ async fn a_run_no_runner_took_is_given_up_as_never_started() {
 // complete said so, and no test's result known.
 #[tokio::test]
 async fn a_run_past_its_time_is_cancelled_and_said_with_its_jobs_not_complete() {
-    let hub = Hub::new().with(|config| config.timeout = Duration::from_secs(1));
+    let hub = Hub::new().with(|config| config.ci.as_mut().expect("a declaration").fast.too_long = "1s".to_string());
     let head = hub.committed().await;
     hub.github().runs_go_on();
     let jobs = vec![check("lint", Outcome::Pending)];
@@ -639,16 +639,4 @@ async fn what_a_failed_test_said_is_kept_whole() {
     assert!(told.len() > crate::process::TAIL, "{}", told.len());
     assert!(told.contains("line 00 ") && told.contains("line 69 "), "{told}");
     assert!(!told.contains("left out"), "{told}");
-}
-
-#[test]
-fn a_time_is_read_in_seconds_minutes_hours_or_days() {
-    use super::super::fast::span_of;
-    assert_eq!(span_of("30s").unwrap(), Duration::from_secs(30));
-    assert_eq!(span_of("90m").unwrap(), Duration::from_secs(5400));
-    assert_eq!(span_of("2h").unwrap(), Duration::from_secs(7200));
-    assert_eq!(span_of("1d").unwrap(), Duration::from_secs(86_400));
-    for wrong in ["", "h", "2", "2 weeks", "-1h"] {
-        assert!(span_of(wrong).is_err(), "{wrong:?}");
-    }
 }

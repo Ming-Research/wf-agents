@@ -94,7 +94,7 @@ not_apart = "The tests and checks you named are not run separately: the whole co
 no_commit = "Nothing was run: the check runs on your worktree as it is, so no commit can be named. Ask again with none."
 
 # What fills `{named_checks}`, the checks an agent may name, as the project declares its fast workflow (`[ci.fast]` of
-# flow/project.toml): `named`, `{checks}` the checks it runs by name, each between backticks and joined by commas;
+# its declaration): `named`, `{checks}` the checks it runs by name, each between backticks and joined by commas;
 # `none_named`, where it runs none by name; `whole`, where the project declares no workflows, so that nothing is run.
 [places.named_checks]
 named = "{checks}"

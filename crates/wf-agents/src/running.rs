@@ -129,7 +129,8 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
             Read::Settings(settings, _) => Projects::new(settings.projects.keys().cloned()),
         };
         // The checkout of the project whose repository holds the flows shown, for what the page shows an agent is sent,
-        // the declaration beside the flows being that project's; none where no project's does, as with a script.
+        // its declaration (`wf-agents.toml`) and its files being read there; none where no project's does, as with a
+        // script.
         let project = match &with {
             Read::Script(_) => None,
             Read::Settings(settings, _) => holding(settings, shown),
@@ -163,7 +164,7 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
                         return ExitCode::FAILURE;
                     }
                 }
-                match carry::carry(*settings, data, *beside) {
+                match carry::carry(*settings, data, *beside, &flows) {
                     Ok((carriers, watches)) => (carriers, watches),
                     Err(why) => {
                         eprintln!("The carriers cannot be made: {why}");
@@ -453,13 +454,15 @@ fn read(data: &Path, dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>, Re
             (Ok(settings), Ok(beside)) => {
                 // What the real acts need of a flow and of their words, checked once the flows compiled; what the
                 // system prompts of its lines are made of, its texts' settings with their values and its places
-                // filled; and the project's files every system prompt holds.
-                for fault in start_faults(&settings, &beside, &flows) {
+                // filled. A project whose declaration cannot be used is no fault of the engine's: it is held, and each
+                // is said here.
+                let start = start(&settings, &beside, &flows);
+                for fault in start.faults {
                     eprintln!("{fault}");
                     wrong = true;
                 }
-                for warning in settings.warnings() {
-                    eprintln!("{warning}");
+                for held in start.held {
+                    eprintln!("{held}");
                 }
                 Some(Read::Settings(Box::new(settings), Box::new(beside)))
             }
@@ -477,48 +480,41 @@ fn read(data: &Path, dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>, Re
     }
 }
 
+/// What the start finds wrong with what carries the works out, and what it holds back.
+struct Start {
+    /// What keeps the engine from starting, every fault at once.
+    faults: Vec<String>,
+    /// What keeps a project's works from being carried out, each said with the project's key: the project is held, its
+    /// works are paused with the reason, and the other projects go on.
+    held: Vec<String>,
+}
+
 /// What keeps the real carriers from carrying out the flows, every fault at once: what the acts need of a flow and of
-/// their words beside the flows; what every agent is refused whatever its project, beside the flows, and the lock
-/// commands of the settings against it ([`carry::permissions::faults`]), the same for every project and said once; what
-/// the texts sent to the agents name and hold ([`carry::system::faults`]); and of each project, its declaration on its
-/// main, its heavy commands and the lock commands against them, and its files every system prompt holds there, where
-/// works branch from ([`carry::system::project_files`]), and two projects in one repository, each said with the
-/// projects' keys. The texts are the flows', the same for every project but for what a project's declaration gives
-/// them: a fault every project's texts have is said once, and one only some have is said with their keys.
-fn start_faults(settings: &carry::Settings, beside: &flow::agents::Agents, flows: &[Compiled]) -> Vec<String> {
+/// their words beside the flows; what every agent is refused whatever its project, beside the flows
+/// ([`carry::permissions::faults`]), the same for every project and said once; what the texts sent to the agents name
+/// and hold where it is the flows', the same for every project; and two projects in one repository, each said with the
+/// projects' keys. Of each project, what is wrong with its declaration on its main, with the files it names, its heavy
+/// commands and the commands its host needs of it, is no fault of the engine's but holds that project alone
+/// ([`carry::projects::declared`]): each held project is listed with why.
+fn start(settings: &carry::Settings, beside: &flow::agents::Agents, flows: &[Compiled]) -> Start {
     let mut faults: Vec<String> = (flows.iter())
         .flat_map(|flow| carry::faults(flow, &beside.acts.check.values))
         .collect();
     let words = carry::word_faults(&beside.acts.check).into_iter();
     faults.extend(words.map(|fault| format!("{}/{fault}", beside.root.display())));
-    faults.extend(carry::permissions::faults(beside, &settings.agents.permissions));
-    let (declared, wrong) = carry::projects::declared(settings, beside);
+    faults.extend(carry::permissions::faults(beside));
+    let (declared, wrong) = carry::projects::declared(settings, beside, flows);
     faults.extend(wrong);
-    let mut of_texts: Vec<(String, Vec<&str>)> = Vec::new();
-    for (name, project) in &declared {
-        for fault in flows
-            .iter()
-            .flat_map(|flow| carry::system::faults(settings, &project.beside, flow))
-        {
-            match of_texts.iter_mut().find(|(said, _)| *said == fault) {
-                Some((_, names)) => names.push(name.as_str()),
-                None => of_texts.push((fault, vec![name.as_str()])),
-            }
-        }
-    }
-    for (fault, names) in of_texts {
-        if names.len() == declared.len() {
-            faults.push(fault);
-        } else {
-            let keys: Vec<String> = names.iter().map(|name| format!("projects.{name}")).collect();
-            faults.push(format!("{}: {fault}", keys.join(", ")));
-        }
-    }
-    for (name, project) in &declared {
-        let files = carry::system::project_files(&project.settings, &project.beside);
-        faults.extend(files.into_iter().map(|fault| format!("projects.{name}: {fault}")));
-    }
-    faults
+    let held = (declared.iter())
+        .filter_map(|(name, declared)| {
+            let why = declared.as_ref().err()?;
+            Some(format!(
+                "projects.{name}: held, its works are paused until the engine is started with its declaration mended: \
+                 {why}"
+            ))
+        })
+        .collect();
+    Start { faults, held }
 }
 
 /// What is written beside the flows, read from the directory that holds them, with the form of return of each line of
@@ -631,101 +627,217 @@ mod tests {
         );
     }
 
-    /// The sample's settings, on a repository of their own whose main holds the files `project.toml` names.
-    fn settings(dir: &Path) -> carry::Settings {
-        let mut settings = carry::Settings::read(include_str!("../../carry/install.sample.toml")).expect("it reads");
-        let repo = dir.join("repo");
+    /// The repository's own declaration, `wf-agents.toml`, with the command that checks the sample's project appended,
+    /// which is hosted in its local repository.
+    fn declaration() -> String {
+        let text = std::fs::read_to_string(flows().join("../wf-agents.toml")).expect("the declaration is read");
+        format!("{text}\n[local]\ncheck = \"./test.sh\"\n")
+    }
+
+    /// A repository whose main holds the files the declaration names, and the declaration where one is given.
+    fn repository(repo: &Path, declaration: Option<&str>) {
         std::fs::create_dir_all(repo.join("design")).unwrap();
-        git(&repo, &["init", "-q", "-b", "main"]);
+        git(repo, &["init", "-q", "-b", "main"]);
         for (key, value) in [
             ("user.name", "Tester"),
             ("user.email", "tester@example.com"),
             ("commit.gpgsign", "false"),
         ] {
-            git(&repo, &["config", key, value]);
+            git(repo, &["config", key, value]);
         }
         for path in ["AGENTS.md", "design/constitution.md", "design/README.md"] {
             std::fs::write(repo.join(path), "Some text.\n").unwrap();
         }
-        // The project's declaration, the one beside the repository's flows.
-        std::fs::create_dir_all(repo.join("flow")).unwrap();
-        std::fs::copy(flows().join("project.toml"), repo.join(flow::agents::DECLARATION)).unwrap();
-        git(&repo, &["add", "."]);
-        git(&repo, &["commit", "-q", "-m", "Files"]);
+        if let Some(declaration) = declaration {
+            std::fs::write(repo.join(flow::agents::DECLARATION), declaration).unwrap();
+        }
+        git(repo, &["add", "."]);
+        git(repo, &["commit", "-q", "-m", "Files"]);
+    }
+
+    /// The sample installation's settings.
+    const SAMPLE: &str = include_str!("../../carry/install.sample.toml");
+
+    /// The sample's settings, on a repository of their own whose main holds the files its declaration names, and the
+    /// declaration at its root.
+    fn settings(dir: &Path) -> carry::Settings {
+        let mut settings = carry::Settings::read(SAMPLE).expect("it reads");
+        let repo = dir.join("repo");
+        repository(&repo, Some(&declaration()));
         settings.projects.get_mut("example").expect("the sample's project").repo = repo;
         settings
     }
 
-    // Every project's faults are said at once, each with its project's key: a declaration main does not hold, or one
-    // that names no heavy commands, does not keep the others from being looked at; two projects that name one
-    // repository are refused, and so is a lock command of the settings that a project's heavy command falls under
-    // whole. A lock command that falls under what every agent is refused is no project's fault, and is said once.
+    /// The settings with the project `name` added, hosted in its local repository or on GitHub, in a repository of its
+    /// own that holds the declaration where one is given.
+    fn with_project(settings: &mut carry::Settings, dir: &Path, name: &str, declaration: Option<&str>, github: bool) {
+        let mut project = if github {
+            let table = format!(
+                "\n[projects.{name}]\nrepo = \"/the/repository\"\nmain = \"main\"\n\n[projects.{name}.github]\n\
+                 repository = \"owner/{name}\"\n"
+            );
+            carry::Settings::read(&format!("{SAMPLE}{table}"))
+                .expect("it reads")
+                .projects[name]
+                .clone()
+        } else {
+            settings.projects["example"].clone()
+        };
+        project.repo = dir.join(name);
+        repository(&project.repo, declaration);
+        settings.projects.insert(name.to_string(), project);
+    }
+
+    /// The declaration less the tables headed by these lines, each with its keys.
+    fn without(text: &str, headers: &[&str]) -> String {
+        let mut kept = Vec::new();
+        let mut dropping = false;
+        for line in text.lines() {
+            if line.starts_with('[') {
+                dropping = headers.contains(&line.trim_end());
+            }
+            if !dropping {
+                kept.push(line);
+            }
+        }
+        kept.join("\n") + "\n"
+    }
+
+    // A project whose declaration cannot be used is held, and every one is said at once with its project's key and why,
+    // whatever else is wrong: the declaration main does not hold, one that names no heavy commands, and lock commands
+    // that fall under what every agent is refused or that would allow a heavy command whole. None of it keeps the engine
+    // from starting, and the project that is fine is not held. Two projects that name one repository are a fault of the
+    // engine's, which their declarations do not cause, and keep it from starting.
     #[test]
-    fn every_projects_fault_is_said_at_once_with_its_key_and_one_of_no_project_once() {
+    fn a_project_whose_declaration_cannot_be_used_is_held_and_each_is_said_with_its_key_and_why() {
         let dir = tempfile::tempdir().expect("a directory");
         let mut settings = settings(dir.path());
-        settings.agents.permissions.locks = vec!["git push".to_string(), "cargo".to_string()];
-        let example = settings.projects["example"].clone();
-        let who = [
-            "-c",
-            "user.name=Tester",
-            "-c",
-            "user.email=tester@example.com",
-            "-c",
-            "commit.gpgsign=false",
-        ];
-        let other = dir.path().join("other");
-        std::fs::create_dir_all(&other).unwrap();
-        git(&other, &["init", "-q", "-b", "main"]);
-        git(
-            &other,
-            &[&who[..], &["commit", "-q", "--allow-empty", "-m", "Empty"][..]].concat(),
-        );
-        // The repository's own declaration, less its heavy commands.
-        let lacking = dir.path().join("lacking");
-        std::fs::create_dir_all(lacking.join("flow")).unwrap();
-        git(&lacking, &["init", "-q", "-b", "main"]);
-        let declared = std::fs::read_to_string(flows().join("project.toml")).unwrap();
-        let (unheavy, _) = declared
+        let good = declaration();
+        let (unheavy, _) = good
             .split_once("\n[heavy]\n")
             .expect("the declaration names its heavy commands");
-        std::fs::write(lacking.join(flow::agents::DECLARATION), unheavy).unwrap();
-        git(&lacking, &["add", "."]);
-        git(&lacking, &[&who[..], &["commit", "-q", "-m", "Declared"][..]].concat());
-        for (name, repo) in [("other", other), ("lacking", lacking)] {
-            let mut project = example.clone();
-            project.repo = repo;
-            settings.projects.insert(name.to_string(), project);
-        }
-        settings.projects.insert("same".to_string(), example);
+        let locks = good.replace(
+            "locks = [\"cargo update\"",
+            "locks = [\"git push\", \"cargo\", \"cargo update\"",
+        );
+        assert_ne!(locks, good, "the lock commands are written as the test expects");
+        with_project(&mut settings, dir.path(), "other", None, false);
+        with_project(&mut settings, dir.path(), "lacking", Some(unheavy), false);
+        with_project(&mut settings, dir.path(), "locks", Some(&locks), false);
         let beside = beside(&[flows().join("engineer")], &[]).expect("the files beside the flows");
-        let faults = start_faults(&settings, &beside, &[engineer()]);
-        let cargo = "agents.permissions.locks: \"cargo\" would allow all of the heavy command \"cargo\" \
-                     (flow/project.toml [heavy])";
-        assert_eq!(faults.len(), 6, "{faults:?}");
+        let started = start(&settings, &beside, &[engineer()]);
+        assert_eq!(started.faults, Vec::<String>::new(), "no fault of the engine's");
+        assert_eq!(started.held.len(), 3, "{:?}", started.held);
+        let held = |name: &str| {
+            (started.held.iter())
+                .find(|line| line.starts_with(&format!("projects.{name}: held")))
+                .unwrap_or_else(|| panic!("{name} is held: {:?}", started.held))
+        };
+        assert!(
+            held("other").contains("refs/heads/main:wf-agents.toml, the project's declaration on main where works branch from, cannot be read"),
+            "{:?}",
+            started.held
+        );
+        assert!(
+            held("lacking").contains("refs/heads/main:wf-agents.toml: ")
+                && held("lacking").contains("missing field `heavy`"),
+            "{:?}",
+            started.held
+        );
+        let locks = held("locks");
+        assert!(
+            locks.contains(
+                "wf-agents.toml [heavy] locks: \"git push\" falls under \"git push\", which every agent is refused \
+                 (flow/agents/refused.toml)"
+            ) && locks
+                .contains("wf-agents.toml [heavy] locks: \"cargo\" would allow all of the heavy command \"cargo\""),
+            "{locks}"
+        );
+        // Two projects in one repository keep the engine from starting, and neither is held for it.
+        let example = settings.projects["example"].clone();
+        settings.projects.insert("same".to_string(), example);
+        let started = start(&settings, &beside, &[engineer()]);
+        assert_eq!(started.faults.len(), 1, "{:?}", started.faults);
+        assert!(
+            started.faults[0].starts_with("projects.example, projects.same: name one repository, "),
+            "{:?}",
+            started.faults
+        );
+        assert_eq!(started.held.len(), 3, "{:?}", started.held);
+    }
+
+    // The engine starts with its one project held, as with any: the held project's reason is the only thing said.
+    #[test]
+    fn the_engine_starts_with_its_only_project_held_and_says_why() {
+        let dir = tempfile::tempdir().expect("a directory");
+        let mut settings = carry::Settings::read(SAMPLE).expect("it reads");
+        let repo = dir.path().join("repo");
+        repository(&repo, None);
+        settings.projects.get_mut("example").expect("the sample's project").repo = repo;
+        let beside = beside(&[flows().join("engineer")], &[]).expect("the files beside the flows");
+        let started = start(&settings, &beside, &[engineer()]);
+        assert_eq!(started.faults, Vec::<String>::new());
+        assert_eq!(started.held.len(), 1, "{:?}", started.held);
+        assert!(
+            started.held[0].starts_with("projects.example: held"),
+            "{:?}",
+            started.held
+        );
+        assert!(started.held[0].contains("wf-agents.toml"), "{:?}", started.held);
+    }
+
+    // What a project's host needs of its declaration is its declaration's to hold, and the declaration protects itself:
+    // a local repository needs the command that checks it, GitHub how its pull requests are merged, and where the
+    // declaration is not among the paths it protects, a work may change what names the commands the engine runs
+    // without the owner's yes. A GitHub project that declares no workflows is not held, since none are needed until a
+    // test or the check runs.
+    #[test]
+    fn a_declaration_lacking_what_the_projects_host_needs_or_not_protecting_itself_holds_its_project() {
+        let dir = tempfile::tempdir().expect("a directory");
+        let mut settings = settings(dir.path());
+        let good = declaration();
+        let unprotected = good.replace(", \"wf-agents.toml\"]", "]");
+        assert_ne!(unprotected, good, "the declaration lists itself as protected");
+        with_project(
+            &mut settings,
+            dir.path(),
+            "nolocal",
+            Some(&without(&good, &["[local]"])),
+            false,
+        );
+        with_project(
+            &mut settings,
+            dir.path(),
+            "nopull",
+            Some(&without(&good, &["[pull_request]"])),
+            true,
+        );
+        with_project(&mut settings, dir.path(), "unprotected", Some(&unprotected), false);
+        // A GitHub project that declares no workflows is carried.
+        let no_ci = without(&good, &["[ci.fast]", "[ci.full]"]);
+        assert!(!no_ci.contains("[ci."), "{no_ci}");
+        with_project(&mut settings, dir.path(), "noci", Some(&no_ci), true);
+        let beside = beside(&[flows().join("engineer")], &[]).expect("the files beside the flows");
+        let started = start(&settings, &beside, &[engineer()]);
+        assert_eq!(started.faults, Vec::<String>::new());
+        let names: Vec<&str> = started
+            .held
+            .iter()
+            .map(|line| &line[..line.find(": ").unwrap()])
+            .collect();
         assert_eq!(
-            faults[0],
-            "agents.permissions.locks: \"git push\" falls under \"git push\", which every agent is refused \
-             (flow/agents/refused.toml)"
+            names,
+            ["projects.nolocal", "projects.nopull", "projects.unprotected"],
+            "{:?}",
+            started.held
         );
+        assert!(started.held[0].contains("has no [local]"), "{:?}", started.held);
+        assert!(started.held[1].contains("has no [pull_request]"), "{:?}", started.held);
         assert!(
-            faults[1].starts_with("projects.example, projects.same: name one repository, "),
-            "{faults:?}"
+            started.held[2].contains("[protected] paths must hold wf-agents.toml itself"),
+            "{:?}",
+            started.held
         );
-        assert_eq!(faults[2], format!("projects.example: {cargo}"));
-        assert!(
-            faults[3].starts_with("projects.lacking: refs/heads/main:flow/project.toml: ")
-                && faults[3].contains("missing field `heavy`"),
-            "{faults:?}"
-        );
-        assert!(
-            faults[4].starts_with(
-                "projects.other: refs/heads/main:flow/project.toml, the project's declaration on main where works \
-                 branch from, cannot be read: "
-            ),
-            "{faults:?}"
-        );
-        assert_eq!(faults[5], format!("projects.same: {cargo}"));
     }
 
     // The flows given are beside one directory, whose files every flow shares; flows from two are refused.
@@ -743,37 +855,48 @@ mod tests {
     }
 
     // As the engine starts, the sample's installation, on the local repository with no fast CI, carries the engineer's
-    // flow out with nothing wrong; what the texts sent to the agents lack and what main lacks of the project's files are
-    // said together, with what the acts need: here a place no one fills in the heading of the project's files, for every
-    // line, and the tree's rules not on main.
+    // flow out with nothing wrong. What the texts sent to the agents lack is a fault of the flow's, whatever the
+    // project, and keeps the engine from starting, said with what the acts need: here a place no one fills in the
+    // heading of the project's files, for every line. What main lacks of the project's files is the project's: the
+    // tree's rules not on main hold the project, and the flow's faults are said all the same.
     #[test]
-    fn the_start_says_every_fault_of_the_prompts_and_the_projects_files() {
+    fn the_start_says_every_fault_of_the_prompts_and_holds_the_project_that_lacks_a_file() {
         let dir = tempfile::tempdir().expect("a directory");
         let settings = settings(dir.path());
         let mut beside = beside(&[flows().join("engineer")], &[]).expect("the files beside the flows");
         let compiled = [engineer()];
-        assert_eq!(start_faults(&settings, &beside, &compiled), Vec::<String>::new());
+        let started = start(&settings, &beside, &compiled);
+        assert_eq!(
+            (started.faults, started.held),
+            (Vec::<String>::new(), Vec::<String>::new())
+        );
         beside.session.heading = "# `{path}` {where}\n\n{text}".to_string();
         let mut lines: Vec<&str> = compiled[0].cells.iter().filter_map(|c| c.line.as_deref()).collect();
         lines.sort();
         lines.dedup();
-        let faults = start_faults(&settings, &beside, &compiled);
-        assert_eq!(faults.len(), lines.len(), "{faults:?}");
+        let started = start(&settings, &beside, &compiled);
+        assert_eq!(started.faults.len(), lines.len(), "{:?}", started.faults);
         assert!(
-            (faults.iter()).all(|f| f.ends_with("flow/agents/session.toml: the engine fills no place `{where}`")),
-            "{faults:?}"
+            (started.faults.iter())
+                .all(|f| f.ends_with("flow/agents/session.toml: the engine fills no place `{where}`")),
+            "{:?}",
+            started.faults
         );
+        assert_eq!(started.held, Vec::<String>::new(), "the flow's fault holds no project");
         let repo = &settings.projects["example"].repo;
         git(repo, &["rm", "-q", "design/README.md"]);
         git(repo, &["commit", "-q", "-m", "No rules"]);
-        let faults = start_faults(&settings, &beside, &compiled);
-        assert_eq!(faults.len(), lines.len() + 1, "{faults:?}");
-        assert_eq!(
-            faults.last().map(String::as_str),
-            Some(
-                "projects.example: project.toml: the file tree_rules, design/README.md, is not on main, refs/heads/main, \
-                 where works branch from"
-            )
+        let started = start(&settings, &beside, &compiled);
+        assert_eq!(started.faults.len(), lines.len(), "{:?}", started.faults);
+        assert_eq!(started.held.len(), 1, "{:?}", started.held);
+        assert!(
+            started.held[0].starts_with("projects.example: held")
+                && started.held[0].contains(
+                    "wf-agents.toml: the file tree_rules, design/README.md, is not on main, refs/heads/main, where works \
+                     branch from"
+                ),
+            "{:?}",
+            started.held
         );
     }
 
@@ -805,10 +928,11 @@ mod tests {
     fn the_page_shows_beside_a_key_only_a_value_the_engine_reads_otherwise() {
         let sample = include_str!("../../carry/install.sample.toml")
             .replace("work_budget_usd = 5.0", "work_budget_usd = 5")
-            .replace(
-                "permissions = { locks = [\"uv lock\"], locks_except = [\"uv lock *--script*\"] }",
-                "permissions = { locks = [\"uv lock\"] }",
-            );
+            .replace("# subagents = { most = 3 }", "subagents = {}");
+        assert!(
+            sample.contains("\nsubagents = {}"),
+            "the sample's table of subagents is written in part"
+        );
         let settings = carry::Settings::read(&sample).expect("it reads");
         let dir = tempfile::tempdir().expect("a directory");
         let file = dir.path().join("install.toml");

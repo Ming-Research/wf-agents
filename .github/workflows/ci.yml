@@ -3,7 +3,7 @@ name: ci
 # Every check of the code: the page's types, lint, tests and build; the Rust format and clippy with warnings as errors;
 # and the Rust tests, which take most of the time, split across three jobs beside the others. The job `check` is red
 # whenever the page, the lint or a job of the tests is. It is the project's full workflow (`ci.full` of
-# flow/project.toml): what the check before a work's merge runs on the exact commit to merge, once, and the only thing
+# wf-agents.toml): what the check before a work's merge runs on the exact commit to merge, once, and the only thing
 # the engine asks it for. The engine dispatches it by hand on main's file, with the commit to test and a value only its
 # request knows, which the run's name holds, and judges the run by the jobs' conclusions and
 # by the JUnit of every test in the artifact `test-results`: nextest's of each third of the Rust tests and vitest's of

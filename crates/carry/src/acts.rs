@@ -1752,7 +1752,7 @@ mod tests {
 
     /// Checks the work in the repository with the local host, which must give a verdict.
     async fn checked_locally(repo: &Repo) -> Checked {
-        let host = Local::new(repo.project.clone());
+        let host = Local::new(repo.project.clone(), repo.check.clone());
         check_with(repo, &host, &mut Stop::never())
             .await
             .expect("the work is checked")
@@ -2399,14 +2399,16 @@ mod tests {
     #[tokio::test]
     async fn a_work_with_no_worktree_is_not_checked() {
         let repo = Repo::new("true");
-        let host = Local::new(repo.project.clone());
+        let host = Local::new(repo.project.clone(), repo.check.clone());
         assert!(check_with(&repo, &host, &mut Stop::never()).await.is_err());
     }
 
     #[tokio::test]
     async fn the_local_check_passes_a_committed_work_that_merges_and_passes_the_command() {
         let repo = Repo::new("test -f greeting.txt");
-        let started = start_with(&repo, &Local::new(repo.project.clone())).await.unwrap();
+        let started = start_with(&repo, &Local::new(repo.project.clone(), repo.check.clone()))
+            .await
+            .unwrap();
         let head = commit(&started.place.dir, "farewell.txt", "Bye.\n");
         let checked = checked_locally(&repo).await;
         assert_eq!(checked.failed, None);
@@ -2420,7 +2422,9 @@ mod tests {
     #[tokio::test]
     async fn the_local_check_runs_on_a_checkout_of_the_commit_alone_and_takes_it_away() {
         let repo = Repo::new("test -f new.txt");
-        let started = start_with(&repo, &Local::new(repo.project.clone())).await.unwrap();
+        let started = start_with(&repo, &Local::new(repo.project.clone(), repo.check.clone()))
+            .await
+            .unwrap();
         let dir = &started.place.dir;
         commit(dir, "farewell.txt", "Bye.\n");
         std::fs::write(dir.join("new.txt"), "Forgotten.\n").unwrap();
@@ -2450,13 +2454,13 @@ mod tests {
         let mut repo = Repo::new("true");
         let files = ["started", "release", "ended"].map(|name| repo.data.join(name));
         let [started, release, ended] = &files;
-        repo.project.check = format!(
+        repo.check = format!(
             "touch '{}'; while [ ! -f '{}' ]; do sleep 0.02; done; touch '{}'",
             started.display(),
             release.display(),
             ended.display()
         );
-        let host = Local::new(repo.project.clone());
+        let host = Local::new(repo.project.clone(), repo.check.clone());
         let work = start_with(&repo, &host).await.unwrap();
         let commit = commit(&work.place.dir, "farewell.txt", "Bye.\n");
         (repo, host, work.place, commit, files)
@@ -2550,7 +2554,9 @@ mod tests {
     #[tokio::test]
     async fn a_checkout_a_stopped_engine_left_is_taken_away_before_the_next_is_made_and_with_the_work() {
         let repo = Repo::new("test -f farewell.txt");
-        let started = start_with(&repo, &Local::new(repo.project.clone())).await.unwrap();
+        let started = start_with(&repo, &Local::new(repo.project.clone(), repo.check.clone()))
+            .await
+            .unwrap();
         commit(&started.place.dir, "farewell.txt", "Bye.\n");
         let left = git::checking(&started.place);
         run(
@@ -2578,7 +2584,9 @@ mod tests {
     #[tokio::test]
     async fn the_local_check_fails_a_failing_command_with_the_end_of_what_it_said() {
         let repo = Repo::new("echo the greeting is wrong >&2; exit 3");
-        let started = start_with(&repo, &Local::new(repo.project.clone())).await.unwrap();
+        let started = start_with(&repo, &Local::new(repo.project.clone(), repo.check.clone()))
+            .await
+            .unwrap();
         commit(&started.place.dir, "farewell.txt", "Bye.\n");
         let failed = checked_locally(&repo).await.failed.expect("the check fails");
         assert!(failed.contains("the greeting is wrong"), "{failed}");
@@ -2587,7 +2595,9 @@ mod tests {
     #[tokio::test]
     async fn the_local_check_fails_a_conflict_with_main_and_merges_nothing() {
         let repo = Repo::new("true");
-        let started = start_with(&repo, &Local::new(repo.project.clone())).await.unwrap();
+        let started = start_with(&repo, &Local::new(repo.project.clone(), repo.check.clone()))
+            .await
+            .unwrap();
         commit(&started.place.dir, "greeting.txt", "Hello, you.\n");
         commit(&repo.project.repo, "greeting.txt", "Good day.\n");
         let failed = checked_locally(&repo).await.failed.expect("the check fails");
@@ -2601,7 +2611,7 @@ mod tests {
     #[tokio::test]
     async fn a_stopped_local_check_gives_nothing() {
         let repo = Repo::new("sleep 30");
-        let host = Local::new(repo.project.clone());
+        let host = Local::new(repo.project.clone(), repo.check.clone());
         let started = start_with(&repo, &host).await.unwrap();
         commit(&started.place.dir, "farewell.txt", "Bye.\n");
         let held: Held<u8, ()> = Held::new();
@@ -2620,7 +2630,9 @@ mod tests {
         let mut repo = Repo::new("true");
         // Allowed, so that the check goes on to run its commands, none of which runs it.
         repo.project.allowed_config = vec!["core.fsmonitor".to_string()];
-        let started = start_with(&repo, &Local::new(repo.project.clone())).await.unwrap();
+        let started = start_with(&repo, &Local::new(repo.project.clone(), repo.check.clone()))
+            .await
+            .unwrap();
         commit(&started.place.dir, "farewell.txt", "Bye.\n");
         let marked = repo.data.join("monitor-ran");
         let monitor = repo.data.join("monitor");
@@ -2636,11 +2648,13 @@ mod tests {
     #[tokio::test]
     async fn the_check_refuses_what_the_works_own_worktree_configuration_names() {
         let mut repo = Repo::new("true");
-        start_with(&repo, &Local::new(repo.project.clone())).await.unwrap();
+        start_with(&repo, &Local::new(repo.project.clone(), repo.check.clone()))
+            .await
+            .unwrap();
         run(&repo.project.repo, &["config", "extensions.worktreeConfig", "true"]);
         run(&repo.place(WORK).dir, &["config", "--worktree", "core.editor", "vim"]);
         repo.project.allowed_config = vec!["extensions.worktreeconfig".to_string()];
-        let host = Local::new(repo.project.clone());
+        let host = Local::new(repo.project.clone(), repo.check.clone());
         let refused = check_with(&repo, &host, &mut Stop::never()).await.expect_err("refused");
         assert!(refused.contains("core.editor (worktree)"), "{refused}");
         assert!(!refused.contains("extensions"), "an allowed key is let be: {refused}");
@@ -2649,7 +2663,7 @@ mod tests {
     #[tokio::test]
     async fn the_merge_refuses_a_main_that_moved_since_the_check() {
         let repo = Repo::new("true");
-        let host = Local::new(repo.project.clone());
+        let host = Local::new(repo.project.clone(), repo.check.clone());
         let started = start_with(&repo, &host).await.unwrap();
         let checked = commit(&started.place.dir, "farewell.txt", "Bye.\n");
         let moved = commit(&repo.project.repo, "weather.txt", "Sunny.\n");
@@ -2674,7 +2688,7 @@ mod tests {
     #[tokio::test]
     async fn a_merge_given_again_after_it_was_made_finds_it_made() {
         let repo = Repo::new("true");
-        let host = Local::new(repo.project.clone());
+        let host = Local::new(repo.project.clone(), repo.check.clone());
         let started = start_with(&repo, &host).await.unwrap();
         let checked = commit(&started.place.dir, "farewell.txt", "Bye.\n");
         let place = repo.place(WORK);
@@ -2738,7 +2752,7 @@ mod tests {
     #[tokio::test]
     async fn the_local_host_gives_the_repositorys_main_and_merges_there() {
         let repo = Repo::new("true");
-        let host = Local::new(repo.project.clone());
+        let host = Local::new(repo.project.clone(), repo.check.clone());
         assert_eq!(host.main().await, Ok(run(&repo.project.repo, &["rev-parse", "main"])));
         let started = start_with(&repo, &host).await.unwrap();
         let head = commit(&started.place.dir, "farewell.txt", "Bye.\n");

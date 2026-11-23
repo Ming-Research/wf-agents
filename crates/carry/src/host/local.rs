@@ -18,6 +18,8 @@ use crate::settings::Project;
 #[derive(Clone, Debug)]
 pub struct Local {
     project: Project,
+    /// The shell command whose exit with 0 means the work passes, from the project's declaration (`[local] check`).
+    check: String,
     /// The variables of the engine's environment the check command is given beside those always given.
     env: Vec<String>,
     /// What `run_tests` says here, from the tool's file beside the flows.
@@ -25,9 +27,10 @@ pub struct Local {
 }
 
 impl Local {
-    pub fn new(project: Project) -> Local {
+    pub fn new(project: Project, check: String) -> Local {
         Local {
             project,
+            check,
             env: Vec::new(),
             words: None,
         }
@@ -55,7 +58,7 @@ impl Local {
     /// to stop.
     async fn run(&self, dir: &Path, stop: &mut Stop) -> Result<Option<String>, String> {
         let words = self.words()?;
-        let check = &self.project.check;
+        let check = &self.check;
         let ran = process::run(process::shell(check, dir, &self.env), None, None, stop).await?;
         let Ran::Ended { status, stdout, .. } = ran else {
             return Ok(None);
@@ -92,7 +95,7 @@ impl Host for Local {
         repository: &Mutex<()>,
         stop: &mut Stop,
     ) -> Result<Option<Verdict>, Failed> {
-        let check = &self.project.check;
+        let check = &self.check;
         let dir = {
             let _held = repository.lock().await;
             git::check_out(&self.project, branch.place, commit).await?
@@ -146,7 +149,7 @@ impl Host for Local {
             Err(why) => Err(why),
         };
         // What could not be run is said with the command, as what ran is.
-        let check = &self.project.check;
+        let check = &self.check;
         let said = ran.unwrap_or_else(|why| Some(fill(&words.could_not, &[("command", check), ("why", &why)])));
         // The tests and checks named are not run apart: the whole command runs.
         Ok(said.map(|said| {

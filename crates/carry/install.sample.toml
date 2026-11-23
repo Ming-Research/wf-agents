@@ -13,9 +13,12 @@ language = "Chinese"
 
 # The projects the works are done in, each a table named by the name the installation gives it, by which items and the
 # page know it: an item belongs to one project, and its works run in that project's repository, with what the project
-# declares in flow/project.toml on its main branch (its design tree, its files the agents are given, its settings, its
-# tests and workflows). Item numbers are one sequence across the projects, and an item may depend on an item of another
-# project, waited for as any other. Two projects never name one repository.
+# declares in wf-agents.toml at the root of its repository, on its main branch (its design tree, its files the agents
+# are given, its settings, its tests and workflows, its heavy and lock commands, the command that checks it where the
+# local repository is the host, and how its pull requests are merged where GitHub is). This file holds only what is of
+# this machine. Item numbers are one sequence across the projects, and an item may depend on an item of another
+# project, waited for as any other. Two projects never name one repository. A project whose declaration cannot be read
+# is held: its works are paused, saying why, and the others go on.
 [projects.example]
 # The local git repository the works are done in: its own checkout, which stays on the main branch. Each work has a
 # branch `work-<n>` and a worktree `<data>/worktrees/<n>` made from the main branch's head, and is merged here; with
@@ -23,10 +26,6 @@ language = "Chinese"
 repo = "/path/to/the/repository"
 # The repository's main branch.
 main = "main"
-# A shell command whose exit with 0 means the work passes. Where the local repository is the host, it is run in a
-# work's worktree by the check before the merge and by the agents' tool `run_tests`. With [projects.example.github]
-# below, the CI is run instead, and this command is not.
-check = "./test.sh"
 # The acts refuse a repository whose own configuration could make git run a program (a filter, a merge driver, a
 # hooks directory, an included file and the like). A key the repository needs is allowed here, whole or as a beginning
 # followed by `*`.
@@ -37,8 +36,8 @@ check = "./test.sh"
 # workflows on the pushed commit, once; the agents' tool `run_tests` pushes the commit it runs to a branch of its own,
 # deleted when the run's result is read, and has only the tests and checks a request names run, by the project's fast
 # workflow, on the commit the request names or else the work's last commit; nothing is run on this machine. Both
-# workflows are declared in the project's flow/project.toml. The merge merges the work's pull request. Without this
-# table, the local repository is the host.
+# workflows are declared in the project's wf-agents.toml, with how the pull request is merged. Without this table, the
+# local repository is the host, and the project's wf-agents.toml names the command that checks it.
 # The engine needs `git` and `gh`, and its own token for GitHub in its environment: a fine-grained token for the
 # project's repository, with Contents and Pull requests read and write, Checks and Commit statuses read, and Actions
 # read and write, for the workflows it runs by hand. The engine itself never pushes a change to the project's workflow
@@ -56,17 +55,10 @@ check = "./test.sh"
 # # The engine cancels the run it asked for, and the check fails its round in passing and is tried again after a wait,
 # # or the agents' tool says so.
 # start_minutes = 10
-# # A run of the fast workflow not complete after this many minutes is cancelled, and said as what it found; the full
-# # workflows take the time flow/project.toml gives them (`ci.full.too_long`).
-# timeout_minutes = 120
-# # How a pull request is merged: squash, merge or rebase.
-# merge_method = "squash"
-# # Whether a work's branch on GitHub is deleted once it is merged.
-# delete_branch = false
 # # The gh command line, or a path to it.
 # gh = "gh"
 # # The runners the project's repository has: `github` for GitHub's own machines, and the label of each self-hosted
-# # runner registered for it. A workflow of the project (its `ci.fast` and `ci.full` in flow/project.toml) names the
+# # runner registered for it. A workflow of the project (its `ci.fast` and `ci.full` in wf-agents.toml) names the
 # # runner it runs on, and is not run where the repository lacks it.
 # runners = ["github"]
 
@@ -81,16 +73,10 @@ slots = 2
 # edits in their worktree.
 args = ["--allowedTools", "Edit(./**)", "Write(./**)", "--tools", "Bash,Read,Edit,Write,Grep,Glob", "--strict-mcp-config", "--disable-slash-commands"]
 # Every agent is refused what the files beside the flows refuse every agent (git push, claude) and the heavy commands
-# its project's declaration names (`[heavy]` of `flow/project.toml`: builds, test suites and the like). Here the
-# installation names the commands that update its projects' lock files and build, run and install nothing, which an
-# agent that writes may run though a heavy command covers them, as `uv lock` where a project's heavy commands hold `uv`,
-# and the uses of those that are refused all the same (`*` for any text): the engine knows no lock command of its own. A
-# lock command that a heavy command falls under or that falls under what every agent is refused, and a `*` or a
-# parenthesis in a lock command, are refused. In `args`, `--settings`, `--setting-sources`, `--permission-prompt-tool`,
-# `--` and a last flag not known to take no value are refused, since they would undo the engine's rules or take its own
-# arguments after them. With no lock command named, an agent may update no lock file, and `wf-agents run` says so as it
-# starts.
-permissions = { locks = ["uv lock"], locks_except = ["uv lock *--script*"] }
+# its project's declaration names (`[heavy]` of its wf-agents.toml: builds, test suites and the like); the commands that
+# update a project's lock files, which an agent that writes may run, are that project's too (`locks` and `locks_except`
+# there). In `args`, `--settings`, `--setting-sources`, `--permission-prompt-tool`, `--` and a last flag not known to
+# take no value are refused, since they would undo the engine's rules or take its own arguments after them.
 # Which settings files the program reads, given as --setting-sources on every round. Left out, it is `user`, so that a
 # settings file the worktree holds, which an agent may write, is not read; `project` and `local`, which are such files,
 # are refused.

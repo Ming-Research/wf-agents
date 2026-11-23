@@ -1,6 +1,6 @@
 //! A line that changes only the project's tests (`tests_only` in its file), as each round of it ends with a return of
 //! either kind: what its run changed of the work is held to the paths of the project's tests (`[tests] paths` of
-//! `project.toml`), which git takes as pathspecs.
+//! its declaration), which git takes as pathspecs.
 //!
 //! What the run changed is what the work itself changed from the version of the work's head the run began on, as the
 //! records keep it, to the work's head as the round ended: the files of the diff a round is given between two versions
@@ -24,7 +24,7 @@ use crate::head::{self, Base};
 use crate::settings::Project;
 
 /// The paths of the project's tests its declaration names; none where it declares no `[tests]`.
-pub(crate) fn paths(declared: &flow::agents::Project) -> &[String] {
+pub(crate) fn paths(declared: &flow::agents::Declaration) -> &[String] {
     match &declared.tests {
         Some(tests) => &tests.paths,
         None => &[],
@@ -45,7 +45,7 @@ pub(crate) async fn outside(
     tests: &[String],
 ) -> Result<Vec<String>, String> {
     if tests.is_empty() {
-        return Err("project.toml names no paths of the project's tests in [tests]".to_string());
+        return Err("wf-agents.toml names no paths of the project's tests in [tests]".to_string());
     }
     let Some(now) = now else {
         return Ok(Vec::new());

@@ -16,8 +16,8 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use flow::agents::{Agents, Part as PartIs};
-use flow::system::{Settings, with_slots, written};
+use flow::agents::{Agents, DECLARATION, Declaration, Part as PartIs};
+use flow::system::{PROJECT_SETTINGS, Settings, with_slots, written};
 use flow::{CellSpec, Compiled, Kind};
 use serde::Serialize;
 
@@ -26,12 +26,12 @@ use crate::view::InputKind;
 /// Where what every agent is sent alike is read from; nothing where the page is served without it.
 #[derive(Clone, Debug, Default)]
 pub struct Alike {
-    /// The directory that holds the flows, beside which are `agents/` and `project.toml`.
+    /// The directory that holds the flows, beside which is `agents/`.
     pub root: Option<PathBuf>,
     /// The directory of the flow shown, whose cells' files a part may come from.
     pub flow: Option<PathBuf>,
-    /// The project's own checkout, whose files the page shows as they are there now; none where the engine follows a
-    /// script and has no project.
+    /// The project's own checkout, whose declaration (`wf-agents.toml`) and files the page shows as they are there now;
+    /// none where the engine follows a script and has no project.
     pub project: Option<PathBuf>,
 }
 
@@ -80,7 +80,7 @@ pub struct Part {
     pub what: What,
     /// How it reaches the agent.
     pub carried: Carried,
-    /// Its key in the files: a file of the project's by its name in `project.toml`, a set of rules, a file of the
+    /// Its key in the files: a file of the project's by its name in its declaration, a set of rules, a file of the
     /// engine's words, of the form `form` for the engine's fields, `outputs` for the line's blocks and `tools` for the
     /// flow's tools, a part of a message by its `part`, a block by its name.
     pub name: String,
@@ -122,6 +122,10 @@ pub enum Given {
         /// Each name a text sent to an agent gives between backticks that nothing of the flow, the return, the tools
         /// (what a tool's file defines included) or the settings defines, with the file it is in.
         unknown: Vec<Unknown>,
+        /// Where no declaration of the project could be read, what that left unchecked and why: the names of the
+        /// project's own settings, which only its declaration defines, and the project's files, which only it names;
+        /// none where it was read, and so everything was checked.
+        unchecked: Option<String>,
     },
     /// The definition does not compile, or cannot be read: there is nothing to work it out of.
     NotCompiled,
@@ -157,9 +161,14 @@ pub fn given(flow: &Compiled, alike: &Alike) -> Given {
         Ok(agents) => agents,
         Err(why) => return Given::Unread { why },
     };
+    // The project's declaration, which says its settings and where its files are: read from its checkout as the engine
+    // reads it from the project's main. Where it cannot be read the page goes on without it, and says what it did not
+    // check for want of it.
+    let declaration = declaration_of(&agents, alike);
     let build = Build {
         flow,
         agents: &agents,
+        declaration: declaration.as_ref().ok(),
         alike,
     };
     let mut cells = BTreeMap::new();
@@ -186,12 +195,30 @@ pub fn given(flow: &Compiled, alike: &Alike) -> Given {
         };
     }
     let unknown = build.unknown(&cells);
+    let unchecked = declaration.as_ref().err().map(|why| {
+        format!(
+            "The names of the project's settings (`{PROJECT_SETTINGS}...`) and the project's own files were not \
+             checked, since no declaration of the project was read: {why}"
+        )
+    });
     Given::Compiled {
         cells,
         acts,
         tool_files,
         unknown,
+        unchecked,
     }
+}
+
+/// The project's declaration, read from the root of its checkout as the engine reads one from a project's main; or
+/// why the page has none.
+fn declaration_of(agents: &Agents, alike: &Alike) -> Result<Declaration, String> {
+    let Some(checkout) = &alike.project else {
+        return Err("the page has no checkout of the project to read it from".to_string());
+    };
+    let path = checkout.join(DECLARATION);
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    Declaration::read(&text, &path.display().to_string(), agents)
 }
 
 /// The words of an act, read from its file as it is written, in its order.
@@ -227,13 +254,16 @@ fn file_words(agents: &flow::agents::Agents, file: &str) -> Result<ActWords, Str
 struct Build<'a> {
     flow: &'a Compiled,
     agents: &'a Agents,
+    /// The project's declaration; none where it could not be read.
+    declaration: Option<&'a Declaration>,
     alike: &'a Alike,
 }
 
 impl<'a> Build<'a> {
     /// Each name between backticks in what the cells are sent, but for the project's own files, that nothing defines:
     /// no block, value of a choice, field, tool, part of the shape of a block, a field or a tool, kind of return,
-    /// setting, or name a tool's file defines.
+    /// setting, or name a tool's file defines. Where there is no declaration, the names of the project's settings are
+    /// not looked at, since only a declaration defines them, and no file of the project was read.
     fn unknown(&self, cells: &BTreeMap<String, Vec<Part>>) -> Vec<Unknown> {
         let agents = self.agents;
         let kinds = [flow::agents::ReturnKind::Tools, flow::agents::ReturnKind::Outcome];
@@ -256,7 +286,7 @@ impl<'a> Build<'a> {
         }
         // The settings a text may name are the engine's: the same set it gives each a value where a text names it.
         known.extend(
-            Settings::of(&agents.project, &agents.installation, |_| None)
+            Settings::of(self.declaration, &agents.installation, |_| None)
                 .names()
                 .map(str::to_string),
         );
@@ -267,7 +297,9 @@ impl<'a> Build<'a> {
                 .flat_map(|c| c.watches.iter().map(|w| w.name.clone())),
         );
         // The project's own files are the project's to word, and are not checked.
-        let project: Vec<&String> = agents.project.files.values().map(|f| &f.path).collect();
+        let project: Vec<&String> = (self.declaration.iter())
+            .flat_map(|declaration| declaration.files.values().map(|f| &f.path))
+            .collect();
         let mut out = std::collections::BTreeSet::new();
         for part in cells
             .values()
@@ -277,7 +309,8 @@ impl<'a> Build<'a> {
             for piece in &part.pieces {
                 let Piece::Text { text } = piece else { continue };
                 for name in ticked_names(text) {
-                    if !known.iter().any(|k| k == name) {
+                    let unlooked = self.declaration.is_none() && name.starts_with(PROJECT_SETTINGS);
+                    if !unlooked && !known.iter().any(|k| k == name) {
                         out.insert(Unknown {
                             name: name.to_string(),
                             source: part.source.clone(),
@@ -380,7 +413,8 @@ impl<'a> Build<'a> {
             let checkout = self.alike.project.as_ref();
             Ok(checkout.and_then(|checkout| std::fs::read_to_string(checkout.join(path)).ok()))
         };
-        for part in flow::system::parts(agents, self.flow, cell, read).map_err(|wrong| wrong.join("; "))? {
+        let made = flow::system::parts(agents, self.declaration, self.flow, cell, read);
+        for part in made.map_err(|wrong| wrong.join("; "))? {
             out.push(self.part(What::System, Carried::System, &part.name, part.source, part.pieces));
         }
         // The message as the engine's builder defines it, each form of each part with the places of a run open.

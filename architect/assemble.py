@@ -97,7 +97,7 @@ def main() -> None:
     run(["git", "-C", str(root), "fetch", "-q", remote, main_branch])
     ref = f"{remote}/{main_branch}"
 
-    declaration = tomllib.loads(on_main(root, ref, "flow/project.toml"))
+    declaration = tomllib.loads(on_main(root, ref, "wf-agents.toml"))
     session = tomllib.loads(on_main(root, ref, "flow/agents/session.toml"))
     rule_sets = tomllib.loads(on_main(root, ref, "flow/agents/rules/rules.toml"))
     names = tomllib.loads(on_main(root, ref, "flow/agents/installation.toml"))["names"]

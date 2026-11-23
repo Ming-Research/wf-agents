@@ -388,7 +388,7 @@ mod tests {
             "/../../flow/agents/tools/run_tests.toml"
         ));
         let tool: flow::agents::Tool = toml::from_str(text).expect("the file of run_tests reads");
-        Local::new(repo.project.clone()).saying(Some(&tool))
+        Local::new(repo.project.clone(), repo.check.clone()).saying(Some(&tool))
     }
 
     async fn answered(repo: &Repo, name: &str) -> String {

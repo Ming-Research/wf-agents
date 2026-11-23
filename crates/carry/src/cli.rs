@@ -1028,7 +1028,6 @@ mod tests {
             args: vec!["--strict-mcp-config".to_string()],
             env: Vec::new(),
             setting_sources: "user".to_string(),
-            permissions: Default::default(),
             subagents: Default::default(),
             work_budget_usd: None,
             let_on_allowance_usd: 20.0,

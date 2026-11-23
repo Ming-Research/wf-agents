@@ -27,8 +27,9 @@ Every agent is refused pushing and the agents' own program, which the files besi
 - rejected: an agent proposed dropping the agents' rule against heavy work on this machine once their permissions refuse it; the owner rejected it, because an agent may still try to run it locally for convenience, so the rule says it briefly and the permissions refuse it too.
 
 ### decision lock-commands-under-heavy-ones
-On a line that writes, the commands that update a lock file, which the installation's settings name, may run even though a heavy command covers them.
+On a line that writes, the commands that update a lock file, which the project's declaration names, may run even though a heavy command covers them.
 - replaced: The engine's tool `lock_update`, run for an agent under settings of its own, was on main; the owner changed it, because an agent works in its own worktree, where updating its own dependencies harms nothing, and only the host's processor needs guarding.
+- replaced: The installation's settings naming the lock commands was on main; the owner changed it, because they are the project's toolchain's, and each installation that runs the project had to copy them.
 
 ### decision permissions-are-rules-not-a-mode
 The engine refuses a permission mode or a skip-permissions flag in agents.args and permissions.defaultMode in the program's settings file; permissions are --allowedTools rules.

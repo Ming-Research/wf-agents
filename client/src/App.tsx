@@ -382,6 +382,7 @@ export function FlowPage({ definition, given, active = true }: {
         sent={given?.state === 'compiled' ? given.cells[cell.id] : undefined}
         act={given?.state === 'compiled' ? given.acts[cell.id] : undefined}
         unknown={given?.state === 'compiled' ? given.unknown : undefined}
+        unchecked={given?.state === 'compiled' ? given.unchecked : null}
         onChoose={choose}
       />
     );

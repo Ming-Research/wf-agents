@@ -1,5 +1,5 @@
 //! The project's two workflows, which the engine runs by hand through the project's declaration (`ci` in
-//! `flow/project.toml`), always by their files on main, given the commit to run on, each run found by a value its
+//! `wf-agents.toml`), always by their files on main, given the commit to run on, each run found by a value its
 //! name holds, which is worked out from what asked for it; and what each reports, read from the JUnit XML it uploads
 //! (`results`), never guessed from a log.
 //!
@@ -150,23 +150,6 @@ fn judged<'a>(ran: &'a [Ran], tests: &'a [String]) -> Option<Vec<results::Row<'a
     concluded.then(|| results::rows(tests, run))
 }
 
-/// A time such as `90m`, `2h`, `30s` or `1d`; or why it is none.
-pub(super) fn span_of(text: &str) -> Result<Duration, String> {
-    let text = text.trim();
-    let (number, unit) = text.split_at(text.find(|c: char| !c.is_ascii_digit()).unwrap_or(text.len()));
-    let number: u64 = number
-        .parse()
-        .map_err(|_| format!("{text:?} is no time such as 90m or 2h"))?;
-    let seconds = match unit {
-        "s" => 1,
-        "m" => 60,
-        "h" => 3600,
-        "d" => 86_400,
-        _ => return Err(format!("{text:?} is no time such as 90m or 2h")),
-    };
-    Ok(Duration::from_secs(number * seconds))
-}
-
 /// What a request is run by.
 pub(super) enum Role<'a> {
     Fast(&'a CiFast),
@@ -312,12 +295,13 @@ impl<A: Api> GitHub<A> {
                     let checks = serde_json::to_string(&named.checks).unwrap_or_default();
                     inputs.push((fast.checks_input.clone(), checks));
                 }
+                let limit = flow::agents::span(&fast.too_long).map_err(|why| format!("ci.fast.too_long: {why}"))?;
                 let plan = Plan {
                     workflow: &fast.workflow,
                     results: &fast.results,
                     inputs,
                     call,
-                    limit: self.config.timeout,
+                    limit,
                 };
                 match self.execute(&plan, commit, stop).await? {
                     Some(one) => ran.push(one),
@@ -325,7 +309,7 @@ impl<A: Api> GitHub<A> {
                 }
             }
             Role::Full(full) => {
-                let limit = span_of(&full.too_long).map_err(|why| format!("ci.full.too_long: {why}"))?;
+                let limit = flow::agents::span(&full.too_long).map_err(|why| format!("ci.full.too_long: {why}"))?;
                 for workflow in &full.workflows {
                     let call = self.call(request, workflow);
                     let inputs = vec![

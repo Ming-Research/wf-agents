@@ -968,7 +968,7 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
       'This work changes files the project protects.',
       '`flow/agents/tools/run_tests.toml`: The tool needs a longer timeout.',
       '```diff\n-ms = 1000\n+ms = 2000\n```',
-      '`flow/project.toml`: it gives none.',
+      '`wf-agents.toml`: it gives none.',
       '```diff\n+name = "x"\n```',
     ].join('\n\n');
     const protectedFiles = question('protected_files', {
@@ -997,10 +997,10 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
     await act(async () => undefined);
     const card = el.querySelector('[data-wait="answer-protected_files"]') as HTMLElement;
     expect(card.className).toBe('cw-choice cw-choice-holds');
-    expect(text(card, '.cw-choice-q p code')).toEqual(['flow/agents/tools/run_tests.toml', 'flow/project.toml']);
+    expect(text(card, '.cw-choice-q p code')).toEqual(['flow/agents/tools/run_tests.toml', 'wf-agents.toml']);
     expect(text(card, '.cw-choice-q p').slice(1)).toEqual([
       'flow/agents/tools/run_tests.toml: The tool needs a longer timeout.',
-      'flow/project.toml: it gives none.',
+      'wf-agents.toml: it gives none.',
     ]);
     openDiffs(card);
     expect(diffLines(card)).toEqual(['ms = -[1000] +[2000]', '+[name = "x"]']);
