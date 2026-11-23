@@ -2,6 +2,7 @@
 //! by driving the engine's loop, so that what is saved is what the engine produces. The tests are kept in modules by
 //! subject, so that a new test goes into the module of what it tests.
 
+mod cache_written;
 mod changes;
 mod diverged;
 mod everything;
@@ -319,7 +320,9 @@ impl Driver {
         let n = self.ended;
         Spent {
             usd_micros: 7 * n,
-            input_tokens: 11 * n,
+            uncached_tokens: 11 * n,
+            // Told by no round of a file made before this version: the work is read back from such files as written.
+            cache_written_tokens: None,
             cached_tokens: 13 * n,
             output_tokens: 17 * n,
             // Some rounds tell the context they ended with and how often they were compacted, and some do not.

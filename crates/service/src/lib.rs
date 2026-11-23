@@ -1807,7 +1807,7 @@ mod tests {
     fn a_fork_that_ran_is_kept_whether_it_answered_or_failed_and_one_refused_before_it_ran_is_not() {
         let spent = work::Spent {
             usd_micros: 400_000,
-            input_tokens: 120,
+            uncached_tokens: 120,
             ..Default::default()
         };
         let forked = |left| Forked {

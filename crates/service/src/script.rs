@@ -10,6 +10,7 @@
 //! ms = 1500
 //! usd_micros = 20000
 //! input_tokens = 3000
+//! cache_written_tokens = 2000
 //! cached_tokens = 12000
 //! output_tokens = 400
 //!
@@ -117,8 +118,11 @@ use engine::Came;
 pub const ROUND_MS: u64 = 200;
 /// What an agent's round costs where the script says nothing, in millionths of a dollar.
 pub const USD_MICROS: u64 = 2_000;
-/// The tokens an agent's round sends that are not read from the cache, where the script says nothing.
+/// The tokens an agent's round sends fresh, neither read from the cache nor written to it, where the script says
+/// nothing.
 pub const INPUT_TOKENS: u64 = 1_000;
+/// The tokens an agent's round writes to the cache, where the script says nothing.
+pub const CACHE_WRITTEN_TOKENS: u64 = 0;
 /// The tokens an agent's round sends that are read from the cache, where the script says nothing.
 pub const CACHED_TOKENS: u64 = 0;
 /// The tokens that come back from an agent's round, where the script says nothing.
@@ -175,6 +179,7 @@ pub struct Took {
     pub ms: Option<u64>,
     pub usd_micros: Option<u64>,
     pub input_tokens: Option<u64>,
+    pub cache_written_tokens: Option<u64>,
     pub cached_tokens: Option<u64>,
     pub output_tokens: Option<u64>,
 }
@@ -402,6 +407,7 @@ impl Script {
                         let costs = [
                             took.usd_micros,
                             took.input_tokens,
+                            took.cache_written_tokens,
                             took.cached_tokens,
                             took.output_tokens,
                         ];
@@ -432,11 +438,17 @@ impl Script {
             .find(|r| r.cell == cell.id.as_str() && r.run == run && r.round == number);
         let took = entry.map(|entry| entry.took).unwrap_or_default();
         let or = |round: Option<u64>, script: Option<u64>, default: u64| round.or(script).unwrap_or(default);
+        let written = or(
+            took.cache_written_tokens,
+            self.took.cache_written_tokens,
+            CACHE_WRITTEN_TOKENS,
+        );
         let spent = match cell.kind {
             Kind::Engine => Spent::default(),
             Kind::Agent => Spent {
                 usd_micros: or(took.usd_micros, self.took.usd_micros, USD_MICROS),
-                input_tokens: or(took.input_tokens, self.took.input_tokens, INPUT_TOKENS),
+                uncached_tokens: or(took.input_tokens, self.took.input_tokens, INPUT_TOKENS) + written,
+                cache_written_tokens: Some(written),
                 cached_tokens: or(took.cached_tokens, self.took.cached_tokens, CACHED_TOKENS),
                 output_tokens: or(took.output_tokens, self.took.output_tokens, OUTPUT_TOKENS),
                 ..Default::default()

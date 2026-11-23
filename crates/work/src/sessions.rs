@@ -173,7 +173,7 @@ pub fn number_at(work: &Work, line: &str, at: Seq) -> u32 {
 
 /// Whether the round took tokens: it reached the model.
 fn spent(s: &Spent) -> bool {
-    s.input_tokens + s.cached_tokens + s.output_tokens > 0
+    s.uncached_tokens + s.cached_tokens + s.output_tokens > 0
 }
 
 /// Whether the round of this number of the run put its message into its session: it reached the model, or its last
@@ -236,7 +236,7 @@ mod tests {
                 run: RunId(1),
             });
             let spent = Spent {
-                input_tokens: *tokens,
+                uncached_tokens: *tokens,
                 ..Spent::default()
             };
             work.spent.insert((RunId(1), n), spent);
@@ -339,7 +339,7 @@ mod tests {
             w.records.returned.push(Returned { at: Seq(at), run });
         }
         let tokens = Spent {
-            input_tokens: 10,
+            uncached_tokens: 10,
             ..Spent::default()
         };
         for key in [(one, 1), (one, 2), (two, 1)] {

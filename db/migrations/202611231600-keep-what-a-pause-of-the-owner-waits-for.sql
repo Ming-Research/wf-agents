@@ -1,4 +1,4 @@
--- From version 30 of the schema to version 31: the pause of a work says the items it waits for to merge or be cancelled,
+-- From version 31 of the schema to version 32: the pause of a work says the items it waits for to merge or be cancelled,
 -- each in a row of its own. Every pause kept before waited for none, and is kept so; a pause the owner made now may say
 -- why, which the table already kept. The version's one row is replaced last.
 CREATE TABLE pause_waits (
@@ -8,4 +8,4 @@ CREATE TABLE pause_waits (
     PRIMARY KEY (work, at, item),
     FOREIGN KEY (work, at) REFERENCES pauses (work, at)
 );
-UPDATE schema_version SET version = 31;
+UPDATE schema_version SET version = 32;

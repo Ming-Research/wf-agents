@@ -1605,7 +1605,7 @@ impl Inner {
             compactions: marks,
             ..spent
         };
-        let spent_any = spent.input_tokens + spent.cached_tokens + spent.output_tokens > 0;
+        let spent_any = spent.uncached_tokens + spent.cached_tokens + spent.output_tokens > 0;
         if status.success() || spent_any {
             return Ok(spent);
         }
@@ -2981,7 +2981,7 @@ mod tests {
         assert_eq!(said, [first.clone(), fork.question.clone()]);
         assert_eq!(
             (
-                forked.spent.input_tokens,
+                forked.spent.uncached_tokens,
                 forked.spent.cached_tokens,
                 forked.spent.output_tokens
             ),
@@ -3115,7 +3115,7 @@ mod tests {
         );
         let spent = failed.spent.expect("what its call cost");
         assert_eq!(
-            (spent.input_tokens, spent.cached_tokens, spent.output_tokens),
+            (spent.uncached_tokens, spent.cached_tokens, spent.output_tokens),
             (100, 9000, 10)
         );
         assert!(spent.usd_micros > 0);
@@ -3150,7 +3150,8 @@ mod tests {
             failed.spent,
             Some(Spent {
                 usd_micros: 400_000,
-                input_tokens: 120,
+                uncached_tokens: 120,
+                cache_written_tokens: Some(0),
                 cached_tokens: 18_100,
                 output_tokens: 30,
                 context_tokens: None,
@@ -3609,7 +3610,8 @@ mod tests {
             run: RunId(7),
             round: 1,
             usd_micros: 6_000_000,
-            input_tokens: 0,
+            uncached_tokens: 0,
+            cache_written_tokens: None,
             cached_tokens: 0,
             output_tokens: 0,
         });
@@ -3649,7 +3651,8 @@ mod tests {
                     run: RunId(7),
                     round: 1,
                     usd_micros: 3_000_000,
-                    input_tokens: 0,
+                    uncached_tokens: 0,
+                    cache_written_tokens: None,
                     cached_tokens: 0,
                     output_tokens: 0,
                 });
@@ -3721,7 +3724,7 @@ mod tests {
         });
         let spent = Spent {
             usd_micros: 10_000,
-            input_tokens: 100,
+            uncached_tokens: 100,
             ..Spent::default()
         };
         work.spent.insert((RunId(6), 1), spent);

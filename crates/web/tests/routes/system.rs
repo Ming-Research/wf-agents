@@ -81,8 +81,7 @@ async fn all_time_gives_the_merge_and_what_was_spent_on_each_cell_and_model() {
     let (week, before) = (START - DAY, START - 8 * DAY);
     let weeks = get_json(router, &format!("/api/v1/system?weeks={week},{before}")).await;
     assert_eq!(weeks["from"], before, "the span begins with its earliest week");
-    let nothing =
-        json!({ "usdMicros": 0, "inputTokens": 0, "cachedTokens": 0, "outputTokens": 0, "workingMs": 0, "rounds": 0 });
+    let nothing = json!({ "usdMicros": 0, "inputTokens": 0, "cacheWrittenTokens": 0, "unsplitTokens": 0, "cachedTokens": 0, "outputTokens": 0, "workingMs": 0, "rounds": 0 });
     assert_eq!(
         weeks["weeks"],
         json!([
@@ -345,7 +344,7 @@ fn what_a_work_spent_on_a_fork_is_counted_in_the_system_view_in_its_total_its_we
     let run = driver.work(work).unwrap().work.records.rounds[0].run;
     let spent = engine::Spent {
         usd_micros: 7_000,
-        input_tokens: 10,
+        uncached_tokens: 10,
         cached_tokens: 20,
         output_tokens: 3,
         ..engine::Spent::default()

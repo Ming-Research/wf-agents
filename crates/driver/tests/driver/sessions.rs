@@ -447,7 +447,7 @@ impl S {
         // The round's one try began on the model, under the account, as its carrier says.
         self.began();
         let spent = Spent {
-            input_tokens: 10,
+            uncached_tokens: 10,
             context_tokens: Some(context),
             usd_micros: self.usd,
             compactions: self.compactions,
@@ -638,7 +638,7 @@ fn a_flagged_round_of_a_store_kept_before_sessions_were_recorded_has_its_line_be
     assert_eq!(cell, "review");
     s.began();
     let spent = Spent {
-        input_tokens: 10,
+        uncached_tokens: 10,
         context_tokens: Some(100),
         ..Default::default()
     };
@@ -690,7 +690,7 @@ fn a_round_under_way_as_a_store_kept_before_sessions_were_recorded_opens_goes_on
     let (review, _) = s.round();
     s.began();
     let spent = Spent {
-        input_tokens: 10,
+        uncached_tokens: 10,
         context_tokens: Some(100),
         ..Default::default()
     };
@@ -870,7 +870,7 @@ fn a_flagged_round_whose_line_began_a_new_session_as_it_took_main_in_is_tried_ag
     });
     s.began();
     let spent = Spent {
-        input_tokens: 10,
+        uncached_tokens: 10,
         context_tokens: Some(100),
         ..Default::default()
     };
