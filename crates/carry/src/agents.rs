@@ -3277,6 +3277,50 @@ mod tests {
         assert!(said.contains("7.00"), "{said}");
     }
 
+    // What the work spent on forks since the engine last paused it and the owner let it on counts against the line of
+    // what the flow's other works spent, as a keep-warm ping's spend does, and what it spent on forks before that does
+    // not. One round of $1 against a line of $2.50: alone it is under it; with $3 of forks after the letting-on it is
+    // over, and with them before it is not. Three checks on a carrier with no program run: a few milliseconds.
+    #[test]
+    fn what_the_work_spent_on_forks_since_it_was_let_on_counts_against_the_line_of_its_flows_works() {
+        let line = driver::history::Line {
+            value: 2_500_000.0,
+            samples: 3,
+            scope: driver::history::Scope::Works,
+        };
+        let lines = driver::history::Lines {
+            work_spent: Some(line),
+            ..Default::default()
+        };
+        let past = |forks: &[u64]| {
+            let dir = tempfile::tempdir().unwrap();
+            let mut kept = Work::default();
+            kept.records.pauses = vec![pause(4, true, Pauser::Engine), pause(5, false, Pauser::Owner)];
+            for at in forks {
+                kept.forked.push(work::Forked {
+                    at: Seq(*at),
+                    run: RunId(7),
+                    round: 1,
+                    usd_micros: 3_000_000,
+                    input_tokens: 0,
+                    cached_tokens: 0,
+                    output_tokens: 0,
+                });
+            }
+            let (agents, round) = given_round_of(dir.path(), kept, lines.clone());
+            let spent = Spent {
+                usd_micros: 1_000_000,
+                ..Spent::default()
+            };
+            agents.inner.past_history(&round, &spent)
+        };
+        assert_eq!(past(&[]), [None, None]);
+        assert_eq!(past(&[3]), [None, None], "a fork before the letting-on is not since it");
+        let over = past(&[8]);
+        assert!(over[0].as_deref().is_some_and(|said| said.contains("4.00")), "{over:?}");
+        assert_eq!(over[1], None);
+    }
+
     /// A line of a stream: the program's first, which says it took its message in.
     const INIT: &str = r#"{"type":"system","subtype":"init","claude_code_version":"9.9.9"}"#;
 

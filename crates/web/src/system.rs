@@ -516,11 +516,7 @@ impl System {
                         item,
                         at,
                         from: runs.iter().flat_map(|run| &run.rounds).map(|round| round.began).min(),
-                        spent: (runs.iter().fold(Spent::default(), |sum, run| sum.with(run.spent))).with(
-                            crate::works::spent_beside_rounds(kept.work, &|_| true)
-                                .all()
-                                .as_no_round(),
-                        ),
+                        spent: spent_in_all(&runs, kept.work),
                     });
                     if let Some(week) = week_of(&mut counted, at) {
                         week.merged += 1;
@@ -559,6 +555,13 @@ impl System {
         system.under_way.sort_by_key(UnderWay::began);
         Ok(system)
     }
+}
+
+/// What a work took in all, whenever it was: what its runs' rounds took, and its calls beside its rounds, its keep-warm
+/// pings and its forks, counted in no round.
+fn spent_in_all(runs: &[Run], work: &work::Work) -> Spent {
+    (runs.iter().fold(Spent::default(), |sum, run| sum.with(run.spent)))
+        .with(crate::works::spent_beside_rounds(work, &|_| true).all().as_no_round())
 }
 
 /// The week a time falls in, where the span is cut into weeks: the latest that begins at it or before.
@@ -653,5 +656,41 @@ mod tests {
         let none = driver::On::NotKept { end: End::Merged };
         let kept = stored.kept(&installed, &none, &work);
         assert_eq!(RanOn::of(kept, "merge", None), RanOn::NotRecorded);
+    }
+
+    // What a merged work took in all is its runs' rounds and its calls beside them, its pings and its forks, in no
+    // round. Milliseconds; the merged works of the System view are the only reader of this sum.
+    #[test]
+    fn what_a_work_took_in_all_counts_its_forks_beside_its_pings_and_in_no_round() {
+        let mut work = Work::default();
+        work.moments.push(work::Moment {
+            from: decide::Seq(1),
+            at: Time(1_000),
+        });
+        work.pinged.push(work::Pinged {
+            at: decide::Seq(2),
+            line: "engineer".to_string(),
+            session: 0,
+            spent: work::Spent {
+                usd_micros: 20_000,
+                input_tokens: 5,
+                ..Default::default()
+            },
+            failed: None,
+        });
+        work.forked.push(work::Forked {
+            at: decide::Seq(3),
+            run: RunId(1),
+            round: 1,
+            usd_micros: 300_000,
+            input_tokens: 120,
+            cached_tokens: 18_100,
+            output_tokens: 30,
+        });
+        let spent = spent_in_all(&[], &work);
+        assert_eq!(
+            (spent.usd_micros, spent.input_tokens, spent.cached_tokens, spent.rounds),
+            (320_000, 125, 18_100, 0)
+        );
     }
 }

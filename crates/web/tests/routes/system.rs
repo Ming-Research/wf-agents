@@ -375,6 +375,21 @@ fn what_a_work_spent_on_a_fork_is_counted_in_the_system_view_in_its_total_its_we
     assert_eq!(usd(&late["byWork"][0]["spent"]), 7_000, "{late}");
     assert_eq!(usd(&late["weeks"][0]["spent"]), 7_000, "{late}");
     assert_eq!(usd(&late["weeks"][0]["pinged"]), 0, "{late}");
+    // The work's page, which the list of the works reads its Cost from, counts the fork in what the work spent and
+    // gives it apart, in no round.
+    let page = web::works::WorkPage::of(&driver, &crate::levels(), work, now)
+        .unwrap()
+        .unwrap();
+    let page = serde_json::to_value(page).unwrap();
+    let summary = &page["summary"];
+    assert_eq!(usd(&summary["spent"]), 8_000, "{summary}");
+    assert_eq!(summary["spent"]["rounds"], all["spent"]["rounds"], "{summary}");
+    assert_eq!(
+        (usd(&summary["forked"]), &summary["forked"]["rounds"]),
+        (7_000, &json!(1)),
+        "{summary}"
+    );
+    assert_eq!(usd(&summary["pinged"]), 0, "{summary}");
 }
 
 /// A work of the trial flow added and let on at `at`, whose plan asks for a tool at once and has the result, of this
