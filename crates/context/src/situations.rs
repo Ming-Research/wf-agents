@@ -193,7 +193,10 @@ pub fn situations(
                 if states.is_empty() { vec![None] } else { states }
             };
             let frames = reach.frames(entry);
-            let news = states(&[Class::Fired, Class::Grouped], reach.newly(entry, true));
+            // A datum the cell watches and writes itself may stand with nothing new in it though it ran the cell.
+            let mut new_states = reach.newly(entry, true);
+            new_states.push(Stands::Holds);
+            let news = states(&[Class::Fired, Class::Grouped], new_states);
             let rests = states(&[Class::Rest], reach.rest(entry, true, true));
             let pairs: Vec<(Option<Stands>, Option<Stands>)> = (news.iter())
                 .flat_map(|n| rests.iter().map(move |r| (*n, *r)))
@@ -506,8 +509,25 @@ impl<'a> Reach<'a> {
             .watches
             .iter()
             .any(|t| !t.is_group() && t.name == block.as_str());
-        if self.starts.contains(block) && watches && *class == Class::Rest && entry != Entry::First {
+        // A cell with an agent's cell before it may have had its run stopped for that cell, which a new version of what
+        // people write ran, and so never worked from it.
+        let place = self.flow.flow.place(&self.cell.id).unwrap_or(0);
+        let first = (self.flow.flow.cells()[..place].iter())
+            .filter_map(|c| self.flow.cells.iter().find(|s| s.id == c.id))
+            .all(|c| c.kind != Kind::Agent);
+        if self.starts.contains(block) && watches && first && *class == Class::Rest && entry != Entry::First {
             states.retain(|s| *s != Stands::HoldsNew);
+        }
+        // A datum the cell watches and writes itself: a version written by another while its run was under way ran it,
+        // and the cell's own, after it, is the one it last worked from, so that nothing is new to it.
+        let writes = self.flow.flow.cells()[place].outputs.contains(block);
+        let holds_own = match entry {
+            Entry::Later | Entry::Compacted => true,
+            Entry::ReopenedAfterRead => self.holdable(entry, block),
+            Entry::First | Entry::Reopened => false,
+        };
+        if *class == Class::Fired && writes && holds_own && !states.contains(&Stands::Holds) {
+            states.push(Stands::Holds);
         }
         // A new version of a datum only people write, as it is of what an earlier cell of the line watches, runs that
         // cell first, whose round fills it into the session: where it did not run this cell, the session never lacks
@@ -768,7 +788,11 @@ impl<'a> Reach<'a> {
             }
             Entry::Reopened => add(Vec::new(), false, None),
             // Its session holds what its return handed in, and none of the message.
-            Entry::Compacted if self.writes() => add(Vec::new(), true, None),
+            // Its session holds what the return of the last round in it handed in, that of any cell of the line, and none
+            // of the message.
+            Entry::Compacted if self.writes() || self.others.iter().any(|o| self.writes_of(o)) => {
+                add(Vec::new(), true, None)
+            }
             Entry::Compacted => {}
             Entry::ReopenedAfterRead => {
                 for other in &self.others {

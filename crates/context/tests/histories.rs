@@ -646,6 +646,10 @@ impl History {
         let leaves_out = !cell.must_write.is_empty() && !all && self.rng.chance(14);
         let mut writes = Vec::new();
         for block in outputs {
+            // A question is asked in the return's own field, and what answers it is the owner's.
+            if self.sim.flow.blocks[&block].writers.outside.as_deref() == Some(flow::ANSWER) {
+                continue;
+            }
             let must = cell.must_write.contains(&block);
             if (must && !leaves_out) || (!must && (all || self.rng.chance(70))) {
                 let passes = self.scene.passes.is_some_and(|percent| self.rng.chance(percent));
@@ -1084,7 +1088,11 @@ impl History {
             .collect();
         assert_eq!(entered.run.taken, taken, "what the last return handed in");
         assert_eq!(entered.situation.after_hand_in, !held.taken.is_empty());
-        reached.real.extend(stood(cell, &entered.situation));
+        for line in stood(cell, &entered.situation) {
+            let example = format!("round {}, {:?}", round.number, entered.situation);
+            reached.examples.entry(line.clone()).or_insert(example);
+            reached.real.insert(line);
+        }
         // What the page shows for the situation, its places open, is what the engine sends in it.
         let open = context::message(
             &sim.flow,
@@ -1290,7 +1298,10 @@ fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() 
     let (gaps, nothing) = (missing(&reached.real, &written), missing(&written, &reached.real));
     assert!(
         reached.real.is_subset(&written) && written.is_subset(&reached.real),
-        "rounds stood in what the tool does not write, {gaps}\n\nthe tool writes what no round stood in, {nothing}"
+        "rounds stood in what the tool does not write, {gaps}\n\nthe tool writes what no round stood in, {nothing}\n\nof the close: {:?}",
+        (reached.examples.iter())
+            .filter(|(line, _)| line.starts_with("close: the session holds"))
+            .collect::<Vec<_>>()
     );
 }
 
