@@ -7,7 +7,8 @@
 //! its engine's restart cut off, was priced from its calls and never told what it cost; it is told only where the
 //! session's own total says it: the result after it gives the session's total less what it spent itself, which less the
 //! total the result before it gave is what the cut-off round cost, provided nothing else was done in the session
-//! between them, a keep-warm ping or a fork of the work among it. Anything else is listed and left as it was.
+//! between them, a keep-warm ping, a fork or a round with no stream kept of the work among it. Anything else is listed
+//! and left as it was.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -111,10 +112,12 @@ pub fn costs(data: &Path, rows: &Rows) -> Report {
                 }
             })
             .collect();
-        // Whether a keep-warm ping or a fork of the work was made between these places.
+        // Whether a keep-warm ping or a fork of the work, or a round of it whose stream is not kept, and so whose
+        // session is not known, was made between these places: what it spent may be in the session's total.
         let between = |from: u64, to: u64| {
             (rows.pings.iter()).any(|(w, at)| w == work && *at > from && *at < to)
                 || (rows.forks.iter()).any(|f| f.work == *work && f.at > from && f.at < to)
+                || seen.iter().any(|s| !s.kept && s.row.at > from && s.row.at < to)
         };
         for now in &seen {
             let row = now.row;
@@ -170,7 +173,8 @@ pub fn costs(data: &Path, rows: &Rows) -> Report {
                     list(
                         &mut report,
                         &name,
-                        "it printed no result, and a keep-warm ping or a fork was made between the results around it",
+                        "it printed no result, and a keep-warm ping, a fork or a round with no stream kept was made \
+                         between the results around it",
                     );
                     continue;
                 }
@@ -369,8 +373,8 @@ mod tests {
     }
 
     // The same, with a keep-warm ping of the work made between the results around it: its cost is in the session's total
-    // too, and the round is listed and left as it was, as it is where no result comes before or after it, where its
-    // stream names no session, and where no stream is kept of it.
+    // too, and the round is listed and left as it was, as it is where a round with no stream kept was made between them,
+    // where no result comes before or after it, where its stream names no session, and where no stream is kept of it.
     #[test]
     fn a_round_with_no_result_is_listed_where_the_totals_cannot_tell_what_it_cost() {
         let data = tempfile::tempdir().unwrap();
@@ -390,6 +394,13 @@ mod tests {
         // A ping of another work does not count.
         rows.pings = vec![(2, 25)];
         assert_eq!(costs(data.path(), &rows).rounds, [(1, 10, 1, 1_500_000)]);
+        // A round of the work with no stream kept, made between them, may have spent in the session: the same.
+        rows.pings.clear();
+        rows.rounds.push(round(13, 25, 5));
+        let report = costs(data.path(), &rows);
+        assert!(report.rounds.is_empty(), "{:?}", report.rounds);
+        assert_eq!(report.listed.len(), 2, "{:?}", report.listed);
+        rows.rounds.pop();
         // The first round of its session has no result before it.
         rows.pings.clear();
         rows.rounds.remove(0);
