@@ -69,8 +69,8 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use work::{Ask, Call, RanOn, Time};
 
 pub use carriers::{
-    Back, CallReply, Carriers, Changes, Diff, Diffstat, Doing, Doings, FileChanged, Fork, Forked, Heard, Hosting,
-    KeptTokens, Mark, Network, OfWork, Outside, Ping, PingReply, Pull, Release, ReleaseReply, Returned, Round,
+    Back, CallReply, Carriers, Changes, Diff, Diffstat, Doing, Doings, FileChanged, Fork, ForkFailed, Forked, Heard,
+    Hosting, KeptTokens, Mark, Network, OfWork, Outside, Ping, PingReply, Pull, Release, ReleaseReply, Returned, Round,
     RoundReply, Rounds, Saying, Seen, Teller, Telling, Token, Tokens, Told, ToolCall, Tools, Try, WITHDRAWN, YEAR_MS,
 };
 pub use clock::{Clock, SystemClock, TokioClock};
@@ -1417,6 +1417,7 @@ impl Handle {
             Some(Err(why)) => return Ok(Some(Err(why))),
             Some(Ok(fork)) => fork,
         };
+        let (run, round) = (fork.run, fork.round);
         let forked = self.carriers.agents.fork(fork).await;
         if let Ok(forked) = &forked
             && let Some(said) = forked.usage.clone()
@@ -1426,7 +1427,12 @@ impl Handle {
                 said,
             });
         }
-        Ok(Some(forked))
+        // A fork that ran took what it cost, whether or not it answered, and the work keeps that; one refused before
+        // its program ran took nothing.
+        if let Some(event) = fork_event(run, round, &forked) {
+            let _ = (self.to).send(Message::Happened { work, event });
+        }
+        Ok(Some(forked.map_err(|failed| failed.to_string())))
     }
 
     /// What the agent of the round of this number of the run did from the mark on, as the carrier of its cell's kind
@@ -1466,16 +1472,13 @@ impl Handle {
     }
 
     /// What the repository of each work's project says of it beside its records, in the order asked, as the carrier
-    /// of the engine's acts works it out off the loop, [`SEEN`] works at once.
+    /// of the engine's acts works it out off the loop; that carrier sets how many works are looked at at once, over
+    /// every read.
     pub async fn seen(&self, of: Vec<OfWork>) -> Vec<Result<Seen, String>> {
-        let at_once = Arc::new(tokio::sync::Semaphore::new(SEEN));
         let asked: Vec<_> = (of.into_iter())
             .map(|of| {
-                let (carriers, at_once) = (self.carriers.clone(), at_once.clone());
-                tokio::spawn(async move {
-                    let _turn = at_once.acquire_owned().await;
-                    carriers.seen(of).await
-                })
+                let carriers = self.carriers.clone();
+                tokio::spawn(async move { carriers.seen(of).await })
             })
             .collect();
         let mut seen = Vec::with_capacity(asked.len());
@@ -1511,21 +1514,10 @@ impl Handle {
     /// The work as the carrier of its project's repository is asked of it for its changes; none where there is no
     /// such work.
     async fn of_work(&self, work: WorkNumber) -> Result<Option<OfWork>, Refusal> {
-        self.read(move |driver| {
-            driver.work(work).map(|kept| OfWork {
-                work,
-                item: kept.item.clone(),
-                merged: None,
-            })
-        })
-        .await
+        self.read(move |driver| driver.work(work).map(|kept| OfWork::of(&kept, None)))
+            .await
     }
 }
-
-/// How many works the repository is asked of at once: each look runs a few git commands, which take tens of
-/// milliseconds each, mostly the process starting, so a few at once keep a read of every work short without
-/// crowding the machine.
-pub const SEEN: usize = 8;
 
 /// Lets go of the token of each account of these names, which are removed, a token not found being let go of: gives
 /// each that could not be, by its name, with why; none where every one was.
@@ -1589,6 +1581,16 @@ fn kind_of(kept: &driver::Kept<'_>, cell: &CellId) -> Option<Kind> {
         .map(|c| if c.agent { Kind::Agent } else { Kind::Engine })
 }
 
+/// What the work keeps of a fork of the round of this number of the run that ended: what it took, whether it answered
+/// or failed having run; none for one refused before its program ran, which took nothing.
+fn fork_event(run: RunId, round: usize, asked: &Result<Forked, ForkFailed>) -> Option<Event> {
+    let spent = match asked {
+        Ok(forked) => Some(forked.spent),
+        Err(failed) => failed.spent,
+    }?;
+    Some(Event::Forked { run, round, spent })
+}
+
 /// What a fork of a round of the work reads which session the round ran in by: the outline of the version the work is
 /// on. A work on none kept has none, and the fork is refused, with why.
 fn fork_outline(kept: &driver::Kept<'_>) -> Result<Arc<flow::Outline>, String> {
@@ -1633,6 +1635,46 @@ mod tests {
     use work::Work;
 
     use super::*;
+
+    // What the work keeps of a fork is what it took where its program ran, whether it answered or not, and nothing of
+    // one refused before it ran.
+    #[test]
+    fn a_fork_that_ran_is_kept_whether_it_answered_or_failed_and_one_refused_before_it_ran_is_not() {
+        let spent = work::Spent {
+            usd_micros: 400_000,
+            input_tokens: 120,
+            ..Default::default()
+        };
+        let forked = Forked {
+            answer: None,
+            text: "It said this.".to_string(),
+            spent,
+            read: Some(9_000),
+            held: Some(10_000),
+            expired: None,
+            round: (RunId(7), 1),
+            later: Vec::new(),
+            kept: "/k/7-1.fork.1.answer".to_string(),
+            account: "work".to_string(),
+            instead: None,
+            usage: None,
+        };
+        let event = |spent| {
+            Some(Event::Forked {
+                run: RunId(7),
+                round: 1,
+                spent,
+            })
+        };
+        assert_eq!(fork_event(RunId(7), 1, &Ok(forked)), event(spent));
+        let failed = ForkFailed {
+            why: "The fork wrote no answer.".to_string(),
+            spent: Some(spent),
+        };
+        assert_eq!(fork_event(RunId(7), 1, &Err(failed)), event(spent));
+        let refused = ForkFailed::from("No account is in use.");
+        assert_eq!(fork_event(RunId(7), 1, &Err(refused)), None);
+    }
 
     /// The flow of a deliverable item as the repository defines it (`flow/deliver`), whose one cell, `V1`, is the
     /// engine's.

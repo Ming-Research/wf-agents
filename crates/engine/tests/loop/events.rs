@@ -278,3 +278,63 @@ fn a_pull_request_the_host_found_is_kept_once_for_each_and_starts_nothing() {
     );
     assert_eq!(w.work.records.started.len(), started, "no cell runs for it");
 }
+
+// A fork of a round's session that ended is kept with the run and the round it was asked of and what it took, at a place
+// and a moment of its own, and runs no cell: for a work under way and for one that has ended, whose fork cost as much.
+// A fork of a round that never began, or of no run, is refused and changes nothing.
+#[test]
+fn a_fork_of_a_round_is_kept_with_what_it_took_for_a_work_under_way_and_for_one_that_has_ended() {
+    let (mut w, write, _) = W::requested();
+    let spent = Spent {
+        usd_micros: 400_000,
+        input_tokens: 120,
+        cached_tokens: 18_100,
+        output_tokens: 30,
+        context_tokens: Some(9_100),
+        compactions: 1,
+    };
+    let fork = |run: RunId, round: usize| Event::Forked { run, round, spent };
+    let started = w.work.records.started.len();
+    let moments = w.work.moments.len();
+    assert_eq!(w.on(fork(write, 1)), vec![]);
+    let first = w.work.tick().0 - 1;
+    assert_eq!(w.work.moments.len(), moments + 1, "kept as a moment of its own");
+    assert_eq!(w.work.records.started.len(), started, "no cell runs for it");
+    // What is kept of what it took is its cost and its three counts of tokens: the rest of what a round keeps is not
+    // a fork's.
+    let kept = |w: &W| -> Vec<(u64, RunId, usize, u64, u64, u64, u64)> {
+        (w.work.forked.iter())
+            .map(|f| {
+                (
+                    f.at.0,
+                    f.run,
+                    f.round,
+                    f.usd_micros,
+                    f.input_tokens,
+                    f.cached_tokens,
+                    f.output_tokens,
+                )
+            })
+            .collect()
+    };
+    assert_eq!(kept(&w), [(first, write, 1, 400_000, 120, 18_100, 30)]);
+
+    let before = w.work.clone();
+    assert_eq!(w.refused(fork(write, 2)), Refused::NoSuchRound { run: write, round: 2 });
+    assert_eq!(
+        w.refused(fork(RunId(99), 1)),
+        Refused::NoSuchRound {
+            run: RunId(99),
+            round: 1
+        }
+    );
+    assert_eq!(w.work, before);
+
+    w.on(Event::Cancelled { why: None });
+    w.on(fork(write, 1));
+    let kept = kept(&w);
+    assert_eq!(kept.len(), 2, "kept for a work that has ended too");
+    assert!(kept[1].0 > kept[0].0, "at a place after the first's");
+    assert_eq!(kept[1].1, write);
+    assert_eq!(kept[1].3, 400_000);
+}

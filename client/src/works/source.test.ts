@@ -51,7 +51,7 @@ describe('the stream of changes', () => {
     const stream = Stream.opened[0];
     expect(stream.url).toBe('/api/v1/changes');
     stream.onopen?.();
-    stream.onmessage?.({ data: '{"works":[3],"items":false,"copies":false,"accounts":false}' });
+    stream.onmessage?.({ data: '{"works":[3],"items":false,"copies":false,"accounts":false,"observations":false}' });
     // What cannot be read says that anything may have happened, as an opening again does.
     stream.onmessage?.({ data: 'not json' });
     stream.onopen?.();

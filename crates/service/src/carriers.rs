@@ -22,7 +22,7 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use decide::run::Failure;
-use decide::{BlockId, CallId, End, Outsider, Pauser, RunId};
+use decide::{BlockId, CallId, End, Outsider, Pauser, RunId, Seq};
 use driver::history::Lines;
 use driver::{Accounts, Along, Found, Instead, Policy, Said, Under};
 use engine::{Came, Event};
@@ -135,10 +135,12 @@ pub trait Rounds: Send + Sync {
     /// Asks a fork of the session the round ran in a question (design document `testing`, 27), as the planner asks
     /// it: what the fork answered, or why it could not be asked. It is called off the loop, as [`Rounds::told`] is,
     /// and takes no slot. Rounds carried out in no session have none to fork, as by default.
-    fn fork(&self, fork: Fork) -> Pin<Box<dyn Future<Output = Result<Forked, String>> + Send + '_>> {
+    fn fork(&self, fork: Fork) -> Pin<Box<dyn Future<Output = Result<Forked, ForkFailed>> + Send + '_>> {
         let _ = fork;
         Box::pin(async {
-            Err("these rounds are carried out in no session, which a fork could be asked of".to_string())
+            Err(ForkFailed::from(
+                "these rounds are carried out in no session, which a fork could be asked of",
+            ))
         })
     }
 
@@ -181,8 +183,39 @@ pub struct Fork {
     pub accounts: Accounts,
 }
 
+/// Why a fork could not be asked or gave no answer, and what its program cost where it ran: a fork that ran spent
+/// money whether or not it answered, and that is recorded with the work. A fork refused before its program ran cost
+/// nothing and has none.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ForkFailed {
+    pub why: String,
+    pub spent: Option<Spent>,
+}
+
+impl From<String> for ForkFailed {
+    fn from(why: String) -> Self {
+        ForkFailed { why, spent: None }
+    }
+}
+
+impl From<&str> for ForkFailed {
+    fn from(why: &str) -> Self {
+        ForkFailed::from(why.to_string())
+    }
+}
+
+impl std::fmt::Display for ForkFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.why)?;
+        match &self.spent {
+            Some(spent) => write!(f, " It cost ${:.4}.", spent.usd_micros as f64 / 1e6),
+            None => Ok(()),
+        }
+    }
+}
+
 /// What a fork answered: its return, as JSON, where it wrote one, and what its program said at its end; what the fork
-/// cost, in millionths of a dollar; what its first call read from the cache, and what the session held as the fork
+/// cost and its tokens; what its first call read from the cache, and what the session held as the fork
 /// began, the context the round it begins at ended with, in tokens, where each is known; how many minutes before the
 /// cache had let go what the fork begins with, where it had: the last call that read it was more than the cache's life
 /// before; the round asked of, by run and number; the later rounds of the session, which the fork leaves out, beginning
@@ -193,7 +226,7 @@ pub struct Fork {
 pub struct Forked {
     pub answer: Option<String>,
     pub text: String,
-    pub usd_micros: u64,
+    pub spent: Spent,
     pub read: Option<u64>,
     pub held: Option<u64>,
     pub expired: Option<u64>,
@@ -404,13 +437,32 @@ pub struct Doings {
 }
 
 /// A work as the carrier of its project's repository is asked of it, off the loop: its number; its item, whose
-/// project says which repository; and, where it merged and no pull request of it is kept, what its merge wrote, which
-/// names the commit its merge made.
+/// project says which repository; where it merged and no pull request of it is kept, what its merge wrote, which
+/// names the commit its merge made; and how far its records had come, with whether a round of it or a tool run for
+/// it was under way, which say how long what git says of it holds.
 #[derive(Clone, Debug)]
 pub struct OfWork {
     pub work: WorkNumber,
     pub item: Item,
     pub merged: Option<String>,
+    /// The place the work's next record takes ([`work::Work::tick`]).
+    pub place: Seq,
+    /// Whether a round of the work or a tool run for it is under way ([`work::Work::under_way`]): only these change
+    /// what its branch and worktree hold, and each is recorded as it begins and ends.
+    pub under_way: bool,
+}
+
+impl OfWork {
+    /// The work as the driver keeps it, with what its merge wrote where that is given.
+    pub fn of(kept: &driver::Kept<'_>, merged: Option<String>) -> OfWork {
+        OfWork {
+            work: kept.head.number,
+            item: kept.item.clone(),
+            merged,
+            place: kept.work.tick(),
+            under_way: kept.work.under_way(),
+        }
+    }
 }
 
 /// What the repository of a work's project says of the work beside its records.

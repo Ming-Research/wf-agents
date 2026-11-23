@@ -176,8 +176,10 @@ export function faultWords(fault: Fault): string {
       return `The cell hands in ${w.verdict}, its verdict, and judges in ${w.dialogues.join(', ')}, so its points could go in more than one.`;
     case 'verdictWithoutDialogue':
       return `The cell hands in ${w.verdict}, its verdict, and judges in no dialogue its points could go in.`;
-    case 'lineDataOfAnother':
-      return `${w.block} is the line ${w.line}'s own, and the cell is not on that line.`;
+    case 'entriesWithoutTree':
+      return `${w.block} names entries of the design tree, but no datum of the flow is the design tree.`;
+    case 'entriesNotLatest':
+      return `${w.block} names entries of the design tree, and is given only as its latest version.`;
     case 'cannotBeAskedIn':
       return `The engine cannot ask in ${w.cell}: it must be an agent's cell, on a line that may change the work, with words of its own.`;
     case 'notWatched':

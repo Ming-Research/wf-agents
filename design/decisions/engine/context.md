@@ -19,6 +19,10 @@ A cell gives each datum it watches or reads as its latest version, as the versio
 A datum given as the last and the latest is sent as what changed since the version the cell last worked from, if the session holds that version and the change is shorter; otherwise it is sent whole.
 - rejected: an agent proposed sending both versions whole; the owner rejected it, because the cell's task asks what changed, less is sent, and the whole versions are in the records.
 
+### decision the-entries-a-block-names-are-given-whole
+A block marked `names_tree_entries` is given as each entry it names, whole, from the tree's latest version on the branch, by the project's `[tree_format]`; a line naming none is sent back.
+- replaced: Each line's session reading the tree for itself, given only its files changed since then, was on main; the owner changed it, because the lines read different parts of it, and a review did not know the decisions the engineer worked from (data: `research/tree-reading-measured.md`).
+
 ### decision a-datum-a-move-renamed-is-given-again-whole
 A session going on through a move is given whole each datum the move renamed, and each whose name a renumbering gave another cell's datum; what it was given before stays under its names then.
 - rejected: an agent proposed counting what the session holds under a datum's old name as held under its new one; the owner rejected it, because the agent would be told it holds a name it never saw, and could only guess.

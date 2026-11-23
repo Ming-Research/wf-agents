@@ -144,10 +144,10 @@ of each part.
     as data, the engine's own questions, the context a round ends with, a tool's time in one work), so that the build
     runs the program as it is rather than one changed for it; the build kept in the repository beside the program it
     drives, as 25 needs, the items it fills the store with given from the installation's data (principle
-    harness-only); and the states a script cannot bring about: sessions kept warm and what a round wrote to the cache,
-    which only a trial shows (22); the settings and the levels, which a script runs without; the copies of the store;
-    and times spread as a real installation's are, which needs the build to run on a clock of its own (principle
-    outside-behind-interfaces).
+    each-setting-where-it-is-true); and the states a script cannot bring about: sessions kept warm and what a round
+    wrote to the cache, which only a trial shows (22); the settings and the levels, which a script runs without; the
+    copies of the store; and times spread as a real installation's are, which needs the build to run on a clock of its
+    own (principle outside-behind-interfaces).
 
 ## A trial on the real installation
 
@@ -186,7 +186,10 @@ of each part.
     unneeded, how to fix each, quoting the text. An agent that knows it is being tested does not do what it would in
     real work (an inference, not measured). The return cannot show which words can be read another way; the fork,
     holding everything the round saw, can. Asking why it acted as it did is refused whole by the model's safety check
-    (it happened on 2026-11-08).
+    (it happened on 2026-11-08). Each fork is sent a first message, the same for every fork of the round, before its
+    question, so that the first fork writes the session's history to the prompt cache and the forks asked after it read
+    it (decision a-fork-begins-with-a-message-every-fork-of-the-round-shares); what a fork cost is kept with the work,
+    in what it spent.
 
     Where an agent did what its cell did not mean, the words are traced before they change. Each guess at which
     words led it there is written down first, with those words. A fork of its session, from the end of the round it
