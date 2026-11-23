@@ -34,6 +34,43 @@ fn the_engine_does_not_start_without_its_data_directory() {
 }
 
 #[test]
+fn a_flow_the_program_does_not_carry_keeps_the_engine_from_starting_and_changes_nothing() {
+    let place = Place::new(SCRIPT);
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_wf-agents"))
+        .arg("run")
+        .arg("--data")
+        .arg(place.data())
+        .args(["--program-flow", "nowhere", "--port", "0"])
+        .arg("--script")
+        .arg(place.script())
+        .output()
+        .expect("the command runs");
+    assert!(!out.status.success());
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        said.starts_with("no flow nowhere is carried by this program, which carries "),
+        "{said}"
+    );
+    assert!(out.stdout.is_empty());
+    assert!(
+        !place.data().join("flows").exists() && !place.data().join("flows.new").exists(),
+        "the flows' directory was made"
+    );
+}
+
+#[test]
+fn flows_of_directories_and_the_programs_own_are_not_given_together() {
+    let place = Place::new(SCRIPT);
+    let out = run(&place.data(), &place.script())
+        .args(["--program-flow", "anything"])
+        .output()
+        .expect("the command runs");
+    assert!(!out.status.success());
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert!(said.contains("cannot be used with"), "{said}");
+}
+
+#[test]
 fn a_command_with_no_engine_to_talk_to_says_so() {
     let port = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
         .unwrap()
