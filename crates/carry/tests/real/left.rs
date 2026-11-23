@@ -123,10 +123,10 @@ async fn a_round_whose_program_took_its_message_in_before_its_engine_ended_fails
     );
 }
 
-// A round whose program took its message in before its engine ended, and which then fails before its program could
-// run, as for a level the settings no longer have, takes what that try took, and its measures are told, so that the
-// session is known to hold its message. Under two seconds alone; no other test holds a left try whose round fails
-// before its program runs.
+// A round whose program took its message in before its engine ended, and printed no return, fails as one whose program
+// ended with none, though a new program could not run now, as for a level the settings no longer have: it takes what
+// that try took, and its measures are told, so that the session is known to hold its message. Under two seconds alone;
+// no other test holds a left try with no return whose item's level is gone.
 #[tokio::test]
 async fn a_left_try_whose_round_now_fails_for_its_item_s_level_is_counted() {
     let fake = Fake {
@@ -154,6 +154,157 @@ async fn a_left_try_whose_round_now_fails_for_its_item_s_level_is_counted() {
     // Opus 5.5: 100 × 4 + 1,000 × 0.2 + 10 × 20 millionths of a dollar, its one call at its price.
     let spent = kept.spent.get(&(plan, 1)).map(|spent| spent.usd_micros);
     assert_eq!(spent, Some(400 + 200 + 200), "what the try took");
+}
+
+// A return the program printed before its engine ended is the round's even where a new program could not run now, as
+// for a level the settings no longer have: the left try runs no program, so nothing a program needs to run is asked of
+// it, and only the cell after it fails for the level. Under two seconds alone; the test before holds a left try with no
+// return, and no other test one with a return whose round could not run a program now.
+#[tokio::test]
+async fn a_return_printed_before_its_engine_ended_is_taken_though_its_item_s_level_is_gone() {
+    let fake = Fake {
+        plan_sleeps_once_returned: 30,
+        ..Fake::default()
+    };
+    let mut real = Real::trial(fake);
+    real.level = "2".to_string();
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.wait(|real| real.calls().len() == 1).await;
+    let plan = real.run_of(work, "plan");
+    let stream = real.data.join(format!("rounds/1/{}-1.stream.jsonl", plan.0));
+    real.wait(|_| std::fs::read_to_string(&stream).is_ok_and(|s| s.contains(r#""type":"result""#)))
+        .await;
+
+    real.settings.items.highest_level = Some("1".to_string());
+    real.restart();
+    real.until(|real| real.failures == 1).await;
+    assert_eq!(real.calls().len(), 1, "no program ran again");
+    let kept = real.work(work);
+    let Some(Back::Returned { handed, .. }) = kept.back.get(&(plan, 1)) else {
+        panic!("the plan's round handed nothing in: {:?}", kept.back);
+    };
+    let handed: Vec<(&str, &str)> = (handed.iter())
+        .map(|h| (h.block.0.as_str(), h.content.as_str()))
+        .collect();
+    assert_eq!(handed, [("plan", "Greet by name.")]);
+}
+
+// A round whose program took its message in before its engine ended, and whose engine ended before it recorded what
+// the try filled into the session, has that told from what the try kept beside its message: the session is known to
+// hold the message, and the run's next round is told only what it lacks. About eleven seconds alone, ten of them the
+// engine's wait before a round that failed in passing is tried again; the test that holds such a round with its fill
+// recorded cannot tell a fill kept from one recorded.
+#[tokio::test]
+async fn a_left_try_whose_fill_its_engine_did_not_record_has_it_told_from_what_the_try_kept() {
+    let fake = Fake {
+        plan_sleeps_once_begun: 30,
+        ..Fake::default()
+    };
+    let mut real = Real::trial(fake);
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    // The first engine takes nothing more: what the try's start tells it is never recorded.
+    real.wait(|real| real.calls().len() == 1).await;
+    let plan = real.run_of(work, "plan");
+    let base = real.data.join(format!("rounds/1/{}-1", plan.0));
+    let stream = base.with_extension("stream.jsonl");
+    real.wait(|_| std::fs::read_to_string(&stream).is_ok_and(|s| s.contains(r#""type":"assistant""#)))
+        .await;
+    assert!(real.work(work).filled.is_empty(), "the first engine recorded no fill");
+
+    real.restart();
+    real.until(|real| real.failures == 1).await;
+    let kept = real.work(work);
+    let fills = (kept.filled.iter()).filter(|f| f.run == plan && f.round == 1).count();
+    assert_eq!(fills, 1, "the try's fill is told once");
+    let (first, next) = told_next(&mut real, work, plan).await;
+    assert!(!first.contains(TASK_HELD), "{first}");
+    assert!(
+        next.contains(TASK_HELD),
+        "the next round was told the whole message again:\n{next}"
+    );
+}
+
+// The owner's words the hook gave a round's program before its engine ended are the round's: given again, the round
+// says so from what the hook kept, and the words are not new to the cell. Under two seconds alone; no other test holds
+// words given to a round its engine did not see end.
+#[tokio::test]
+async fn words_the_hook_gave_a_try_its_engine_did_not_see_end_are_put_into_its_round() {
+    let fake = Fake {
+        build_hears_once_begun: 30,
+        ..Fake::default()
+    };
+    let mut real = Real::trial(fake);
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| matches!(real.decision(work), Decision::Busy { cell, .. } if cell.as_str() == "build"))
+        .await;
+    real.wait(|real| real.calls().iter().any(|call| call.of("Build"))).await;
+    let build = real.run_of(work, "build");
+    let base = real.data.join(format!("rounds/{}/{}-1", work.0, build.0));
+    let stream = base.with_extension("stream.jsonl");
+    real.wait(|_| std::fs::read_to_string(&stream).is_ok_and(|s| s.contains(r#""type":"assistant""#)))
+        .await;
+    let to = engine::spoken::To::Cell("build".into());
+    real.act(
+        work,
+        Act::Say {
+            to,
+            words: "Greet them warmly.".to_string(),
+        },
+    );
+    let given = base.with_extension("given.1.json");
+    real.wait(|_| given.exists()).await;
+
+    real.restart();
+    let put = |real: &Real| {
+        (real.work(work).records.put_in.iter()).any(|p| p.run == build && p.block.as_str() == "build_words")
+    };
+    real.until(|real| put(real) || real.failures == 1).await;
+    assert!(put(&real), "the words the hook gave are not put into the round");
+}
+
+// The owner's words the hook gave a round's program before its engine ended are the round's when the round is stopped
+// after, as when it is given again: the stop reads what the hook gave from the round's files, and the words are put into
+// the round before it ends, its session known to hold them. Under two seconds alone; the test before holds such a round
+// given again, and no other test one stopped.
+#[tokio::test]
+async fn words_the_hook_gave_a_try_whose_round_is_stopped_after_its_engine_ended_are_put_into_its_round() {
+    let fake = Fake {
+        build_hears_once_begun: 30,
+        ..Fake::default()
+    };
+    let mut real = Real::trial(fake);
+    // The first process of the engine ends before it stops anything: its stops are dropped.
+    real.deafen();
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| matches!(real.decision(work), Decision::Busy { cell, .. } if cell.as_str() == "build"))
+        .await;
+    real.wait(|real| real.calls().iter().any(|call| call.of("Build"))).await;
+    let build = real.run_of(work, "build");
+    let base = real.data.join(format!("rounds/{}/{}-1", work.0, build.0));
+    let stream = base.with_extension("stream.jsonl");
+    real.wait(|_| std::fs::read_to_string(&stream).is_ok_and(|s| s.contains(r#""type":"assistant""#)))
+        .await;
+    let to = engine::spoken::To::Cell("build".into());
+    real.act(
+        work,
+        Act::Say {
+            to,
+            words: "Greet them warmly.".to_string(),
+        },
+    );
+    let given = base.with_extension("given.1.json");
+    real.wait(|_| given.exists()).await;
+    real.act(work, Act::Cancel { why: None });
+
+    // Started again, the stop finds nothing held, and ends the round with what its hook gave.
+    real.restart();
+    real.until(|real| real.ended_rounds(work, build)).await;
+    let put = (real.work(work).records.put_in.iter()).any(|p| p.run == build && p.block.as_str() == "build_words");
+    assert!(put, "the words the hook gave are not put into the stopped round");
 }
 
 // Pinned as it stands: a return the program wrote, which the command line took, before its engine ended and before the

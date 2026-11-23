@@ -26,6 +26,7 @@ mod scheduling;
 mod sessions;
 mod starting;
 mod stopped;
+mod stopping;
 mod stops;
 mod test_times;
 mod versions;

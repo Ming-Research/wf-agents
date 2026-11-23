@@ -128,7 +128,7 @@ use flow::agents::fill;
 pub use outage::{Candidate, Checked, Found, Limit, Move, Outage, Service, Until};
 use store::{
     AccountAct, AccountRecord, AccountTaker, Change, Continues, EverythingPaused, First, Item, ItemChange, ItemNumber,
-    Storage, WorkHead, WorkNumber,
+    StopAct, StopRecord, Storage, WorkHead, WorkNumber,
 };
 use versions::Installed;
 pub use versions::{Misread, On};
@@ -273,6 +273,8 @@ pub struct Driver {
     accounts: Accounts,
     /// Every stretch the pause of everything held, in order, as the store keeps them.
     spans: Vec<Span>,
+    /// Every stop of the engine asked for, and every start after one, in order, as the store keeps them.
+    stops: Vec<StopRecord>,
     /// What stopped the driver, once something has.
     fault: Option<Fault>,
     /// When a line begins a new session; with none, only what others record of sessions is followed.
@@ -341,6 +343,40 @@ fn add_span(spans: &mut Vec<Span>, paused: bool, by: Pauser, at: Time) {
     }
 }
 
+/// A stop of the engine that stands ([`Driver::ask_to_stop`]): since when, and whether it was asked to stop at once,
+/// cutting off what is under way.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Stopping {
+    pub since: Time,
+    pub at_once: bool,
+}
+
+/// A stretch a stop of the engine stood: from when it was asked for to when the engine started again; none while it
+/// stands.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StopSpan {
+    pub from: Time,
+    pub until: Option<Time>,
+}
+
+/// The stretches the stops of the engine stood, as the store keeps each stop and each start after one, in order: a stop
+/// asked for again while one stands goes on from the first, and a start after none changes nothing.
+fn stop_spans(stops: &[StopRecord]) -> Vec<StopSpan> {
+    let mut spans: Vec<StopSpan> = Vec::new();
+    for stop in stops {
+        let open = spans.last_mut().filter(|span| span.until.is_none());
+        match (stop.what, open) {
+            (StopAct::Over, Some(open)) => open.until = Some(stop.at),
+            (StopAct::Over, None) | (StopAct::Asked | StopAct::Now, Some(_)) => {}
+            (StopAct::Asked | StopAct::Now, None) => spans.push(StopSpan {
+                from: stop.at,
+                until: None,
+            }),
+        }
+    }
+    spans
+}
+
 /// When the driver is to be told the time again: where `check`, the outside of the agents' rounds is to be checked
 /// then, and where `look_at_host`, the network to the acts' host looked at; what each found is told with the time.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -373,6 +409,8 @@ pub struct Slots {
 pub struct AtOnce {
     /// The pause of everything, while it holds.
     pub everything: Option<EverythingPaused>,
+    /// The stop of the engine, while it stands.
+    pub stopping: Option<Stopping>,
     /// The wait of the agents' service, if one stands.
     pub agents: Option<Outage>,
     /// The wait of the acts' host, if one stands.
@@ -661,6 +699,17 @@ impl Driver {
         let moving_on = store.moving_on().map_err(Fault::Store)?;
         let accounts = Accounts::new(store.accounts().map_err(Fault::Store)?);
         let spans = spans_of(&store.everything_pauses().map_err(Fault::Store)?);
+        // A stop that stood as the engine ended no longer stands once it starts again: that is kept before anything is
+        // looked at, so that the stretch it stood ends here.
+        let mut stops = store.stops().map_err(Fault::Store)?;
+        if (stops.last()).is_some_and(|last| last.what != StopAct::Over) {
+            let over = StopRecord {
+                what: StopAct::Over,
+                at: now,
+            };
+            store.keep_stop(&over).map_err(Fault::Store)?;
+            stops.push(over);
+        }
         let mut driver = Driver {
             store,
             flows: by_name,
@@ -672,6 +721,7 @@ impl Driver {
             moving_on,
             accounts,
             spans,
+            stops,
             fault: None,
             policy,
             checked: BTreeMap::new(),
@@ -884,7 +934,7 @@ impl Driver {
             paused: true,
             slot: false,
         };
-        let gate = self.gate();
+        let gate = self.holding();
         for event in first {
             effects.extend(handle_held(&flow, &mut work, now, event, taking, gate).map_err(Failed::Refused)?);
         }
@@ -1145,11 +1195,12 @@ impl Driver {
         }
         let at_once = self.at_once();
         let cannot_run = at_once.cannot_run();
+        let stops = self.stop_spans();
         for number in numbers {
             let Some(held) = self.works.get(&number) else {
                 continue;
             };
-            let stretches = time::stretches(&held.kept(), &self.spans, cannot_run, now);
+            let stretches = time::stretches(&held.kept(), &self.spans, &stops, cannot_run, now);
             let Some(held) = self.works.get_mut(&number) else {
                 continue;
             };
@@ -1319,6 +1370,58 @@ impl Driver {
             Ok(todos) => self.filled_after(now, todos),
             Err(fault) => Err(self.stop(fault, true)),
         }
+    }
+
+    /// The engine is asked to stop, at the time the caller's clock gives: once what is under way has ended, or, where
+    /// `at_once`, at once, cutting it off. From then no round of any work begins, not even one of a run that answers a
+    /// note; calls are still given their results and keep-warm pings still sent, and what is under way goes on, its end
+    /// kept as any is. It is kept in the store, and stands until the driver is opened again. Asked again while a stop
+    /// stands changes nothing, but that one asked at once while one waits for what is under way stands from then.
+    pub fn ask_to_stop(&mut self, now: Time, at_once: bool) -> Result<(), Failed> {
+        self.going()?;
+        if self.stopping().is_some_and(|stop| stop.at_once || !at_once) {
+            return Ok(());
+        }
+        let record = StopRecord {
+            what: if at_once { StopAct::Now } else { StopAct::Asked },
+            at: now,
+        };
+        if let Err(fault) = self.store.keep_stop(&record) {
+            return Err(self.stop(Fault::Store(fault), false));
+        }
+        self.stops.push(record);
+        Ok(())
+    }
+
+    /// The stop of the engine, while one stands: since it was first asked for, and whether at once.
+    pub fn stopping(&self) -> Option<Stopping> {
+        let latest = self.stops.last().filter(|latest| latest.what != StopAct::Over)?;
+        let since = stop_spans(&self.stops).last().map_or(latest.at, |span| span.from);
+        Some(Stopping {
+            since,
+            at_once: latest.what == StopAct::Now,
+        })
+    }
+
+    /// Every stretch a stop of the engine stood, in order, the one that stands among them.
+    pub fn stop_spans(&self) -> Vec<StopSpan> {
+        stop_spans(&self.stops)
+    }
+
+    /// Whether the engine may end as the stop that stands asks: it was asked to stop at once, or nothing is under way,
+    /// no round of any work, an act's among them, and no keep-warm ping. False where no stop stands.
+    pub fn may_end(&self) -> bool {
+        match self.stopping() {
+            Some(stop) => stop.at_once || !self.under_way(),
+            None => false,
+        }
+    }
+
+    /// Whether a round of any work is under way, a round being stopped among them until it has ended, or a keep-warm
+    /// ping.
+    fn under_way(&self) -> bool {
+        !self.pinging.is_empty()
+            || (self.works.values()).any(|held| held.work.records.rounds.len() > held.work.records.returned.len())
     }
 
     /// Whether the sessions of works that wait are kept warm, as the owner last switched it ([`warm`]).
@@ -1936,11 +2039,20 @@ impl Driver {
     /// rounds of the work's other lines begin as they would without the ping.
     pub fn gate_of(&self, work: WorkNumber) -> Hold {
         Hold {
-            gate: self.gate(),
+            gate: self.holding(),
             lines: (self.pinging.iter())
                 .filter(|(w, _)| *w == work)
                 .map(|(_, line)| line.clone())
                 .collect(),
+        }
+    }
+
+    /// Which rounds may begin now, as the waits every work shares and the stop of the engine say: while a stop stands,
+    /// none.
+    fn holding(&self) -> Gate {
+        match self.stopping() {
+            Some(_) => Gate::Every,
+            None => self.gate(),
         }
     }
 
@@ -1956,13 +2068,16 @@ impl Driver {
     }
 
     /// Looks at every work that has not ended, in the order of their numbers, each with the gate as it is then and
-    /// given no slot, so that the free slots go to the works in the engine's order once all have been looked at.
+    /// given no slot, so that the free slots go to the works in the engine's order once all have been looked at. Where
+    /// a wait every work shares lets one round go first, the work whose round met it first is looked at first.
     fn look(&mut self, now: Time) -> Result<Vec<Todo>, Fault> {
         let mut todos = Vec::new();
-        let numbers: Vec<WorkNumber> = (self.works.iter())
+        let first = first_turns(self.agents_wait().as_ref(), self.host_outage().as_ref());
+        let mut numbers: Vec<WorkNumber> = (self.works.iter())
             .filter(|(_, held)| held.standing == Standing::Going)
             .map(|(number, _)| *number)
             .collect();
+        numbers.sort_by_key(|number| (!first.contains(number), *number));
         for number in numbers {
             self.step_one(now, number, Event::Look, false, &mut todos)?;
         }
@@ -2152,6 +2267,7 @@ impl Driver {
     pub fn at_once(&self) -> AtOnce {
         AtOnce {
             everything: self.paused,
+            stopping: self.stopping(),
             agents: self.outage(),
             host: self.host_outage(),
             taking: self.taking(),
@@ -2279,18 +2395,27 @@ impl Driver {
     }
 
     /// Gives each free slot to the first work in the engine's order that waits for one, and gives what is to be done:
-    /// the works that have begun a round before those that have not, each in the order of their numbers. A work given
+    /// the works that have begun a round before those that have not, each in the order of their numbers, and before
+    /// them all the work whose round met the agents' wait first, where the wait lets one round go first. A work given
     /// a slot is looked at; each is looked at once, so that one that turns out to begin no round does not take the
     /// turn of the others.
     fn fill(&mut self, now: Time) -> Result<Vec<Todo>, Halt<Fault>> {
         let mut todos = Vec::new();
         let mut looked = BTreeSet::new();
+        let first = first_turns(self.agents_wait().as_ref(), None);
         while self.taken(None) < self.slots {
             let waiting = self.room(None, false);
             let next = (self.works.values())
                 .filter(|held| held.standing == Standing::Going && !looked.contains(&held.head.number))
                 .filter(|held| engine::held(&held.flow, &held.work, waiting) == Some(Holder::Slot))
-                .min_by_key(|held| (!begun(&held.flow.flow, &held.work.records), held.head.number))
+                .min_by_key(|held| {
+                    let number = held.head.number;
+                    (
+                        !first.contains(&number),
+                        !begun(&held.flow.flow, &held.work.records),
+                        number,
+                    )
+                })
                 .map(|held| held.head.number);
             let Some(number) = next else {
                 break;
@@ -2552,14 +2677,25 @@ fn taken_among(taking: &BTreeSet<WorkNumber>, but: Option<WorkNumber>) -> usize 
 /// Which rounds may begin, as the agents' wait and the acts' wait say: each holds its own rounds while it holds.
 fn gate_of_waits(agents: Option<&Outage>, host: Option<&Outage>) -> Gate {
     let agents = match agents {
-        Some(outage) if outage.holds() => Gate::Agents,
+        Some(outage) if outage.holds_now() => Gate::Agents,
         _ => Gate::Open,
     };
     let acts = match host {
-        Some(outage) if outage.holds() => Gate::Acts,
+        Some(outage) if outage.holds_now() => Gate::Acts,
         _ => Gate::Open,
     };
     agents.and(acts)
+}
+
+/// The works given the first turn to go first, each where its wait lets one round go and none has yet: the work whose
+/// round met the failure first in the wait of the acts' host, then in the agents' wait.
+fn first_turns(agents: Option<&Outage>, host: Option<&Outage>) -> Vec<WorkNumber> {
+    [host, agents]
+        .into_iter()
+        .flatten()
+        .filter(|outage| !outage.holds_now())
+        .map(|outage| outage.first)
+        .collect()
 }
 
 /// When the driver is to be told the time for a wait, as its kind says, with whether a look at the acts' host is then

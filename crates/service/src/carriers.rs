@@ -29,7 +29,7 @@ use engine::{Came, Event};
 use flow::{CellSpec, Compiled, Kind};
 use store::{Item, WorkNumber};
 use tokio::sync::mpsc;
-use work::{Fill, Given, Measures, RanOn, Spent, Time, Why, Work};
+use work::{Fill, Given, Left, Measures, RanOn, Spent, Time, Why, Work};
 
 use crate::Message;
 
@@ -179,18 +179,24 @@ pub struct Fork {
     pub accounts: Accounts,
 }
 
-/// Why a fork could not be asked or gave no answer, and what its program cost where it ran: a fork that ran spent
-/// money whether or not it answered, and that is recorded with the work. A fork refused before its program ran cost
-/// nothing and has none.
+/// Why a fork could not be asked or gave no answer, what its program cost where it ran, and how many processes it
+/// left running in its group as it ended, which were stopped: a fork that ran spent money whether or not it answered,
+/// and that is recorded with the work, as what it left is. A fork refused before its program ran cost nothing and has
+/// none, and left nothing.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ForkFailed {
     pub why: String,
     pub spent: Option<Spent>,
+    pub left: usize,
 }
 
 impl From<String> for ForkFailed {
     fn from(why: String) -> Self {
-        ForkFailed { why, spent: None }
+        ForkFailed {
+            why,
+            spent: None,
+            left: 0,
+        }
     }
 }
 
@@ -232,6 +238,9 @@ pub struct Forked {
     pub account: String,
     pub instead: Option<Instead>,
     pub usage: Option<Said>,
+    /// How many processes its program left running in its group as it ended, which were stopped: kept with the work
+    /// and said with the answer, as what it cost is.
+    pub left: usize,
 }
 
 /// A keep-warm ping of the session of this number of a line of the work.
@@ -263,7 +272,9 @@ pub struct PingReply {
 }
 
 impl PingReply {
-    pub(crate) fn new(work: WorkNumber, line: String, session: u32, to: mpsc::UnboundedSender<Message>) -> Self {
+    /// The reply that says what came of the ping down this channel, as the loop makes it; whoever tests a carrier
+    /// makes one to read what the carrier says.
+    pub fn new(work: WorkNumber, line: String, session: u32, to: mpsc::UnboundedSender<Message>) -> Self {
         PingReply {
             work,
             line,
@@ -285,6 +296,18 @@ impl PingReply {
     /// The agents' service said this of the usage of the account of this name, which the ping ran under.
     pub fn usage(&self, account: String, said: Said) {
         let _ = self.to.send(Message::Usage { account, said });
+    }
+
+    /// The ping's program ended by itself and left these many processes running in its group, which the carrier
+    /// stopped: said before the ping's end.
+    pub fn left_behind(&self, processes: usize) {
+        let of = Left::Ping {
+            line: self.line.clone(),
+            session: self.session,
+        };
+        let event = Event::LeftBehind { of, processes };
+        // Where the loop has ended, the process is stopping: what the ping left is not counted.
+        let _ = self.to.send(Message::Happened { work: self.work, event });
     }
 
     fn send(self, spent: Spent, failed: Option<String>) {
@@ -998,6 +1021,14 @@ impl Hosting {
         // Where the loop has ended, the process is stopping: what is given again reads the run again.
         let _ = self.to.send(Message::Happened { work: self.work, event });
     }
+
+    /// The project's check the host ran for the work, for a round of an act or a call, ended by itself and left these
+    /// many processes running in its group, which the host stopped: said before the round's end or the call's result.
+    pub fn left_behind(&self, of: Left, processes: usize) {
+        let event = Event::LeftBehind { of, processes };
+        // Where the loop has ended, the process is stopping: what the check left is not counted.
+        let _ = self.to.send(Message::Happened { work: self.work, event });
+    }
 }
 
 impl Saying {
@@ -1040,6 +1071,18 @@ impl Teller {
             attempt,
             measures,
         });
+    }
+
+    /// The program of the try of this number of the round of this number ended by itself and left these many
+    /// processes running in its group, which the carrier stopped: said before the round's end, so that it is in the
+    /// records with the round.
+    pub fn left_behind(&self, round: usize, attempt: usize, processes: usize) {
+        let of = Left::Try {
+            run: self.run,
+            round,
+            attempt,
+        };
+        self.tell(Event::LeftBehind { of, processes });
     }
 
     /// The line's session was reopened during the round, for this reason: the agents' program had lost the one the

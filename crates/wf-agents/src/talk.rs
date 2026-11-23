@@ -17,7 +17,7 @@ use serde::de::DeserializeOwned;
 use web::attention::{Attention, Line, Stuck};
 use web::observations::{Observation, ObservationsPage};
 use web::plan::{Candidates, Field, Graph, Hits, Node, PlanChange, PlanChanges, Row, Standing, Tags};
-use web::system::{Past, System, UnderWay};
+use web::system::{LeftOf, Past, Rest, System, UnderWay};
 use web::works::{
     Act, Added, Against, Back, Call, CellState, ChangeAsked, Checked, Continues, Engine, EngineAct, Failure, ForkAsked,
     ForkInstead, ForkPage, Found, ItemChanged, ItemChanges, ItemHistory, Items, ItemsChanged, Limit, Maker, NewItem,
@@ -51,6 +51,12 @@ pub enum Asked {
     },
     /// The owner's pause of everything set, or lifted.
     Everything(EngineAct),
+    /// The engine stopped: once what is under way has ended, or, where `now`, at once, which cuts that off and is done
+    /// only where `yes` confirms it, having said without it what it would cut off.
+    Stop {
+        now: bool,
+        yes: bool,
+    },
     /// A cancel for this reason, which says afterwards what the work is: cancelled, or ended otherwise before it could
     /// be.
     Cancel(u64, String),
@@ -199,6 +205,23 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
                 send::<(), _>(address, Method::POST, "/api/v1/engine/acts", Some(&act)).await?;
                 let engine: Engine = send(address, Method::GET, "/api/v1/engine", None::<&()>).await?;
                 Ok(standing(&engine))
+            }
+            Asked::Stop { now, yes } => {
+                // What is under way is read first: what a stop at once would cut off, and what one waits for.
+                let path = format!("/api/v1/system?weeks={}", clock());
+                let system: System = send(address, Method::GET, &path, None::<&()>).await?;
+                if now && !yes {
+                    return Ok(stop_said(&system, Stopped::NotYet));
+                }
+                let act = EngineAct::Stop { now };
+                if let Err(why) = send::<(), _>(address, Method::POST, "/api/v1/engine/acts", Some(&act)).await {
+                    // An engine that ends on the stop may end before its answer is sent: one that no longer answers
+                    // has stopped.
+                    if send::<Engine, ()>(address, Method::GET, "/api/v1/engine", None).await.is_ok() {
+                        return Err(why);
+                    }
+                }
+                Ok(stop_said(&system, if now { Stopped::AtOnce } else { Stopped::Once }))
             }
             Asked::Show { work, part, from } => {
                 let page: WorkPage = send(address, Method::GET, &format!("/api/v1/works/{work}"), None::<&()>).await?;
@@ -599,8 +622,97 @@ fn done(work: u64, act: &Act, said: Option<&Said>) -> String {
     }
 }
 
-/// The engine as a whole, in a line: whether everything is paused and by whom, and its slots.
+/// How a stop was asked for: at once and not yet confirmed, at once, or once what is under way has ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Stopped {
+    NotYet,
+    AtOnce,
+    Once,
+}
+
+/// The most rounds under way a stop lists.
+const STOP_LISTED: usize = 20;
+
+/// What a stop does to what is under way, as `system` read it just before: each round under way, with how long it has
+/// taken and how much longer it is expected to take; for a stop at once not yet confirmed, that nothing was stopped.
+fn stop_said(system: &System, stopped: Stopped) -> String {
+    let rounds: Vec<&UnderWay> = (system.under_way.iter())
+        .filter(|u| matches!(u, UnderWay::Round { .. }))
+        .collect();
+    let latest = web::system::rest_of_rounds(&system.under_way);
+    let mut listed = Vec::new();
+    for under_way in &rounds {
+        let UnderWay::Round {
+            work,
+            item,
+            cell,
+            began,
+            rest,
+            ..
+        } = under_way
+        else {
+            continue;
+        };
+        let rest = rest.unwrap_or(Rest::Longer {});
+        let to_come = match rest {
+            Rest::Expected { ms } => format!("about {} more", duration(ms)),
+            Rest::Longer {} => "longer than any round of its history".to_string(),
+        };
+        listed.push(format!(
+            "  {work} of {item} at {cell}: {} so far, {to_come}",
+            duration(system.now.saturating_sub(*began)),
+            work = work_number(*work),
+            item = item_number(*item)
+        ));
+    }
+    if listed.len() > STOP_LISTED {
+        let left = listed.len() - STOP_LISTED;
+        listed.truncate(STOP_LISTED);
+        listed.push(format!("  And {left} more."));
+    }
+    let n = rounds.len();
+    let these = if n == 1 {
+        "this round".to_string()
+    } else {
+        format!("these {n} rounds")
+    };
+    let head = match stopped {
+        Stopped::NotYet if n == 0 => {
+            return "Nothing is stopped: no round is under way, and `wf-agents stop --now --yes` stops the engine at \
+                    once."
+                .to_string();
+        }
+        Stopped::NotYet => format!(
+            "Nothing is stopped: `wf-agents stop --now --yes` stops the engine at once and cuts off {these}, which \
+             `wf-agents stop` waits for:"
+        ),
+        Stopped::AtOnce if n == 0 => return "The engine stopped at once; no round was under way.".to_string(),
+        Stopped::AtOnce => format!("The engine stopped at once, cutting off {these}:"),
+        Stopped::Once if n == 0 => return "The engine stopped; no round was under way.".to_string(),
+        Stopped::Once => {
+            let ends = match latest {
+                Rest::Expected { ms } => format!("expected in about {}", duration(ms)),
+                Rest::Longer {} => "once a round that has taken longer than any before has ended".to_string(),
+            };
+            format!("The engine is stopping: no round begins, and it ends once {these} have ended, {ends}:")
+        }
+    };
+    std::iter::once(head).chain(listed).collect::<Vec<_>>().join("\n")
+}
+
+/// The engine as a whole, in a line: whether it is stopping, whether everything is paused and by whom, and its slots.
 fn standing(engine: &Engine) -> String {
+    if let Some(stop) = engine.stopping {
+        let how = if stop.at_once {
+            "at once"
+        } else {
+            "once what is under way has ended"
+        };
+        return format!(
+            "The engine is stopping {how}: no round begins; {} of {} slots taken.",
+            engine.taken, engine.slots
+        );
+    }
     let paused = match engine.paused.map(|paused| paused.by) {
         Some(Pauser::Owner) => {
             "Every work is paused: none begins a round but to answer a note, until `wf-agents resume --all`"
@@ -1816,7 +1928,22 @@ fn waited(waited: &Waited) -> String {
             let holder = work_number(*holder);
             format!("the project's turn to check and merge, which work {holder} holds")
         }
-        Waited::Agents { outage: o } => format!("the agents' rounds to begin again, as {}", cause(o)),
+        Waited::Agents { outage: o } => match o.first {
+            Some(first) => {
+                let what = if o.service == web::works::Service::Host {
+                    "act"
+                } else {
+                    "round"
+                };
+                let first = work_number(first);
+                format!("{first}'s {what} to come back: it is well again, and that {what} goes first")
+            }
+            None => format!("the agents' rounds to begin again, as {}", cause(o)),
+        },
+        Waited::Stopping { since } => format!(
+            "the engine to start again, as it was asked to stop {} ago",
+            duration(clock().saturating_sub(*since))
+        ),
         Waited::Outside { source, cell, why } => format!("the outside ({source}), before {cell} runs again: {why}"),
         Waited::Items { items } => format!("the items it depends on to merge: {}", numbers(items)),
     }
@@ -1857,18 +1984,28 @@ fn cause(outage: &Outage) -> &'static str {
 /// round that met it, with what it said.
 fn outage(outage: &Outage) -> String {
     let what = capital(cause(outage));
-    let until = match outage.until {
-        Until::Checked { at } => format!(
-            "The engine checks the outside itself at {}, touching no work's session, and every work goes on once it is \
-             well.",
+    let until = match (outage.until, outage.first) {
+        (Until::Checked { at }, _) => format!(
+            "The engine checks the outside itself at {}, touching no work's session, and one round goes first once it \
+             is well.",
             utc(at)
         ),
-        Until::Well { at } => format!(
-            "The engine's check at {} found it well, and every work goes on.",
+        (Until::Well { at }, Some(first)) => format!(
+            "The engine's check at {} found it well: {first}'s round goes first, and every work goes on once it comes \
+             back.",
+            utc(at),
+            first = work_number(first)
+        ),
+        (Until::Well { at }, None) => format!(
+            "The engine's check at {} found it well, and one round goes first.",
             utc(at)
         ),
-        Until::Looked { at } => format!(
-            "The host is looked at from {} every half minute, and every act goes on once it is reached.",
+        (Until::Looked { .. }, Some(first)) => {
+            let first = work_number(first);
+            format!("A look reached the host: {first}'s act goes first, and every act goes on once it comes back.")
+        }
+        (Until::Looked { at }, None) => format!(
+            "The host is looked at from {} every half minute, and one act goes first once it is reached.",
             utc(at)
         ),
     };
@@ -2143,12 +2280,27 @@ fn system_said(system: &System, days: u64, limit: usize) -> String {
     if system.past.len() > limit {
         lines.push(more(system.past.len() - limit));
     }
+    if let Some(stop) = &system.stopping {
+        let how = if stop.at_once {
+            "at once"
+        } else {
+            "once what is under way has ended"
+        };
+        let ends = match stop.rest {
+            Rest::Expected { ms } => format!("expected to end in about {}", duration(ms)),
+            Rest::Longer {} => "to end once a round that has taken longer than any before has ended".to_string(),
+        };
+        lines.push(format!(
+            "The engine was asked {} to stop {how}: no round begins, and it is {ends}.",
+            utc(stop.since)
+        ));
+    }
     if system.under_way.is_empty() {
         lines.push("Nothing is under way.".to_string());
     } else {
         lines.push("Under way, the oldest first:".to_string());
     }
-    let so_far = |time: &Option<Against>, what: &str| match time {
+    let so_far = |time: &Option<Against>, since: u64, what: &str| match time {
         Some(time) => format!(
             "{} so far, {} the line of {} that {}",
             duration(time.value),
@@ -2156,7 +2308,10 @@ fn system_said(system: &System, days: u64, limit: usize) -> String {
             duration(time.line.value),
             given_by(&time.line)
         ),
-        None => format!("no line yet, too few {what} having ended"),
+        None => format!(
+            "{} so far, no line yet, too few {what} having ended",
+            duration(system.now.saturating_sub(since))
+        ),
     };
     for under_way in system.under_way.iter().take(limit) {
         lines.push(match under_way {
@@ -2169,7 +2324,13 @@ fn system_said(system: &System, days: u64, limit: usize) -> String {
                 began,
                 time,
                 bounds,
+                rest,
             } => {
+                let rest = match rest {
+                    Some(Rest::Expected { ms }) => format!("; about {} more", duration(*ms)),
+                    Some(Rest::Longer {}) => "; longer than any round of its history".to_string(),
+                    None => String::new(),
+                };
                 let bounds = bounds.map_or_else(String::new, |bounds| {
                     let tokens = |line: Option<web::works::Line>| {
                         line.map_or_else(|| "none yet".to_string(), |line| format!("{} tokens", line.value))
@@ -2184,9 +2345,9 @@ fn system_said(system: &System, days: u64, limit: usize) -> String {
                     )
                 });
                 format!(
-                    "  {work} of {item}, round {round} of run {run} of {cell}, since {}: {}{bounds}",
+                    "  {work} of {item}, round {round} of run {run} of {cell}, since {}: {}{rest}{bounds}",
                     utc(*began),
-                    so_far(time, "rounds of its cell"),
+                    so_far(time, *began, "rounds of its cell"),
                     work = work_number(*work),
                     item = item_number(*item)
                 )
@@ -2203,7 +2364,7 @@ fn system_said(system: &System, days: u64, limit: usize) -> String {
             } => format!(
                 "  {work} of {item}, call {call} of the tool {tool} by run {run} of {cell}, since {}: {}",
                 utc(*made),
-                so_far(time, "calls of its tool"),
+                so_far(time, *made, "calls of its tool"),
                 work = work_number(*work),
                 item = item_number(*item)
             ),
@@ -2211,6 +2372,36 @@ fn system_said(system: &System, days: u64, limit: usize) -> String {
     }
     if system.under_way.len() > limit {
         lines.push(more(system.under_way.len() - limit));
+    }
+    if !system.left_behind.is_empty() {
+        lines.push("Left running by a program as it ended, and stopped, the latest first:".to_string());
+    }
+    for left in system.left_behind.iter().take(limit) {
+        let of = match &left.of {
+            LeftOf::Try {
+                cell,
+                run,
+                round,
+                attempt,
+            } => format!("try {attempt} of round {round} of run {run} of {cell}"),
+            LeftOf::Act { cell, run, round } => format!("the check of round {round} of run {run} of {cell}"),
+            LeftOf::Call { cell, run, call, tool } => {
+                format!("the check of call {call} of the tool {tool} by run {run} of {cell}")
+            }
+            LeftOf::Ping { line, session } => format!("a keep-warm ping of session {session} of the line {line}"),
+            LeftOf::Fork { cell, run, round } => format!("a fork of round {round} of run {run} of {cell}"),
+        };
+        lines.push(format!(
+            "  {} of {}, {of}, ended {}: {} {}",
+            work_number(left.work),
+            item_number(left.item),
+            utc(left.at),
+            left.processes,
+            if left.processes == 1 { "process" } else { "processes" }
+        ));
+    }
+    if system.left_behind.len() > limit {
+        lines.push(more(system.left_behind.len() - limit));
     }
     for tests in &system.tests {
         lines.extend(tests_said(tests, days, limit));
@@ -2448,6 +2639,7 @@ mod tests {
             }),
             until: Until::Checked { at: 3 * hour },
             holds: true,
+            first: None,
             may_move: false,
         });
         let said = list(&waiting, &Listing::default());
@@ -2455,14 +2647,145 @@ mod tests {
         assert_eq!(
             first,
             "No agent's round of any work begins. The agents' command line cannot run since 1970-01-01 01:00 UTC. The \
-             engine checks the outside itself at 1970-01-01 03:00 UTC, touching no work's session, and every work goes \
-             on once it is well. The check at 1970-01-01 02:00 UTC, the 2nd in the wait, found it down. No account is \
+             engine checks the outside itself at 1970-01-01 03:00 UTC, touching no work's session, and one round goes \
+             first once it is well. The check at 1970-01-01 02:00 UTC, the 2nd in the wait, found it down. No account is \
              in use: choose one on the Settings view. Round 1 of run 2 of W1 met it. API Error: 529 Overloaded."
         );
         let outage = waiting.outage.as_mut().unwrap();
         outage.until = Until::Well { at: 2 * hour };
         outage.holds = false;
         assert!(list(&waiting, &Listing::default()).starts_with("#1 "));
+    }
+
+    // The system view lists what each program run for a work left running and had stopped, the latest first, saying
+    // which program it was: a try of a round, the check of an act's round or of a call, a keep-warm ping or a fork.
+    // Microseconds.
+    #[test]
+    fn the_system_says_which_program_left_processes_running_and_how_many() {
+        let left = |at: u64, of: LeftOf, processes: usize| web::system::LeftBehind {
+            work: 4,
+            item: 9,
+            of,
+            at,
+            processes,
+        };
+        let system = System {
+            now: 600_000,
+            from: None,
+            spent: Spent::default(),
+            pinged: Spent::default(),
+            weeks: Vec::new(),
+            by_cell: Vec::new(),
+            by_model: Vec::new(),
+            by_work: Vec::new(),
+            merged: Vec::new(),
+            cancelled: Vec::new(),
+            added: Vec::new(),
+            sent_back: Vec::new(),
+            failed: Vec::new(),
+            past: Vec::new(),
+            under_way: Vec::new(),
+            tests: Vec::new(),
+            left_behind: vec![
+                left(
+                    300_000,
+                    LeftOf::Fork {
+                        cell: "I1".to_string(),
+                        run: 7,
+                        round: 1,
+                    },
+                    2,
+                ),
+                left(
+                    240_000,
+                    LeftOf::Ping {
+                        line: "engineer".to_string(),
+                        session: 2,
+                    },
+                    1,
+                ),
+                left(
+                    180_000,
+                    LeftOf::Call {
+                        cell: "I1".to_string(),
+                        run: 7,
+                        call: 3,
+                        tool: "run_tests".to_string(),
+                    },
+                    2,
+                ),
+                left(
+                    120_000,
+                    LeftOf::Act {
+                        cell: "M1".to_string(),
+                        run: 8,
+                        round: 1,
+                    },
+                    3,
+                ),
+                left(
+                    60_000,
+                    LeftOf::Try {
+                        cell: "I1".to_string(),
+                        run: 7,
+                        round: 2,
+                        attempt: 1,
+                    },
+                    1,
+                ),
+            ],
+            stopping: None,
+        };
+        let said = system_said(&system, 7, 10);
+        assert!(
+            said.ends_with(
+                "Left running by a program as it ended, and stopped, the latest first:\n  W4 of #9, a fork of round 1 \
+                 of run 7 of I1, ended 1970-01-01 00:05 UTC: 2 processes\n  W4 of #9, a keep-warm ping of session 2 of \
+                 the line engineer, ended 1970-01-01 00:04 UTC: 1 process\n  W4 of #9, the check of call 3 \
+                 of the tool run_tests by run 7 of I1, ended 1970-01-01 00:03 UTC: 2 processes\n  W4 of #9, the check of \
+                 round 1 of run 8 of M1, ended 1970-01-01 00:02 UTC: 3 processes\n  W4 of #9, try 1 of round 2 of run 7 \
+                 of I1, ended 1970-01-01 00:01 UTC: 1 process"
+            ),
+            "{said}"
+        );
+    }
+
+    // A work the wait every work shares holds while one round goes first says it waits for that round, not for the
+    // cause the check found gone, and for the act that goes first where the wait is the acts'. Microseconds.
+    #[test]
+    fn a_work_held_while_one_round_goes_first_says_it_waits_for_that_one() {
+        let mut outage = Outage {
+            service: web::works::Service::Agents,
+            failure: Failure::Offline,
+            why: "Unable to connect to API".to_string(),
+            work: 1,
+            run: 2,
+            round: 1,
+            since: 0,
+            checked: Some(Checked {
+                at: 30_000,
+                taken: 1,
+                found: Found::Well,
+            }),
+            until: Until::Well { at: 30_000 },
+            holds: true,
+            first: Some(3),
+            may_move: false,
+        };
+        assert_eq!(
+            waited(&Waited::Agents { outage: outage.clone() }),
+            "W3's round to come back: it is well again, and that round goes first"
+        );
+        outage.service = web::works::Service::Host;
+        assert_eq!(
+            waited(&Waited::Agents { outage: outage.clone() }),
+            "W3's act to come back: it is well again, and that act goes first"
+        );
+        outage.first = None;
+        assert!(
+            waited(&Waited::Agents { outage }).starts_with("the agents' rounds to begin again, as "),
+            "a wait no round goes first in says its cause"
+        );
     }
 
     // Where the owner lets the engine move at a usage limit and another account may yet be moved to, the planner is told
@@ -2482,6 +2805,7 @@ mod tests {
             checked: None,
             until: Until::Checked { at: 3 * hour },
             holds: true,
+            first: None,
             may_move: true,
         });
         let moves = "The engine also checks the other accounts and moves every work to the first one it finds well.";
@@ -2512,6 +2836,7 @@ mod tests {
             checked: None,
             until: Until::Checked { at: 3 * hour },
             holds: true,
+            first: None,
             may_move: false,
         };
         let line = Line::Agents {
@@ -3121,6 +3446,8 @@ mod tests {
             past: (1..=12).map(past).collect(),
             under_way: Vec::new(),
             tests: Vec::new(),
+            left_behind: Vec::new(),
+            stopping: None,
         };
         let said = system_said(&system, 7, 10);
         let lines: Vec<&str> = said.lines().collect();
@@ -3217,6 +3544,96 @@ mod tests {
         );
     }
 
+    // A stop says each round under way it waits for, or would cut off, with how long it has taken and how much longer
+    // it is expected to take, and when the engine is expected to end, the latest of them; the system view says the
+    // stop that stands and each round's rest. Fails where a round is left out, its rest misread, or the end not the
+    // latest. Microseconds.
+    #[test]
+    fn a_stop_says_the_rounds_it_waits_for_or_would_cut_off_with_how_long_each_has_to_go() {
+        let round = |work: u64, began: u64, rest| UnderWay::Round {
+            work,
+            item: work + 10,
+            cell: "I1".to_string(),
+            run: 2,
+            round: 1,
+            began,
+            time: None,
+            bounds: None,
+            rest,
+        };
+        let mut system = System {
+            now: 600_000,
+            from: Some(0),
+            spent: Spent::default(),
+            pinged: Spent::default(),
+            weeks: Vec::new(),
+            by_cell: Vec::new(),
+            by_model: Vec::new(),
+            by_work: Vec::new(),
+            merged: Vec::new(),
+            cancelled: Vec::new(),
+            added: Vec::new(),
+            sent_back: Vec::new(),
+            failed: Vec::new(),
+            past: Vec::new(),
+            under_way: vec![
+                round(1, 0, Some(Rest::Expected { ms: 120_000 })),
+                round(2, 540_000, Some(Rest::Expected { ms: 300_000 })),
+            ],
+            tests: Vec::new(),
+            left_behind: Vec::new(),
+            stopping: None,
+        };
+        let listed =
+            "  W1 of #11 at I1: 10m 00s so far, about 2m 00s more\n  W2 of #12 at I1: 1m 00s so far, about 5m 00s more";
+        assert_eq!(
+            stop_said(&system, Stopped::NotYet),
+            format!(
+                "Nothing is stopped: `wf-agents stop --now --yes` stops the engine at once and cuts off these 2 rounds, \
+                 which `wf-agents stop` waits for:\n{listed}"
+            )
+        );
+        assert_eq!(
+            stop_said(&system, Stopped::Once),
+            format!(
+                "The engine is stopping: no round begins, and it ends once these 2 rounds have ended, expected in about \
+                 5m 00s:\n{listed}"
+            )
+        );
+        system.under_way[0] = round(1, 0, Some(Rest::Longer {}));
+        assert!(
+            stop_said(&system, Stopped::Once).starts_with(
+                "The engine is stopping: no round begins, and it ends once these 2 rounds have ended, once a round \
+                 that has taken longer than any before has ended:\n  W1 of #11 at I1: 10m 00s so far, longer than any \
+                 round of its history\n"
+            ),
+            "{}",
+            stop_said(&system, Stopped::Once)
+        );
+        system.stopping = Some(web::system::Stop {
+            since: 0,
+            at_once: false,
+            rest: Rest::Longer {},
+        });
+        let said = system_said(&system, 7, 10);
+        assert!(
+            said.contains(
+                "The engine was asked 1970-01-01 00:00 UTC to stop once what is under way has ended: no round begins, \
+                 and it is to end once a round that has taken longer than any before has ended.\nUnder way"
+            ),
+            "{said}"
+        );
+        assert!(
+            said.contains(
+                "Under way, the oldest first:\n  W1 of #11, round 1 of run 2 of I1, since 1970-01-01 00:00 UTC: 10m 00s \
+                 so far, no line yet, too few rounds of its cell having ended; longer than any round of its history\n  \
+                 W2 of #12, round 1 of run 2 of I1, since 1970-01-01 00:09 UTC: 1m 00s so far, no line yet, too few \
+                 rounds of its cell having ended; about 5m 00s more"
+            ),
+            "{said}"
+        );
+    }
+
     #[test]
     fn a_call_past_its_line_by_the_size_of_its_result_is_said_with_its_bytes_beside_its_time() {
         let line = |value| web::works::Line {
@@ -3263,6 +3680,8 @@ mod tests {
             ],
             under_way: Vec::new(),
             tests: Vec::new(),
+            left_behind: Vec::new(),
+            stopping: None,
         };
         let said = system_said(&system, 7, 10);
         let lines: Vec<&str> = said.lines().collect();
@@ -3318,6 +3737,13 @@ pub fn forked_said(page: &ForkPage) -> String {
         }
     }
     out.push_str(&format!("\nIt cost ${:.4}.\n", page.usd_micros as f64 / 1e6));
+    if page.left > 0 {
+        let processes = if page.left == 1 { "process" } else { "processes" };
+        out.push_str(&format!(
+            "Its program left {} {processes} running in its group as it ended, which were stopped.\n",
+            page.left
+        ));
+    }
     let share = match (page.read, page.held) {
         (Some(read), Some(held)) if held > 0 => Some((read.min(held) * 100 / held, read, held)),
         _ => None,
@@ -3409,6 +3835,7 @@ mod fork_tests {
             kept: "/k/7-1.fork.1.answer".to_string(),
             account: "work".to_string(),
             instead: None,
+            left: 0,
         }
     }
 
@@ -3470,6 +3897,12 @@ mod fork_tests {
                 .contains("The session ran under no account: the fork ran under the account in use, work, whose cache")
         );
         assert!(!forked_said(&page()).contains("the fork ran under the account in use"));
+        // What its program left running, stopped as it ended, is said with its cost, and nothing where it left none.
+        let left = ForkPage { left: 2, ..page() };
+        assert!(forked_said(&left).contains(
+            "It cost $0.0410.\nIts program left 2 processes running in its group as it ended, which were stopped.\n"
+        ));
+        assert!(!forked_said(&page()).contains("running in its group"));
     }
 
     #[test]

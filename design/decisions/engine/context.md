@@ -73,3 +73,7 @@ Which work and item a round belongs to is part of the message that the session k
 A datum a cell is given that has no version yet is left out of the message: no line says it has none.
 - rejected: an agent proposed a line for each, saying it has no version yet; the owner rejected it, because with nothing to read it takes no part.
 - replaced: Sending inputs that held nothing in every message anyway was on main; the owner changed it, because nothing should be sent for an input that holds nothing.
+
+### decision a-try-keeps-what-it-was-given
+Before its program starts, a try keeps what it runs on and what its message fills in a file beside it, and a later start records from there what the records lack.
+- rejected: an agent proposed having each try wait, before its program starts, until the store has kept what it fills; the owner rejected it, because every start would then wait on the engine, and with the agents on another machine every try would wait across machines.

@@ -12,8 +12,8 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use work::timed::{Job, Reading, Source, Test};
 use work::{
-    Filled, Forked, KeptTime, Measured, Measures, Moment, Observed, OnFlow, Pinged, Pulled, Ran, RanOn, Session, Spent,
-    Time, Timed, Work,
+    Filled, Forked, KeptTime, LeftBehind, Measured, Measures, Moment, Observed, OnFlow, Pinged, Pulled, Ran, RanOn,
+    Session, Spent, Time, Timed, Work,
 };
 
 use crate::{Divergence, Entry, Fault, WorkNumber};
@@ -445,6 +445,18 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
         measured.measures.before = parse("measured", &before)?;
         out.measured.push(measured);
     }
+    for (at, of, processes) in rows(
+        db,
+        "SELECT at, of, processes FROM left_behind WHERE work = ?1 ORDER BY at",
+        w,
+        |row| Ok((row.get::<_, u64>(0)?, row.get::<_, String>(1)?, row.get::<_, usize>(2)?)),
+    )? {
+        out.left_behind.push(LeftBehind {
+            at: Seq(at),
+            of: parse("left_behind", &of)?,
+            processes,
+        });
+    }
     out.pinged = rows(
         db,
         "SELECT at, line, session, usd_micros, input_tokens, cached_tokens, output_tokens, context_tokens, \
@@ -674,6 +686,9 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
         round: o.round,
     })?;
     let measured = grown("measured", &held.measured, &given.measured, |m| Entry::At(m.at))?;
+    let left_behind = grown("left_behind", &held.left_behind, &given.left_behind, |l| {
+        Entry::At(l.at)
+    })?;
     let pinged = grown("pinged", &held.pinged, &given.pinged, |p| Entry::At(p.at))?;
     let forked = grown("forked", &held.forked, &given.forked, |f| Entry::At(f.at))?;
     let pulls = grown("pulls", &held.pulls, &given.pulls, |p| Entry::At(p.at))?;
@@ -930,6 +945,13 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
                 n.crossed,
                 n.priced
             ],
+        )?;
+    }
+    for l in left_behind {
+        let of = json("left_behind", &l.of)?;
+        db.execute(
+            "INSERT INTO left_behind (work, at, of, processes) VALUES (?1, ?2, ?3, ?4)",
+            params![w, l.at.0, of, l.processes],
         )?;
     }
     for p in pinged {
