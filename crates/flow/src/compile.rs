@@ -250,17 +250,26 @@ impl CellSpec {
         self.watches.iter().filter(move |w| w.ran(ran_by))
     }
 
-    /// What a return that names these as dealt with dealt with, in the records' terms, in the order it names them:
-    /// each a datum the cell watches, a group by the group's name, which the run's check reads as the group's blocks
-    /// (`decide::flow::stands_on`). A name written twice stands twice, which the run's check finds. Beside them, each
-    /// name that is none of what the cell watches, in the order written.
+    /// Whether the cell is given the datum or group of this name: it watches it, reads it, or it is a block among what
+    /// the cell is given, as every agent cell is given the flow's own.
+    pub fn is_given(&self, name: &str) -> bool {
+        self.watches.iter().any(|w| w.name == name)
+            || self.reads.iter().any(|t| t.name == name)
+            || self.given.iter().any(|g| g.block.0 == name)
+    }
+
+    /// What a return that names these as dealt with named, in the records' terms, in the order it names them: each a
+    /// datum or group the cell is given ([`CellSpec::is_given`]), a group by the group's name. The run's check keeps of
+    /// them those that ran the round, each once (`decide::run`), so that a name the cell was given and that did not run
+    /// the round, or is written twice, changes nothing. Beside them, each name that is none of what the cell is given,
+    /// in the order written.
     pub fn dealt_with(&self, names: &[String]) -> (Vec<BlockId>, Vec<String>) {
         let mut blocks: Vec<BlockId> = Vec::new();
         let mut none = Vec::new();
         for name in names {
-            match self.watches.iter().find(|w| &w.name == name) {
-                Some(watched) => blocks.push(BlockId(watched.name.clone())),
-                None => none.push(name.clone()),
+            match self.is_given(name) {
+                true => blocks.push(BlockId(name.clone())),
+                false => none.push(name.clone()),
             }
         }
         (blocks, none)

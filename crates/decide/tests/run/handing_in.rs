@@ -100,13 +100,32 @@ fn a_return_that_only_answers_the_owner_in_the_cell_s_words_owes_no_block_its_ce
         writes: vec![prose("spoken")],
     };
     assert_eq!(step(vec![works(&["spoken"], vec![prose("spoken")])], &s), finish);
-    // What it hands in is still checked: the words named and no answer written, as the reading finds, is sent back for
-    // that alone.
-    let found = vec![Unmet::NotAnswered {
+    // What it hands in is still checked: the words named and no answer written is sent back for that alone, and words
+    // that hold nothing answer nothing.
+    let unanswered = vec![Unmet::NotAnswered {
         name: "spoken".to_string(),
     }];
-    let round = came(&["spoken"], vec![], found.clone(), false);
-    assert_eq!(step(vec![round], &s), send_back(found));
+    assert_eq!(
+        step(vec![works(&["spoken"], vec![])], &s),
+        send_back(unanswered.clone())
+    );
+    let empty = Write {
+        empty: true,
+        ..prose("spoken")
+    };
+    assert_eq!(step(vec![works(&["spoken"], vec![empty])], &s), send_back(unanswered));
+}
+
+#[test]
+fn a_return_that_names_the_owners_words_where_they_did_not_run_its_round_owes_no_answer() {
+    let mut s = spoken_to();
+    s.told.ran_by = vec!["request".into()];
+    let finish = Step::Finish {
+        dealt_with: vec!["request".into()],
+        writes: vec![valued("verdict", "yes")],
+    };
+    let round = works(&["request", "spoken"], vec![valued("verdict", "yes")]);
+    assert_eq!(step(vec![round], &s), finish);
 }
 
 #[test]
@@ -195,7 +214,6 @@ fn what_was_found_as_a_return_was_read_is_said_first_with_everything_else_wrong_
     let round = came(&["request", "plan"], vec![prose("code")], found.clone(), false);
     let mut unmet = found;
     unmet.extend([
-        Unmet::NotRunBy { block: "plan".into() },
         Unmet::NotAnOutput { block: "code".into() },
         Unmet::NotHandedIn {
             block: "verdict".into(),
@@ -211,15 +229,16 @@ fn what_was_found_as_a_return_was_read_is_said_first_with_everything_else_wrong_
 }
 
 #[test]
-fn a_return_that_names_as_dealt_with_what_did_not_run_its_round_or_names_a_block_twice_is_sent_back() {
-    let unmet = vec![
-        Unmet::NotRunBy { block: "plan".into() },
-        Unmet::DealtWithTwice {
-            block: "request".into(),
-        },
-    ];
+fn a_return_that_names_what_did_not_run_its_round_or_names_a_block_twice_deals_with_what_ran_it_once() {
+    let finish = Step::Finish {
+        dealt_with: vec!["request".into()],
+        writes: vec![],
+    };
     let round = works(&["request", "plan", "request"], vec![]);
-    assert_eq!(step(vec![round], &spec()), send_back(unmet));
+    assert_eq!(step(vec![round], &spec()), finish);
+    // Naming only what did not run the round, it deals with nothing.
+    let round = works(&["plan", "plan"], vec![]);
+    assert_eq!(step(vec![round], &spec()), send_back(vec![Unmet::DealtWithNothing]));
 }
 
 /// The cell, watching besides the group `planned`, of the opinions and the acceptance, which a return names
@@ -248,23 +267,21 @@ fn a_return_that_names_a_group_deals_with_each_of_its_blocks_that_ran_the_round_
     // Named beside one of its blocks, each block is dealt with once.
     let round = works(&["opinions", "planned", "request"], vec![prose("plan")]);
     assert_eq!(step(vec![round], &s), finish(&["opinions", "request"]));
-    // Named twice, it is said so, once.
-    let unmet = vec![Unmet::DealtWithTwice {
-        block: "planned".into(),
-    }];
+    // Named twice, it is dealt with once.
     let round = works(&["planned", "request", "planned"], vec![prose("plan")]);
-    assert_eq!(step(vec![round], &s), send_back(unmet));
+    assert_eq!(step(vec![round], &s), finish(&["opinions", "request"]));
 }
 
 #[test]
-fn a_group_none_of_whose_blocks_ran_the_round_is_said_not_to_have_run_it() {
+fn a_group_none_of_whose_blocks_ran_the_round_is_not_dealt_with() {
     let mut s = grouped();
     s.told.ran_by = vec!["request".into()];
-    let unmet = vec![Unmet::NotRunBy {
-        block: "planned".into(),
-    }];
+    let finish = Step::Finish {
+        dealt_with: vec!["request".into()],
+        writes: vec![prose("plan")],
+    };
     let round = works(&["planned", "request"], vec![prose("plan")]);
-    assert_eq!(step(vec![round], &s), send_back(unmet));
+    assert_eq!(step(vec![round], &s), finish);
     // Run by the acceptance alone, the group ran it.
     s.told.ran_by = vec!["acceptance".into()];
     let finish = Step::Finish {
@@ -316,7 +333,12 @@ fn a_choice_handed_in_as_changing_nothing_in_meaning_with_another_value_is_sent_
 
 #[test]
 fn a_return_sent_back_for_what_it_lacks_counts_against_the_limit_of_returns() {
-    let lacking = || handed_in(vec![prose("plan")]);
+    let lacking = || Round {
+        sent_back: vec![Unmet::NotHandedIn {
+            block: "verdict".into(),
+        }],
+        ..handed_in(vec![prose("plan")])
+    };
     assert_eq!(
         step(vec![lacking(), lacking(), lacking()], &must_write(&["verdict"])),
         returns_limit(2)
@@ -407,7 +429,7 @@ fn a_choice_of_a_block_the_cell_may_not_write_is_said_only_not_to_be_an_output()
 }
 
 #[test]
-fn a_return_handed_in_after_one_sent_back_is_judged_on_its_own() {
+fn a_return_handed_in_after_one_sent_back_replaces_what_the_one_before_was_told_was_wrong() {
     let rounds = vec![wanting(), handed_in(vec![prose("plan")])];
     assert_eq!(step(rounds, &spec()), finish(vec![prose("plan")]));
 }

@@ -1,6 +1,6 @@
 //! What happens to a work, and what is to be done for it.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use decide::run::{Failure, Unmet};
 use decide::{BlockId, CallId, CellId, End, Outsider, Pauser, RunId, Seq};
@@ -154,8 +154,13 @@ pub struct Came {
     pub waits_for: Option<BlockId>,
     /// What the carrier read of the work's branch as the round ended, of the blocks a source outside the work writes
     /// from it, where it differs from what each says: what the round committed, which the run writes as it finishes,
-    /// beside its own blocks; nothing of it is written where the return is sent back.
+    /// beside its own blocks; nothing of it is written where the return is sent back or asks for calls, the round that
+    /// ends the cell's work reading it with what that round commits. The carrier reads none of the branch for a round
+    /// while a cell that may change the work waits for the results of calls.
     pub read: Vec<Handed>,
+    /// Why the return says the work changes each file the project protects, by the file's path, as the agent wrote it:
+    /// kept with the return, so that a return after it that is sent back for something else need not say it again.
+    pub protected: BTreeMap<String, String>,
 }
 
 impl Came {
