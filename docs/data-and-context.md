@@ -187,10 +187,12 @@ new session lacks it.
     cell recommends, to a question the work does not wait for; and one to a question as it was asked before it was
     asked anew.
 
-32. A question the work waits for holds the work at the cell whose question it is, while no answer stands to the
-    question as last asked: no later cell runs, and the cell is entered meanwhile only for the owner's words or answer
-    (35) and for the results of calls a round of it asked for. A cell asks a question again, or withdraws it, by writing
-    its datum anew.
+32. A question the work waits for holds the work at the cell whose question it is, while the cell applies and no
+    answer stands to the question as last asked: no later cell runs, and the cell is entered meanwhile only for the
+    owner's words or answer (35) and for the results of calls a round of it asked for. While the cell is skipped it
+    does not run to take the answer, so its question holds nothing: it stays, can be answered ahead, and says why its
+    cell does not run; once the cell applies again it holds the work again. A cell asks a question again, or withdraws
+    it, by writing its datum anew.
 
 33. Every agent's cell reads every cell's questions, all of them, so that what was asked and how it was answered is
     known to all. Whether a question stands with no answer to it as last asked is worked out by the engine from all of
@@ -225,13 +227,16 @@ new session lacks it.
       (8). A round that says it has dealt with the owner's words and writes no answer has its return sent back.
     - While a round of the cell spoken to is under way, the words are put into its session right after its next use of
       one of its program's own tools, so that they do not wait for the round's end. This is done for the owner's words
-      and for nothing else. Words that did not reach the round before it ended are still new to the cell, and it runs
-      again.
+      and answers and for nothing else. Words that did not reach the round before it ended are still new to the cell,
+      and it runs again.
     - While the cell spoken to has no round under way and waits, for the results of calls or for the answer to a
       question, the engine enters it for the owner's words or answer, and it goes on waiting.
-    - While a round of a cell later in the flow is under way, that round is told to stop, the cell the owner's words or
-      answer is new to runs, and the flow comes back to the cell that stopped: a round that stopped so has dealt with
-      nothing (8), and its cell runs again.
+    - While a round of an agent's cell later in the flow is under way, that round is told, once for each version and in
+      the same way, to stop where it is and hand in what it has now, and goes on to hand it in: it is held to no block
+      its cell must write and may deal with nothing, its return being otherwise judged as any is. The cell the owner's
+      words or answer is new to runs next, and the later cell runs again for what its round left undealt with (8). A
+      round that cannot hand in, one of an act of the engine's, which has nothing to hand in, or of the flow's last cell,
+      whose finish ends the work, is stopped, has dealt with nothing (8), and its cell runs again.
 
 ## Dialogues between a maker and those who judge it
 

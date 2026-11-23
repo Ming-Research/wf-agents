@@ -190,3 +190,32 @@ fn a_judge_woken_by_neither_an_answer_nor_a_change_owes_points_only_for_a_fail_t
         send_back(none)
     );
 }
+
+#[test]
+fn a_round_told_to_hand_in_what_it_has_still_owes_the_word_it_dealt_with_a_point_for_and_the_point_of_a_fail() {
+    // A maker that names its dialogue as dealt with is sent back for its answer; one that leaves it out owes nothing.
+    let mut s = maker();
+    s.told.hurried = true;
+    let unmet = vec![Unmet::WordOwed {
+        name: "opinions".into(),
+        watched: vec!["plan".into()],
+    }];
+    assert_eq!(step(vec![handed_in(vec![])], &s), send_back(unmet));
+    let left_out = Step::Finish {
+        dealt_with: vec!["request".into()],
+        writes: vec![],
+    };
+    assert_eq!(step(vec![works(&["request"], vec![])], &s), left_out);
+    // A judge's fail with no point is still sent back.
+    let mut s = judge();
+    s.told.hurried = true;
+    let unmet = vec![Unmet::NoPoint {
+        block: "verdict".into(),
+        value: "no".to_string(),
+        name: "opinions".into(),
+    }];
+    assert_eq!(
+        step(vec![handed_in(vec![valued("verdict", "no")])], &s),
+        send_back(unmet)
+    );
+}

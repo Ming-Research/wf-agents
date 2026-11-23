@@ -309,6 +309,7 @@ impl Standing {
             | Decision::Busy { .. }
             | Decision::Run { .. }
             | Decision::GoOn { .. }
+            | Decision::Hurry { .. }
             | Decision::Abandon { .. } => Standing::Going,
         }
     }

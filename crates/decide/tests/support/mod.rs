@@ -6,8 +6,8 @@ use std::collections::BTreeMap;
 
 use decide::{
     Abandoned, Abandoning, Answered, BlockId, CallId, Called, Cause, Cell, CellId, Decision, Done, Finished, Flow,
-    LetGo, Maker, Outsider, Outsiders, Pause, Pauser, Questioned, Records, Returned, Round, RunId, Seq, Started, Test,
-    TestKind, TestName, Waited, Who, Write, Written, decide,
+    Hurried, LetGo, Maker, Outsider, Outsiders, Pause, Pauser, PutIn, Questioned, Records, Returned, Round, RunId, Seq,
+    Started, Test, TestKind, TestName, Waited, Who, Write, Written, decide,
 };
 
 /// The owner's word of this name: a named test of the choice of the same name, which people write, that holds unless
@@ -207,7 +207,7 @@ impl World {
     }
 
     /// Makes the block the owner turning to the cells it runs: written from outside by the source of the owner's
-    /// words, each new version stops a round under way of a later cell.
+    /// words, each new version tells a round under way of a later cell to hand in what it has.
     pub fn turning(&mut self, block: &str) {
         let outsiders = Outsiders {
             outside: Some("words".to_string()),
@@ -448,6 +448,42 @@ impl World {
         let at = self.tick();
         self.records.abandoned.push(Abandoned { run, at });
         because
+    }
+
+    /// Takes the hurry the walk decides on, as the engine does: records that the round under way is told to hand in
+    /// what it has, and says the cell the owner turned to; any other decision is a fault of the test.
+    pub fn hurry(&mut self) -> CellId {
+        let Decision::Hurry {
+            run,
+            turned_to,
+            block,
+            version,
+            ..
+        } = self.decide()
+        else {
+            panic!("nothing to hurry: {:?}", self.decide())
+        };
+        let at = self.tick();
+        self.records.hurried.push(Hurried {
+            run,
+            block,
+            version,
+            at,
+        });
+        turned_to
+    }
+
+    /// The round under way of the cell's run was given the telling to hand in what it has, which was for this version
+    /// of this block: it is put in to the round.
+    pub fn given_the_hurry(&mut self, cell: &str, block: &str, version: Seq) {
+        let run = self.open(cell);
+        let at = self.tick();
+        self.records.put_in.push(PutIn {
+            run,
+            block: block.into(),
+            version,
+            at,
+        });
     }
 
     /// The round of the run, abandoned with its round under way, ends as it was stopped: nothing it returned is taken.

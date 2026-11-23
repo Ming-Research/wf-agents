@@ -54,7 +54,7 @@ A return sent back is completed by the next, which gives only what the send-back
 - rejected: an agent proposed keeping the return whole as it was and no completing, only no longer sending back for names that change nothing; the owner rejected it, because a real error still made the cell rewrite the whole return, and it might write another part wrong.
 
 ### decision a-return-hands-in-what-its-cell-must-every-time
-A return that asks for no call must hand in the blocks its cell must write, unless it has a question its cell waits for, comes from a round entered while the cell waits, or only answers the owner.
+A return with no call must hand in the blocks its cell must write, unless it asks a question its cell waits for, only answers the owner, or is of a round entered while it waits or told to hand in.
 - replaced: Requiring those blocks of every return that asks for no call, including one with a question its cell waits for, was on main; the owner changed it, because a cell stopped by a question then had to force a value, and the work stops at the cell until the answer comes.
 - rejected: the owner proposed deleting the rule, so that a cell testing the change would not give its verdict before any result; the owner rejected it, because the rule asks for the blocks only in a return that makes no call, so a review that asks for the tests gives its verdict after the results.
 

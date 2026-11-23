@@ -62,6 +62,17 @@ pub(super) fn asking() -> Compiled {
 /// The flow of [`asking`], naming the cell the engine asks its own questions in by this line of its definition; where
 /// the line is empty it names none, and the engine asks in the questions of the cell whose round it asks with.
 fn asking_with(asks_in: &str) -> Compiled {
+    asking_of(asks_in, false)
+}
+
+/// The flow of [`asking_with`], whose research, where `skippable` holds, runs only while the owner's choice `deep`,
+/// which stands at yes before it is written, is yes.
+fn asking_of(asks_in: &str, skippable: bool) -> Compiled {
+    let deep = if skippable {
+        "[blocks.deep]\nvalues = [\"yes\", \"no\"]\ndefault = \"yes\"\npeople = true"
+    } else {
+        ""
+    };
     let flow = format!(
         r#"
         name = "asking"
@@ -74,6 +85,7 @@ fn asking_with(asks_in: &str) -> Compiled {
         [lines.main]
         [blocks.request]
         people = true
+        {deep}
         [blocks.asked]
         values = ["waiting", "answered"]
         default = "answered"
@@ -91,13 +103,16 @@ fn asking_with(asks_in: &str) -> Compiled {
         own("research"),
         own("implement")
     );
-    let research = asking_cell(
+    let mut research = asking_cell(
         "Research",
         "Write the plan the request asks for.",
         &["request"],
         &["plan"],
         "research",
     );
+    if skippable {
+        research = research.replacen("[kinds]", "when = { deep = \"yes\" }\n[kinds]", 1);
+    }
     let implement = asking_cell("Implement", "Build the plan.", &["plan"], &["code"], "implement");
     let merge = r#"
         title = "Merge"
@@ -299,6 +314,48 @@ fn a_question_that_waits_holds_the_work_at_its_cell_and_the_merge_waits_with_it(
     );
 }
 
+// A question its cell waits for holds the work no more once its cell is skipped, but the merge waits for it all the
+// same: the work goes on past the cell, and the merge begins only once the owner has answered.
+#[test]
+fn a_question_of_a_cell_that_is_skipped_lets_the_work_go_on_and_holds_the_merge_until_it_is_answered() {
+    let mut w = W {
+        flow: asking_of(r#"engine_asks_in = "implement""#, true),
+        work: Work::default(),
+        clock: START,
+    };
+    let (effects, _) = w.person_writes("request");
+    let (run, cell, ..) = round(&effects);
+    assert_eq!(cell, "research");
+    assert_eq!(w.returns(run, plans(vec![asked("which", true)])), []);
+    let decide::Decision::Wait { at, .. } = w.decision() else {
+        panic!("the work does not wait: {:?}", w.decision())
+    };
+    assert_eq!(
+        at.as_str(),
+        "research",
+        "the question holds the work while its cell applies"
+    );
+    // The owner's choice skips the research: its question holds the work no more, and the implementation runs.
+    let effects = w.on(wrote("deep", Outsider::Person, true, Some("no")));
+    let (run, cell, ..) = round(&effects);
+    assert_eq!(cell, "implement");
+    // The question stands all the same: the merge does not begin as the implementation has handed in.
+    assert_eq!(
+        w.returns(run, hands_in(&[("code", None)])),
+        [],
+        "the merge does not begin"
+    );
+    assert_eq!(w.asked().map(|(value, _)| value), Some("waiting".to_string()));
+    let decide::Decision::Wait { at, .. } = w.decision() else {
+        panic!("the work does not wait: {:?}", w.decision())
+    };
+    assert_eq!(at.as_str(), "merge");
+    let version = w.version("which");
+    let effects = w.answers("which", version, 1);
+    let (_, cell, ..) = round(&effects);
+    assert_eq!(cell, "merge", "the merge begins once the question is answered");
+}
+
 #[test]
 fn a_question_that_does_not_wait_lets_the_work_go_on_by_its_recommendation_but_holds_the_merge() {
     let (mut w, effects) = researched(vec![asked("which", false)]);
@@ -350,12 +407,23 @@ fn any_answer_to_a_question_that_waits_runs_the_asking_cell_again_by_a_version_o
 }
 
 #[test]
-fn an_answer_taking_another_option_than_the_one_the_work_goes_by_stops_a_later_round_and_runs_the_cell() {
+fn an_answer_taking_another_option_than_the_one_the_work_goes_by_tells_a_later_round_to_hand_in_what_it_has_and_runs_the_cell()
+ {
     let (mut w, effects) = researched(vec![asked("which", false)]);
     let (implementing, ..) = round(&effects);
     let version = w.version("which");
     let effects = w.answers("which", version, 2);
-    assert_eq!(effects, [Effect::Stop { run: implementing }]);
+    let [Effect::Tell { run: told, telling }] = effects.as_slice() else {
+        panic!("the implementation is not told to hand in what it has: {effects:?}");
+    };
+    assert_eq!(*told, implementing);
+    assert!(telling.hurry);
+    assert_eq!(telling.block.as_str(), "research_questions");
+    let versions = telling.versions.clone();
+    w.on(Event::SaidToRound {
+        run: implementing,
+        versions,
+    });
     let effects = w.returns(implementing, Came::hands_in(Vec::new()));
     let (_, cell, ..) = round(&effects);
     assert_eq!(cell, "research");
