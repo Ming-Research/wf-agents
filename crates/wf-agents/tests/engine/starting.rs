@@ -70,6 +70,35 @@ fn a_directory_that_holds_no_store_is_refused_without_new_and_nothing_is_made_in
     }
 }
 
+// The program's own flows are taken out into the data directory as the engine starts, and the hold of the directory is
+// made then: a directory refused for holding no store has neither made in it.
+#[test]
+fn a_directory_refused_for_holding_no_store_has_none_of_the_programs_flows_or_its_hold_made_in_it() {
+    let place = Place::new(SCRIPT);
+    let data = place.data();
+    let flows = defined_flows();
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_wf-agents"))
+        .arg("run")
+        .arg("--data")
+        .arg(&data)
+        .args(["--program-flow", &flows[0]])
+        .arg("--script")
+        .arg(place.script())
+        .args(["--port", "0"])
+        .output()
+        .expect("the command runs");
+    assert!(!out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("the directory holds no store"),
+        "{out:?}"
+    );
+    let made: Vec<_> = std::fs::read_dir(&data)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert!(made.is_empty(), "{made:?}");
+}
+
 // Told that a directory is new where it holds a store, the engine refuses before it makes anything: it reads only
 // whether the store's file is there, so an empty file stands for the store and no engine is started. That `--new` makes
 // the store is shown by the first start of every other test of the engine, which gives it where the directory holds none
