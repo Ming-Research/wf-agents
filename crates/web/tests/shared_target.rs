@@ -200,3 +200,32 @@ fn a_page_with_no_stamp_is_not_built_in() {
     assert!(said.contains("source.sha256"), "{said}");
     assert!(said.contains("npm run build"), "{said}");
 }
+
+#[test]
+fn a_stamp_that_lists_no_file_is_not_built_in() {
+    // Reference: the stamp is the proof that the page was made from the sources at hand (`build_support/stamp.rs`'s own
+    // words); a stamp that names no source proves nothing of any, as a missing one does not. Both are refused alike.
+    let base = tempfile::tempdir().unwrap();
+    let target = base.path().join("target");
+    let a = checkout(base.path(), "a", "the page of a");
+    std::fs::write(a.join("client/dist/source.sha256"), "").unwrap();
+    std::fs::write(a.join("client/src/page.ts"), "changed after the page was built").unwrap();
+    let out = cargo_build(&a, &target);
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "a page with an empty stamp was built in: {said}");
+    assert!(said.contains("npm run build"), "{said}");
+}
+
+#[test]
+fn a_page_without_its_entry_page_is_not_built_in() {
+    // Reference: the script's own words, "a build without it fails and says how to make it".
+    let base = tempfile::tempdir().unwrap();
+    let target = base.path().join("target");
+    let a = checkout(base.path(), "a", "the page of a");
+    std::fs::remove_file(a.join("client/dist/index.html")).unwrap();
+    let out = cargo_build(&a, &target);
+    assert!(!out.status.success());
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert!(said.contains("index.html"), "{said}");
+    assert!(said.contains("npm run build"), "{said}");
+}
