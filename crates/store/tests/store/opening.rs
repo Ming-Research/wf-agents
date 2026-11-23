@@ -496,11 +496,22 @@ fn a_file_of_version_20_is_migrated_keeping_every_row_it_holds_its_tries_directo
     assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
     let after = dump(&old.path);
     for (table, rows) in &before {
-        if table == "schema_version" || table == "ran" {
+        if table == "schema_version" || table == "ran" || table == "items" {
             continue;
         }
         assert_eq!(after.get(table), Some(rows), "the rows of {table}");
     }
+    // Each item's row is carried whole, and continues nothing: the column a later version added to it holds none.
+    assert!(!before["items"].is_empty(), "the work has an item");
+    let mut continuing_nothing: Vec<Vec<String>> = (before["items"].iter())
+        .map(|row| {
+            let mut row = row.clone();
+            row.push("Null".to_string());
+            row
+        })
+        .collect();
+    continuing_nothing.sort();
+    assert_eq!(after["items"], continuing_nothing);
     // Each try's row is carried whole, what it held as its account its directory, and its account none.
     let mut moved: Vec<Vec<String>> = (before["ran"].iter())
         .map(|row| {
