@@ -316,7 +316,7 @@ fn a_held_project_carries_nothing_out_and_says_why_its_works_stop() {
         format!("the item #5 belongs to the project held, which is held: {HELD}")
     );
     assert!(
-        matches!(&events[4], Event::Done { result, .. } if result == service::WITHDRAWN),
+        matches!(&events[4], Event::Done { result, .. } if result == WITHDRAWN),
         "{events:?}"
     );
 }
