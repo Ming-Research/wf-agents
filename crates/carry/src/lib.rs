@@ -52,6 +52,7 @@ pub mod keychain;
 pub mod outside;
 pub mod permissions;
 mod process;
+mod programs;
 pub mod projects;
 mod protected;
 pub mod returns;
