@@ -822,7 +822,9 @@ mod tests {
     #[tokio::test]
     async fn a_measurement_named_where_the_check_runs_the_tests_alone_is_refused_and_the_command_is_not_run() {
         let repo = Repo::new("echo all is well");
-        git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+        git::start(&repo.project, &repo.place(WORK), "main", "main")
+            .await
+            .unwrap();
         let said = answered_with(&repo, RUN_TESTS, r#"{"tests": ["a"], "measure": ["design-lint"]}"#, &[]).await;
         assert_eq!(
             said,
