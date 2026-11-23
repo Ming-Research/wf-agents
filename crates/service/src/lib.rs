@@ -10,8 +10,8 @@
 //!
 //! What carries a todo out is reached through interfaces (principle `outside-behind-interfaces`): [`Rounds`] for the
 //! rounds of the cells an agent carries out and for those that are the engine's own acts, and [`Tools`] for the calls
-//! a tool answers. A call for a person, and a run at a limit, are carried out by nobody: they wait for the owner's
-//! answer, which comes as an act. A withdrawn call of a person is answered by the loop itself. What a work that ended
+//! a tool answers. A run at a limit is carried out by nobody: it waits for the owner's answer, which comes as an act.
+//! A withdrawn call that waits for the owner is answered by the loop itself. What a work that ended
 //! holds outside the engine is let go by the carrier of the engine's acts, which made it ([`Rounds::release`]).
 //!
 //! A carrier that cannot carry a round out says the round failed, with the kind of its cause where it tells one apart,
@@ -989,7 +989,7 @@ impl Service {
                     let _ = to.send(Message::Due { work, call });
                 });
             }
-            // A person's call, and a run at its limit, wait for the owner's answer.
+            // A run at its limit waits for the owner's answer.
             Effect::Call { .. } => {}
             Effect::Withdraw { call } => match kept.work.calls.get(call) {
                 Some(Call::Asked(Ask::Tool { name, input })) => {
