@@ -110,7 +110,7 @@ fn the_full_workflow_keeps_the_checks_a_merge_waits_for() {
         );
     }
     let tests = under(&jobs, "page-tests");
-    assert!(tests.iter().any(|l| *l == "    name: page tests"), "{tests:?}");
+    assert!(tests.contains(&"    name: page tests"), "{tests:?}");
     for job in ["page", "page-tests", "lint", "test"] {
         let lines = under(&jobs, job);
         let condition = lines
@@ -118,10 +118,7 @@ fn the_full_workflow_keeps_the_checks_a_merge_waits_for() {
             .find(|l| l.starts_with("    if:"))
             .copied()
             .unwrap_or_default();
-        assert!(
-            lines.iter().any(|l| *l == "    needs: scope"),
-            "{job} does not need scope"
-        );
+        assert!(lines.contains(&"    needs: scope"), "{job} does not need scope");
         assert!(
             condition.contains("needs.scope.outputs.tree_only != 'true'"),
             "{job} runs where only the design tree changed: {condition}"
