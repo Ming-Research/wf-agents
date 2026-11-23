@@ -746,7 +746,8 @@ impl Stream {
         let model = message["model"].as_str().unwrap_or_default().to_string();
         let tokens = cost::Tokens::of(usage);
         match self.calls.iter_mut().find(|call| call.id == id) {
-            Some(call) if call.ended => {}
+            // The end of a call has its final tokens, which nothing after it changes; the model it does not say.
+            Some(call) if call.ended => call.model = Self::model_of(&call.model, model),
             Some(call) => (call.model, call.tokens) = (model, tokens),
             None => self.call(id, model, tokens, false),
         }
@@ -757,16 +758,23 @@ impl Stream {
         let Some(id) = message["id"].as_str() else {
             return;
         };
-        if self.calls.iter().any(|call| call.id == id) {
+        let model = message["model"].as_str().unwrap_or_default().to_string();
+        if let Some(call) = self.calls.iter_mut().find(|call| call.id == id) {
+            call.model = Self::model_of(&call.model, model);
             return;
         }
-        let model = message["model"].as_str().unwrap_or_default().to_string();
         self.call(id, model, cost::Tokens::of(&message["usage"]), false);
+    }
+
+    /// The model of a call: the one it has, or, where its end came before any line that names it, the one a later line
+    /// names.
+    fn model_of(has: &str, named: String) -> String {
+        if has.is_empty() { named } else { has.to_string() }
     }
 
     /// Takes the end of a call, which names it as `api_message_id`: the tokens it wrote, which its message's start and
     /// its whole message give as the few it began with. A call whose start was not seen is taken as the end gives it,
-    /// with no model, and priced as the dearest.
+    /// with no model until a line of its own names it, and priced as the dearest while it has none.
     fn ended(&mut self, line: &Value) {
         let (Some(id), usage) = (line["api_message_id"].as_str(), &line["event"]["usage"]) else {
             return;
@@ -813,11 +821,17 @@ impl Stream {
     /// gives none, or the calls after the last result have none yet, those calls cost what their tokens do at their
     /// models' prices. The one place a stream's cost is worked out.
     pub fn cost(&self) -> (u64, bool) {
+        // What the calls of the spans that `wanted` names cost at their models' prices, and whether there are any: a
+        // result that says nothing of cost and had no call has nothing priced, and is no estimate.
         let priced = |wanted: &dyn Fn(usize) -> bool| {
-            (self.calls.iter())
-                .filter(|call| wanted(call.span))
-                .map(|call| cost::of_call(&call.model, &call.tokens))
-                .sum::<u64>()
+            let calls = self.calls.iter().filter(|call| wanted(call.span));
+            (
+                calls
+                    .clone()
+                    .map(|call| cost::of_call(&call.model, &call.tokens))
+                    .sum::<u64>(),
+                calls.count() > 0,
+            )
         };
         let (mut usd, mut estimated) = (0, false);
         let mut results = 0;
@@ -826,16 +840,13 @@ impl Stream {
             match since_last(result) {
                 Some(told) => usd += told,
                 None => {
-                    usd += priced(&|of| of == span);
-                    estimated = true;
+                    let (spent, any) = priced(&|of| of == span);
+                    (usd, estimated) = (usd + spent, estimated || any);
                 }
             }
         }
-        if self.calls.iter().any(|call| call.span >= results) {
-            usd += priced(&|of| of >= results);
-            estimated = true;
-        }
-        (usd, estimated)
+        let (spent, any) = priced(&|of| of >= results);
+        (usd + spent, estimated || any)
     }
 
     /// What each result the stream holds says of cost, in the order the program printed them.
