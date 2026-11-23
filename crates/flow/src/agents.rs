@@ -1292,6 +1292,21 @@ impl Commits {
         format!("{}\n\n{item_line}\n{work_line}", message.trim_end())
     }
 
+    /// Whether the line is the line that names an item or the line that names a work, of any item or any work: a
+    /// commit copied from another work ends with the lines of that one.
+    pub fn is_one_of_the_lines(&self, line: &str) -> bool {
+        [(&self.item_line, "{item}"), (&self.work_line, "{work}")]
+            .into_iter()
+            .any(|(form, place)| {
+                let Some((before, after)) = form.split_once(place) else {
+                    return false;
+                };
+                line.strip_prefix(before)
+                    .and_then(|rest| rest.strip_suffix(after))
+                    .is_some_and(|number| !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit()))
+            })
+    }
+
     /// What is wrong with the two lines, as one sentence for each: each must name its number, or every commit would
     /// end with a line that names nothing, and be one line, or the trailer block would hold a stray line.
     fn faults(&self) -> Vec<String> {

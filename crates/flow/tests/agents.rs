@@ -226,6 +226,21 @@ fn the_lines_every_commit_ends_with_name_their_numbers_after_a_blank_line() {
         commits.ending("Merge main at abc into the work's branch\n", 36, 12),
         "Merge main at abc into the work's branch\n\nItem: 36\nWork: W12"
     );
+    // Either line of any item or work is one of the lines; a line that only looks like one is not.
+    for line in ["Item: 20", "Work: W3", "Item: 36", "Work: W12"] {
+        assert!(commits.is_one_of_the_lines(line), "{line}");
+    }
+    for line in [
+        "Item: ",
+        "Item: x",
+        "Item: 20 and more",
+        "Work: 3",
+        "Work: W",
+        "Items: 20",
+        "item: 20",
+    ] {
+        assert!(!commits.is_one_of_the_lines(line), "{line}");
+    }
 }
 
 // A line with no place for its number would end every commit with a line that names nothing.

@@ -104,9 +104,10 @@ pub fn environment(data: &Path, commits: &Commits, whose: Whose) -> Vec<(String,
 }
 
 /// The message of the squash that merges a work, from the messages of its commits, oldest first: one commit gives its
-/// message, several give each its first line after a star and then the rest, the commit's own two lines left out, and
-/// the commits' `Co-authored-by` lines, each once, go to the end, where the host reads them, before the two lines.
-/// `tidy` is given each piece the commits' agents wrote, to make it fit to publish.
+/// message, several give each its first line after a star and then the rest, the lines that name an item or a work left
+/// out, whichever item and work they name, and the commits' `Co-authored-by` lines, each once, go to the end, where the
+/// host reads them, before the work's own two lines. `tidy` is given each piece the commits' agents wrote, to make it
+/// fit to publish.
 pub fn squashed(commits: &Commits, whose: Whose, messages: &[String], tidy: &dyn Fn(&str) -> String) -> String {
     let (item_line, work_line) = commits.lines(whose.item.0, whose.work.0);
     let mut co_authors: Vec<String> = Vec::new();
@@ -116,10 +117,10 @@ pub fn squashed(commits: &Commits, whose: Whose, messages: &[String], tidy: &dyn
         let mut rest: Vec<&str> = Vec::new();
         for line in message.lines() {
             let said = line.trim_end();
-            if said == item_line || said == work_line {
+            if commits.is_one_of_the_lines(said) {
                 continue;
             }
-            if let Some(author) = co_author(said) {
+            if let Some(author) = co_author(said, tidy) {
                 if !co_authors.iter().any(|seen| seen.eq_ignore_ascii_case(&author)) {
                     co_authors.push(author);
                 }
@@ -160,11 +161,27 @@ pub fn squashed(commits: &Commits, whose: Whose, messages: &[String], tidy: &dyn
     }
 }
 
-/// The line as the host reads a co-author, `Co-authored-by: Name <email>`, where it is one.
-fn co_author(line: &str) -> Option<String> {
+/// The line as the host reads a co-author, `Co-authored-by: Name <email>`, where it is exactly that: the name made fit
+/// to publish by `tidy` and the email, which a host reads by its `@`, as it is. A line with anything else after the
+/// email, or an email that could name a mention or a reference, is no co-author and is left to be said as any other
+/// text of the agents.
+fn co_author(line: &str, tidy: &dyn Fn(&str) -> String) -> Option<String> {
     let (key, value) = line.split_once(':')?;
-    (key.trim().eq_ignore_ascii_case("co-authored-by") && !value.trim().is_empty())
-        .then(|| format!("Co-authored-by: {}", value.trim()))
+    if !key.trim().eq_ignore_ascii_case("co-authored-by") {
+        return None;
+    }
+    let (name, email) = value.trim().strip_suffix('>')?.split_once('<')?;
+    let name = name.trim();
+    let address = email
+        .split_once('@')
+        .is_some_and(|(local, domain)| !local.is_empty() && !domain.is_empty() && !domain.contains('@'));
+    let plain = !email.contains(|c: char| c.is_whitespace() || matches!(c, '<' | '>' | '#'));
+    if name.is_empty() || name.contains(['<', '>']) || !address || !plain {
+        return None;
+    }
+    let name = tidy(name);
+    // A name cut short by `tidy` has a line of its own after it, which no co-author line has.
+    (!name.contains('\n')).then(|| format!("Co-authored-by: {name} <{email}>"))
 }
 
 #[cfg(test)]
