@@ -884,13 +884,13 @@ pub struct CellDetail {
 pub enum Cause {
     /// It had no record, as a run started before a cell ran only for what is new says.
     NoRecord,
-    /// The block is new to the cell. `was` is the version the cell last worked from as the run began, by its number:
-    /// the latest of the one it consumed, one it wrote and one the owner ruled on, which a message to it names alike;
-    /// for a cause recorded before that was recorded, the one it consumed. `behind` says every new version was written
-    /// by a cell after this one.
+    /// The block is new to the cell. `worked_from` is the version the cell last worked from as the run began, by its
+    /// number: the latest of the one it consumed, one it wrote and one the owner ruled on, which a message to it names
+    /// alike; for a cause recorded before that was recorded, the `was` it recorded, the one it consumed. `behind` says
+    /// every new version was written by a cell after this one.
     Changed {
         block: String,
-        was: Option<u64>,
+        worked_from: Option<u64>,
         behind: bool,
     },
     /// The results of the calls its earlier runs asked for are all in.
@@ -2860,7 +2860,7 @@ impl Cause {
         Ok(match cause {
             CauseOf::NoRecord => Cause::NoRecord,
             // The version the cell last worked from, as the run began; a cause recorded before that was recorded has
-            // the one it consumed.
+            // the `was` it recorded, the one it consumed.
             CauseOf::Changed {
                 block,
                 was,
@@ -2868,7 +2868,7 @@ impl Cause {
                 behind,
             } => Cause::Changed {
                 block: block.to_string(),
-                was: worked.or(*was).map(|at| numbered(records, block, at)).transpose()?,
+                worked_from: worked.or(*was).map(|at| numbered(records, block, at)).transpose()?,
                 behind: *behind,
             },
             CauseOf::Results { calls } => Cause::Results {
@@ -4284,7 +4284,7 @@ pub(crate) mod tests {
             behind: false,
         };
         let named = |cause: CauseOf| match Cause::of(&cause, &records).expect("the versions are the work's") {
-            Cause::Changed { was, .. } => was,
+            Cause::Changed { worked_from, .. } => worked_from,
             other => panic!("{other:?}"),
         };
         // It consumed the first version, and last worked from the third, which the owner ruled on.
