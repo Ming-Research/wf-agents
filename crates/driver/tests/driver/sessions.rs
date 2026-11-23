@@ -75,6 +75,7 @@ fn flow() -> Compiled {
         .into_iter()
         .map(|(id, text)| (id.to_string(), text))
         .collect(),
+        files: beside(),
         ..Default::default()
     };
     let has = Has {
@@ -134,6 +135,7 @@ fn two_lines() -> Compiled {
         .into_iter()
         .map(|(id, text)| (id.to_string(), text))
         .collect(),
+        files: beside(),
         ..Default::default()
     };
     let has = Has {
@@ -195,6 +197,7 @@ fn remarks() -> Compiled {
         .into_iter()
         .map(|(id, text)| (id.to_string(), text))
         .collect(),
+        files: beside(),
         ..Default::default()
     };
     let has = Has {
@@ -1095,9 +1098,13 @@ fn a_model_the_service_does_not_have_pauses_every_work_whose_rounds_run_on_it() 
     let records = &s.driver.work(same).expect("the work").work.records;
     let why = records.pauses.last().and_then(|p| p.why.clone()).unwrap_or_default();
     assert!(
-        why.contains("opus") && why.contains(&format!("work {}", s.work.0)),
+        why.contains("opus") && why.contains(&format!("work {}", s.work)),
         "{why}"
     );
+    // A whole sentence from the files, with the service's own words after a colon, and the work's number written as
+    // the engine writes one.
+    assert!(why.starts_with("The service has no model "), "{why}");
+    assert!(why.ends_with(": There's an issue with the selected model."), "{why}");
 }
 
 #[test]

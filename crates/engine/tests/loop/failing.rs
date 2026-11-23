@@ -40,7 +40,12 @@ fn a_round_that_fails_ends_and_pauses_its_work_with_the_reason_in_one_moment() {
     );
     assert_eq!(w.work.spent.get(&(write, 1)), Some(&spent(1)));
     let pause = decide::pause(r).expect("the work is paused");
-    assert_eq!((pause.by, pause.why.as_deref()), (Pauser::Engine, Some(WHY)));
+    // A sentence of the files' words, the failure's own words after a colon.
+    let reason = format!("The round failed. The cause: {WHY}");
+    assert_eq!(
+        (pause.by, pause.why.as_deref()),
+        (Pauser::Engine, Some(reason.as_str()))
+    );
     // The round that failed is not under way, and nothing is to be done while the work is paused.
     assert_eq!(pending(&w.flow, &w.work), vec![]);
 }

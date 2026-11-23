@@ -46,9 +46,12 @@ fn a_return_that_asks_for_a_person_fails_its_round_and_pauses_its_work_with_the_
     ));
     let pause = decide::pause(r).expect("the work is paused");
     assert_eq!(pause.by, Pauser::Engine);
+    // The reason is the sentence of the words beside the flows for a round that failed, with the cause after a colon.
     assert_eq!(
         pause.why.as_deref(),
-        Some("the carrier returned a call for a person to answer, which the engine does not make")
+        Some(
+            "The round failed. The cause: the carrier returned a call for a person to answer, which the engine does not make."
+        )
     );
     // Let on, the run has its next round, given what the round that failed was given.
     assert_eq!(w.on(Event::Resumed), vec![round_effect(write, "write", 2, Given::Task)]);
