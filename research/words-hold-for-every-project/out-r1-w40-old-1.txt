@@ -1,0 +1,7 @@
+The fork said:
+{"outcome":{"dealt_with":[]}}
+
+It cost $0.1399.
+Its first request read only 46% of the session from the cache (24668 of the 52646 tokens it held): the session's cache had expired 6 minutes before.
+It began at the end of run 2 round 1, the session's later rounds left out: run 3 round 1, run 3 round 2, run 6 round 1, run 7 round 1, run 9 round 1, run 9 round 2, run 12 round 1, run 15 round 1, run 17 round 1, run 19 round 1.
+
