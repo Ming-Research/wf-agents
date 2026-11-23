@@ -393,7 +393,7 @@ fn script_levels() -> Levels {
 /// when the process ends however it ends, killed or failed as much as stopped; a file made to say an engine runs, and
 /// taken away when it stops, would outlive a process that was killed and keep the next one out for nothing. The file
 /// is left in the directory: its lock, not the file, says that an engine runs.
-fn hold(data: &Path) -> Result<File, String> {
+pub(crate) fn hold(data: &Path) -> Result<File, String> {
     let path = data.join(HELD);
     let file = (OpenOptions::new().create(true).truncate(false).write(true).open(&path))
         .map_err(|e| format!("{}: the data directory cannot be held: {e}", path.display()))?;

@@ -43,7 +43,7 @@ async fn a_work_goes_to_its_merge_with_the_command_line() {
         "no program runs"
     );
 
-    // A session's first round costs what it reports; a round that goes on in it, what the session cost more.
+    // Each round costs what its own result says it spent, whether it begins its session or goes on in it.
     let spent: Vec<Spent> = kept.spent.values().copied().collect();
     let plan_spent = Spent {
         usd_micros: 10_000,
@@ -53,7 +53,7 @@ async fn a_work_goes_to_its_merge_with_the_command_line() {
         ..Default::default()
     };
     assert_eq!(spent[0], plan_spent);
-    assert_eq!(spent[1].usd_micros, 0);
+    assert_eq!(spent[1].usd_micros, 10_000);
     assert_eq!(spent[2].usd_micros, 10_000);
 
     // The build's commit is merged into main, by a merge named by the work's number: the flow has no block that

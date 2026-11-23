@@ -2,6 +2,8 @@
 //!
 //! - `reference`: `wf-agents help`, the whole reference of the command line.
 //! - `running`: `wf-agents run`, the engine as a process.
+//! - `repair`: `wf-agents repair-costs`, the one-off correction of costs recorded before a round's cost was what its
+//!   results say it spent.
 //! - `talk`: the commands that talk to a running engine.
 //! - `situations`: `wf-agents flow situations`, what each agent's cell is sent in every situation it can be in.
 //! - `names`, a test: no source names a cell, a line, a group or a block of a flow.
@@ -9,6 +11,7 @@
 #[cfg(test)]
 mod names;
 mod reference;
+mod repair;
 mod running;
 mod situations;
 mod talk;
@@ -412,6 +415,22 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
+    /// Corrects, once, the cost recorded of each round and fork whose cost was recorded as the session's total less
+    /// what the session cost before: from the streams kept of them it sets each to what its results say it spent, and
+    /// a round that printed no result, which its engine's restart cut off, to what the totals around it leave, where
+    /// nothing else was done in its session between them. It takes a copy of the database first, writes nothing where
+    /// that fails, and refuses to run while an engine runs on the data directory. It lists what it could not tell,
+    /// leaving it as it was, and says how many rounds still record another cost than their results say. It rewrites
+    /// records in place, the one exception to rows only being added to, and is removed once the owner has run it on the
+    /// installation's data directory.
+    RepairCosts {
+        /// The data directory, which holds the store and the rounds' streams.
+        #[arg(long)]
+        data: PathBuf,
+        /// The most changes and the most that could not be told that are listed.
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+    },
 }
 
 /// Why a change is made, kept with it.
@@ -675,6 +694,7 @@ fn main() -> ExitCode {
         Command::Wait { since, longest, at } => talk::ask(at.port, Asked::Wait { since, longest }),
         Command::LetGo { work, cell, at } => talk::ask(at.port, Asked::Act(work, Act::LetGo { cell })),
         Command::System { days, limit, at } => talk::ask(at.port, Asked::System { days, limit }),
+        Command::RepairCosts { data, limit } => repair::run(&data, limit),
     }
 }
 
