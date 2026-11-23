@@ -185,7 +185,7 @@ export function WorkScreen({ page, failed = null, onActed, run, active = true }:
                 ? `The page could not read the work's item: ${items.failed}`
                 : items.value === null
                   ? 'Reading the item'
-                  : `No item the page read has W${work} for its work`}
+                  : `No item the page read has ${workName(work)} for its work`}
             </p>
           ) : (
             <ItemPanel
