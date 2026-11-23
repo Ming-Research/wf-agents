@@ -103,9 +103,12 @@ export interface Outage {
   /// The latest check of the outside in the wait, where one was taken.
   checked: Checked | null;
   until: Until;
-  /// Whether it holds rounds now: once a check found the outside well it stands only until a round that began after
-  /// the latest that failed so comes back, and holds nothing meanwhile.
+  /// Whether it holds rounds now: once a check found the outside well, or a look reached the acts' host, it stands until
+  /// a round that began after the latest that failed so comes back, and holds every other round while that one, which
+  /// goes first, is under way.
   holds: boolean;
+  /// The work whose round goes first, while it is under way and the wait holds the others for it.
+  first?: number | null;
   /// Whether the owner has let the engine move to another account at a usage limit and some other account may yet be
   /// moved to in this wait.
   mayMove: boolean;
@@ -133,6 +136,8 @@ export type Waited =
   | { kind: 'slot' }
   /// The wait every work shares: the cell's agent's round does not begin until it is over.
   | { kind: 'agents'; outage: Outage }
+  /// The engine was asked to stop at this time, and no round of any work begins until it has started again.
+  | { kind: 'stopping'; since: number }
   /// The owner's answer to the latest version of this question, which the cell asked and waits for.
   | { kind: 'answer'; question: string }
   /// A source outside the work, as main moving: only this cell can make a precondition hold, and what its latest run
@@ -936,6 +941,15 @@ export interface Engine {
   paused: EverythingPaused | null;
   /// Whether the sessions of works that wait are kept warm: the engine's own state, which the owner switches.
   keepWarm: boolean;
+  /// The stop the engine was asked for on the command line, while it stands: no round of any work begins, and the engine
+  /// ends once what is under way has, or at once.
+  stopping?: Stopping | null;
+}
+
+/// A stop of the engine that stands: since when it was asked for, and whether at once.
+export interface Stopping {
+  since: number;
+  atOnce: boolean;
 }
 
 /// The pause of everything: when it began, and who set it, the owner, or the engine as it started with works going on,

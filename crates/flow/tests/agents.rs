@@ -153,6 +153,19 @@ fn what_the_engine_says_to_every_agent_is_read_from_its_files_beside_the_flows()
         ]
     );
     assert_eq!(read.message.parts[8].does.as_deref(), Some(": {do}"));
+    // What the line of a datum new to the cell says of its versions: the one last consumed, and each that changed its
+    // meaning, one or several.
+    let new = &read.message.parts[8];
+    assert_eq!(new.since.as_deref(), Some(", new since version {last}"));
+    assert_eq!(
+        new.changed_one.as_deref(),
+        Some(", version {changed} changed its meaning")
+    );
+    assert_eq!(
+        new.changed_many.as_deref(),
+        Some(", versions {changed} changed their meaning")
+    );
+    assert_eq!(new.between.as_deref(), Some(", "));
     assert_eq!(read.message.parts[0].between.as_deref(), Some(", "));
     assert_eq!(read.message.compacted, "Compacted: the round again.");
     assert_eq!(read.results.none, "(none)");

@@ -55,15 +55,19 @@ impl Local {
             .ok_or_else(|| "the words of run_tests (agents/tools/run_tests.toml) have no [local]".to_string())
     }
 
-    /// Runs the check command in the directory, and says whether it passed with what it said; none where it was told
-    /// to stop.
-    async fn run(&self, dir: &Path, stop: &mut Stop) -> Result<Option<String>, String> {
+    /// Runs the check command in the directory for what asks, and says whether it passed with what it said; none where
+    /// it was told to stop. What the command left running in its group is said ([`Stop::left_behind`]).
+    async fn run(&self, dir: &Path, asking: Asking, stop: &mut Stop) -> Result<Option<String>, String> {
         let words = self.words()?;
         let check = &self.check;
         let ran = process::run(process::shell(check, dir, &self.env), None, None, stop).await?;
-        let Ran::Ended { status, stdout, .. } = ran else {
+        let Ran::Ended {
+            status, stdout, left, ..
+        } = ran
+        else {
             return Ok(None);
         };
+        stop.left_behind(asking, left);
         let outcome = if status.success() {
             words.passed.clone()
         } else {
@@ -103,7 +107,7 @@ impl Host for Local {
         branch: &Branch<'_>,
         commit: &str,
         _: &str,
-        _: Asking,
+        asking: Asking,
         repository: &Mutex<()>,
         stop: &mut Stop,
     ) -> Result<Option<Verdict>, Failed> {
@@ -118,7 +122,11 @@ impl Host for Local {
             git::take_away_check(&self.project, branch.place).await
         }
         .map_err(|why| format!("the checkout the check ran on could not be taken away: {why}"));
-        let failed = match ran? {
+        let ran = ran?;
+        if let Ran::Ended { left, .. } = &ran {
+            stop.left_behind(asking, *left);
+        }
+        let failed = match ran {
             Ran::Ended { status, stdout, .. } if !status.success() => Some(format!(
                 "The check `{check}` failed ({status}). The end of what it said:\n{}",
                 process::tail(&stdout)
@@ -148,7 +156,7 @@ impl Host for Local {
         &self,
         branch: &Branch<'_>,
         named: &Named,
-        _: Asking,
+        asking: Asking,
         stop: &mut Stop,
     ) -> Result<Option<String>, String> {
         let words = self.words()?;
@@ -161,7 +169,7 @@ impl Host for Local {
             return Ok(Some(words.no_commit.clone()));
         }
         let ran = match git::worktree(branch.place) {
-            Ok(dir) => self.run(&dir, stop).await,
+            Ok(dir) => self.run(&dir, asking, stop).await,
             Err(why) => Err(why),
         };
         // What could not be run is said with the command, as what ran is.

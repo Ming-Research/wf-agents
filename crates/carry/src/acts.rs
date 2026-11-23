@@ -1242,7 +1242,7 @@ mod tests {
     use crate::git::Place;
     use crate::git::tests::{Repo, commit, marking, run};
     use crate::host::fake::{Asked, Fake};
-    use crate::host::{Local, Verdict};
+    use crate::host::{Local, Named, Verdict};
     use crate::tree::tests::{asked, asked_in, withdrawn};
 
     fn outputs() -> Vec<(BlockId, Option<Vec<String>>)> {
@@ -2600,6 +2600,74 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
         panic!("{} did not appear", file.display());
+    }
+
+    // What the project's check leaves running as it ends is stopped, and said through the way of saying what the host
+    // found of what ran it, before its verdict or its result is given: for the act's round that ran it as the check
+    // before the merge, and for the call of `run_tests` that ran it on the worktree. Nobody reads what it does once the
+    // check has ended. Under a second alone, most of it the two leftovers ending on TERM; no other test holds a check of
+    // the local host that leaves something running.
+    #[tokio::test]
+    async fn what_the_local_check_leaves_running_is_stopped_and_said_for_its_round_or_call() {
+        let mut repo = Repo::new("true");
+        let left = repo.data.join("left");
+        repo.check = format!("sleep 30 >/dev/null 2>&1 & echo $! > '{}'", left.display());
+        let text = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../flow/agents/tools/run_tests.toml"
+        ));
+        let tool: flow::agents::Tool = toml::from_str(text).expect("the file of run_tests reads");
+        let host = Local::new(repo.project.clone(), repo.check.clone()).saying(Some(&tool));
+        let work = start_with(&repo, &host).await.unwrap();
+        let commit = commit(&work.place.dir, "farewell.txt", "Bye.\n");
+        let main = run(&repo.project.repo, &["rev-parse", "main"]);
+        let (to, mut said) = tokio::sync::mpsc::unbounded_channel();
+        let reply = service::CallReply::new(WorkNumber(1), decide::CallId(1), to);
+        let stopped = || {
+            let process = std::fs::read_to_string(&left).expect("the check wrote what it left");
+            let running = std::process::Command::new("kill")
+                .args(["-0", process.trim()])
+                .stderr(std::process::Stdio::null())
+                .status()
+                .expect("kill runs")
+                .success();
+            let _ = std::process::Command::new("kill")
+                .args(["-s", "KILL", process.trim()])
+                .status();
+            !running
+        };
+        let mut heard = || {
+            let mut events = Vec::new();
+            while let Ok(message) = said.try_recv() {
+                if let service::Message::Happened { event, .. } = message {
+                    events.push(event);
+                }
+            }
+            events
+        };
+
+        let mut stop = Stop::never().hosting(reply.hosting());
+        let lock = Mutex::new(());
+        let verdict = host
+            .verdict(&branch(&work.place), &commit, &main, ROUND, &lock, &mut stop)
+            .await;
+        assert_eq!(verdict.unwrap().expect("judged").failed, None);
+        assert!(stopped(), "what the check left runs on after its verdict was given");
+        let of = work::Left::Act {
+            run: RunId(1),
+            round: 1,
+        };
+        assert_eq!(heard(), [engine::Event::LeftBehind { of, processes: 1 }]);
+
+        let call = decide::CallId(4);
+        let mut stop = Stop::never().hosting(reply.hosting());
+        let ran = host
+            .run_tests(&branch(&work.place), &Named::default(), Asking::Call(call), &mut stop)
+            .await;
+        assert!(ran.expect("it ran").is_some(), "nothing stopped it");
+        assert!(stopped(), "what the check left runs on after its result was given");
+        let of = work::Left::Call { call };
+        assert_eq!(heard(), [engine::Event::LeftBehind { of, processes: 1 }]);
     }
 
     // The checkout registers a worktree in the repository, as the acts' own worktrees are, so it is made holding the
