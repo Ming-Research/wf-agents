@@ -38,11 +38,7 @@ P1 and P2 review every plan before it is built, on each version of it, whether t
 - rejected: the owner proposed that P2 be run by `tree_edits` alone; the owner rejected it, because a plan that changes no entry of the tree may still need its review, such as one that goes against a decision.
 
 ### decision the-plan-reviews-are-split-by-their-yardstick
-P1 judges the plan by what `background` asks, the engineering rules and where it meets the works under way; P2 judges it against the design tree, which only P2 does; P1 answers its points in its why.
+P1 judges the plan by what `background` asks and by the engineering rules, and P2 judges it against the design tree, which only P2 does; P1 answers its numbered points in its verdict's why.
 - rejected: an agent proposed one cell reviewing a plan against `background`, the engineering rules and the tree together; the owner rejected it, because a cell that does more does worse, all the more when it need not answer each point.
 - replaced: P1's point on a decision the plan goes against that no entry covers was on main; the owner changed it, because one thing is judged in one place, and judging the plan against the tree is P2's job.
 - rejected: an agent proposed that both reviews judge the plan against the tree after the deep research, accepting that they overlap; the owner rejected it, because the work of the two reviews was to be split plainly.
-
-### decision the-plan-review-is-given-the-works-under-way
-The engine writes the files each work of the project under way has changed and its plan names as a list, `parallel`, which P1 reads; the plan's writers name the planned files beside the plan.
-- rejected: an agent proposed no list across works: each work records its own changed files and the review puts them together by `query`; the owner rejected it, because every review would spend queries each round and get later, less complete information.

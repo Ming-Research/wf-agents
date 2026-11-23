@@ -300,7 +300,6 @@ fn compiled(source: &Source) -> Compiled {
             "words",
             "dependencies",
             "handed_in",
-            "parallel",
             "main",
             "start",
             "head",
@@ -1113,10 +1112,9 @@ impl Random {
             .map(|(id, _)| id)
             .collect();
         // The owner's start is written once, as the work begins; what the engine writes itself, of the questions, the
-        // answers and the owner's words, is written by no one outside; the work's head is written as the carriers
-        // read the branch, which a person moves by committing; and the list of the project's works under way is
-        // written by the loop from the records of every work, which no history of one work holds.
-        let engines = [START, "asked", flow::ANSWER, flow::WORDS, HEAD, "parallel"];
+        // answers and the owner's words, is written by no one outside; and the work's head is written as the carriers
+        // read the branch, which a person moves by committing.
+        let engines = [START, "asked", flow::ANSWER, flow::WORDS, HEAD];
         let outside: Vec<&BlockId> = (blocks.iter())
             .filter(|(_, b)| b.writers.outside.as_deref().is_some_and(|s| !engines.contains(&s)))
             .map(|(id, _)| id)

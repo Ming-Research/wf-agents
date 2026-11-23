@@ -18,9 +18,7 @@ CREATE TABLE schema_version (
 -- An item: a thing to be done, as it was added. Its number is given by the store, counting from one, one sequence
 -- across the projects. Its level is the name of the level of the installation it was given as it was added; null for
 -- an item kept before items had levels. Its project is the name the installation's settings give the project it
--- belongs to, whose repository its works run in; null for an item kept before items had projects. What happened to an
--- item is in `item_changes`; its one work is in `works`, whose records are the tables keyed by `work`, a block's content
--- in `contents`; why its work was cancelled is in `cancelled`.
+-- belongs to, whose repository its works run in; null for an item kept before items had projects.
 CREATE TABLE items (
     number INTEGER PRIMARY KEY,
     title TEXT NOT NULL,

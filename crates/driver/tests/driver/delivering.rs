@@ -21,7 +21,6 @@ fn engineer() -> Compiled {
             "answer",
             "asked",
             "handed_in",
-            "parallel",
             "words",
             DEPENDENCIES,
             "main",
