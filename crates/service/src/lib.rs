@@ -1454,16 +1454,13 @@ impl Handle {
     }
 
     /// What the repository of each work's project says of it beside its records, in the order asked, as the carrier
-    /// of the engine's acts works it out off the loop, [`SEEN`] works at once.
+    /// of the engine's acts works it out off the loop; that carrier sets how many works are looked at at once, over
+    /// every read.
     pub async fn seen(&self, of: Vec<OfWork>) -> Vec<Result<Seen, String>> {
-        let at_once = Arc::new(tokio::sync::Semaphore::new(SEEN));
         let asked: Vec<_> = (of.into_iter())
             .map(|of| {
-                let (carriers, at_once) = (self.carriers.clone(), at_once.clone());
-                tokio::spawn(async move {
-                    let _turn = at_once.acquire_owned().await;
-                    carriers.seen(of).await
-                })
+                let carriers = self.carriers.clone();
+                tokio::spawn(async move { carriers.seen(of).await })
             })
             .collect();
         let mut seen = Vec::with_capacity(asked.len());
@@ -1499,21 +1496,10 @@ impl Handle {
     /// The work as the carrier of its project's repository is asked of it for its changes; none where there is no
     /// such work.
     async fn of_work(&self, work: WorkNumber) -> Result<Option<OfWork>, Refusal> {
-        self.read(move |driver| {
-            driver.work(work).map(|kept| OfWork {
-                work,
-                item: kept.item.clone(),
-                merged: None,
-            })
-        })
-        .await
+        self.read(move |driver| driver.work(work).map(|kept| OfWork::of(&kept, None)))
+            .await
     }
 }
-
-/// How many works the repository is asked of at once: each look runs a few git commands, which take tens of
-/// milliseconds each, mostly the process starting, so a few at once keep a read of every work short without
-/// crowding the machine.
-pub const SEEN: usize = 8;
 
 /// Lets go of the token of each account of these names, which are removed, a token not found being let go of: gives
 /// each that could not be, by its name, with why; none where every one was.
