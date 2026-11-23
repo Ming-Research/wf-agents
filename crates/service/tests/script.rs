@@ -236,6 +236,7 @@ fn a_round_the_script_says_nothing_of_writes_what_only_a_cell_that_never_runs_be
         "plan_owner",
         "plan_agent",
         "acceptance",
+        "plan_files",
         "better_found",
         "plan_review",
         "tree_review",

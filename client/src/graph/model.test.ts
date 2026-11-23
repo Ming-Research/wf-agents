@@ -315,6 +315,7 @@ describe('the flowchart of the engineer flow', () => {
       'plan_owner lastAndLatest watches',
       'plan_agent lastAndLatest watches',
       'acceptance lastAndLatest watches',
+      'plan_files lastAndLatest watches',
       'plan_doubts all watches',
       'review all watches',
       'test_review all watches',
