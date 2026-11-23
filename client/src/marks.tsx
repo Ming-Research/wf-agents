@@ -13,6 +13,7 @@ import { ConditionGlyph, DataGlyphs, LineGlyph, ToolGlyph } from './Chart';
 import { type Mark, NO_MARK } from './matrix';
 import { Sign } from './parts';
 import { RUN_STATES, type RunState, lookStyle, pulses } from './works/state-marks';
+import type { Held } from './works-api';
 import { NO_LEVEL, keysLine, linesAdded, linesRemoved } from './works/words';
 
 /// A mark the page draws: of the flow's definition, as its files' keys name it; of a line between cells; of who
@@ -264,9 +265,10 @@ export const MARKS: Record<MarkKey, Entry> = {
 /// A mark's name.
 export const markName = (key: MarkKey): string => MARKS[key].name;
 
-/// The looks of the level a work's cell really runs at, its item's level raised as far as the cell's line says, lowest
-/// first: the first muted, the second in the text's colour, the third in the accent, and each above it in the accent
-/// and strong. Each colour is a token's name, as small text takes it (decision a-level-looks-as-the-level-it-runs-at).
+/// The looks of the level a work's cell really runs at, its item's level raised as far as the cell's line gets it,
+/// lowest first: the first muted, the second in the text's colour, the third in the accent, and each above it in the
+/// accent and strong. Each colour is a token's name, as small text takes it (decision
+/// a-level-looks-as-the-level-it-runs-at).
 export const LEVEL_LOOKS = [
   { colour: '--muted', strong: false },
   { colour: '--text', strong: false },
@@ -276,34 +278,49 @@ export const LEVEL_LOOKS = [
 
 export type LevelLook = (typeof LEVEL_LOOKS)[number];
 
-/// A level as a card and the item's window write it: `L2`, and `L2+1` where the cell's line raises it one above.
+/// A level as a card and the item's window write it: `L2`, and `L2+1` where the cell really runs one level above it.
 export const levelWords = (level: string, raise: number): string => (raise > 0 ? `L${level}+${raise}` : `L${level}`);
 
-/// The look of a level raised so far, by the number the level's name is and the raise, past the highest an item may be
-/// at too; a level whose name is no number takes the second.
+/// The look of the level a cell runs at, by the number the level's name is and how far it is raised; a level whose
+/// name is no number takes the second.
 export function levelLook(level: string, raise: number): LevelLook {
   const real = /^\d+$/.test(level) ? Number(level) + raise : 2;
   return LEVEL_LOOKS[Math.min(LEVEL_LOOKS.length, Math.max(1, real)) - 1];
 }
 
-/// The level a work's cell runs at, `L2` or `L2+1`, in its look, saying on pointing at it its keys, `level 2,
-/// levels_above 1`; where the engine gives no level, a dash, and why on pointing at it.
-export function LevelMark({ level, raise }: { level: string | null; raise: number }) {
+/// What pointing at a work's level says, as the keys of the definitions name it: the item's `level`, the line's
+/// `levels_above` where it asks for any, and, where a round was held below what its line asks, the setting that held it
+/// with the level it held the cell at (`cellLevel`). Where the engine gives no level, why it gives none.
+export function levelPointed(level: string | null, raise: number, held: Held | null, cellLevel: string | null): string {
+  if (level === null) return NO_LEVEL.level;
+  const keys: [string, string][] = [['level', level]];
+  const asks = held === null ? raise : held.asks;
+  if (asks > 0) keys.push(['levels_above', String(asks)]);
+  if (held !== null && held.by !== null && cellLevel !== null) keys.push([held.by, cellLevel]);
+  return keysLine(keys);
+}
+
+/// The level a work's cell runs at, `L2` or `L2+1`, in its look, saying on pointing at it what `levelPointed` says;
+/// where the engine gives no level, a dash.
+export function LevelMark({ level, raise, held = null, cellLevel = null }: {
+  level: string | null;
+  raise: number;
+  held?: Held | null;
+  cellLevel?: string | null;
+}) {
   if (level === null) {
     return (
-      <span className="mono muted" title={NO_LEVEL.level}>
+      <span className="mono muted" title={levelPointed(null, raise, held, cellLevel)}>
         {NO_LEVEL.shown}
       </span>
     );
   }
   const look = levelLook(level, raise);
-  const keys: [string, string][] = [['level', level]];
-  if (raise > 0) keys.push(['levels_above', String(raise)]);
   return (
     <span
       className="mono"
       style={{ color: `var(${look.colour})`, fontWeight: look.strong ? 'var(--weight-strong)' : undefined }}
-      title={keysLine(keys)}
+      title={levelPointed(level, raise, held, cellLevel)}
     >
       {levelWords(level, raise)}
     </span>
