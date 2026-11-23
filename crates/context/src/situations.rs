@@ -723,7 +723,12 @@ impl<'a> Reach<'a> {
 
     /// Whether the cell writes any block, so that a return of it can hand something in.
     fn writes(&self) -> bool {
-        let place = self.flow.flow.place(&self.cell.id);
+        self.writes_of(self.cell)
+    }
+
+    /// Whether the cell writes any block.
+    fn writes_of(&self, cell: &CellSpec) -> bool {
+        let place = self.flow.flow.place(&cell.id);
         place.is_some_and(|p| !self.flow.flow.cells()[p].outputs.is_empty())
     }
 
@@ -753,10 +758,12 @@ impl<'a> Reach<'a> {
                 add(Vec::new(), false, Some("fresh".to_string()));
             }
             Entry::Later => {
-                add(self.kept(false), self.writes(), None);
+                // The last return in the session may be that of a cell of the line entered since this one, or of this.
+                let handed = self.writes() || self.others.iter().any(|o| self.writes_of(o));
+                add(self.kept(false), handed, None);
                 // A cell that takes main in holds what came of it where its run's earlier round was sent it.
                 if self.cell.takes_main {
-                    add(self.kept(true), self.writes(), Some("main_held".to_string()));
+                    add(self.kept(true), handed, Some("main_held".to_string()));
                 }
             }
             Entry::Reopened => add(Vec::new(), false, None),

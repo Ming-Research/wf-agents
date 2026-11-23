@@ -52,8 +52,8 @@ const SCRIPTED: u64 = 6;
 const STEPS: usize = 120;
 
 /// How many histories of the engineer's flow are run, and how many steps each takes.
-const ENGINEER_SEEDS: u64 = 3;
-const ENGINEER_STEPS: usize = 100;
+const ENGINEER_SEEDS: u64 = 8;
+const ENGINEER_STEPS: usize = 400;
 
 pub struct Rng(u64);
 
@@ -168,6 +168,9 @@ struct Scene {
     models: bool,
     /// Whether the owner speaks to the cells that take words and answers the questions cells ask.
     talks: bool,
+    /// How often, in a hundred, a cell that writes a choice with the value `yes` writes it, so that the work goes on to
+    /// its later cells; none where the choice is any of its values alike.
+    passes: Option<u64>,
 }
 
 impl Scene {
@@ -179,6 +182,7 @@ impl Scene {
             lines: vec!["engineer".to_string(), "reviewer".to_string()],
             models: true,
             talks: false,
+            passes: None,
         }
     }
 
@@ -191,6 +195,7 @@ impl Scene {
             lines,
             models: false,
             talks: true,
+            passes: Some(70),
         }
     }
 }
@@ -290,6 +295,11 @@ impl History {
         self.last.insert(block.to_string(), text.clone());
         self.written.entry(block.to_string()).or_default().push(text.clone());
         text
+    }
+
+    /// Whether the work has ended.
+    fn ended(&self) -> bool {
+        matches!(decide(&self.sim.flow.flow, &self.sim.work.records), Decision::Ended(_))
     }
 
     fn step(&mut self, reached: &mut Reached) {
@@ -603,10 +613,11 @@ impl History {
         for block in outputs {
             let must = cell.must_write.contains(&block);
             if (must && !leaves_out) || (!must && self.rng.chance(70)) {
-                let value = self.sim.flow.blocks[&block]
-                    .values
-                    .as_ref()
-                    .map(|v| v[self.rng.below(v.len())].clone());
+                let passes = self.scene.passes.is_some_and(|percent| self.rng.chance(percent));
+                let value = self.sim.flow.blocks[&block].values.clone().map(|v| match passes {
+                    true if v.iter().any(|x| x == "yes") => "yes".to_string(),
+                    _ => v[self.rng.below(v.len())].clone(),
+                });
                 let content = value.clone().unwrap_or_else(|| self.content(block.as_str()));
                 writes.push(Handed {
                     block,
@@ -1058,15 +1069,16 @@ impl History {
 /// two entries that stand alike are one.
 fn stood(cell: &CellSpec, s: &Situation) -> Vec<String> {
     let id = cell.id.as_str();
-    let ran = |block: &str| {
-        (cell.watches.iter()).any(|t| s.new.contains(&t.name) && t.blocks.iter().any(|b| b.as_str() == block))
-    };
+    // A datum ran the cell where it is watched by itself and new; a member of a group stands by its own state alone, the
+    // text of a datum being the builder's from its kind and its state, and the group that ran the cell is a line of its own.
+    let ran = |block: &str| (cell.watches.iter()).any(|t| !t.is_group() && t.name == block && s.new.contains(&t.name));
     let mut lines: Vec<String> = (s.data.iter())
         .map(|(block, stands)| {
             let ran = if ran(block) { "ran it" } else { "did not run it" };
             format!("{id}: {block} {} and {ran}", stands.name())
         })
         .collect();
+    lines.extend(s.new.iter().map(|name| format!("{id}: run by {name}")));
     lines.push(format!(
         "{id}: the session holds {:?}, after a hand-in {}",
         s.holds, s.after_hand_in
@@ -1103,7 +1115,8 @@ const REOPENED: &str = "session";
 /// The lines in the first set and not in the second, cut to how many a failure says.
 fn missing(a: &BTreeSet<String>, b: &BTreeSet<String>) -> String {
     let all: Vec<&String> = a.difference(b).collect();
-    let shown: Vec<&str> = all.iter().take(200).map(|s| s.as_str()).collect();
+    let stride = all.len().div_ceil(120).max(1);
+    let shown: Vec<&str> = all.iter().step_by(stride).map(|s| s.as_str()).collect();
     format!("{} of them:\n{}", all.len(), shown.join("\n"))
 }
 
@@ -1257,6 +1270,9 @@ fn the_rounds_of_works_of_the_engineer_s_flow_stand_in_what_the_tool_writes_for_
         let mut history = History::of(sim, scene, seed);
         let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             for _ in 0..ENGINEER_STEPS {
+                if history.ended() {
+                    break;
+                }
                 history.step(&mut reached);
             }
         }));
