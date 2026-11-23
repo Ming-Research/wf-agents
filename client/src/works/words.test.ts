@@ -240,6 +240,7 @@ describe('what a work does now, in words', () => {
       checked: null,
       until: { kind: 'checked', at: 0 },
       holds: true,
+      mayMove: false,
     });
     expect(said).toMatch(
       /^The agents' command line cannot run since \d\d-\d\d \d\d:\d\d\. No agent's round begins until it runs again\.$/,

@@ -243,14 +243,17 @@ export function outageDown(outage: Outage): { failure: Failure; why: string } {
 /// A text with its first letter a capital, to begin a sentence.
 const capital = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
 
-/// What a wait every work shares holds and until when, a sentence for each kind of cause.
-export function heldWords(service: Outage['service'], failure: Failure): string {
+/// What a wait every work shares holds and until when, a sentence for each kind of cause; a usage limit ends as well
+/// where the engine may move to another account.
+export function heldWords(service: Outage['service'], failure: Failure, mayMove = false): string {
   if (service === 'host') return "No act of the engine's begins until it is reached again.";
   switch (failure) {
     case 'cannotRun':
       return "No agent's round begins until it runs again.";
     case 'usageLimit':
-      return "No agent's round begins until the limit resets.";
+      return mayMove
+        ? "No agent's round begins until the limit resets or the engine moves to another account."
+        : "No agent's round begins until the limit resets.";
     case 'offline':
       return "No agent's round begins until the service is reached again.";
     case 'unavailable':
@@ -271,7 +274,7 @@ export function outageWords(outage: Outage): string | null {
   // The check's time, without its day where that is the day the wait began.
   const at = (ms: number) => (dayOf(ms) === dayOf(outage.since) ? minuteOf(ms) : clock(ms));
   const why = outage.checked && found?.kind === 'down' ? ` At ${at(outage.checked.at)} the check found: ${sentence(found.why)}` : '';
-  return `${capital(failureWords(down.failure))} since ${clock(outage.since)}.${why} ${heldWords(outage.service, down.failure)}`;
+  return `${capital(failureWords(down.failure))} since ${clock(outage.since)}.${why} ${heldWords(outage.service, down.failure, outage.mayMove)}`;
 }
 
 /// What a work waits for, in words; a question's own words are shown beside them, in full.
