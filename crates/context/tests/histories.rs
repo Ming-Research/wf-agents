@@ -32,8 +32,12 @@
 //! writes was stood in by a round of the histories, which is why the scripted history brings about what the random steps
 //! reach too seldom; and on the engineer's flow, which these histories carry with the owner's words, questions and
 //! answers, in both directions too, by a search that keeps the state of a history whenever it reached a state of a datum
-//! none had and goes on from it, a group of the flow's cells to a test. A state the search does not reach is read: it is
-//! given a directed test, or it is deleted from the rules as one no round can stand in. The check holds each state of
+//! none had and goes on from it, a group of the flow's cells to a test. Each run is steered at a state not yet reached:
+//! it begins from a kept state of the target's cell, of one before it or of one after it, forces the choices the target
+//! cell runs on, has the owner write and speak to the cells that write the datum, and hands in blocks that change nothing
+//! in meaning and returns that deal with part of what ran the round, as real returns do. The search ends where the last
+//! runs reached nothing. A state it does not reach is read: it is given a directed test, or it is deleted from the rules
+//! as one no round can stand in, by an argument from the flow's files and the deciding code. The check holds each state of
 //! each datum, not the joint situations written, so that a datum stood in alone in each of its states may not be stood
 //! in together with the others as a written situation says.
 
