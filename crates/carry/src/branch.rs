@@ -91,7 +91,9 @@ pub(crate) struct Looking {
 impl Looking {
     /// The look for the work as it is kept, each block of the flow that the branch's data are written into holding what
     /// its latest version says; none where the flow has no such block. `run` is the run the look is for, none where an
-    /// act of no run's looks.
+    /// act of no run's looks. Whether a cell waits for results is worked out from the records the look is made with and
+    /// holds until the round ends: a work has one round under way at a time (`decide::decide_in`), so no cell comes to
+    /// wait for results, or stops waiting, while another's round runs.
     pub(crate) fn of(flow: &Compiled, work: &Work, reading: Reading, run: Option<RunId>) -> Looking {
         let versions = decide::versions(&work.records);
         let kept = (flow.blocks.iter())
