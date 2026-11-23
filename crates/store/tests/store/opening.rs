@@ -249,7 +249,7 @@ fn a_file_of_version_9_is_migrated_and_its_runs_read_as_dealing_with_everything_
     work.records.questions.clear();
     work.records.answers.clear();
     work.pulls.clear();
-    // Nor how long the tests and jobs of a run of the CI took, which version 24 keeps.
+    // Nor how long the tests and jobs of a run of the CI took, which version 25 keeps.
     work.timed.clear();
     // Its tries recorded the directory of the program's settings as their account, which version 21 keeps apart.
     for ran in &mut work.ran {
@@ -481,7 +481,7 @@ fn a_file_of_version_20_is_migrated_keeping_every_row_it_holds_its_tries_directo
     let mut d = Driver::new();
     history(&mut d);
     let mut work = d.work;
-    // A file of version 20 kept no times of the runs of the CI, which version 24 keeps.
+    // A file of version 20 kept no times of the runs of the CI, which version 25 keeps.
     work.timed.clear();
     for ran in &mut work.ran {
         ran.on.account = None;
