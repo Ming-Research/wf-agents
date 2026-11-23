@@ -3163,7 +3163,7 @@ mod tests {
         };
         assert_eq!(
             heed(&line, 3 * hour),
-            "Item 40 \"Greet\", work 5: its pause waited for #12 and #14, each of which has merged or been cancelled, \
+            "Item #40 \"Greet\", work W5: its pause waited for #12 and #14, each of which has merged or been cancelled, \
              2h 00m ago: it is paused still, and only `wf-agents resume 5` lets it on."
         );
         let none = Candidates {
@@ -3930,6 +3930,7 @@ mod tests {
             }),
             until: Until::Well { at: 2 * hour },
             holds: false,
+            first: None,
             may_move: false,
         };
         let line = Line::Agents {

@@ -114,11 +114,11 @@ fn a_pause_that_waits_for_an_item_is_said_with_its_reason_and_wait_says_that_the
     engine.says(&["wait"]);
     engine.says(&["let-go", "1", "--call", "2"]);
     let line = engine.until(&["wait", "--since", "0", "--for", "0"], |line| {
-        line.starts_with("Item 2 ")
+        line.starts_with("Item #2 ")
     });
     assert!(
         line.starts_with(
-            "Item 2 \"Say goodbye\", work 2: its pause waited for #1, which has merged or been cancelled, "
+            "Item #2 \"Say goodbye\", work W2: its pause waited for #1, which has merged or been cancelled, "
         ) && line.ends_with(": it is paused still, and only `wf-agents resume 2` lets it on."),
         "{line}"
     );
