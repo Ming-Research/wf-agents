@@ -54,6 +54,9 @@ pub struct InputView {
     pub current: Option<Seq>,
     /// The version the cell consumed; `None` where it consumed none.
     pub consumed: Option<Seq>,
+    /// The version the cell last worked from: the latest of the one it consumed, one a run of it wrote and one the
+    /// owner ruled on, which a message names and a cause records (design document `data-and-context`, 10).
+    pub worked: Option<Seq>,
     /// The versions of the block that are new to the cell, the earliest first: later than the one it consumed,
     /// changing the block's meaning, and written by no run of the cell itself; none where the block is not new.
     pub new_versions: Vec<Seq>,
@@ -112,6 +115,7 @@ pub fn view_in(flow: &Flow, records: &Records, room: Room) -> View {
                         block: block.clone(),
                         current: walk.current(block).map(|v| v.at),
                         consumed,
+                        worked: walk.worked(&cell.id, block),
                         new_versions: new.iter().map(|v| v.at).collect(),
                     }
                 })

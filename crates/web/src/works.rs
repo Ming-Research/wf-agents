@@ -172,10 +172,48 @@ pub struct Item {
     /// The tags it carries, in the order of their names.
     #[serde(default)]
     pub tags: Vec<String>,
+    /// The branch or pull request its work starts from, where it continues one and not the head of main; left out
+    /// where it continues nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continues: Option<Continues>,
     /// What it was as it was added, and each change made to it since: what it said before, and when it changed.
     pub history: ItemHistory,
     /// The one work done for it, which was added with it.
     pub work: Summary,
+}
+
+/// What an item continues: a branch of its project's repository, or a pull request on its host, whose head its work
+/// starts from.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum Continues {
+    /// The branch of this name.
+    Branch { name: String },
+    /// The pull request of this number.
+    Pull { number: u64 },
+}
+
+impl Continues {
+    /// What the store keeps of it.
+    pub fn kept(self) -> store::Continues {
+        match self {
+            Continues::Branch { name } => store::Continues::Branch(name),
+            Continues::Pull { number } => store::Continues::Pull(number),
+        }
+    }
+
+    /// What the store keeps, as the pages read it.
+    pub fn of(kept: &store::Continues) -> Continues {
+        match kept {
+            store::Continues::Branch(name) => Continues::Branch { name: name.clone() },
+            store::Continues::Pull(number) => Continues::Pull { number: *number },
+        }
+    }
 }
 
 /// An item as it was added, and each change made to it since, in the order they were made: its title, level and
@@ -197,6 +235,9 @@ pub struct FirstItem {
     pub depends_on: Vec<u64>,
     #[serde(default)]
     pub tags: Vec<String>,
+    /// None for an item added continuing nothing, and then left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continues: Option<Continues>,
 }
 
 /// A change made to an item, at this time, and why, as whoever made it said; none for a change kept before changes
@@ -226,6 +267,8 @@ pub enum ItemChanged {
     Tagged { tag: String },
     /// It no longer carries this tag.
     Untagged { tag: String },
+    /// It came to continue this, or, with none, to continue nothing.
+    Continues { continues: Option<Continues> },
 }
 
 /// A work in brief.
@@ -905,11 +948,13 @@ pub struct CellDetail {
 pub enum Cause {
     /// It had no record, as a run started before a cell ran only for what is new says.
     NoRecord,
-    /// The block is new to the cell. `was` is the version the cell consumed, by its number; `behind` says every new
-    /// version was written by a cell after this one.
+    /// The block is new to the cell. `worked_from` is the version the cell last worked from as the run began, by its
+    /// number: the latest of the one it consumed, one it wrote and one the owner ruled on, which a message to it names
+    /// alike; for a cause recorded before that was recorded, the `was` it recorded, the one it consumed. `behind` says
+    /// every new version was written by a cell after this one.
     Changed {
         block: String,
-        was: Option<u64>,
+        worked_from: Option<u64>,
         behind: bool,
     },
     /// The results of the calls its earlier runs asked for are all in.
@@ -1570,6 +1615,9 @@ pub enum ChangeAsked {
     Tag { item: u64, tag: String },
     /// The item no longer carries this tag.
     Untag { item: u64, tag: String },
+    /// The item comes to continue this branch or pull request, or, with none, to continue nothing, until its work's
+    /// branch is made.
+    Continues { item: u64, continues: Option<Continues> },
     /// The item is cancelled: nothing of its work goes on.
     Cancel { item: u64 },
     /// The item, cancelled, is reopened: its work is paused, and goes on from its records once it is let on.
@@ -1594,6 +1642,7 @@ impl ChangeAsked {
             | ChangeAsked::NoLongerDependsOn { item, .. }
             | ChangeAsked::Tag { item, .. }
             | ChangeAsked::Untag { item, .. }
+            | ChangeAsked::Continues { item, .. }
             | ChangeAsked::Cancel { item }
             | ChangeAsked::Reopen { item } => *item,
         }
@@ -1620,6 +1669,7 @@ impl ChangeAsked {
             ChangeAsked::NoLongerDependsOn { on, .. } => Asked::Item(C::NoLongerDependsOn(ItemNumber(on))),
             ChangeAsked::Tag { tag, .. } => Asked::Item(C::Tagged(tag)),
             ChangeAsked::Untag { tag, .. } => Asked::Item(C::Untagged(tag)),
+            ChangeAsked::Continues { continues, .. } => Asked::Item(C::Continues(continues.map(Continues::kept))),
             ChangeAsked::Cancel { .. } => Asked::Cancel,
             ChangeAsked::Reopen { .. } => Asked::Reopen,
         };
@@ -1930,6 +1980,9 @@ pub struct NewItem {
     /// The tags it carries; none where none is given.
     #[serde(default)]
     pub tags: Vec<String>,
+    /// The branch or pull request its work starts from; none where it starts from the head of main.
+    #[serde(default)]
+    pub continues: Option<Continues>,
     /// The name of the flow its work runs on.
     pub flow: String,
     /// What is written for it as it is added, each a block people write.
@@ -2037,6 +2090,7 @@ impl Items {
                 added: kept.item.added.0,
                 depends_on: kept.item.depends_on.iter().map(|on| on.0).collect(),
                 tags: kept.item.tags.clone(),
+                continues: kept.item.continues.as_ref().map(Continues::of),
                 history: ItemHistory::of(kept.item),
                 work: Summary::of(kept, &view, driver, &every, levels, now)?,
             });
@@ -2056,6 +2110,7 @@ impl ItemHistory {
                 level: first.level.clone(),
                 depends_on: first.depends_on.iter().map(|on| on.0).collect(),
                 tags: first.tags.clone(),
+                continues: first.continues.as_ref().map(Continues::of),
             },
             changes: (item.changes.iter())
                 .map(|change| ItemChange {
@@ -2078,6 +2133,9 @@ impl ItemChanged {
             store::ItemChange::NoLongerDependsOn(on) => ItemChanged::NoLongerDependsOn { item: on.0 },
             store::ItemChange::Tagged(tag) => ItemChanged::Tagged { tag: tag.clone() },
             store::ItemChange::Untagged(tag) => ItemChanged::Untagged { tag: tag.clone() },
+            store::ItemChange::Continues(continues) => ItemChanged::Continues {
+                continues: continues.as_ref().map(Continues::of),
+            },
         }
     }
 }
@@ -2933,9 +2991,16 @@ impl Cause {
     fn of(cause: &CauseOf, records: &Records) -> Result<Cause, Broken> {
         Ok(match cause {
             CauseOf::NoRecord => Cause::NoRecord,
-            CauseOf::Changed { block, was, behind } => Cause::Changed {
+            // The version the cell last worked from, as the run began; a cause recorded before that was recorded has
+            // the `was` it recorded, the one it consumed.
+            CauseOf::Changed {
+                block,
+                was,
+                worked,
+                behind,
+            } => Cause::Changed {
                 block: block.to_string(),
-                was: was.map(|at| numbered(records, block, at)).transpose()?,
+                worked_from: worked.or(*was).map(|at| numbered(records, block, at)).transpose()?,
                 behind: *behind,
             },
             CauseOf::Results { calls } => Cause::Results {
@@ -3099,6 +3164,7 @@ impl NewItem {
             project,
             depends_on: self.depends_on.into_iter().map(ItemNumber).collect(),
             tags: self.tags,
+            continues: self.continues.map(Continues::kept),
             flow: self.flow,
             writes: (self.writes.into_iter())
                 .map(|write| driver::FirstWrite {
@@ -3797,6 +3863,7 @@ pub(crate) mod tests {
                 project: None,
                 depends_on: Vec::new(),
                 tags: Vec::new(),
+                continues: None,
             };
             Stored {
                 head: store::WorkHead {
@@ -4543,5 +4610,41 @@ pub(crate) mod tests {
         assert_eq!(settled(true, false, false), CellState::NotYet);
         assert_eq!(settled(true, true, true), CellState::Again);
         assert_eq!(settled(true, true, false), CellState::Done);
+    }
+
+    // The page names, for why a cell ran, the version the cell last worked from as the run began, which is the one a
+    // message to it names: the cell's own write or the owner's ruling that is later than the version it consumed. A
+    // cause recorded before that was recorded has the version it consumed. Milliseconds; the one test of which number
+    // of a cause the page takes.
+    #[test]
+    fn the_page_names_the_version_a_cell_last_worked_from_and_the_one_it_consumed_where_none_was_recorded() {
+        let mut records = Records::default();
+        for at in [1, 2, 4] {
+            records.written.push(Written {
+                block: "plan".into(),
+                by: Outsider::Person,
+                matters: true,
+                value: None,
+                empty: false,
+                said_to: None,
+                at: Seq(at),
+            });
+        }
+        let plan = BlockId::from("plan");
+        let cause = |was, worked| CauseOf::Changed {
+            block: plan.clone(),
+            was,
+            worked,
+            behind: false,
+        };
+        let named = |cause: CauseOf| match Cause::of(&cause, &records).expect("the versions are the work's") {
+            Cause::Changed { worked_from, .. } => worked_from,
+            other => panic!("{other:?}"),
+        };
+        // It consumed the first version, and last worked from the third, which the owner ruled on.
+        assert_eq!(named(cause(Some(Seq(1)), Some(Seq(4)))), Some(3));
+        // A cause kept without it names the version consumed, and one that consumed none and worked from none, none.
+        assert_eq!(named(cause(Some(Seq(2)), None)), Some(2));
+        assert_eq!(named(cause(None, None)), None);
     }
 }

@@ -91,10 +91,10 @@ part = "results"
 [[parts]]
 part = "sent_back"
 
-# Each datum the cell watches that is new to it (design document `data-and-context`, 11): its name, the version the
-# cell last consumed (`since`, none where it consumed none), each version new to it that changed the datum's meaning
-# (`changed_one` or `changed_many`, joined by `between`; none where none did), and what the cell does for it (`do`,
-# from the cell's definition), the first time too; then `after`.
+# Each datum the cell watches that is new to it (design document `data-and-context`, 10 and 11): its name, the version
+# the cell last worked from (`since`, none where it worked from none), each version new to it that changed the datum's
+# meaning (`changed_one` or `changed_many`, joined by `between`; none where none did), and what the cell does for it
+# (`do`, from the cell's definition), the first time too; then `after`.
 [[parts]]
 part = "new"
 text = "## Why you are run\n"

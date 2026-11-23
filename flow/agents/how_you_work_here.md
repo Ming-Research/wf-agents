@@ -20,11 +20,12 @@ Then come the blocks the cell is given. A block comes only if the cell has not w
 this session does not have it. Each block comes under a heading with the block's name and the version's number. If
 this session has that version already, a line says so instead. So you can find each version in this session by its
 block's name and its number, whether you were sent it or handed it in. The latest version of each block is in this
-session.
+session. A text may point to a question as `{{name}}`: it is the question of that name among the questions you are
+given.
 
 Next, the first time the cell is entered in this session, come the blocks it writes and its task. When the cell is
 entered again, the task's heading says where the task is. "Why you are run" comes last. It lists each block the cell
-watches that is new to it, with the version it last consumed, the versions that changed its meaning, and what to do
+watches that is new to it, with the version it last worked from, the versions that changed its meaning, and what to do
 for that block.
 
 ## What you do

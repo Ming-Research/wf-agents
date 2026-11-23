@@ -40,11 +40,13 @@ fn input_of(w: &World, id: &str, block: &str) -> InputView {
         .expect("the block runs the cell")
 }
 
+/// A block that runs a cell, the cell having worked from the version it consumed.
 fn input(block: &str, current: Option<Seq>, consumed: Option<Seq>, new_versions: &[Seq]) -> InputView {
     InputView {
         block: block.into(),
         current,
         consumed,
+        worked: consumed,
         new_versions: new_versions.to_vec(),
     }
 }

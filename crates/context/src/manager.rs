@@ -240,8 +240,8 @@ pub fn enter(
         filling.insert(block, fills);
     }
     // What the cell watches that is new to it this entry: each datum, or group of which a block, ran the round, with
-    // the version the cell last consumed and each version new to it that changed its meaning, as the walk reads them
-    // (design document `data-and-context`, 11).
+    // the version the cell last worked from and each version new to it that changed its meaning, as the walk reads
+    // them (design document `data-and-context`, 10 and 11).
     let ran_by = decide::told(&flow.flow, &records, run)
         .map(|t| t.ran_by)
         .unwrap_or_default();
@@ -251,7 +251,7 @@ pub fn enter(
         .map_or_else(Vec::new, |c| c.runs_on.iter().collect());
     for watched in cell.ran(&ran_by) {
         let of = (inputs.iter()).filter(|i| watched.blocks.contains(&i.block));
-        let last = of.clone().filter_map(|i| i.consumed).max();
+        let last = of.clone().filter_map(|i| i.worked).max();
         let mut changed: Vec<Seq> = of.flat_map(|i| i.new_versions.iter().copied()).collect();
         changed.sort();
         changed.dedup();
@@ -477,12 +477,13 @@ fn by(flow: &Compiled, records: &Records, block: &BlockId, version: &VersionView
     }
 }
 
-/// The version of the datum the cell last worked from: the latest it consumed, where the datum runs the cell (design
-/// document `data-and-context`, 10); of another, the latest its last finished run was given, which is the one written
-/// last before that run's last round began, every round being filled with the latest; and in either case the latest
-/// a run of the cell wrote, where that is later, a cell's own version being no change to it, and the latest of the
-/// block's `versions` the owner ruled on, where that is later, as the walk reads them: a point the owner ruled on is
-/// new to no cell (39), so what came before it is no change to the cell.
+/// The version of the datum the cell last worked from (design document `data-and-context`, 10). Where the datum runs
+/// the cell, it is the walk's own ([`decide::InputView::worked`]), which a cause records as a run begins: the latest of
+/// the one the cell consumed, one a run of it wrote and one the owner ruled on. Of another datum it is the latest its
+/// last finished run was given, which is the one written last before that run's last round began, every round being
+/// filled with the latest; or the latest a run of the cell wrote, where that is later, a cell's own version being no
+/// change to it; or the latest of the block's `versions` the owner ruled on, where that is later, as the walk reads
+/// them: a point the owner ruled on is new to no cell (39), so what came before it is no change to the cell.
 fn last_worked_from(
     flow: &Compiled,
     records: &Records,
@@ -491,24 +492,25 @@ fn last_worked_from(
     versions: &[VersionView],
 ) -> Option<Seq> {
     let finished = (records.finished.iter()).filter(|f| of_cell(records, f.run, cell));
+    let runs_it = (flow.flow.place(&cell.id)).is_some_and(|p| flow.flow.cells()[p].runs_on.contains(block));
+    if runs_it {
+        // The walk's own reading, which a cause records alike.
+        let view = decide::view(&flow.flow, records);
+        let of = view.cells.into_iter().find(|c| c.cell == cell.id);
+        return of
+            .and_then(|c| c.runs_on.into_iter().find(|i| &i.block == block))
+            .and_then(|i| i.worked);
+    }
     let wrote = (finished.clone())
         .filter(|f| f.writes.iter().any(|w| &w.block == block))
         .map(|f| f.at)
         .max();
-    let runs_it = (flow.flow.place(&cell.id)).is_some_and(|p| flow.flow.cells()[p].runs_on.contains(block));
-    let worked = if runs_it {
-        let view = decide::view(&flow.flow, records);
-        let of = view.cells.into_iter().find(|c| c.cell == cell.id);
-        of.and_then(|c| c.runs_on.into_iter().find(|i| &i.block == block))
-            .and_then(|i| i.consumed)
-    } else {
-        let last = finished.max_by_key(|f| f.at);
-        let round = last.and_then(|f| (records.rounds.iter()).filter(|r| r.run == f.run).map(|r| r.at).max());
-        let versions = decide::versions(records).remove(block).unwrap_or_default();
-        round.and_then(|round| versions.iter().map(|v| v.at).filter(|at| *at < round).max())
-    };
+    let last = finished.max_by_key(|f| f.at);
+    let round = last.and_then(|f| (records.rounds.iter()).filter(|r| r.run == f.run).map(|r| r.at).max());
+    let all = decide::versions(records).remove(block).unwrap_or_default();
+    let given = round.and_then(|round| all.iter().map(|v| v.at).filter(|at| *at < round).max());
     let ruled = (versions.iter()).filter(|v| v.ruled).map(|v| v.at).max();
-    worked.max(wrote).max(ruled)
+    given.max(wrote).max(ruled)
 }
 
 /// A call whose result the round is given, as the carrier gives it, or else as the work holds it.

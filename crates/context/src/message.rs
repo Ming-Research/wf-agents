@@ -107,8 +107,8 @@ pub struct Run {
     pub named: Settings,
     /// Each datum of the cell's context that has a version, by its name.
     pub data: BTreeMap<BlockId, Datum>,
-    /// Of each datum or group the cell watches that is new to it, by its name, the version the cell last consumed and
-    /// the versions that changed its meaning (design document `data-and-context`, 11).
+    /// Of each datum or group the cell watches that is new to it, by its name, the version the cell last worked from
+    /// and the versions that changed its meaning (design document `data-and-context`, 10 and 11).
     pub new: BTreeMap<String, NewVersions>,
     /// The calls whose results the round is given, in the order they were made.
     pub results: Vec<Result>,
@@ -139,7 +139,8 @@ pub struct Datum {
 /// group, each place that wrote any of its blocks being one.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NewVersions {
-    /// The version the cell last consumed; none where it consumed none.
+    /// The version the cell last worked from: the latest it consumed, wrote itself or the owner ruled on; none where
+    /// it worked from none.
     pub last: Option<u64>,
     /// Each version new to the cell, which changed the meaning, the earliest first.
     pub changed: Vec<u64>,
@@ -644,9 +645,10 @@ impl Build<'_> {
     }
 
     /// What the cell writes, with its task: its blocks, each on a line with its marks and its words, as `[outputs]` of
-    /// `return.toml` says; after the list its `owner_reads`, once, where a block of it is one the owner reads; then
-    /// what the cell is told of writing each block whose file says it, each a paragraph, in the order of the list; that
-    /// it writes none, where it writes none.
+    /// `return.toml` says; after the list its `owner_reads`, once, where a block of it is one the owner reads, and its
+    /// `every_time`, once, where a block of it is one the cell must hand in every time; then what the cell is told of
+    /// writing each block whose file says it, each a paragraph, in the order of the list, with what its file says
+    /// after it where the cell has such a block; that it writes none, where it writes none.
     fn outputs(&self) -> Vec<Piece> {
         let told = &self.words.returns.outputs;
         let place = self.flow.flow.place(&self.cell.id);
@@ -687,12 +689,19 @@ impl Build<'_> {
         };
         let shown = (outputs.iter()).any(|block| self.flow.blocks.get(block).is_some_and(|b| b.readers.shown));
         let reads = shown.then(|| told.owner_reads.trim().to_string());
+        let marked = (outputs.iter()).any(|block| self.cell.must_write.contains(block));
+        let every_time = marked.then(|| told.every_time.trim().to_string());
         let words = (outputs.iter())
-            .filter_map(|block| self.flow.blocks.get(block).and_then(|b| b.words.as_deref()))
+            .filter_map(|block| self.flow.blocks.get(block))
+            .flat_map(|block| {
+                let after = block.words_if_marked.as_deref().filter(|_| marked);
+                (block.words.as_deref().into_iter()).chain(after)
+            })
             .map(|words| words.trim().to_string());
         let parts: Vec<String> = [told.heading.clone(), list]
             .into_iter()
             .chain(reads)
+            .chain(every_time)
             .chain(words)
             .collect();
         written(&self.named(&parts.join("\n\n")))
@@ -889,9 +898,9 @@ impl Build<'_> {
     }
 
     /// The line of a datum or group the cell watches, new to it: its `each`, with its versions, the one the cell last
-    /// consumed, where it consumed one, and each that changed its meaning, where one did (design document
-    /// `data-and-context`, 11), and what the cell does where it says. The page is shown the versions as one place left
-    /// open, which a run fills with the words of either.
+    /// worked from, where it worked from one, and each that changed its meaning, where one did (design document
+    /// `data-and-context`, 10 and 11), and what the cell does where it says. The page is shown the versions as one
+    /// place left open, which a run fills with the words of either.
     fn watched(&self, part: &MessagePart, watched: &flow::Watched) -> Vec<Piece> {
         let each = with_slots(part.each.as_deref().unwrap_or_default());
         let words = |text: &Option<String>| text.as_deref().unwrap_or_default().to_string();
@@ -990,8 +999,17 @@ impl Build<'_> {
         }
     }
 
-    /// A text of a datum with the places of this version of it filled.
+    /// A text of a datum with the places of this version of it filled: its content and what changed in it, each set
+    /// apart from the message's own words in a fence, so that no heading or list in what an agent wrote reads as the
+    /// message's own structure (principle agent-writing-is-data), the lines at its end left out; a content with nothing
+    /// in it stays empty.
     fn filled_by(&self, pieces: Vec<Piece>, datum: &Datum, version: &Version) -> Vec<Piece> {
+        let apart = |said: &str| match said.trim_end_matches('\n') {
+            "" => String::new(),
+            said => text::fenced(said),
+        };
+        let diff = apart(datum.diff.as_deref().unwrap_or_default());
+        let content = apart(&version.content);
         let number = version.number.to_string();
         let last = datum.last.map(|l| l.to_string()).unwrap_or_default();
         let given = &self.words.given;
@@ -1006,8 +1024,8 @@ impl Build<'_> {
             ("last_number", last.as_str()),
             ("first_number", number.as_str()),
             ("value", version.value.as_deref().unwrap_or_default()),
-            ("diff", datum.diff.as_deref().unwrap_or_default()),
-            ("content", version.content.as_str()),
+            ("diff", diff.as_str()),
+            ("content", content.as_str()),
         ];
         filled(pieces, &places)
     }

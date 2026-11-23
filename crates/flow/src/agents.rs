@@ -746,7 +746,6 @@ pub struct Told {
     pub item: String,
     /// The fields told `listed`, in order.
     pub listed: Vec<String>,
-    pub every_time: String,
     pub fields: String,
     pub owner_reads: String,
     /// The fields the owner reads, in the order `owner_reads` names them.
@@ -771,6 +770,8 @@ pub struct Outputs {
     pub none: String,
     /// What follows the list, once, where a block of it is one the owner reads.
     pub owner_reads: String,
+    /// What follows the list, once, where a block of it is one the cell must hand in every time.
+    pub every_time: String,
 }
 
 /// A field of a return that is the engine's, which every agent cell has: `agents/return/fields/<name>.toml`. It is a
@@ -1107,8 +1108,8 @@ pub struct MessagePart {
     pub between: Option<String>,
     /// What is sent in its place where the session holds it already.
     pub held: Option<String>,
-    /// Of what is new to the cell: what a datum's line says where the cell consumed a version before, `{last}` that
-    /// version's place (design document `data-and-context`, 11).
+    /// Of what is new to the cell: what a datum's line says where the cell worked from a version before, `{last}` that
+    /// version's place (design document `data-and-context`, 10 and 11).
     pub since: Option<String>,
     /// Of what is new to the cell: what a datum's line says of the one version that changed its meaning, `{changed}`
     /// its place; none is said where none did.
@@ -1288,6 +1289,8 @@ pub struct Acts {
 #[serde(deny_unknown_fields)]
 pub struct Start {
     pub text: String,
+    /// What it writes where the work's item continues a branch or a pull request.
+    pub continued: String,
 }
 
 /// `agents/acts/merge.toml`.

@@ -29,10 +29,10 @@ A session going on through a move is given whole each datum the move renamed, an
 - rejected: an agent proposed telling the session each old name beside its new one; the owner rejected it, because that is a line of its own in every message, for what comes once a renumbering.
 
 ### decision why-you-are-run-tells-each-new-datum
-A message ends with "Why you are run": for each new datum the cell watches, its name, the version last consumed, the versions that changed its meaning, and what the cell does, the first time too.
+A message ends with "Why you are run": for each new datum the cell watches, its name, the version last worked from, the versions that changed its meaning, and what the cell does, the first time too.
 - replaced: Telling the version it last worked from and the latest was on main; the owner changed it, because when several versions come in at once the latest alone hid the one that changed the meaning, and the cell went by the latest.
-- rejected: an agent proposed telling only the versions that changed the meaning; the owner rejected it, because a datum sent whole shows only its latest version in its heading, so the cell would no longer learn which version it last consumed, or that it never had.
-- rejected: an agent proposed keeping the version last consumed and the latest beside the versions that changed the meaning; the owner rejected it, because the cell went by the latest, and the version last consumed could come out larger than one that changed the meaning.
+- rejected: an agent proposed telling only the versions that changed the meaning; the owner rejected it, because a datum sent whole shows only its latest version in its heading, so the cell would no longer learn which version it last worked from, or that it never had.
+- rejected: an agent proposed keeping the latest version beside the version last worked from and the versions that changed the meaning; the owner rejected it, because the cell went by the latest.
 - rejected: an agent proposed putting what ran the cell first, with its versions, and then the data and the task; the owner rejected it, because the task says what the cell does, and then what ran it says what changed and what to do about it, in that order.
 - rejected: an agent proposed words of the engine's own for the design tree and the session, with general sentences in a cell's task; the owner rejected it, because words for named data would then be copied into every cell.
 - rejected: an agent proposed listing a datum the cell never dealt with, without saying what the cell does for it; the owner rejected it, because the cell then did not know how far to deal with each.

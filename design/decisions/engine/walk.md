@@ -49,3 +49,7 @@ For a paused work, the walk names the cell the work would run once it is let go 
 ### decision dependencies-reach-the-walk-as-a-datum
 The walk learns whether the items a work depends on have merged or been cancelled only from versions of `dependencies`, which the engine writes from outside; no test of the flow reads another work.
 - rejected: an agent proposed a named test that reads in memory whether the items the work depends on merged; the owner rejected it, because then a replay of the work's records could not reach the same decision.
+
+### decision a-run-records-the-version-its-cell-last-worked-from
+The cause a run begins for records, beside the version the cell consumed, the version it last worked from, which the walk works out as the run begins and the page shows; a cause kept before has none.
+- rejected: an agent proposed working the version out on the page, as it is drawn, by today's flow; the owner rejected it, because after the flow changes a past run could show a number different from the one its message had, the past being read by today's flow and not as it ran.
