@@ -167,6 +167,8 @@ struct Reached {
     examples: BTreeMap<String, String>,
     /// Rounds carried to a session of an agent's cell.
     rounds: usize,
+    /// Of those, how many of each cell.
+    of_cell: BTreeMap<String, usize>,
     /// The rounds of the last scripted history.
     trace: Vec<String>,
 }
@@ -1036,6 +1038,7 @@ impl History {
                 reached.real.insert(line);
             }
             reached.rounds += 1;
+            *reached.of_cell.entry(cell.id.to_string()).or_default() += 1;
             return;
         }
         assert_eq!(
@@ -1529,11 +1532,12 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
         run(&mut history, BRANCH_STEPS, &mut reached, &mut frontier, &mut rng);
         if branch % 10 == 9 {
             log.push(format!(
-                "after {} branches, {:?}: {} lines open, {} rounds, states kept at the rounds of {}",
+                "after {} branches, {:?}: {} lines open, {} rounds {:?}, states kept at the rounds of {}",
                 branch + 1,
                 begun.elapsed(),
                 wanted.difference(&reached.real).count(),
                 reached.rounds,
+                reached.of_cell,
                 frontier.keys().cloned().collect::<Vec<_>>().join(" ")
             ));
         }
