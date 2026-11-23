@@ -447,6 +447,18 @@ describe('a when or a requires of several keys', () => {
   });
 });
 
+describe("a cell that takes the project's turn", () => {
+  it('says in its panel that it takes the turn, and a cell that does not says nothing of it', () => {
+    const panelOf = (takesTurn: boolean) => {
+      const page = draw({ state: 'compiled', flow: flowOf([cell('check', { takesTurn })]) });
+      click(page.querySelector('thead .cell-head .head-button'));
+      return page.querySelector('section[aria-label="Cell check"]') as HTMLElement;
+    };
+    expect(texts(panelOf(true), '.status-line')).toEqual(['takes_turn true']);
+    expect(texts(panelOf(false), '.status-line')).toEqual([]);
+  });
+});
+
 describe('what an agent is sent', () => {
   const text = (t: string): SentPiece => ({ piece: 'text', text: t });
   const part = (fields: Partial<SentPart> & Pick<SentPart, 'what' | 'carried' | 'name' | 'source'>): SentPart => ({

@@ -113,6 +113,8 @@ export interface Cell {
   effort: string | null;
   /// The work's branch takes the latest main in as each run of the cell starts.
   takesMain: boolean;
+  /// The cell takes the turn of the work's project: the works of a project check and merge one at a time.
+  takesTurn: boolean;
   /// When it runs: every key of its `when` holds, in the order written; none is always.
   when: Condition[];
   /// What the work waits for before it: every key of its `requires`, in the order written.

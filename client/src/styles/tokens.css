@@ -124,11 +124,14 @@
 
   /* Where a work's time went: a model's stretches in the accent, the tools' in the yellow of a call under way, as a
      cell's mark says a call, those nothing ran in a light grey, on a muted ground. A stretch nothing
-     ran in takes the colour of what the work waited for: the owner's red, a pause's muted grey, and this light grey for
-     the items it depends on as for anything else. */
+     ran in takes the colour of what the work waited for: the owner's red, a pause's muted grey, this light grey for
+     the items it depends on as for anything else, and a teal of its own for the project's turn to check and merge,
+     which another work holds. The teal stands in the band of hues around the green of a work done that the accent
+     keeps clear of (accent.ts), so that no accent picked is taken for it. */
   --track-ground: #818b981f;
   --track-model: var(--accent);
   --track-tool: var(--yellow);
+  --track-turn: #2a9d91;
   --track-gap: #e8ecf2;
 
   /* The lines of the flow told apart in a chart of them, each in its colour, in the order the flow lists its lines: who
@@ -179,6 +182,7 @@
     --on-colour: #0f1012;
     --track-ground: #656c7633;
     --track-tool: var(--yellow);
+    --track-turn: #4eb9ad;
     --track-gap: #2a2d33;
     --flow-line-1: #3987e5;
     --flow-line-2: #d95926;
@@ -216,6 +220,7 @@
   --on-colour: #0f1012;
   --track-ground: #656c7633;
   --track-tool: var(--yellow);
+  --track-turn: #4eb9ad;
   --track-gap: #2a2d33;
   --flow-line-1: #3987e5;
   --flow-line-2: #d95926;

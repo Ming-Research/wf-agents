@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { BAR_KINDS, TRACK_WORDS, barSpans } from './track';
+import { BAR_KINDS, TRACK_KINDS, TRACK_WORDS, barSpans } from './track';
 
 describe("a work's time track", () => {
   it('draws a stretch nothing ran in as what the work waited for, each run of a character one block, its bare ends left out', () => {
@@ -16,7 +16,8 @@ describe("a work's time track", () => {
   });
 
   it('knows every character the engine writes, and says what each kind is on pointing at it', () => {
-    expect(Object.keys(BAR_KINDS).sort()).toEqual(['.', '?', 'm', 'o', 'p', 't', 'w']);
+    expect(Object.keys(BAR_KINDS).sort()).toEqual(['.', '?', 'm', 'o', 'p', 'q', 't', 'w']);
+    expect([...TRACK_KINDS].sort()).toEqual([...new Set(Object.values(BAR_KINDS))].sort());
     for (const kind of Object.values(BAR_KINDS)) expect(TRACK_WORDS[kind]).toBeTruthy();
     expect(barSpans('....')).toEqual([]);
   });
@@ -26,5 +27,13 @@ describe("a work's time track", () => {
     expect(spans.map((s) => s.kind)).toEqual(['model', 'unknown', 'tool']);
     expect(TRACK_WORDS.unknown).toContain('not known');
     expect(TRACK_WORDS.unknown).not.toBe(TRACK_WORDS.gap);
+  });
+
+  it("draws a wait for the project's turn to check and merge as a block of its own, saying so on pointing at it", () => {
+    const spans = barSpans('mmqqqm');
+    expect(spans.map((s) => s.kind)).toEqual(['model', 'turn', 'model']);
+    expect(spans[1]).toMatchObject({ left: (2 / 6) * 100, width: (3 / 6) * 100 });
+    expect(TRACK_WORDS.turn).toBe('Waiting for its turn to check and merge');
+    for (const kind of TRACK_KINDS) if (kind !== 'turn') expect(TRACK_WORDS[kind]).not.toBe(TRACK_WORDS.turn);
   });
 });
