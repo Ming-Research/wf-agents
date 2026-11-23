@@ -57,11 +57,6 @@ An item's background tells a reader new to the problem, in about 300 characters 
 - replaced: A background of three short paragraphs, opening with what the item is to do in a sentence, was on main; the owner changed it, because the backgrounds began with no subject and named things they never said what they were.
 - replaced: A single first paragraph saying what the item is, why it is to be done, what brought it about and the result wanted was on main; the owner changed it, because the three mixed into one paragraph read badly.
 
-### decision first-conclusions-on-how-are-a-reference
-A background gives, as a reference, the first conclusions the owner and the architect reached on how; the work weighs them and may take another way, its plan saying why.
-- replaced: A background that never said anything of how was on main; the owner changed it, because what the owner and the architect had worked out was lost before the work began.
-- rejected: an agent proposed writing the ways the owner turned down into the design tree and the way chosen into a design document before the work begins, for the plan reviews to hold the work to; the owner rejected it, because the first conclusions are for the work to weigh, not to follow.
-
 ### decision which-item-starts-first
 Among the items that can start, one that makes a red main green goes first, then what the owner said comes first, then the one that most items not on hold wait for; there is no policy.
 - rejected: an agent proposed that the policy and the dependencies decide which item that can start goes first, as on the board; the owner rejected it, because the new system has no policy.
