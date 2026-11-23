@@ -160,7 +160,8 @@ reports (`wf-agents wait`):
   big (section 6). Sentences are short, and each has a subject that acts. Every name, such as a file, a test, a cell or
   a command, is said in plain words where it first appears, and an item by its number and its title. How to do it is
   the work's research's to find; the background gives only, under its reference, the first conclusions the owner and
-  the architect reached on it, marked "初步结论，仅供参考". It names the owner as the owner, never as "you".
+  the architect reached on it, marked, in the background's language, as first conclusions for reference only. It names
+  the owner as the owner, never as "you".
   The acceptance is the work's plan's, not the background's. The background is written before the work begins; once it
   has begun, the background changes only where what the item asks changes, never for its wording, since a change runs
   the work's cells again.
