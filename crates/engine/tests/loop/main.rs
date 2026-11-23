@@ -341,6 +341,7 @@ fn changed(block: &str, was: Option<Seq>, behind: bool) -> Cause {
     Cause::Changed {
         block: block.into(),
         was,
+        worked: was,
         behind,
     }
 }
