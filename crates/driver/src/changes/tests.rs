@@ -205,6 +205,50 @@ fn a_name_that_is_no_branch_is_refused() {
     }
 }
 
+/// Whether git takes `refs/heads/<name>` as the name of a reference: `git check-ref-format`, which is what decides the
+/// names a branch may have.
+fn git_takes(name: &str) -> bool {
+    std::process::Command::new("git")
+        .args(["check-ref-format", &format!("refs/heads/{name}")])
+        .status()
+        .expect("git runs")
+        .success()
+}
+
+#[test]
+fn no_name_git_refuses_for_a_branch_is_taken_for_one_an_item_continues() {
+    let mut taken_wrongly = Vec::new();
+    for name in [
+        // A part of the name, between slashes, may not begin with a dot or end with `.lock`.
+        "a/.b",
+        "a/./b",
+        "a/.hidden/c",
+        "a.lock/b",
+        "a/b.lock/c",
+        "a/.lock/b",
+        // The names git takes, which an item may continue.
+        "feature/x",
+        "a./b",
+        "a/@",
+        "a@b",
+        "a{b",
+        "work-226-0a1b2c3d",
+    ] {
+        let taken = continuing(2, false, true, branch(name)) == Ok(true);
+        if taken && !git_takes(name) {
+            taken_wrongly.push(name);
+        }
+    }
+    assert!(
+        taken_wrongly.is_empty(),
+        "names git refuses for a branch, that an item may continue: {taken_wrongly:?}"
+    );
+    for name in ["feature/x", "a./b", "a@b", "a{b", "work-226-0a1b2c3d"] {
+        assert!(git_takes(name), "{name}: the reference of this test is wrong");
+        assert_eq!(continuing(2, false, true, branch(name)), Ok(true), "{name}");
+    }
+}
+
 #[test]
 fn an_ended_work_takes_no_change_of_what_it_continues() {
     for end in [End::Merged, End::Cancelled] {

@@ -151,6 +151,28 @@ async fn a_branch_made_at_another_commit_still_says_the_commit_of_main_it_starte
 }
 
 #[tokio::test]
+async fn a_start_at_a_commit_that_shares_no_history_with_main_leaves_no_branch_behind() {
+    let repo = Repo::new("true");
+    let dir = &repo.project.repo;
+    let main = run(dir, &["rev-parse", "main"]);
+    // A branch with a history of its own, as an orphan branch has: git finds no commit it shares with main.
+    run(dir, &["switch", "-q", "--orphan", "lone"]);
+    let lone = commit(dir, "lone.txt", "Alone.\n");
+    run(dir, &["switch", "-q", "main"]);
+    let place = repo.place(WORK);
+    let started = start(&repo.project, &place, &lone, &main).await;
+    // Such a branch can never be merged into main. A start that fails over it must not leave the work's branch made at
+    // it: the branch made, a later start takes it up as it is and fails the same way, whatever the item is then made
+    // to continue (a start made once is not made again from what its item continues).
+    if started.is_err() {
+        assert!(
+            !branch_made(&repo.project, &place).await.unwrap(),
+            "the start failed, and the work's branch is made at the commit that shares nothing with main"
+        );
+    }
+}
+
+#[tokio::test]
 async fn a_branch_is_made_already_where_a_start_made_it() {
     let repo = Repo::new("true");
     let place = repo.place(WORK);
