@@ -837,3 +837,140 @@ async fn a_measurement_the_project_cannot_run_is_refused_before_anything_is_push
     assert!(hub.github().asked().is_empty(), "nothing was pushed or asked");
     assert!(hub.trials().is_empty());
 }
+
+// A measure run is waited for as long as the declaration of the measure workflow says (`too_long` of `[ci.measure]`),
+// which counts the wait for the machine's lock, and not as long as the host waits for a fast run (`timeout`): one that
+// goes on past it is cancelled and said so with the time the declaration gave. About a second alone, which is the wait
+// itself; the one test of which limit a measure run is given, that no other test of the measure workflow holds.
+#[tokio::test]
+async fn a_measure_run_is_cancelled_when_the_time_its_own_declaration_gives_has_passed() {
+    let hub = Hub::new().with(measuring).with(|config| {
+        config.timeout = Duration::from_secs(60);
+        let measure = config
+            .ci
+            .as_mut()
+            .expect("a declaration")
+            .measure
+            .as_mut()
+            .expect("measures");
+        measure.too_long = "1s".to_string();
+    });
+    let head = hub.committed().await;
+    hub.github().runs_go_on();
+    hub.github().of_workflow(
+        "measure.yml",
+        &head,
+        vec![check("measure", Outcome::Pending)],
+        Some(("test-results", timings())),
+    );
+    let said = hub
+        .named_check(&measured(&["design-lint"]))
+        .await
+        .expect("said")
+        .expect("run");
+    assert!(
+        said.contains("the run did not complete within 1 second, the time it may take, and the engine cancelled it"),
+        "{said}"
+    );
+    assert!(
+        hub.github().asked().contains(&Asked::Cancel(1000)),
+        "the run is cancelled"
+    );
+}
+
+// The names a declaration gives the measure workflow's inputs and its artifact are the ones used: a run asked for with
+// the input names `since` and `names` and read from the artifact `timings`, as the declaration says, while the fast
+// workflow's declaration keeps the defaults, which a measure run that read the fast workflow's own would use instead.
+// (`commit` and `call` are not renamed: the fake of GitHub's API reads a run by those two names.) Milliseconds alone;
+// the one test that each of these three is the measure workflow's own.
+#[tokio::test]
+async fn a_measure_run_is_asked_with_the_input_names_and_read_from_the_artifact_its_declaration_gives() {
+    let hub = Hub::new().with(measuring).with(|config| {
+        let measure = config
+            .ci
+            .as_mut()
+            .expect("a declaration")
+            .measure
+            .as_mut()
+            .expect("measures");
+        measure.base_input = "since".to_string();
+        measure.measure_input = "names".to_string();
+        measure.results = "timings".to_string();
+    });
+    let head = hub.committed().await;
+    hub.github().of_workflow(
+        "measure.yml",
+        &head,
+        vec![passed("measure")],
+        Some(("timings", timings())),
+    );
+    let said = hub
+        .named_check(&measured(&["design-lint"]))
+        .await
+        .unwrap()
+        .expect("nothing stopped it");
+    assert!(said.contains("- design-lint [candidate]: passed in 0.40 s"), "{said}");
+    let asked = hub.dispatched();
+    let [Asked::Dispatch { inputs, .. }] = &asked[..] else {
+        panic!("one run is asked for: {asked:?}");
+    };
+    let names: Vec<&str> = inputs.iter().map(|(name, _)| name.as_str()).collect();
+    assert_eq!(names, ["commit", "since", "call", "names"]);
+}
+
+// A timing a workflow reports as failed, as any other project's measure workflow may report one, is said with what it
+// wrote and is no measurement that ran; and once the run is read the branch the commit was pushed to for it is gone.
+// Milliseconds alone; the one test of a failed timing, and of the branch kept for a measure run until it is read.
+#[tokio::test]
+async fn a_timing_reported_as_failed_is_said_with_what_it_wrote_and_the_branch_of_the_run_is_gone_once_it_is_read() {
+    let xml = r#"<testsuites><testsuite name="candidate">
+  <testcase name="design-lint" time="0.30"><failure message="exit 1">the lint failed</failure></testcase>
+</testsuite></testsuites>"#;
+    let hub = Hub::new().with(measuring);
+    let head = hub.committed().await;
+    hub.github().of_workflow(
+        "measure.yml",
+        &head,
+        vec![passed("measure")],
+        Some((
+            "test-results",
+            vec![("measure.xml".to_string(), xml.as_bytes().to_vec())],
+        )),
+    );
+    let said = hub
+        .named_check(&measured(&["design-lint"]))
+        .await
+        .unwrap()
+        .expect("nothing stopped it");
+    assert!(said.contains(": 0 of the 1 measurements ran."), "{said}");
+    assert!(
+        said.contains("The tests that did not pass:\n- design-lint [candidate]: failed in 0.30 s"),
+        "{said}"
+    );
+    assert!(said.contains("the lint failed"), "{said}");
+    assert!(!said.contains("The timings of the measurements that ran"), "{said}");
+    assert!(hub.trials().is_empty(), "nothing stays pushed: {:?}", hub.trials());
+}
+
+// Tests and a measurement named together are run on the one branch the commit is pushed to for the call, and it is gone
+// once both are read, whichever workflow ran last. Milliseconds alone; the one test that a request of both leaves no
+// branch of its call pushed.
+#[tokio::test]
+async fn a_request_of_tests_and_a_measurement_leaves_no_branch_of_its_call_pushed() {
+    let hub = Hub::new().with(measuring);
+    let head = hub.committed().await;
+    hub.github().fast(&head, vec![], Some(("test-results", junit())));
+    hub.github().of_workflow(
+        "measure.yml",
+        &head,
+        vec![passed("measure")],
+        Some(("test-results", timings())),
+    );
+    let asked = Named {
+        tests: vec!["tools::tests::a".to_string()],
+        ..measured(&["design-lint"])
+    };
+    hub.named_check(&asked).await.unwrap().expect("nothing stopped it");
+    assert_eq!(hub.dispatched().len(), 2, "one run of each workflow");
+    assert!(hub.trials().is_empty(), "nothing stays pushed: {:?}", hub.trials());
+}
