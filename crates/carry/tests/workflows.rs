@@ -295,6 +295,85 @@ fn check_passes_a_run_of_only_the_design_tree_and_is_red_for_a_job_not_run_anywh
     );
 }
 
+// The jobs `check` prints the logs of are chosen by the filter it gives `gh --jq`: reference is jq's own semantics, which
+// the filter is run through here, on made lists of the run's jobs, with a `gh` that applies the filter it is given to the
+// list and answers a log request with one line. Where only the design tree changed, a job of the code that was skipped
+// is not listed, and one that failed or has not ended is; anywhere else a skipped one is listed too. A job of another
+// name (`check` itself) is never listed. About fifteen milliseconds a case (bash and jq start); the stub of the test
+// before this one answers nothing, so the filter is read by no other test.
+#[test]
+fn check_lists_the_jobs_that_did_not_pass_and_leaves_out_those_not_run_for_a_change_of_only_the_tree() {
+    let text = workflow("ci.yml");
+    let found: Vec<String> = (scripts(&text).into_iter())
+        .map(|(_, script)| script)
+        .filter(|script| script.contains("red=false"))
+        .collect();
+    assert_eq!(found.len(), 1, "scripts of ci.yml that sum up the jobs");
+    let dir = tempfile::tempdir().unwrap();
+    let jobs = r#"{"jobs":[
+        {"id":1,"name":"scope","conclusion":"success"},
+        {"id":2,"name":"tree","conclusion":"success"},
+        {"id":3,"name":"page","conclusion":"skipped"},
+        {"id":4,"name":"page tests","conclusion":"skipped"},
+        {"id":5,"name":"lint","conclusion":"skipped"},
+        {"id":6,"name":"test 1 of 3","conclusion":"skipped"},
+        {"id":7,"name":"check","conclusion":null,"status":"in_progress"},
+        {"id":8,"name":"test 2 of 3","conclusion":"failure"},
+        {"id":9,"name":"test 3 of 3","conclusion":null,"status":"queued"}]}"#;
+    std::fs::write(dir.path().join("jobs.json"), jobs).unwrap();
+    let gh = dir.path().join("gh.sh");
+    std::fs::write(
+        &gh,
+        r#"gh() {
+  local filter="" a
+  while [ $# -gt 0 ]; do
+    if [ "$1" = --jq ]; then filter=$2; fi
+    a=$1; shift
+  done
+  if [ -n "$filter" ]; then jq -r "$filter" "$RUNNER_TEMP/jobs.json"; else echo "log line"; fi
+}
+"#,
+    )
+    .unwrap();
+    let run = |tree_only: &str, tree: &str, others: &str| {
+        let env = [
+            ("SCOPE", "success"),
+            ("TREE", tree),
+            ("PAGE", others),
+            ("PAGE_TESTS", others),
+            ("LINT", others),
+            ("TEST", "failure"),
+            ("TREE_ONLY", tree_only),
+            ("BASH_ENV", gh.to_str().unwrap()),
+            ("GITHUB_REPOSITORY", "owner/repository"),
+            ("GITHUB_RUN_ID", "1"),
+            ("GITHUB_RUN_ATTEMPT", "1"),
+            ("RUNNER_TEMP", dir.path().to_str().unwrap()),
+        ];
+        let (ok, said) = try_script(&found[0], dir.path(), &env);
+        assert!(!ok, "a run with a failed job ends red: {said}");
+        said.lines()
+            .find(|l| l.starts_with("Did not pass:"))
+            .unwrap_or_else(|| panic!("no line of the jobs that did not pass: {said}"))
+            .to_string()
+    };
+    assert_eq!(
+        run("true", "success", "skipped"),
+        "Did not pass: test 2 of 3, test 3 of 3.",
+        "only the tree changed: the skipped jobs of the code are left out"
+    );
+    assert_eq!(
+        run("false", "success", "skipped"),
+        "Did not pass: page, page tests, lint, test 1 of 3, test 2 of 3, test 3 of 3.",
+        "the code changed: a skipped job is one that did not pass"
+    );
+    assert_eq!(
+        run("", "success", "skipped"),
+        "Did not pass: page, page tests, lint, test 1 of 3, test 2 of 3, test 3 of 3.",
+        "`scope` said nothing"
+    );
+}
+
 // The full workflow is run by hand by the engine, with the commit to test and a value only its request knows, and still
 // runs on each pull request into `main` and each push to `main`, and on no other push, and on none to a branch of the
 // name `main` once had.
