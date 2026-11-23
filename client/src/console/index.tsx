@@ -159,10 +159,18 @@ export function ConsolePage({
   const latestData = useRef<Items | undefined>(undefined);
   // The item the address names, until the tree shows it and it is selected.
   const toSelect = useRef<number | undefined>(named);
+  // Selects the item the address names once the tree shows it; where its kind is not ticked, the box is ticked first and
+  // the item is selected as the tree is drawn again, as for an item picked from the search.
   const selectNamed = () => {
     const id = toSelect.current;
     if (id === undefined || scene.current === null) return;
-    if (!latestData.current?.items.some((i) => i.number === id)) return;
+    const found = latestData.current?.items.find((i) => i.number === id);
+    if (found === undefined) return;
+    const standing = standingOf(found);
+    if (!showsNow.current.has(standing)) {
+      tick(standing, true);
+      return;
+    }
     toSelect.current = undefined;
     scene.current.select(id);
   };
@@ -181,12 +189,9 @@ export function ConsolePage({
   // folds over it open, and where its kind is not ticked, its box is ticked first, so that the tree shows it.
   const findField = useRef<HTMLInputElement>(null);
   const pick = (id: number) => {
-    const found = latestData.current?.items.find((i) => i.number === id);
-    if (found === undefined) return;
+    if (latestData.current?.items.some((i) => i.number === id) !== true) return;
     toSelect.current = id;
-    const standing = standingOf(found);
-    if (showsNow.current.has(standing)) selectNamed();
-    else tick(standing, true);
+    selectNamed();
   };
 
   // The walk of the stops by n and N, and by the button under each stop: the item the walk last went to and the place
