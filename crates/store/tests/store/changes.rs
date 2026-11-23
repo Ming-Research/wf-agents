@@ -3,7 +3,7 @@
 //! they stand with every change they went through; and the reasons of a cancel and of a reopen, kept with them.
 
 use rusqlite::params;
-use store::{Change, Fault, ItemChange, ItemNumber, SCHEMA_VERSION};
+use store::{Change, Continues, Fault, ItemChange, ItemNumber, SCHEMA_VERSION};
 
 use super::opening::{SCHEMA_1, versions};
 use super::*;
@@ -246,4 +246,46 @@ fn a_file_of_version_10_keeps_its_cancel_its_release_and_its_changes_with_no_rea
     assert_eq!(work.records.releases, [Seq(2)]);
     assert!(work.records.reopens.is_empty());
     assert_eq!(work.why_cancelled.get(&Seq(1)).map(String::as_str), Some("joined"));
+}
+
+#[test]
+fn what_an_item_continues_changes_as_each_change_leaves_it_and_each_is_kept_with_its_why() {
+    let mut store = Store::in_memory().expect("the store opens");
+    let nothing = Work::default();
+    store
+        .add(&first("only", "2", &[]), "judged", Time(10), &nothing)
+        .unwrap();
+    let made = [
+        (Some(Continues::Branch("old".to_string())), 20),
+        (Some(Continues::Pull(226)), 30),
+        (None, 40),
+    ];
+    for (what, at) in &made {
+        let why = format!("why {at}");
+        let change = ItemChange::Continues(what.clone());
+        store
+            .change(Time(*at), Some(&why), &[(ItemNumber(1), change)], &[])
+            .expect("the change is kept");
+        let item = &store.items().unwrap()[0];
+        assert_eq!(&item.continues, what, "the item stands as the change leaves it");
+        assert_eq!(item.first.continues, None, "what it was added as is kept");
+    }
+    let item = &store.items().unwrap()[0];
+    let kept: Vec<(ItemChange, Option<String>)> = (item.changes.iter())
+        .map(|change| (change.what.clone(), change.why.clone()))
+        .collect();
+    assert_eq!(
+        kept,
+        [
+            (
+                ItemChange::Continues(Some(Continues::Branch("old".to_string()))),
+                Some("why 20".to_string())
+            ),
+            (
+                ItemChange::Continues(Some(Continues::Pull(226))),
+                Some("why 30".to_string())
+            ),
+            (ItemChange::Continues(None), Some("why 40".to_string())),
+        ]
+    );
 }
