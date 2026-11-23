@@ -146,6 +146,7 @@ async fn the_agents_run_says_how_long_its_jobs_and_tests_took_as_the_fast_workfl
             asking: "call/1".to_string(),
             source: work::Source::Fast,
             commit: head,
+            workflow: "fast.yml".to_string(),
             jobs: vec![work::timed::Job {
                 name: "test".to_string(),
                 millis: 60_000

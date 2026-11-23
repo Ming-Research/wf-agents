@@ -1,6 +1,7 @@
 //! What the times of the project's tests and jobs say, worked out from the works' records whenever they are read and
 //! stored nowhere (principle `state-from-records`), by the history of their own kind (principle
-//! `judged-by-own-history`): the merged checks of the project, each the full run that passed and merged a work.
+//! `judged-by-own-history`): the merged checks of the project, each the runs of the full workflows that passed and
+//! merged a work.
 //!
 //! - A test that got slower: its time in a merged check against its own earlier times in merged checks, by the line of
 //!   [`crate::history`], listed only where it is past the line in two merged checks in a row, which a reading made slow
@@ -60,31 +61,55 @@ pub const SERIES_ROWS: usize = 20;
 /// A test, by the unit it is in and its name.
 pub type Key = (String, String);
 
-/// A merged work's check: the full run that passed and merged the work, with the time of each job and of each test
+/// A merged work's check: the full runs that passed and merged the work, with the time of each job and of each test
 /// that passed.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Merge {
     pub work: WorkNumber,
-    /// When the run was read, where the work's records say.
+    /// When the last of the runs was read, where the work's records say.
     pub time: Option<Time>,
+    /// Each job's time, by the name of the job under the workflow it ran in.
     pub jobs: BTreeMap<String, u64>,
+    /// Each test's time; one that more than one workflow ran is at its slowest.
     pub tests: BTreeMap<Key, u64>,
 }
 
+/// The name a job goes by in a merged check: its own under the workflow it ran in, since two workflows may each have a
+/// job of one name. A job of a run that is no workflow's goes by its own name.
+pub fn job_name(workflow: &str, job: &str) -> String {
+    if workflow.is_empty() {
+        job.to_string()
+    } else {
+        format!("{workflow}:{job}")
+    }
+}
+
 impl Merge {
-    /// The check of a merged work: its latest read run of the full workflows; none where it has none. A check that
-    /// failed, or was run again, was before the one that merged the work, which is the latest.
+    /// The check of a merged work: the runs of the full workflows that its latest check asked for, all of them, since
+    /// the check runs every full workflow of the project under one asking on one commit; none where it has none. A
+    /// check that failed, or was run again, was before the one that merged the work, which is the latest.
     pub fn of(number: WorkNumber, work: &Work) -> Option<Merge> {
-        let timed = (work.timed.iter().rev()).find(|t| t.reading.source == Source::Full)?;
-        let reading = &timed.reading;
+        let latest = (work.timed.iter().rev()).find(|t| t.reading.source == Source::Full)?;
+        let check = &latest.reading;
+        let mut jobs = BTreeMap::new();
+        let mut tests: BTreeMap<Key, u64> = BTreeMap::new();
+        let runs = (work.timed.iter())
+            .map(|t| &t.reading)
+            .filter(|r| r.source == Source::Full && r.asking == check.asking && r.commit == check.commit);
+        for reading in runs {
+            for job in &reading.jobs {
+                jobs.insert(job_name(&reading.workflow, &job.name), job.millis);
+            }
+            for test in reading.tests.iter().filter(|t| t.passed) {
+                let slowest = tests.entry((test.unit.clone(), test.name.clone())).or_insert(0);
+                *slowest = (*slowest).max(test.millis);
+            }
+        }
         Some(Merge {
             work: number,
-            time: work.time_of(timed.at),
-            jobs: reading.jobs.iter().map(|j| (j.name.clone(), j.millis)).collect(),
-            tests: (reading.tests.iter())
-                .filter(|t| t.passed)
-                .map(|t| ((t.unit.clone(), t.name.clone()), t.millis))
-                .collect(),
+            time: work.time_of(latest.at),
+            jobs,
+            tests,
         })
     }
 }
@@ -685,6 +710,7 @@ mod tests {
                 asking: "call/1".to_string(),
                 source,
                 commit: "c".to_string(),
+                workflow: "w.yml".to_string(),
                 jobs: vec![Job {
                     name: "test".to_string(),
                     millis: 1,
@@ -699,6 +725,110 @@ mod tests {
                     .collect(),
             },
         }
+    }
+
+    /// A run the host read at a place of the work's records: of this asking, on this commit, of this workflow, with the
+    /// time of each job and of each test, whether it passed.
+    fn ran(
+        at: u64,
+        asking: &str,
+        commit: &str,
+        source: Source,
+        workflow: &str,
+        jobs: &[(&str, u64)],
+        tests: &[(&str, bool, u64)],
+    ) -> Timed {
+        Timed {
+            at: Seq(at),
+            reading: Reading {
+                asking: asking.to_string(),
+                source,
+                commit: commit.to_string(),
+                workflow: workflow.to_string(),
+                jobs: (jobs.iter())
+                    .map(|(name, millis)| Job {
+                        name: name.to_string(),
+                        millis: *millis,
+                    })
+                    .collect(),
+                tests: (tests.iter())
+                    .map(|(name, passed, millis)| Test {
+                        unit: "unit".to_string(),
+                        name: name.to_string(),
+                        passed: *passed,
+                        millis: *millis,
+                    })
+                    .collect(),
+            },
+        }
+    }
+
+    // The check of a merged work is every run of the full workflows its latest check asked for, one for each workflow,
+    // and not an earlier check that failed nor a run of the fast workflow: a job goes by its name under its workflow, a
+    // test that failed is left out, and a test two workflows ran is at its slowest.
+    #[test]
+    fn a_merged_works_check_is_the_runs_of_every_full_workflow_of_its_latest_check() {
+        let key = |name: &str| ("unit".to_string(), name.to_string());
+        let mut work = Work::default();
+        // The first check failed: it is no part of the merged check.
+        work.timed.push(ran(
+            1,
+            "run/1/round/1",
+            "a",
+            Source::Full,
+            "ci.yml",
+            &[("test", 100)],
+            &[("t1", true, 10), ("t2", false, 5)],
+        ));
+        // A fast run of the same asking, which reran what failed.
+        work.timed.push(ran(
+            2,
+            "run/1/round/1",
+            "a",
+            Source::Fast,
+            "fast.yml",
+            &[],
+            &[("t3", true, 1)],
+        ));
+        // The check that merged the work ran two workflows, each with a job named `test`.
+        work.timed.push(ran(
+            3,
+            "run/1/round/2",
+            "b",
+            Source::Full,
+            "ci.yml",
+            &[("test", 120), ("lint", 30)],
+            &[("t1", true, 12), ("t2", true, 7)],
+        ));
+        work.timed.push(ran(
+            4,
+            "run/1/round/2",
+            "b",
+            Source::Full,
+            "slow.yml",
+            &[("test", 200)],
+            &[("t2", true, 9), ("t9", true, 50), ("t8", false, 1)],
+        ));
+        let check = Merge::of(WorkNumber(5), &work).expect("the work has a full check");
+        assert_eq!(
+            check.jobs.iter().map(|(n, m)| (n.as_str(), *m)).collect::<Vec<_>>(),
+            [("ci.yml:lint", 30), ("ci.yml:test", 120), ("slow.yml:test", 200)],
+            "both workflows' jobs, none of the first check's"
+        );
+        assert_eq!(
+            check.tests,
+            BTreeMap::from([(key("t1"), 12), (key("t2"), 9), (key("t9"), 50)]),
+            "the tests of both workflows that passed, t2 at its slowest"
+        );
+        assert_eq!(
+            Merge::of(WorkNumber(6), &Work::default()),
+            None,
+            "a work with no run has no check"
+        );
+        let mut fast = Work::default();
+        fast.timed
+            .push(ran(1, "call/1", "a", Source::Fast, "fast.yml", &[], &[("t1", true, 1)]));
+        assert_eq!(Merge::of(WorkNumber(7), &fast), None, "a fast run is no check");
     }
 
     fn words() -> Texts {

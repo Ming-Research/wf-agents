@@ -151,10 +151,10 @@ fn judged<'a>(ran: &'a [Ran], tests: &'a [String]) -> Option<Vec<results::Row<'a
     concluded.then(|| results::rows(tests, run))
 }
 
-/// How long the jobs and the tests of a run took, as the work's records keep it: each job that ran to a conclusion GitHub
-/// gave a time for, and each test the run ran and gave a time for. A run whose results could not be read has its jobs
-/// only.
-fn reading(ran: &Ran, source: Source, request: Request<'_>) -> Reading {
+/// How long the jobs and the tests of a run of the workflow took, as the work's records keep it: each job that ran to a
+/// conclusion GitHub gave a time for, and each test the run ran and gave a time for. A run whose results could not be
+/// read has its jobs only.
+fn reading(ran: &Ran, source: Source, workflow: &str, request: Request<'_>) -> Reading {
     let jobs = (ran.jobs.iter())
         .filter_map(|job| {
             job.took.map(|seconds| Job {
@@ -181,6 +181,7 @@ fn reading(ran: &Ran, source: Source, request: Request<'_>) -> Reading {
         asking: request.asking.name(),
         source,
         commit: request.commit.to_string(),
+        workflow: workflow.to_string(),
         jobs,
         tests,
     }
@@ -368,7 +369,7 @@ impl<A: Api> GitHub<A> {
                 };
                 match self.execute(&plan, commit, stop).await? {
                     Some(one) => {
-                        stop.timed(reading(&one, Source::Fast, request));
+                        stop.timed(reading(&one, Source::Fast, &fast.workflow, request));
                         ran.push(one);
                     }
                     None => return Ok(None),
@@ -392,7 +393,7 @@ impl<A: Api> GitHub<A> {
                     };
                     match self.execute(&plan, commit, stop).await? {
                         Some(one) => {
-                            stop.timed(reading(&one, Source::Full, request));
+                            stop.timed(reading(&one, Source::Full, workflow, request));
                             ran.push(one);
                         }
                         None => return Ok(None),

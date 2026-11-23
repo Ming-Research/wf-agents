@@ -146,6 +146,7 @@ impl Host for Local {
             asking: asking.name(),
             source: work::Source::Command,
             commit: String::new(),
+            workflow: String::new(),
             jobs: Vec::new(),
             tests: Vec::new(),
         });

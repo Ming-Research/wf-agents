@@ -57,11 +57,15 @@ pub struct Test {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Reading {
     /// What asked for the run, as the host names it (`call/<call>` or `run/<run>/round/<round>`): the same asking
-    /// given again after the engine started again reads the same run, and is kept once.
+    /// given again after the engine started again reads the same run, and is kept once. The asking of the check before
+    /// a merge runs every full workflow, each a run of its own, so a run is told apart by its workflow too.
     pub asking: String,
     pub source: Source,
     /// The commit the run ran on.
     pub commit: String,
+    /// The workflow the run is of, by the name of its file as the project's declaration gives it; empty for a host's
+    /// own command, which is no workflow's run.
+    pub workflow: String,
     pub jobs: Vec<Job>,
     pub tests: Vec<Test>,
 }
@@ -87,9 +91,13 @@ impl Reading {
         self
     }
 
-    /// Whether this is the same run as that other: the same asking of the same source on the same commit.
+    /// Whether this is the same run as that other: the same asking of the same source on the same commit, of the same
+    /// workflow.
     pub fn same_run(&self, other: &Reading) -> bool {
-        self.asking == other.asking && self.source == other.source && self.commit == other.commit
+        self.asking == other.asking
+            && self.source == other.source
+            && self.commit == other.commit
+            && self.workflow == other.workflow
     }
 }
 
@@ -123,6 +131,7 @@ mod tests {
             asking: "call/1".to_string(),
             source: Source::Fast,
             commit: "c".to_string(),
+            workflow: "w.yml".to_string(),
             jobs: vec![
                 Job {
                     name: "b".to_string(),
@@ -150,6 +159,22 @@ mod tests {
             [test("u1", "a", 3), test("u1", "y", 7), test("u2", "x", 5)],
             "sorted by unit and name, the first reading of a name kept"
         );
+    }
+
+    // The check before a merge asks for each full workflow under one asking and one commit: the runs of two workflows
+    // are two runs, and only the same workflow read again is the same run.
+    #[test]
+    fn two_workflows_of_one_asking_are_two_runs_and_one_workflow_read_again_is_one() {
+        let run = |workflow: &str| Reading {
+            asking: "run/1/round/1".to_string(),
+            source: Source::Full,
+            commit: "c".to_string(),
+            workflow: workflow.to_string(),
+            jobs: Vec::new(),
+            tests: Vec::new(),
+        };
+        assert!(run("ci.yml").same_run(&run("ci.yml")));
+        assert!(!run("ci.yml").same_run(&run("other.yml")));
     }
 
     // A time is read to the millisecond, and one that is no time is refused rather than read as nothing.

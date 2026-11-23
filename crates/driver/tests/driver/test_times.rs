@@ -78,6 +78,7 @@ fn reading(asking: &str) -> Reading {
         asking: asking.to_string(),
         source: work::Source::Fast,
         commit: "c0ffee".to_string(),
+        workflow: "fast.yml".to_string(),
         jobs: Vec::new(),
         tests: vec![Test {
             unit: "carry".to_string(),
@@ -172,6 +173,7 @@ fn a_host_that_gives_no_time_is_said_so_and_a_call_that_read_none_says_none_read
         asking: "call/2".to_string(),
         source: work::Source::Command,
         commit: String::new(),
+        workflow: String::new(),
         jobs: Vec::new(),
         tests: Vec::new(),
     };

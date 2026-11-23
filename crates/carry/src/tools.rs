@@ -719,6 +719,7 @@ mod tests {
                 asking: "call/7".to_string(),
                 source: work::Source::Command,
                 commit: String::new(),
+                workflow: String::new(),
                 jobs: Vec::new(),
                 tests: Vec::new(),
             }]

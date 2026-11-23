@@ -567,13 +567,16 @@ CREATE TABLE test_names (
 -- A run of the project's CI that the host read, and how it came to the work: `asking` is what asked for it (`call/<call>`
 -- of `run_tests`, or `run/<run>/round/<round>` of the check before the merge), `source` is `fast` (the fast workflow),
 -- `full` (the full workflows) or `command` (a host's run of the project's check command, which has no job and no
--- test), and `commit_id` is the commit it ran on. The same asking of the same source on the same commit is kept once.
+-- test), `commit_id` is the commit it ran on, and `workflow` is the workflow it is a run of, by the name of its file
+-- (empty for a host's command). The same asking of the same source on the same commit and workflow is kept once; the
+-- check before a merge asks for each of the project's full workflows under one asking, so it has a run for each.
 CREATE TABLE timed (
     work INTEGER NOT NULL REFERENCES works (number),
     at INTEGER NOT NULL,
     asking TEXT NOT NULL,
     source TEXT NOT NULL,
     commit_id TEXT NOT NULL,
+    workflow TEXT NOT NULL,
     PRIMARY KEY (work, at)
 );
 

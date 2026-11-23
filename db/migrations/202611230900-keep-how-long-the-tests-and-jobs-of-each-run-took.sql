@@ -13,6 +13,7 @@ CREATE TABLE timed (
     asking TEXT NOT NULL,
     source TEXT NOT NULL,
     commit_id TEXT NOT NULL,
+    workflow TEXT NOT NULL,
     PRIMARY KEY (work, at)
 );
 CREATE TABLE timed_jobs (

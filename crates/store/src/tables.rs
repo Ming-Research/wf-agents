@@ -498,7 +498,7 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
     )?;
     let runs = rows(
         db,
-        "SELECT at, asking, source, commit_id FROM timed WHERE work = ?1 ORDER BY at",
+        "SELECT at, asking, source, commit_id, workflow FROM timed WHERE work = ?1 ORDER BY at",
         w,
         |row| {
             Ok((
@@ -506,6 +506,7 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
                 row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
             ))
         },
     )?;
@@ -546,7 +547,7 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
     )? {
         tests.entry(at).or_default().push(test);
     }
-    for (at, asking, source, commit) in runs {
+    for (at, asking, source, commit, workflow) in runs {
         let source = Source::named(&source).ok_or_else(|| Fault::Value {
             table: "timed",
             message: format!("{source:?} is no source of a run's times"),
@@ -557,6 +558,7 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
                 asking,
                 source,
                 commit,
+                workflow,
                 jobs: jobs.remove(&at).unwrap_or_default(),
                 tests: tests.remove(&at).unwrap_or_default(),
             },
@@ -975,8 +977,8 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     for t in timed {
         let r = &t.reading;
         db.execute(
-            "INSERT INTO timed (work, at, asking, source, commit_id) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![w, t.at.0, r.asking, r.source.as_str(), r.commit],
+            "INSERT INTO timed (work, at, asking, source, commit_id, workflow) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![w, t.at.0, r.asking, r.source.as_str(), r.commit, r.workflow],
         )?;
         for job in &r.jobs {
             db.execute(
