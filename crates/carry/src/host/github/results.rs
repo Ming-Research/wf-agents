@@ -1,8 +1,7 @@
 //! What a run of a project's workflow reports of its tests, read from the JUnit XML files of the artifact the project's
 //! declaration names (`ci.fast.results`, `ci.full.results`): each test it reported, with what became of it, how long
-//! it took and what it said, and each unit it did not build; and what became of each test an agent named. Brought over
-//! from the old engine (`crates/engine/src/results.rs` on `old-main`). The workflow and the engine hold to four
-//! conventions:
+//! it took and what it said, and each unit it did not build; and what became of each test an agent named. The workflow
+//! and the engine hold to four conventions:
 //!
 //! - The results are JUnit XML: the artifact holds one or more files ending in `.xml`. Each `testsuite` is a unit (a
 //!   test binary, a test file), named by its `name`; each `testcase` in it is a test, named by its `name`. A testcase
