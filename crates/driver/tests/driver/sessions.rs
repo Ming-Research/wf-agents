@@ -864,7 +864,7 @@ fn a_flagged_round_whose_line_began_a_new_session_as_it_took_main_in_is_tried_ag
     });
     s.began();
     let spent = Spent {
-        input_tokens: 10,
+        uncached_tokens: 10,
         context_tokens: Some(100),
         ..Default::default()
     };
