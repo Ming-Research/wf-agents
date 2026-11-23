@@ -28,7 +28,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use decide::{BlockId, CallId, Cause, Decision, End, Holder, Maker, Outsider, Pauser, RunId, Seq, Waited, Who};
+use decide::{BlockId, CallId, Cause, Decision, End, Holder, Maker, Outsider, Pauser, RunId, Seq, Waited};
 use driver::{Asked, DEPENDENCIES, Driver, Failed, Fault, FirstWrite, Found, MERGED, NewItem, Todo, WAITING};
 use engine::{Ask, Back, Came, Effect, Event, Given, Handed, Moment, Spent, Time, Work};
 use flow::{Compiled, Has, Kind, Source, compile};
@@ -513,6 +513,14 @@ impl Storage for Failing {
 
     fn keep_warm(&mut self, warm: bool, at: Time) -> Result<(), store::Fault> {
         self.store.keep_warm(warm, at)
+    }
+
+    fn moving_on(&self) -> Result<bool, store::Fault> {
+        self.store.moving_on()
+    }
+
+    fn set_moving_on(&mut self, moving: bool, at: Time) -> Result<(), store::Fault> {
+        self.store.set_moving_on(moving, at)
     }
 
     fn accounts(&self) -> Result<Vec<store::AccountRecord>, store::Fault> {
@@ -1568,6 +1576,23 @@ impl H {
         spent(self.ended)
     }
 
+    /// The round of the work under way, and the two after it, return nothing and ask for nothing, so that each is sent
+    /// back until the run reaches its limit of returns: the owner's call, which the third return makes.
+    pub fn at_limit(&mut self, work: WorkNumber) -> CallId {
+        for _ in 0..2 {
+            self.returns(work, Came::asks(vec![]));
+        }
+        let todos = self.returns(work, Came::asks(vec![]));
+        let calls: Vec<CallId> = (todos.iter())
+            .filter_map(|todo| match &todo.effect {
+                Effect::Call { call, .. } => Some(*call),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(calls.len(), 1, "the limit of returns was not reached: {todos:?}");
+        calls[0]
+    }
+
     /// The call has its result.
     pub fn answer(&mut self, work: WorkNumber, call: CallId) -> Vec<Todo> {
         let result = format!("the result of {}", call.0);
@@ -1595,6 +1620,9 @@ impl H {
     /// outside well and each look reaching what it looks at; gives what is to be done.
     pub fn wake_up(&mut self) -> Option<Vec<Todo>> {
         let wake = self.d().wake()?;
+        if let Some(account) = &wake.candidate {
+            return Some(self.tick_candidate(wake.at, account, Found::Well));
+        }
         let under = self.d().accounts().in_use().map(str::to_string);
         Some(self.ticked(
             wake.at,
@@ -1614,6 +1642,30 @@ impl H {
     /// agents' rounds taken under this account found; gives what is to be done.
     pub fn tick_under(&mut self, at: Time, under: Option<&str>, found: Found) -> Vec<Todo> {
         self.ticked(at, Some((under.map(str::to_string), found)), None)
+    }
+
+    /// The driver is told what a check under this account, asked for to move to it, found, at this time, which the
+    /// harness's clock takes on to; gives what is to be done.
+    pub fn tick_candidate(&mut self, at: Time, account: &str, found: Found) -> Vec<Todo> {
+        self.clock = self.clock.max(at.0);
+        let todos = (self.dm().tick_candidate(at, account, found)).expect("the driver takes the check");
+        self.given(&todos);
+        if self.checking {
+            self.check();
+        }
+        todos
+    }
+
+    /// The owner lets the engine move to another account at a usage limit, or does not, which the driver must take;
+    /// gives what is to be done.
+    pub fn set_moving_on(&mut self, moving: bool) -> Vec<Todo> {
+        let now = self.now();
+        let todos = (self.dm().set_moving_on(now, moving)).expect("the switch is set");
+        self.given(&todos);
+        if self.checking {
+            self.check();
+        }
+        todos
     }
 
     /// The driver is told the time it asked for, a look at the acts' host having found it reached or not.
@@ -2000,13 +2052,6 @@ pub fn tool(name: &str) -> Ask {
     Ask::Tool {
         name: name.to_string(),
         input: format!("what {name} is run on"),
-    }
-}
-
-pub fn question(who: Who) -> Ask {
-    Ask::Person {
-        who,
-        question: "which way?".to_string(),
     }
 }
 

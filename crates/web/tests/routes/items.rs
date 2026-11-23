@@ -368,7 +368,7 @@ fn at(s: &Value, cell: &str) -> bool {
     s["now"]["cell"] == cell || s["now"]["at"] == cell
 }
 
-/// The plan's question, which waits for the owner at the plan, answered.
+/// The plan's run at its limit, which waits for the owner at the plan, let go on.
 async fn answered(router: &axum::Router) -> Value {
     let asked = listed_until(router, |s| s["waits"].as_array().is_some_and(|w| !w.is_empty())).await;
     assert!(at(&asked, "plan"), "{asked}");

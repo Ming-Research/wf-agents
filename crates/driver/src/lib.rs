@@ -60,8 +60,9 @@
 //! the store as the owner adds, removes and takes them ([`accounts`]). Every round is handed out with the account in
 //! use as it is handed out, none where none is, a keep-warm ping runs under it ([`warm`]), and a check of the outside
 //! is taken under it; a usage limit is its account's own ([`outage`]), and taking another account drops what the checks
-//! found and has the outside checked at once. What the agents' service last said of each account's usage is kept beside
-//! them in memory, out of everything that decides ([`usage`]).
+//! found and has the outside checked at once. Where the owner lets it, the engine takes another account itself at a usage
+//! limit, once a check under that account found it well, and records that it did ([`outage::move_on`]). What the agents'
+//! service last said of each account's usage is kept beside them in memory, out of everything that decides ([`usage`]).
 //!
 //! What the driver holds of a work in memory is what the store holds of it: a work is saved each time it grows, and
 //! what is to be done is given out only once the store holds the entries that say so. Stopped at any moment and
@@ -115,17 +116,17 @@ use std::sync::Arc;
 
 pub mod outage;
 
-pub use accounts::{Accounts, Instead, Live};
+pub use accounts::{Accounts, Instead, Live, Moved};
 pub use along::{Along, Under};
 use decide::run::Failure;
 use decide::{BlockId, CellId, Decision, End, Holder, Outsider, Pauser, Room, View, begun, decide, taking_slot};
 use engine::{Effect, Event, Gate, Hold, Refused, handle_held, handle_then, held};
 use flow::Compiled;
 use flow::agents::fill;
-pub use outage::{Checked, Found, Limit, Outage, Service, Until};
+pub use outage::{Candidate, Checked, Found, Limit, Move, Outage, Service, Until};
 use store::{
-    AccountAct, AccountRecord, Change, Continues, EverythingPaused, First, Item, ItemChange, ItemNumber, Storage,
-    WorkHead, WorkNumber,
+    AccountAct, AccountRecord, AccountTaker, Change, Continues, EverythingPaused, First, Item, ItemChange, ItemNumber,
+    Storage, WorkHead, WorkNumber,
 };
 use versions::Installed;
 pub use versions::{Misread, On};
@@ -258,6 +259,10 @@ pub struct Driver {
     /// Whether the sessions of works that wait are kept warm, as the store keeps it: the engine's own state, which the
     /// owner switches, and no setting, so that a switch takes effect at once ([`warm`]).
     keep_warm: bool,
+    /// Whether the engine may move to another account at the usage limit of the one in use, as the store keeps it: the
+    /// engine's own state, which the owner switches, and no setting, so that a switch takes effect at once
+    /// ([`outage::move_on`]).
+    moving_on: bool,
     /// The accounts the agents' program may run under, as the store keeps them: the engine's own state, which the owner
     /// changes ([`accounts`]).
     accounts: Accounts,
@@ -269,7 +274,8 @@ pub struct Driver {
     policy: Option<Policy>,
     /// The checks of the outside taken while the agents' rounds wait for it, by the account each was taken under, none
     /// where none was in use, with when the wait they were taken in began ([`Outage::since`]): a check speaks only of
-    /// its own account, and checks of a wait that ended are of no other.
+    /// its own account, and checks of a wait that ended are of no other. A check under an account that is not the one
+    /// in use, taken to move to it, is of the wait at the in-use account's usage limit, and has that wait's `since`.
     checked: BTreeMap<Option<String>, (Time, Checked)>,
     /// The latest look at the acts' host, while the acts' rounds wait for it: when, and whether it was reached.
     looked_at_host: Option<(Time, bool)>,
@@ -332,10 +338,13 @@ fn add_span(spans: &mut Vec<Span>, paused: bool, by: Pauser, at: Time) {
 
 /// When the driver is to be told the time again: where `check`, the outside of the agents' rounds is to be checked
 /// then, and where `look_at_host`, the network to the acts' host looked at; what each found is told with the time.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Wake {
     pub at: Time,
     pub check: bool,
+    /// Where `check` is a check to move to this account, the account to take it under; none where it is the check of
+    /// the wait under the account in use.
+    pub candidate: Option<String>,
     pub look_at_host: bool,
 }
 
@@ -644,6 +653,7 @@ impl Driver {
         }
         let paused = store.everything_paused().map_err(Fault::Store)?;
         let keep_warm = store.keeping_warm().map_err(Fault::Store)?;
+        let moving_on = store.moving_on().map_err(Fault::Store)?;
         let accounts = Accounts::new(store.accounts().map_err(Fault::Store)?);
         let spans = spans_of(&store.everything_pauses().map_err(Fault::Store)?);
         let mut driver = Driver {
@@ -654,6 +664,7 @@ impl Driver {
             slots,
             paused,
             keep_warm,
+            moving_on,
             accounts,
             spans,
             fault: None,
@@ -1214,6 +1225,9 @@ impl Driver {
         if paused {
             return Ok(Vec::new());
         }
+        if let Err(fault) = self.move_if_due(now) {
+            return Err(self.stop(fault, false));
+        }
         match self.look(now) {
             Ok(todos) => self.filled_after(now, todos),
             Err(fault) => Err(self.stop(fault, true)),
@@ -1239,6 +1253,36 @@ impl Driver {
         }
         self.keep_warm = warm;
         Ok(())
+    }
+
+    /// Whether the engine may move to another account at the usage limit of the one in use, as the owner last switched
+    /// it; it may not until he switches it on.
+    pub fn moving_on(&self) -> bool {
+        self.moving_on
+    }
+
+    /// Lets the engine move to another account at a usage limit from the time the caller's clock gives, or does not,
+    /// and gives what is to be done. It is kept in the store and holds when the driver is opened again, and switching
+    /// it as it stands changes nothing. No check is taken here: one that is due is asked for at the wake the driver
+    /// gives ([`Driver::wake`]); but where an account was found well in the wait before the switch was off, it is taken
+    /// now.
+    pub fn set_moving_on(&mut self, now: Time, moving: bool) -> Result<Vec<Todo>, Failed> {
+        self.going()?;
+        if moving == self.moving_on {
+            return Ok(Vec::new());
+        }
+        if let Err(fault) = self.store.set_moving_on(moving, now) {
+            return Err(self.stop(Fault::Store(fault), false));
+        }
+        self.moving_on = moving;
+        match self.move_if_due(now) {
+            Ok(false) => Ok(Vec::new()),
+            Ok(true) => match self.look(now) {
+                Ok(todos) => self.filled_after(now, todos),
+                Err(fault) => Err(self.stop(fault, true)),
+            },
+            Err(fault) => Err(self.stop(fault, false)),
+        }
     }
 
     /// Sets how many rounds of cells that take a slot may go on at once, at the time the caller's clock gives, and gives
@@ -1312,18 +1356,54 @@ impl Driver {
         }
     }
 
-    /// Keeps what was done to the account, in the store and then here.
+    /// Keeps what the owner did to the account, in the store and then here.
     fn keep_account(&mut self, now: Time, name: &str, what: AccountAct) -> Result<(), Failed> {
         let record = AccountRecord {
             name: name.to_string(),
             what,
             at: now,
+            taker: AccountTaker::Owner,
+            left_resets: None,
         };
-        if let Err(fault) = self.store.keep_account(&record) {
-            return Err(self.stop(Fault::Store(fault), false));
-        }
+        self.record_account(record).map_err(|fault| self.stop(fault, false))
+    }
+
+    /// Keeps a record of what was done to an account, in the store and then here.
+    fn record_account(&mut self, record: AccountRecord) -> Result<(), Fault> {
+        self.store.keep_account(&record).map_err(Fault::Store)?;
         self.accounts.push(record);
         Ok(())
+    }
+
+    /// Takes the account that moving on says to take, where the owner has let the engine move, nothing is paused and a
+    /// check under another account found it well in the wait at the in-use account's usage limit: the engine takes it
+    /// as the owner does, and the outside is checked at once under it where the wait that stands is another's. Gives
+    /// whether an account was taken.
+    fn move_if_due(&mut self, now: Time) -> Result<bool, Fault> {
+        if !self.moving_on || self.paused.is_some() {
+            return Ok(false);
+        }
+        let Some(outage) = self.agents_wait() else {
+            return Ok(false);
+        };
+        let moved = outage::move_on(&outage, &self.accounts, || self.limits(), &self.checked, now);
+        let Move::Take { name, left_resets } = moved else {
+            return Ok(false);
+        };
+        self.record_account(AccountRecord {
+            name,
+            what: AccountAct::Taken,
+            at: now,
+            taker: AccountTaker::Engine,
+            left_resets,
+        })?;
+        self.ticked = self.ticked.filter(|at| *at < now);
+        Ok(true)
+    }
+
+    /// The accounts the engine took at a usage limit, newest first, each with the account it left.
+    pub fn moves(&self) -> Vec<Moved> {
+        self.accounts.moves()
     }
 
     /// What the agents' service last said of each account's usage, and the looks under way ([`usage`]).
@@ -1419,6 +1499,22 @@ impl Driver {
     /// The wait every work shares for the agents' service, if one stands: worked out from the records of every work
     /// and the rounds the service answered while under way ([`outage`]), with the checks of the outside taken in it.
     pub fn outage(&self) -> Option<Outage> {
+        let mut outage = self.agents_wait()?;
+        outage.may_move = self.moving_on
+            && outage::may_move(
+                &outage,
+                &self.accounts,
+                || self.limits(),
+                &self.checked,
+                self.ticked.unwrap_or(outage.met),
+            );
+        Some(outage)
+    }
+
+    /// The wait every work shares for the agents' service as [`Driver::outage`] gives it, but for whether the engine may
+    /// yet move to another account in it: what the driver decides by, which asks nothing of the accounts' limits, whose
+    /// worth is a scan of every round of every work.
+    fn agents_wait(&self) -> Option<Outage> {
         self.outage_of(Service::Agents)
     }
 
@@ -1459,7 +1555,7 @@ impl Driver {
 
     /// The waits of every service, as they stand.
     fn outages(&self) -> (Option<Outage>, Option<Outage>) {
-        (self.outage(), self.host_outage())
+        (self.agents_wait(), self.host_outage())
     }
 
     /// What carries out a round or a call of the work says where it stands now, or, with none, that it no longer says
@@ -1521,9 +1617,9 @@ impl Driver {
         if began == 0 || ended >= began {
             return Ok(Vec::new());
         }
-        let outage = self.outage();
+        let outage = self.agents_wait();
         self.answered.insert((work, run, began));
-        if self.outage() == outage {
+        if self.agents_wait() == outage {
             return Ok(Vec::new());
         }
         match self.look(now) {
@@ -1541,21 +1637,45 @@ impl Driver {
     /// looked at then, and what still waits waits for a round to end.
     pub fn wake(&self) -> Option<Wake> {
         let ticked = self.ticked;
-        self.next_wake().filter(|wake| ticked.is_none_or(|at| wake.at > at))
+        let (agents, host) = self.outages();
+        let other = self
+            .next_wake(agents.as_ref(), host.as_ref())
+            .filter(|wake| ticked.is_none_or(|at| wake.at > at));
+        // A check to move to an account is asked for by what has been checked, never by the time it was last told: a
+        // check that is taken is kept, and is not asked for again. It goes before another wake no later than it.
+        match (self.next_move_check(agents.as_ref()), other) {
+            (Some((at, name)), other) if other.as_ref().is_none_or(|wake| at <= wake.at) => Some(Wake {
+                at,
+                check: true,
+                candidate: Some(name),
+                look_at_host: false,
+            }),
+            (_, other) => other,
+        }
+    }
+
+    /// The check to move to an account that is due first, and when, where the owner has let the engine move, nothing is
+    /// paused and the agents' wait is at the in-use account's usage limit ([`outage::move_on`]).
+    fn next_move_check(&self, agents: Option<&Outage>) -> Option<(Time, String)> {
+        if !self.moving_on || self.paused.is_some() {
+            return None;
+        }
+        let outage = agents?;
+        let now = self.ticked.unwrap_or(outage.met);
+        match outage::move_on(outage, &self.accounts, || self.limits(), &self.checked, now) {
+            Move::Check { name, at } => Some((at, name)),
+            Move::Take { .. } | Move::Stay => None,
+        }
     }
 
     /// When the driver is to be told the time next, as the waits every work shares say, whether or not it has come:
     /// the earliest of each wait's and of the next keep-warm ping's, with each check and look that is due then.
-    fn next_wake(&self) -> Option<Wake> {
-        let agents = self.outage().and_then(|outage| wake_of(&outage, None));
-        let host = self
-            .host_outage()
-            .and_then(|outage| wake_of(&outage, self.looked_at_host));
+    fn next_wake(&self, agents: Option<&Outage>, host: Option<&Outage>) -> Option<Wake> {
+        let standing = agents.is_some();
+        let agents = agents.and_then(|outage| wake_of(outage, None));
+        let host = host.and_then(|outage| wake_of(outage, self.looked_at_host));
         // A keep-warm ping waits as the agents' rounds do: while their wait stands, its own wakes serve.
-        let ping = match self.outage() {
-            None => self.next_ping(),
-            Some(_) => None,
-        };
+        let ping = if standing { None } else { self.next_ping() };
         let at = [agents.map(|(at, _)| at), host.map(|(at, _)| at), ping]
             .into_iter()
             .flatten()
@@ -1563,6 +1683,7 @@ impl Driver {
         Some(Wake {
             at,
             check: agents.is_some_and(|(a, _)| a == at),
+            candidate: None,
             look_at_host: host.is_some_and(|(h, look)| look && h == at),
         })
     }
@@ -1599,6 +1720,40 @@ impl Driver {
                 todos.extend(self.pings(now));
                 self.filled(now, todos)
             }
+            Err(fault) => {
+                self.stop(fault.clone(), true);
+                Err(fault)
+            }
+        }
+    }
+
+    /// Takes what a check under an account other than the one in use found, at the time the caller's clock gives, the
+    /// check having been asked for to move to that account ([`Wake::candidate`]), and takes the account where the
+    /// owner has let the engine move and the check found it well; gives what is to be done. The check is kept with the
+    /// `since` of the wait at the in-use account's usage limit; one taken when no such wait stands is passed over. It
+    /// is no time the driver was told ([`Driver::tick`]): what is asked for is worked out from what was checked.
+    pub fn tick_candidate(&mut self, now: Time, account: &str, found: Found) -> Result<Vec<Todo>, Fault> {
+        if let Some(fault) = &self.fault {
+            return Err(fault.clone());
+        }
+        if let Some(since) = self.agents_wait().map(|outage| outage.since) {
+            let key = Some(account.to_string());
+            let before = (self.checked.get(&key)).filter(|(of, _)| *of == since);
+            let taken = before.map_or(0, |(_, checked)| checked.taken) + 1;
+            self.checked.insert(key, (since, Checked { taken, at: now, found }));
+        }
+        let taken = match self.move_if_due(now) {
+            Ok(taken) => taken,
+            Err(fault) => {
+                self.stop(fault.clone(), false);
+                return Err(fault);
+            }
+        };
+        if !taken {
+            return Ok(Vec::new());
+        }
+        match self.look(now) {
+            Ok(todos) => self.filled(now, todos),
             Err(fault) => {
                 self.stop(fault.clone(), true);
                 Err(fault)
@@ -1698,7 +1853,7 @@ impl Driver {
     /// Which rounds may begin now, as the waits every work shares say: the agents' wait holds the agents' rounds until
     /// a check of the outside finds it well, and the acts' wait the acts' until a look at their host reaches it.
     pub fn gate(&self) -> Gate {
-        gate_of_waits(self.outage().as_ref(), self.host_outage().as_ref())
+        gate_of_waits(self.agents_wait().as_ref(), self.host_outage().as_ref())
     }
 
     /// Looks at every work that has not ended, in the order of their numbers, each with the gate as it is then and

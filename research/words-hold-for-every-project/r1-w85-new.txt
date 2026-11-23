@@ -1,0 +1,19 @@
+The next round of this item is given the task below, and the project's guide holds one more line, quoted below. Use no tool. Answer in your return, in English and briefly: (1) the first thing you would do for this item; (2) where you would see the fault happen, and what you would take as having seen it; (3) for each of (1) and (2), the sentence of the task or of the guide you went by, quoted.
+
+Item:
+让设置里给代理的参数照实生效：写了却不会生效的权限写法，引擎启动时就拦下并说清该怎么写；引擎从参数推出代理能做什么，跟程序实际照做的一样。
+
+代理的权限写在 `agents.args` 里，有的写法看着生效，其实不起作用。例：2026-11-21 发现，从 #374（11-20）起每一轮的程序都以 default 权限模式启动，设置里的 `--permission-mode acceptEdits` 不起作用，Edit、Write 全被拒：W21 第 57 次运行起、W22，还有 W23 的 I1 第 13 次运行一行都没写成。原因是引擎给程序设了 `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`，程序见到它就把权限模式强制成 default，引擎的设置检查却不拦这个参数。
+
+要的结果：设置里写了不会生效的权限写法，引擎启动时拒掉，并说清该写什么；引擎从参数推出的“哪些命令放开了”，跟程序实际照做的一样。
+
+New line of the project's guide:
+- A fault of the owner's page is seen in a real browser, not in a simulated page (`docs/testing.md`, item 8).
+
+Task:
+Research how to do what the item asks, starting from the tree you read. Check that what the item says is true, where
+it can be seen. For a fault it reports, see the fault happen where it really shows, such as in the program on its own
+data, and find its root cause. A cause read from the code, or a test in a stand-in, such as a mock or a simulation of
+where it shows, has not seen it. For something it asks for, check that it is not there already. If it is still not true
+after looking as far as the tools reach, ask the owner how to go on, in a question that waits. Commit a test with the
+project's tests, and anything else you make in `project.research`. If the design itself is at fault, say so.

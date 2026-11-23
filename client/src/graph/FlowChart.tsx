@@ -6,9 +6,6 @@
 // opens on the matrix, in the same panel; a click on the chart's background lets go of what is chosen. The chart opens
 // on its top at its own size, 100%, or fitted to its width where that does not fit, the rest scrolled to; a cell
 // chosen, here or elsewhere, as in a panel, is brought into what the window over the chart leaves, the zoom kept.
-//
-// Brought over from the chart of `old-main` (`client/src/graph/FlowChart.tsx`), but for what this page has no use for:
-// several graphs side by side, the stores, a work's marks and a comparison's.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 

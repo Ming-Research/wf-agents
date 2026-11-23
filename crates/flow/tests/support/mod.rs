@@ -1,5 +1,5 @@
 //! A small valid flow, written as its files would be, for the tests of the compile to break one place at a time; and
-//! its twin laid out one thing to a file, in `tests/laid_out/`.
+//! its twin laid out one thing to a file, in `tests/project/`.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -190,7 +190,7 @@ pub fn names(names: &[&str]) -> BTreeSet<String> {
 
 /// The directory of the small flow laid out one thing to a file, beside what it shares with any flow.
 pub fn laid_out_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/laid_out/small")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/project/small")
 }
 
 /// The small flow laid out one thing to a file: the twin of [`valid`].
