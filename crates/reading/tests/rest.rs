@@ -207,7 +207,9 @@ fn a_question_that_waits_holds_nothing_once_its_cell_is_skipped() {
     w.run("ask", &[("b0", Matters)]);
     w.questions("ask", "which", true);
     assert_eq!(rest(&w), Rest::Waiting { at: id("ask") });
-    // The research now says a deeper look is needed: the cell is skipped, and nothing runs it to take the answer.
+    // The brief is written again, which runs the research, the cell before the one the question holds; it now says a
+    // deeper look is needed: the cell is skipped, and nothing runs it to take the answer.
+    w.person_writes("brief");
     w.run("research", &[("deep", Value("yes")), ("plan", Matters)]);
     assert_ne!(rest(&w), Rest::Waiting { at: id("ask") });
     assert!(!matches!(w.decide(), Decision::Wait { at, .. } if at == id("ask")));
