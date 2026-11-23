@@ -943,9 +943,26 @@ fn entries(page: &WorkPage, part: Part) -> Vec<Vec<String>> {
     }
 }
 
+/// How a round missed its session's cache and why: what differed from the call before, that nothing did, which is a
+/// fault of wf-agents, or that the records do not say.
+fn missed_said(number: usize, missed: &web::works::Missed) -> String {
+    let cause = match (missed.differs.is_empty(), missed.unknown) {
+        (false, _) => format!("{} differed from the call before", missed.differs.join(", ")),
+        (true, true) => "the cause is not known: the records do not say what the call before was given, or the \
+            prompt grew shorter with no compaction recorded"
+            .to_string(),
+        (true, false) => "nothing before the messages differed, a fault of wf-agents".to_string(),
+    };
+    format!(
+        "    round {number} missed its session's cache: read {} of the {} tokens it held; {cause}",
+        missed.read, missed.held
+    )
+}
+
 /// A run, in lines: its rounds and calls, the context its last round ended with, its session's compactions and how it
 /// ended; then each of its rounds that missed its session's prompt cache, with what differed before the messages, or
-/// that nothing did, which is a fault of wf-agents; then what of it went past the lines of its history.
+/// that nothing did, which is a fault of wf-agents, or that the records do not say; then what of it went past the
+/// lines of its history.
 fn run_said(run: &Run) -> Vec<String> {
     let rounds = if run.rounds.len() == 1 {
         "1 round".to_string()
@@ -984,14 +1001,7 @@ fn run_said(run: &Run) -> Vec<String> {
         let Some(missed) = &round.missed else {
             continue;
         };
-        let cause = match missed.differs.is_empty() {
-            true => "nothing before the messages differed, a fault of wf-agents".to_string(),
-            false => format!("{} differed from the call before", missed.differs.join(", ")),
-        };
-        lines.push(format!(
-            "    round {} missed its session's cache: read {} of the {} tokens it held; {cause}",
-            round.number, missed.read, missed.held
-        ));
+        lines.push(missed_said(round.number, missed));
     }
     lines.extend(past_of(run));
     lines
@@ -2709,6 +2719,32 @@ mod tests {
         );
         assert_eq!(few.lines().filter(|l| l.starts_with("  run ")).count(), 3, "{few}");
         assert!(!few.contains(" earlier: ") && !few.contains(" more"), "{few}");
+    }
+
+    // A round's miss of its session's cache says why: what differed, that the records do not say, or that nothing
+    // before the messages differed, which is a fault of wf-agents.
+    #[test]
+    fn a_round_that_missed_its_cache_says_why_by_what_differed_or_that_it_is_not_known_or_a_fault() {
+        let missed = |differs: &[&str], unknown: bool| web::works::Missed {
+            read: 1_200,
+            held: 34_340,
+            differs: differs.iter().map(|part| part.to_string()).collect(),
+            unknown,
+        };
+        assert_eq!(
+            missed_said(2, &missed(&["model", "program_tools"], false)),
+            "    round 2 missed its session's cache: read 1200 of the 34340 tokens it held; model, program_tools differed from the call before"
+        );
+        let unknown = missed_said(2, &missed(&[], true));
+        assert!(
+            unknown.contains("the cause is not known") && !unknown.contains("fault"),
+            "{unknown}"
+        );
+        let fault = missed_said(2, &missed(&[], false));
+        assert!(
+            fault.ends_with("nothing before the messages differed, a fault of wf-agents"),
+            "{fault}"
+        );
     }
 
     // A part given alone comes a hundred entries at a time, from the place asked, each answer saying how to ask for the
