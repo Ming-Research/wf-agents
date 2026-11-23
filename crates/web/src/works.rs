@@ -2848,7 +2848,7 @@ impl WorkPage {
                                 block: input.block.to_string(),
                                 current: number(input.current)?,
                                 known: number(input.consumed)?,
-                                changed: input.new,
+                                changed: !input.new_versions.is_empty(),
                             })
                         })
                         .collect::<Result<_, Broken>>()?,
