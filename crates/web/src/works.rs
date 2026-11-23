@@ -4609,28 +4609,35 @@ pub(crate) mod tests {
         assert_eq!(settled(true, true, false), CellState::Done);
     }
 
-    // What a return was sent back for reaches the page as a kind of its own with the fields the page reads it by
-    // (`Unmet` of `client/src/works-api.ts`): the blocks and values that a dialogue or a gate names, the changes a
-    // round left, the answer marked `tree` that changed nothing of the tree. Milliseconds.
+    // What a return was sent back for reaches the page as the key its words have and every value the reason records,
+    // each under the name of its field and in the order the reason holds them: a list is one value for each of its
+    // elements, and what a gate or a dialogue names, the changes a round left and the answer marked `tree` that changed
+    // nothing of the tree are given as the page reads them (`Unmet` of `client/src/works-api.ts`). Milliseconds.
     #[test]
-    fn each_reason_a_return_was_sent_back_reaches_the_page_as_its_kind_with_its_fields() {
-        use serde_json::json;
+    fn each_reason_a_return_was_sent_back_reaches_the_page_by_its_key_with_every_value_it_records() {
         let block = |name: &str| BlockId::from(name);
-        let cases: Vec<(UnmetOf, serde_json::Value)> = vec![
+        let cases: Vec<(UnmetOf, &str, Vec<(&str, &str)>)> = vec![
             (
                 UnmetOf::NothingBut {
                     block: block("tree_ok"),
                     value: "yes".to_string(),
                     besides: vec![block("code"), block("plan")],
                 },
-                json!({"kind": "nothingBut", "block": "tree_ok", "value": "yes", "besides": ["code", "plan"]}),
+                "nothing_but",
+                vec![
+                    ("block", "tree_ok"),
+                    ("value", "yes"),
+                    ("besides", "code"),
+                    ("besides", "plan"),
+                ],
             ),
             (
                 UnmetOf::WordOwed {
                     name: block("review"),
                     watched: vec![block("code")],
                 },
-                json!({"kind": "wordOwed", "name": "review", "watched": ["code"]}),
+                "word_owed",
+                vec![("name", "review"), ("watched", "code")],
             ),
             (
                 UnmetOf::NoPoint {
@@ -4638,48 +4645,61 @@ pub(crate) mod tests {
                     value: "no".to_string(),
                     name: block("review"),
                 },
-                json!({"kind": "noPoint", "block": "verdict", "value": "no", "name": "review"}),
+                "no_point",
+                vec![("block", "verdict"), ("value", "no"), ("name", "review")],
             ),
             (
                 UnmetOf::NotWatched {
                     name: "opinions".to_string(),
                 },
-                json!({"kind": "notWatched", "name": "opinions"}),
+                "not_watched",
+                vec![("name", "opinions")],
             ),
             (
                 UnmetOf::Uncommitted {
                     changes: " M src/a.rs".to_string(),
                 },
-                json!({"kind": "uncommitted", "changes": " M src/a.rs"}),
+                "uncommitted",
+                vec![("changes", " M src/a.rs")],
             ),
             (
                 UnmetOf::Merging {
                     changes: "the merge is under way".to_string(),
                 },
-                json!({"kind": "merging", "changes": "the merge is under way"}),
+                "merging",
+                vec![("changes", "the merge is under way")],
             ),
             (
                 UnmetOf::TreeUnchanged {
                     name: "tree_question".to_string(),
                 },
-                json!({"kind": "treeUnchanged", "name": "tree_question"}),
+                "tree_unchanged",
+                vec![("name", "tree_question")],
             ),
             (
                 UnmetOf::NotAnEntry {
                     line: "an entry".to_string(),
                 },
-                json!({"kind": "notAnEntry", "line": "an entry"}),
+                "not_an_entry",
+                vec![("line", "an entry")],
             ),
             (
                 UnmetOf::Unanswered { block: block("plan") },
-                json!({"kind": "unanswered", "block": "plan"}),
+                "unanswered",
+                vec![("block", "plan")],
             ),
         ];
-        for (unmet, wire) in cases {
+        for (unmet, key, values) in cases {
             let Ok(page) = Unmet::of(&unmet, &Records::default()) else {
                 panic!("{unmet:?} does not reach the page");
             };
-            assert_eq!(serde_json::to_value(&page).expect("it is JSON"), wire, "{unmet:?}");
+            let given: Vec<(&str, &str)> = page
+                .values
+                .iter()
+                .map(|v| (v.name.as_str(), v.value.as_str()))
+                .collect();
+            assert_eq!(page.key, key, "{unmet:?}");
+            assert_eq!(given, values, "{unmet:?}");
         }
     }
 
