@@ -14,8 +14,8 @@
 //!   accounts are said changed as each look ends (crate `driver`, module `usage`).
 //!
 //! The owner changes on the page what is tuned while works go on: the language the agents write in for the owner, the
-//! model of each level, the highest level an item may be at, the context at which the agents' program compacts a line's
-//! session, and how many rounds run at once. The rest only the file changes. The accounts the agents' program runs
+//! model of each level, the highest level an item may be at, the highest level one round may run at, the context at
+//! which the agents' program compacts a line's session, and how many rounds run at once. The rest only the file changes. The accounts the agents' program runs
 //! under are no key of the file: they are the engine's own state, which takes a change at once (decision
 //! the-page-changes-what-is-tuned-while-the-engine-runs). A value is checked here only for its kind; what the engine
 //! refuses of it, the engine's own reading of the file refuses. A change is written into the file with its comments and
@@ -77,7 +77,7 @@ pub struct SettingsPage {
     /// The file's tables in the order it writes them, the keys of its own first where it has any; then the tables it
     /// leaves out of which the engine runs with values.
     pub tables: Vec<SettingsTable>,
-    /// The names of the levels the file gives, for the highest level an item may be at.
+    /// The names of the levels the file gives, for the highest level an item may be at and the highest one round may run at.
     pub levels: Vec<String>,
     /// How the directory the file is in keeps it in git; none where it does not.
     pub git: Option<Kept>,
@@ -285,7 +285,7 @@ fn change_of(path: &[String]) -> Option<Change> {
     match parts.as_slice() {
         ["owner", "language"] | ["agents", "levels", _, "model"] => Some(Change::Name),
         ["agents", "slots"] | ["sessions", "compact_at"] => Some(Change::Count),
-        ["items", "highest_level"] => Some(Change::Level),
+        ["items", "highest_level"] | ["agents", "highest_level"] => Some(Change::Level),
         _ => None,
     }
 }
@@ -748,10 +748,13 @@ fn left_out(running: &JsonValue, path: &mut Vec<String>, doc: &DocumentMut, tabl
         return;
     };
     for (name, value) in keys {
-        if value.is_null() {
+        path.push(name.clone());
+        // A key the engine runs with none of, and the page changes, is listed all the same, so that the owner can give
+        // it one: the engine's top level for a highest level left out.
+        if value.is_null() && change_of(path).is_none() {
+            path.pop();
             continue;
         }
-        path.push(name.clone());
         let written = written_at(doc, path);
         match (written, value) {
             // Written as a value, whole: compared with it already.

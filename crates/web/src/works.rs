@@ -292,15 +292,19 @@ pub struct Summary {
     #[serde(default)]
     pub level: Option<String>,
     /// The level the rounds of the cell it stands at run at, by the same rule: its level raised as far as the cell's
-    /// line says, never above the highest an item may be at; none where it stands at no cell, as a work that ended,
-    /// at an engine cell, whose acts run on no level, or where the rule refuses its level.
+    /// line says, never above the highest level one round may run at; none where it stands at no cell, as a work that
+    /// ended, at an engine cell, whose acts run on no level, or where the rule refuses its level.
     #[serde(default)]
     pub cell_level: Option<String>,
-    /// How many levels the line of the cell it stands at raises that cell above its level, as the line's
-    /// `levels_above` says, whatever the highest level an item may be at holds the cell's level to; none where it
-    /// stands at no agent's cell.
+    /// How many levels above its level the cell it stands at really runs: its line's `levels_above`, less what the
+    /// highest level one round may run at took off it; none where it stands at no agent's cell, or where the rule
+    /// refuses its level.
     #[serde(default)]
     pub raise: Option<u32>,
+    /// What held the cell it stands at below what its line asks, where the highest level one round may run at did;
+    /// none where nothing did.
+    #[serde(default)]
+    pub held: Option<Held>,
     /// The pull request the host of its repository checks it through: the latest the host found, as the work keeps
     /// it; of a work that merged before works kept theirs, the one the title of the commit its merge made names. None
     /// where it has none, as on a host with no pull requests.
@@ -312,6 +316,15 @@ pub struct Summary {
     /// made, and where git could not say, which the engine's standard error says.
     #[serde(default)]
     pub changed: Option<Diffstat>,
+}
+
+/// What held a cell below the level its line asks it to run at: how many levels above its item's the line asks, and the
+/// key of the setting that holds a round to its highest level, none where the engine has no settings of its own.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Held {
+    pub asks: u32,
+    pub by: Option<String>,
 }
 
 /// A pull request on the host of a work's repository: its number, and its address.
@@ -1504,8 +1517,8 @@ pub struct RanOn {
     pub effort: Option<String>,
 }
 
-/// The levels an item may be given, lowest first, with the one it is given where it is given none, and the highest
-/// a level a line runs above its item's may reach.
+/// The levels an item may be given, lowest first, with the one it is given where it is given none, and the highest an
+/// item may be given.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LevelsPage {
@@ -1637,7 +1650,7 @@ impl LevelsPage {
                 })
                 .collect(),
             default: levels.default().to_string(),
-            highest: levels.highest().to_string(),
+            highest: levels.items_highest().to_string(),
         }
     }
 }
@@ -2179,7 +2192,7 @@ impl Summary {
                 })
                 .collect(),
         };
-        let (level, cell_level, raise) = levels_of(levels, kept.item.level.as_deref(), kept.flow, &now);
+        let (level, cell_level, raise, held) = levels_of(levels, kept.item.level.as_deref(), kept.flow, &now);
         let pull = (work.pulls.last()).map(|pulled| Pull {
             number: pulled.number,
             url: pulled.url.clone(),
@@ -2213,6 +2226,7 @@ impl Summary {
             level,
             cell_level,
             raise,
+            held,
             pull,
             // What git says of it is worked out off the loop, after this ([`Summary::saw`]).
             changed: None,
@@ -2259,22 +2273,30 @@ fn merge_wrote(kept: &Kept<'_>) -> Option<String> {
     kept.work.contents.get(&(write.block.clone(), merged.at)).cloned()
 }
 
-/// The level a work's rounds run at, the level of the cell it stands at, and how far that cell's line raises it
-/// ([`Summary::level`], [`Summary::cell_level`], [`Summary::raise`]), by the one rule that gives a round its level: of an
-/// item at this level, its work on this flow doing what `now` says.
+/// The level a work's rounds run at, the level of the cell it stands at, how far that cell really runs above its level
+/// and what held it below what its line asks ([`Summary::level`], [`Summary::cell_level`], [`Summary::raise`],
+/// [`Summary::held`]), by the one rule that gives a round its level: of an item at this level, its work on this flow
+/// doing what `now` says.
 fn levels_of(
     levels: &Levels,
     item: Option<&str>,
     flow: &flow::Compiled,
     now: &Now,
-) -> (Option<String>, Option<String>, Option<u32>) {
-    let at = |above: u32| levels.of_round(item, above).ok();
+) -> (Option<String>, Option<String>, Option<u32>, Option<Held>) {
+    let level = levels.of_round(item, 0).ok().map(|round| round.level);
     let cell = now
         .cell()
         .and_then(|cell| (flow.cells.iter()).find(|spec| spec.id.as_str() == cell));
     let agent = cell.filter(|spec| spec.kind == Kind::Agent);
-    let cell_level = agent.and_then(|spec| at(spec.levels_above));
-    (at(0), cell_level, agent.map(|spec| spec.levels_above))
+    let round = agent.and_then(|spec| levels.of_round(item, spec.levels_above).ok());
+    let held = (round.as_ref())
+        .filter(|round| round.asks > round.raised)
+        .map(|round| Held {
+            asks: round.asks,
+            by: levels.rounds_highest_key().map(str::to_string),
+        });
+    let raise = round.as_ref().map(|round| round.raised);
+    (level, round.map(|round| round.level), raise, held)
 }
 
 /// What holds every work at once, as the bar reads it at a moment: each stretch the pause of everything held, from the
@@ -3833,8 +3855,8 @@ pub(crate) mod tests {
     }
 
     // A work's level and its cell's are what the rule that gives a round its level says (the route's test shows a line
-    // that raises it): where the rule refuses the item's level, neither is said, and only an agent's cell has a level.
-    // How far the cell's line raises it is the line's, as an agent's cell stands, whatever the rule says.
+    // that raises it): where the rule refuses the item's level, neither is said, and only an agent's cell has a level,
+    // a raise and nothing holding it.
     #[test]
     fn a_works_level_and_its_cells_are_the_rules_and_none_where_it_refuses_or_no_agent_runs() {
         let flow = flow();
@@ -3842,30 +3864,30 @@ pub(crate) mod tests {
             name: name.to_string(),
             desc: format!("Work of level {name}"),
         };
-        let levels = Levels::new(["1", "2", "3"].map(level), "2", Some("2")).expect("the levels are made");
+        let levels = Levels::new(["1", "2", "3"].map(level), "2", Some("2"), Some("3")).expect("the levels are made");
         let of = |item: Option<&str>, now: &Now| levels_of(&levels, item, &flow, now);
         let at = |cell: &str| Now::Next { cell: cell.to_string() };
         let given = |level: &str| Some(level.to_string());
-        assert_eq!(of(Some("1"), &at("write")), (given("1"), given("1"), Some(0)));
+        assert_eq!(of(Some("1"), &at("write")), (given("1"), given("1"), Some(0), None));
         assert_eq!(
             of(None, &at("write")),
-            (given("2"), given("2"), Some(0)),
+            (given("2"), given("2"), Some(0), None),
             "an item of no level is at the default"
         );
         assert_eq!(
             of(Some("1"), &at("merge")),
-            (given("1"), None, None),
+            (given("1"), None, None, None),
             "an engine cell's act runs on no level"
         );
         assert_eq!(
             of(Some("1"), &Now::Merged),
-            (given("1"), None, None),
+            (given("1"), None, None, None),
             "a work that ended stands at no cell"
         );
-        assert_eq!(of(Some("9"), &at("write")), (None, None, Some(0)), "no level");
+        assert_eq!(of(Some("9"), &at("write")), (None, None, None, None), "no level");
         assert_eq!(
             of(Some("3"), &at("write")),
-            (None, None, Some(0)),
+            (None, None, None, None),
             "above the highest an item may be at"
         );
     }

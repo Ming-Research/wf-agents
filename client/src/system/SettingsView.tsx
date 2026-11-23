@@ -1,6 +1,6 @@
 // The Settings view: the installation's settings as their file writes them, key by key. First what the page changes
-// (the language the owner reads, each level's model, the highest level an item may be at, the context past which a
-// line begins a new session, and how many rounds run at once), each as a box, and the accounts the agents run under,
+// (the language the owner reads, each level's model, the highest level an item may be at and the highest one round may
+// run at, the context past which a line begins a new session, and how many rounds run at once), each as a box, and the accounts the agents run under,
 // which are the engine's own state and change at once; then what only the file changes, table by table, each key with
 // its value as written. Beside a value the engine runs at another, which it does until it starts again, since it reads
 // the file as it starts, is the value it runs with; but the slots, which a save gives the engine at once.
@@ -326,7 +326,7 @@ function ValueBox({ c, value, levels, onChange }: {
   if (c.change.kind === 'level') {
     return (
       <select className="select mono" aria-label={c.key} value={value} onChange={(e) => onChange(e.target.value)}>
-        {!levels.includes(value) && <option value={value}>{value}</option>}
+        {!levels.includes(value) && <option value={value}>{value === '' ? 'left out' : value}</option>}
         {levels.map((l) => (
           <option key={l} value={l}>
             {l}

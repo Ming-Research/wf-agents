@@ -117,6 +117,7 @@ describe('the settings the page changes', () => {
     expect(keys.map((k) => [k.key, k.value, k.running, k.leftOut])).toEqual([
       ['owner.language', 'Chinese', null, false],
       ['agents.slots', '3', '2', false],
+      ['agents.highest_level', '', null, true],
       ['agents.levels.1.model', 'claude-haiku-5-5', null, false],
       ['agents.levels.2.model', 'claude-sonnet-5-5', null, false],
       ['agents.levels.3.model', 'claude-opus-5-5', null, false],
@@ -140,5 +141,7 @@ describe('the settings the page changes', () => {
     expect(problem(of('owner.language'), ' English', levels)).toBeNull();
     expect(problem(of('owner.language'), 'Eng\nlish', levels)).toBe('owner.language is a name on one line');
     expect(problem(of('items.highest_level'), '9', levels)).toBe('items.highest_level is one of the levels: 1, 2, 3');
+    expect(problem(of('agents.highest_level'), '9', levels)).toBe('agents.highest_level is one of the levels: 1, 2, 3');
+    expect(problem(of('agents.highest_level'), '3', levels)).toBeNull();
   });
 });

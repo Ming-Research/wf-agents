@@ -89,7 +89,7 @@ pub struct Line {
     pub name: String,
     /// In the order of the walk.
     pub cells: Vec<String>,
-    /// How many levels above its item's its rounds run at, never above the highest an item may be at.
+    /// How many levels above its item's its rounds run at, never above the highest one round may run at.
     pub levels_above: u32,
     /// The file it is written in, from the flow's directory.
     pub file: String,

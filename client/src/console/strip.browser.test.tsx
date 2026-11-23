@@ -54,6 +54,8 @@ const working = (id: number, cells: CellNow[]): Shown => ({
     last: null,
     level: '2',
     raise: 0,
+    cellLevel: '2',
+    held: null,
     lines: null,
   },
   children: [],
