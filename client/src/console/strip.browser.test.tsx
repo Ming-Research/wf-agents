@@ -54,6 +54,8 @@ const working = (id: number, cells: CellNow[]): Shown => ({
     last: null,
     level: '2',
     raise: 0,
+    cellLevel: '2',
+    held: null,
     lines: null,
   },
   children: [],
@@ -154,6 +156,22 @@ describe("a card's strip", () => {
     const dark = scene.drawnStrip(1) as DrawnStrip;
     expect(dark.marks[0].fill).not.toBe(light.marks[0].fill);
     expect(drawn(dark)).toEqual(laidOut(cells));
+  });
+
+  it('writes under the number the level the cell really runs at: L3 where a setting held it, L3+1 where it runs above, each in the look of its level', () => {
+    const base = working(1, cellsOf(STATES));
+    const level = (work: Partial<NonNullable<Shown['work']>>) => {
+      scene.show([{ ...base, work: { ...base.work!, ...work } }]);
+      return (scene.drawnStrip(1) as DrawnStrip).level;
+    };
+    // The item at 3, its line asks one above, a round may run at most at 3: it runs at 3, as a cell not raised, the
+    // third look (the accent).
+    expect(level({ level: '3', raise: 0, cellLevel: '3', held: { asks: 1, by: 'agents.highest_level' } })).toMatchObject({
+      text: 'L3',
+      strong: false,
+    });
+    // The same item where a round may run at 4: raised one, the fourth look (the accent, strong).
+    expect(level({ level: '3', raise: 1, cellLevel: '4', held: null })).toMatchObject({ text: 'L3+1', strong: true });
   });
 
   it('draws the marks again in an accent picked, with no reload, as the works page draws them, in light and in dark', async () => {

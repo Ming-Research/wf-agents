@@ -138,7 +138,8 @@ impl Work {
             kind: BesideKind::Fork,
             spent: Spent {
                 usd_micros: f.usd_micros,
-                input_tokens: f.input_tokens,
+                uncached_tokens: f.uncached_tokens,
+                cache_written_tokens: f.cache_written_tokens,
                 cached_tokens: f.cached_tokens,
                 output_tokens: f.output_tokens,
                 ..Spent::default()
@@ -211,8 +212,12 @@ pub struct Moment {
 pub struct Spent {
     /// Its cost, in millionths of a dollar.
     pub usd_micros: u64,
-    /// The tokens sent that were not read from the cache.
-    pub input_tokens: u64,
+    /// The tokens sent that were not read from the cache: those sent fresh and those written to it.
+    pub uncached_tokens: u64,
+    /// Of `uncached_tokens`, those written to the cache. None where what the round took was kept before the
+    /// written ones were kept apart: they are then among `uncached_tokens` and not told from the tokens sent fresh.
+    #[serde(default)]
+    pub cache_written_tokens: Option<u64>,
     /// The tokens sent that were read from the cache.
     pub cached_tokens: u64,
     /// The tokens that came back.
@@ -437,7 +442,8 @@ mod tests {
     fn cost(usd_micros: u64) -> Spent {
         Spent {
             usd_micros,
-            input_tokens: 1,
+            uncached_tokens: 1,
+            cache_written_tokens: Some(1),
             cached_tokens: 2,
             output_tokens: 3,
             context_tokens: Some(9),
@@ -462,7 +468,8 @@ mod tests {
             run: RunId(1),
             round: 1,
             usd_micros: usd,
-            input_tokens: 1,
+            uncached_tokens: 1,
+            cache_written_tokens: Some(1),
             cached_tokens: 2,
             output_tokens: 3,
         };
