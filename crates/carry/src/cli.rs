@@ -1557,6 +1557,156 @@ mod tests {
         assert_eq!(no.spent.map(|s| s.output_tokens), Some(5 + 8));
     }
 
+    /// The lines of the real one-message stream (`../tests/fixtures/stream.jsonl`), the command line's own output.
+    fn real_message() -> Vec<String> {
+        STREAM.lines().filter(|l| !l.is_empty()).map(str::to_string).collect()
+    }
+
+    /// The lines the command line prints for a second message of the same session, as the real stream's but its first
+    /// line: it prints no first line again, and the calls and the tools' uses are its own.
+    fn second_message() -> Vec<String> {
+        (real_message().into_iter().skip(1))
+            .map(|line| line.replace("msg_011", "msg_022").replace("toolu_01", "toolu_02"))
+            .collect()
+    }
+
+    fn feed(lines: &[String]) -> Stream {
+        let mut stream = Stream::default();
+        for line in lines {
+            stream.line(line.as_bytes());
+        }
+        stream
+    }
+
+    /// The index of the line of the real stream's result.
+    fn result_at(lines: &[String]) -> usize {
+        (lines.iter())
+            .position(|line| line.contains(r#""type":"result""#))
+            .expect("the fixture holds a result")
+    }
+
+    // Two messages of the real stream read as two results, and the return and the cost are the last message's, the
+    // tokens of both counted. The one-message stream is the oracle: a stream of two messages is that stream twice, as the
+    // command line prints one result for each message it is given (research/fork-cache-shared-history.md). A few
+    // milliseconds, in memory; a stream of the test's own making could not show that the real lines are read so.
+    #[test]
+    fn two_messages_of_the_real_stream_read_as_two_results_and_the_return_of_the_second() {
+        let single = read(real_message().join("\n").as_bytes(), Begin::New, 0).expect("one message reads");
+        let mut lines = real_message();
+        lines.extend(second_message());
+        let stream = feed(&lines);
+        assert_eq!(stream.results(), 2);
+        let got = stream.read(Begin::Resume, 0).expect("the question's return is read");
+        assert_eq!(got.structured, single.structured, "the return of the last message");
+        // The tokens of both messages, and the total of the last result as the cost: the command line's total is its
+        // whole call's.
+        assert_eq!(got.spent.input_tokens, 2 * single.spent.input_tokens);
+        assert_eq!(got.spent.cached_tokens, 2 * single.spent.cached_tokens);
+        assert_eq!(got.spent.output_tokens, 2 * single.spent.output_tokens);
+        assert_eq!(got.spent.usd_micros, single.spent.usd_micros);
+        assert_eq!(got.spent.context_tokens, single.spent.context_tokens);
+    }
+
+    // A first message that ended in an error with no return, as when its request is stopped, does not stop the question
+    // being read: it went on, and its return is the one read. A few milliseconds.
+    #[test]
+    fn a_first_message_the_command_line_ended_in_error_does_not_stop_the_question_being_read() {
+        let mut first = real_message();
+        let at = result_at(&first);
+        let mut result: Value = serde_json::from_str(&first[at]).expect("JSON");
+        result["is_error"] = json!(true);
+        result["subtype"] = json!("error_during_execution");
+        result.as_object_mut().expect("an object").remove("structured_output");
+        first[at] = result.to_string();
+        first.truncate(at + 1);
+        let single = read(real_message().join("\n").as_bytes(), Begin::New, 0).expect("one message reads");
+        first.extend(second_message());
+        let stream = feed(&first);
+        assert_eq!(stream.results(), 2);
+        let got = stream.read(Begin::Resume, 0).expect("the question's return is read");
+        assert_eq!(got.structured, single.structured);
+        assert_eq!(got.spent.output_tokens, 2 * single.spent.output_tokens);
+    }
+
+    // A first message the program answers itself, with no call to the model, as a command it knows (measured on the
+    // program 2.1.327 with `/cost` and then a question: a `system` line, a message of its own and a result with no
+    // tokens and no cost, then the question's own lines and its result, each message ending in a result). The question
+    // is still the second result, and the one read. A few milliseconds.
+    #[test]
+    fn a_first_message_the_program_answered_itself_does_not_stop_the_question_being_read() {
+        let single = read(real_message().join("\n").as_bytes(), Begin::New, 0).expect("one message reads");
+        let own = [
+            r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Nothing to show."}]},"parent_tool_use_id":null}"#,
+            r#"{"type":"result","subtype":"success","is_error":false,"result":"Nothing to show.","total_cost_usd":0,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}}"#,
+        ];
+        let mut lines = vec![real_message()[0].clone()];
+        lines.extend(own.iter().map(|line| line.to_string()));
+        lines.extend(second_message());
+        let stream = feed(&lines);
+        assert_eq!(stream.results(), 2);
+        let got = stream.read(Begin::Resume, 0).expect("the question's return is read");
+        assert_eq!(got.structured, single.structured);
+        assert_eq!(
+            (got.spent.input_tokens, got.spent.cached_tokens, got.spent.output_tokens),
+            (
+                single.spent.input_tokens,
+                single.spent.cached_tokens,
+                single.spent.output_tokens
+            )
+        );
+        assert_eq!(got.spent.usd_micros, single.spent.usd_micros);
+    }
+
+    // A program that ended while the question was answered has one result and no return, and says what its first
+    // message's calls cost. A few milliseconds.
+    #[test]
+    fn a_program_that_ended_while_the_question_was_answered_has_one_result_and_no_return() {
+        let mut lines = real_message();
+        // The second message's lines up to its first call's message: it ends there.
+        lines.extend(second_message().into_iter().take(2));
+        let stream = feed(&lines);
+        assert_eq!(stream.results(), 1, "only the first message ended");
+        let no = stream.read(Begin::Resume, 0).expect_err("the question has no result");
+        assert_eq!(no.why, "the command line's stream holds no result");
+        assert!(no.spent.is_some(), "the first message's calls were paid for");
+    }
+
+    // The question is read by its own attempts and not by those of the first message, on the real stream's lines: a
+    // question that makes no attempt at a return, its result holding none, has no return. A few milliseconds.
+    #[test]
+    fn the_question_is_read_by_its_own_attempts_and_not_by_those_of_the_first_message() {
+        let mut lines = real_message();
+        let second = second_message();
+        let at = result_at(&second);
+        let mut result: Value = serde_json::from_str(&second[at]).expect("JSON");
+        result.as_object_mut().expect("an object").remove("structured_output");
+        // A message of the question that is only a plain answer: its start, a call without a use of a tool, its result.
+        let start = second
+            .iter()
+            .find(|l| l.starts_with(PARTIAL) && l.contains(r#""message_start""#))
+            .expect("a start")
+            .clone();
+        lines.push(start);
+        lines.push(result.to_string());
+        let stream = feed(&lines);
+        assert_eq!(stream.results(), 2);
+        let no = stream.read(Begin::Resume, 0).expect_err("no return to the question");
+        assert_eq!(no.why, "the command line's result holds no structured return");
+    }
+
+    // A fork's two messages are two lines of the standard input (JSON Lines), whatever the question holds: its lines,
+    // quotes and the separators JSON leaves unescaped. A few milliseconds.
+    #[test]
+    fn a_fork_is_given_two_lines_whatever_its_question_holds() {
+        let question = "Why \"this\"?\nAnd why not\r\nthat\u{2028}one?\n\n";
+        let bytes = fork_stdin("# A question follows", question);
+        assert!(bytes.ends_with(b"\n"));
+        let lines: Vec<&[u8]> = bytes.split(|b| *b == b'\n').filter(|l| !l.is_empty()).collect();
+        assert_eq!(lines.len(), 2);
+        let second: Value = serde_json::from_slice(lines[1]).expect("JSON");
+        assert_eq!(second["message"]["content"][0]["text"], question);
+    }
+
     #[test]
     fn a_stream_with_one_result_keeps_answered_and_has_result_true_and_reads_as_before() {
         let mut stream = Stream::default();
