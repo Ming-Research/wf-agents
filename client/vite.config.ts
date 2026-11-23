@@ -1,8 +1,7 @@
 // Builds the page into dist/, which crates/web builds into the wf-agents binary. `npm run dev` serves the page with
 // Vite and passes the interface's requests to a running `wf-agents flow page` (WF_AGENTS_URL, by default the port it
 // takes); the engine refuses a request of another origin, so they are passed on as from its own, the Host and the
-// Origin both the engine's. The set-up is brought over from the page of the engine on `old-main`. `npm run dev` also
-// serves `console.html`, the console alone, which is not built.
+// Origin both the engine's. `npm run dev` also serves `console.html`, the console alone, which is not built.
 //
 // The page's tests are two Vitest projects, so that each file runs where it needs to and the browser starts only for
 // the files that need it:
@@ -12,8 +11,6 @@
 //              finished (`sequence.groupOrder`): a browser test waits on frames drawn in software WebGL, which a runner
 //              busy with the unit tests stretches until a test nears its time limit, as the console's scroll test did
 //              (#231).
-// Both brought over from the page on `old-main`, which had a third, `ui`, for a check of the page against its UI spec,
-// which this page has no such spec for yet.
 import { playwright } from '@vitest/browser-playwright';
 import react from '@vitejs/plugin-react';
 import { configDefaults, defineConfig } from 'vitest/config';
