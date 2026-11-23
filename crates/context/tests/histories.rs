@@ -530,14 +530,23 @@ impl History {
         // run before its next round, which the session holds as the build's hand-in last.
         let close = self.forced.replace(vec![Forced::All, Forced::All, Forced::Must]);
         self.put("request");
+        self.note("after the request");
         for _ in 0..20 {
             match self.sim.round() {
                 Some(round) if round.cell.as_str() != "close" => self.carry(&round, reached),
                 _ => break,
             }
         }
+        self.note("before the close's next round");
         self.forced = close;
         self.drain(reached);
+        self.note("after the drain");
+    }
+
+    /// Keeps what the work does next, as the trace's own line.
+    fn note(&mut self, what: &str) {
+        let next = format!("{:?}", decide(&self.sim.flow.flow, &self.sim.work.records));
+        self.trace.push(format!("{what}: {}", &next[..next.len().min(200)]));
     }
 
     /// The round under way is this cell's.
