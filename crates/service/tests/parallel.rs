@@ -4,7 +4,7 @@
 
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use decide::BlockId;
@@ -103,6 +103,8 @@ const SCRIPT: &str = r#"
 /// The acts' repository says every work changed two files, one committed and one only its worktree holds.
 struct Repository {
     acts: Arc<dyn Rounds>,
+    /// The first read of a work's changes waits for this, where it is given.
+    gate: Mutex<Option<oneshot::Receiver<()>>>,
 }
 
 impl Rounds for Repository {
@@ -115,7 +117,11 @@ impl Rounds for Repository {
     }
 
     fn changes(&self, _: OfWork) -> Pin<Box<dyn Future<Output = Result<Option<Changes>, String>> + Send + '_>> {
-        Box::pin(async {
+        let gate = self.gate.lock().unwrap().take();
+        Box::pin(async move {
+            if let Some(gate) = gate {
+                let _ = gate.await;
+            }
             let file = |path: &str, committed| FileChanged {
                 path: path.to_string(),
                 added: 1,
@@ -133,12 +139,66 @@ impl Rounds for Repository {
     }
 }
 
-/// What the work's block of the list says now.
-fn said(service: &Service, work: WorkNumber) -> Option<String> {
+/// What the latest version of the work's block says now.
+fn latest(service: &Service, work: WorkNumber, block: &str) -> Option<String> {
     let kept = service.driver().work(work)?;
     let versions = decide::versions(&kept.work.records);
-    let last = versions.get(&BlockId::from("parallel"))?.last()?;
-    kept.work.contents.get(&(BlockId::from("parallel"), last.at)).cloned()
+    let last = versions.get(&BlockId::from(block))?.last()?;
+    kept.work.contents.get(&(BlockId::from(block), last.at)).cloned()
+}
+
+/// What the work's block of the list says now.
+fn said(service: &Service, work: WorkNumber) -> Option<String> {
+    latest(service, work, "parallel")
+}
+
+/// A service on the flow `planned` whose repository gives the files of `Repository`, the first read of which waits for
+/// the gate where one is given.
+fn opened(gate: Option<oneshot::Receiver<()>>) -> (Service, Inbox, tempfile::TempDir) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path().join("store.sqlite")).unwrap();
+    let mut carriers = Scripted::new(Script::read(SCRIPT).unwrap()).carriers();
+    carriers.acts = Arc::new(Repository {
+        acts: carriers.acts.clone(),
+        gate: Mutex::new(gate),
+    });
+    let clock = Arc::new(TokioClock::new(Time(1_794_268_800_000)));
+    let (service, inbox) = Service::open(Box::new(store), vec![planned()], carriers, clock).unwrap();
+    (service, inbox, dir)
+}
+
+/// Adds the item of the flow `planned`, with its work.
+fn added(service: &mut Service) -> WorkNumber {
+    let item = NewItem {
+        title: "a".to_string(),
+        level: "1".to_string(),
+        project: "one".to_string(),
+        depends_on: Vec::new(),
+        tags: Vec::new(),
+        flow: "planned".to_string(),
+        writes: vec![FirstWrite {
+            block: "request".into(),
+            content: "Plan it, please.".to_string(),
+            value: None,
+        }],
+    };
+    let (reply, mut answer) = oneshot::channel();
+    service.take(Message::Add { item, reply }).unwrap();
+    let (_, work) = answer.try_recv().unwrap().unwrap();
+    work
+}
+
+/// Lets the work go on, so that it starts its first run.
+fn resumed(service: &mut Service, work: WorkNumber) {
+    let (reply, mut answer) = oneshot::channel();
+    service
+        .take(Message::Act {
+            work,
+            act: Act::Resume,
+            reply,
+        })
+        .unwrap();
+    answer.try_recv().unwrap().unwrap();
 }
 
 /// Takes what comes, once it comes, until this holds of the loop.
@@ -164,41 +224,10 @@ async fn until(service: &mut Service, inbox: &mut Inbox, held: impl Fn(&Service)
 // plan is handed in. Seconds of the paused clock; milliseconds.
 #[tokio::test(start_paused = true)]
 async fn the_loop_writes_the_list_of_the_works_under_way_as_the_repository_and_the_plans_say() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = Store::open(dir.path().join("store.sqlite")).unwrap();
-    let mut carriers = Scripted::new(Script::read(SCRIPT).unwrap()).carriers();
-    carriers.acts = Arc::new(Repository {
-        acts: carriers.acts.clone(),
-    });
-    let clock = Arc::new(TokioClock::new(Time(1_794_268_800_000)));
-    let (mut service, mut inbox) = Service::open(Box::new(store), vec![planned()], carriers, clock).unwrap();
-
-    let item = NewItem {
-        title: "a".to_string(),
-        level: "1".to_string(),
-        project: "one".to_string(),
-        depends_on: Vec::new(),
-        tags: Vec::new(),
-        flow: "planned".to_string(),
-        writes: vec![FirstWrite {
-            block: "request".into(),
-            content: "Plan it, please.".to_string(),
-            value: None,
-        }],
-    };
-    let (reply, mut answer) = oneshot::channel();
-    service.take(Message::Add { item, reply }).unwrap();
-    let (_, work) = answer.try_recv().unwrap().unwrap();
+    let (mut service, mut inbox, _dir) = opened(None);
+    let work = added(&mut service);
     assert_eq!(said(&service, work), None, "the work has started no run");
-    let (reply, mut answer) = oneshot::channel();
-    service
-        .take(Message::Act {
-            work,
-            act: Act::Resume,
-            reply,
-        })
-        .unwrap();
-    answer.try_recv().unwrap().unwrap();
+    resumed(&mut service, work);
 
     until(&mut service, &mut inbox, |s| said(s, work).is_some()).await;
     assert_eq!(
@@ -209,6 +238,32 @@ async fn the_loop_writes_the_list_of_the_works_under_way_as_the_repository_and_t
         said(s, work).is_some_and(|text| text.contains("src/b.rs"))
     })
     .await;
+    assert_eq!(
+        said(&service, work).as_deref(),
+        Some("W1 (#1)\nchanged:\nsrc/a.rs\nplanned:\nsrc/a.rs\nsrc/b.rs")
+    );
+}
+
+// The lists of one project are written in the order they were asked for: the read of the first is held back until the
+// plan's files are handed in and the second is asked for, and the list the loop ends up with is the second's, which
+// holds the plan's files, though the second could be read at once. Fails where a later list is written before an
+// earlier one, which then overwrites it with the older. Seconds of the paused clock; milliseconds.
+#[tokio::test(start_paused = true)]
+async fn the_lists_of_a_project_are_written_in_the_order_they_were_asked_for() {
+    let (gate, held) = oneshot::channel();
+    let (mut service, mut inbox, _dir) = opened(Some(held));
+    let work = added(&mut service);
+    resumed(&mut service, work);
+    until(&mut service, &mut inbox, |s| latest(s, work, "plan_files").is_some()).await;
+    assert_eq!(said(&service, work), None, "the first list is still being read");
+    gate.send(()).unwrap();
+    // What comes until nothing more does: a hundred rounds of the paused clock are more than the loop has to say.
+    for _ in 0..100 {
+        match tokio::time::timeout(Duration::from_secs(3600), inbox.recv()).await {
+            Ok(Some(message)) => service.take(message).expect("the loop takes it"),
+            _ => break,
+        }
+    }
     assert_eq!(
         said(&service, work).as_deref(),
         Some("W1 (#1)\nchanged:\nsrc/a.rs\nplanned:\nsrc/a.rs\nsrc/b.rs")

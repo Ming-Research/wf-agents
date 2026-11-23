@@ -176,17 +176,23 @@ fn each_project_has_its_own_list_and_a_work_of_a_flow_without_the_block_is_on_no
     assert_eq!(lists, [("one", vec![a.0]), ("two", vec![b.0])]);
 }
 
-// What was last given is kept in memory only: after a stop the first call gives every list again, which is written
-// where it differs from what the works hold. Fails where a restarted driver gives none and the lists are not kept
-// current. Milliseconds.
+// What was last given is kept in memory only: after a stop the first call gives every project's list again, which is
+// written where it differs from what the works hold. Fails where a restarted driver gives none, or only some of the
+// projects', and the lists are not kept current. Milliseconds.
 #[test]
 fn after_a_restart_every_list_is_given_again() {
     let mut h = H::with(vec![planned()]);
     let (_, a) = h.add_let_on(planned_item("a", "one"));
-    assert_eq!(h.dm().parallel().len(), 1);
+    let (_, b) = h.add_let_on(planned_item("b", "two"));
+    assert_eq!(h.dm().parallel().len(), 2);
     assert_eq!(h.dm().parallel(), vec![]);
     h.restart();
-    let asks = h.dm().parallel();
-    assert_eq!(asks.len(), 1, "{asks:?}");
-    assert_eq!(asks[0].works[0].work, a);
+    let mut asks = h.dm().parallel();
+    asks.sort_by(|x, y| x.project.cmp(&y.project));
+    let lists: Vec<(&str, WorkNumber)> = asks
+        .iter()
+        .map(|ask| (ask.project.as_str(), ask.works[0].work))
+        .collect();
+    assert_eq!(lists, [("one", a), ("two", b)]);
+    assert_eq!(h.dm().parallel(), vec![]);
 }

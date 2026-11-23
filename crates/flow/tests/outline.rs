@@ -8,7 +8,7 @@ use std::path::Path;
 
 use decide::{BlockId, CellId};
 use flow::outline::{Outline, OutlinedCell, OutlinedLine, taken_out};
-use flow::{Compiled, Has, Renumbering, reading};
+use flow::{Compiled, Has, InputKind, Listed, Renumbering, reading};
 
 /// The engineer's flow as the repository defines it, compiled against what the engine has for it.
 fn engineer() -> Compiled {
@@ -62,6 +62,43 @@ fn renumbering(ids: &[(&str, &str)], taken: &[&str]) -> Renumbering {
 
 fn pairs<T: From<&'static str> + Ord>(pairs: &[(&'static str, &'static str)]) -> BTreeMap<T, T> {
     pairs.iter().map(|(a, b)| (T::from(*a), T::from(*b))).collect()
+}
+
+// The engineer's flow as the repository defines it gives the design review the list of the works under way and says in
+// what block a plan names its files: P1 reads `parallel` as its latest version and is run by no new version of it, no
+// cell is, the plan's group holds the block of its files, the cells that write the plan write it, and the block of the
+// list names it. Fails where any of these is taken out of the definition.
+#[test]
+fn the_engineers_flow_gives_the_design_review_the_list_of_the_works_under_way_and_names_the_plans_files() {
+    let flow = engineer();
+    let outline = Outline::of(&flow);
+    let p1 = outline.cell(&CellId::from("P1")).expect("P1 is outlined");
+    let given = (p1.given.iter()).find(|g| g.block == BlockId::from("parallel"));
+    let given = given.expect("P1 is given the list of the works under way");
+    assert_eq!((given.kind, given.list), (InputKind::Latest, Listed::Reads));
+    let parallel = BlockId::from("parallel");
+    for cell in flow.flow.cells() {
+        assert!(!cell.runs_on.contains(&parallel), "{} is run by the list", cell.id);
+    }
+    let plan = outline
+        .groups
+        .iter()
+        .find(|g| g.name == "plan")
+        .expect("the plan is a group");
+    assert!(plan.blocks.contains(&BlockId::from("plan_files")), "{:?}", plan.blocks);
+    for id in ["R1", "D1"] {
+        let cell = flow
+            .flow
+            .cells()
+            .iter()
+            .find(|c| c.id.as_str() == id)
+            .expect("the cell");
+        assert!(
+            cell.outputs.contains(&BlockId::from("plan_files")),
+            "{id} does not write the plan's files"
+        );
+    }
+    assert_eq!(flow.blocks[&parallel].planned_in, Some(BlockId::from("plan_files")));
 }
 
 #[test]
