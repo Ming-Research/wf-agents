@@ -7,7 +7,9 @@ use flow::Source;
 use service::Scripted;
 use store::Store;
 
-use crate::{START, get_json, greeted, pass, post, post_text, running, running_flow, trial_flow, trial_script};
+use crate::{
+    START, get_json, greeted, pass, post, post_text, running, running_flow_on_levels, trial_flow, trial_script,
+};
 
 #[tokio::test(start_paused = true)]
 async fn the_items_are_given_each_with_its_work_in_brief() {
@@ -329,8 +331,13 @@ async fn listed_until(router: &axum::Router, holds: impl Fn(&Value) -> bool) -> 
 }
 
 /// The trial flow with the reviewer's line one level up, its merge's act taking four seconds so that a work is seen
-/// standing at it, an item at this level added and let on.
+/// standing at it, an item at this level added and let on, a round held to the highest level of the page's levels.
 async fn raised_at(level: &str) -> crate::Running {
+    raised_at_on(level, crate::levels()).await
+}
+
+/// [`raised_at`], on these levels.
+async fn raised_at_on(level: &str, levels: service::Levels) -> crate::Running {
     let trial = trial_flow();
     let raised = trial
         .flow
@@ -342,7 +349,7 @@ async fn raised_at(level: &str) -> crate::Running {
     rounds.iter_mut().find(|r| r.cell == "merge").unwrap().took.ms = Some(4000);
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(dir.path().join("store.sqlite")).unwrap();
-    let running = running_flow(Box::new(store), dir, Scripted::new(script).carriers(), &source);
+    let running = running_flow_on_levels(Box::new(store), dir, Scripted::new(script).carriers(), &source, levels);
     let router = &running.router;
     let item = json!({
         "title": "Greet the user",
@@ -358,9 +365,15 @@ async fn raised_at(level: &str) -> crate::Running {
     running
 }
 
-/// A summary's level, the level of the cell it stands at, and how far that cell's line raises it.
-fn levels(s: &Value) -> (Value, Value, Value) {
-    (s["level"].clone(), s["cellLevel"].clone(), s["raise"].clone())
+/// A summary's level, the level of the cell it stands at, how far that cell really runs above it, and what held it
+/// below what its line asks.
+fn levels(s: &Value) -> (Value, Value, Value, Value) {
+    (
+        s["level"].clone(),
+        s["cellLevel"].clone(),
+        s["raise"].clone(),
+        s["held"].clone(),
+    )
 }
 
 /// Whether the summary stands at the cell.
@@ -381,35 +394,70 @@ async fn answered(router: &axum::Router) -> Value {
 }
 
 // A work's summary gives the level its rounds run at, its item's, the level of the cell it stands at, which its line
-// raises above the item's, by the engine's one rule, and how far the line raises it: here a reviewer's line one level
-// up, an item at level 1. An engine cell's act runs on no level, and a work that ended stands at no cell.
+// raises above the item's, by the engine's one rule, and how far it really runs above it: here a reviewer's line one
+// level up, an item at level 1. An engine cell's act runs on no level, and a work that ended stands at no cell.
 #[tokio::test(start_paused = true)]
 async fn a_works_summary_gives_its_level_and_that_of_the_cell_it_stands_at() {
     let running = raised_at("1").await;
     let router = &running.router;
     // The plan's line runs at the item's level.
     let asked = answered(router).await;
-    assert_eq!(levels(&asked), (json!("1"), json!("1"), json!(0)));
+    assert_eq!(levels(&asked), (json!("1"), json!("1"), json!(0), Value::Null));
     let reviewed = listed_until(router, |s| at(s, "review")).await;
-    assert_eq!(levels(&reviewed), (json!("1"), json!("2"), json!(1)), "{reviewed}");
+    assert_eq!(
+        levels(&reviewed),
+        (json!("1"), json!("2"), json!(1), Value::Null),
+        "{reviewed}"
+    );
     let merging = listed_until(router, |s| at(s, "merge")).await;
-    assert_eq!(levels(&merging), (json!("1"), Value::Null, Value::Null), "{merging}");
+    assert_eq!(
+        levels(&merging),
+        (json!("1"), Value::Null, Value::Null, Value::Null),
+        "{merging}"
+    );
     let merged = listed_until(router, |s| s["now"]["kind"] == "merged").await;
-    assert_eq!(levels(&merged), (json!("1"), Value::Null, Value::Null));
+    assert_eq!(levels(&merged), (json!("1"), Value::Null, Value::Null, Value::Null));
     // A work's page gives the same summary.
     let page = get_json(router, "/api/v1/works/1").await;
-    assert_eq!(levels(&page["summary"]), (json!("1"), Value::Null, Value::Null));
+    assert_eq!(
+        levels(&page["summary"]),
+        (json!("1"), Value::Null, Value::Null, Value::Null)
+    );
 }
 
-// A cell its line raises above the highest level an item may be at runs at that highest level, and its summary still
-// says how far its line raises it, so that it is told from a cell its line does not raise: an item at level 2, the
-// highest here, stands at the review at level 2, raised one level.
+// A cell its line raises above the highest level one round may run at runs at that level, and its summary says it ran
+// no higher than that and what held it: an item at level 2, the highest a round may run at here, stands at the review
+// at level 2, raised none, its line asking one, held by the setting of the highest level a round may run at.
 #[tokio::test(start_paused = true)]
-async fn a_cell_held_at_the_highest_level_is_still_said_to_be_raised_by_its_line() {
+async fn a_cell_held_at_the_highest_level_a_round_may_run_at_is_said_to_be_held_by_it() {
     let running = raised_at("2").await;
     let router = &running.router;
     let asked = answered(router).await;
-    assert_eq!(levels(&asked), (json!("2"), json!("2"), json!(0)));
+    assert_eq!(levels(&asked), (json!("2"), json!("2"), json!(0), Value::Null));
     let reviewed = listed_until(router, |s| at(s, "review")).await;
-    assert_eq!(levels(&reviewed), (json!("2"), json!("2"), json!(1)), "{reviewed}");
+    assert_eq!(
+        levels(&reviewed),
+        (
+            json!("2"),
+            json!("2"),
+            json!(0),
+            json!({ "asks": 1, "by": "agents.highest_level" })
+        ),
+        "{reviewed}"
+    );
+}
+
+// The highest level an item may be at holds no round: an item at level 2, the highest an item may be at here, has its
+// review at level 3 where a round may run at 3, raised one and held by nothing.
+#[tokio::test(start_paused = true)]
+async fn a_cell_goes_above_the_highest_level_an_item_may_be_at_up_to_the_highest_a_round_may_run_at() {
+    let running = raised_at_on("2", crate::levels_with_rounds_highest("3")).await;
+    let router = &running.router;
+    answered(router).await;
+    let reviewed = listed_until(router, |s| at(s, "review")).await;
+    assert_eq!(
+        levels(&reviewed),
+        (json!("2"), json!("3"), json!(1), Value::Null),
+        "{reviewed}"
+    );
 }

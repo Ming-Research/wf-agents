@@ -116,6 +116,8 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                 "level": "2",
                 "cellLevel": "2",
                 "raise": 0,
+                // The plan's line asks for nothing above its item's level, so nothing held the cell below it.
+                "held": null,
                 // The trial's host keeps no pull request, and its acts' carrier no repository to say what it changed.
                 "pull": null,
                 "changed": null,

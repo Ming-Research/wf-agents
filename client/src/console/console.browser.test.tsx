@@ -25,6 +25,7 @@ import { DEFAULT_ACCENT, pickAccent, PRESETS, tones } from '../accent';
 import { apart, lchOf } from '../colour';
 import { MARKS } from '../marks';
 import { useBarItems } from '../Engine';
+import { NO_LEVEL } from '../works/words';
 import type { Changed, Items, Now } from '../works-api';
 import { FIXTURES, type Source as PageSource, SourceContext } from '../works/source';
 import { fixtureSource } from './fixtures';
@@ -69,6 +70,8 @@ const running = (number: number): ShownWork => {
     last: null,
     level: '2',
     raise: 0,
+    cellLevel: '2',
+    held: null,
     lines: null,
   };
 };
@@ -183,6 +186,41 @@ describe('the tree in columns', () => {
     expect(told).toHaveBeenLastCalledWith(expect.objectContaining({ id: 1 }));
     click(x, HEIGHT - 20);
     expect(told).toHaveBeenLastCalledWith(null);
+  });
+
+  it('says on pointing at the level on a card what the item window says of it, in every case, and turns the pointer to no hand over it', async () => {
+    const worked = (id: number, work: Partial<ShownWork>): Shown => ({ ...card(id), work: { ...running(id), ...work } });
+    // The card's own middle stands at the screen's, with the level in its second row, under the number.
+    const said = (item: Shown) => {
+      scene.show([item]);
+      settle(scene);
+      const left = scene.place().left;
+      // Off every card first, so that nothing said for the last card stands.
+      move(WIDTH - 10, HEIGHT - 10);
+      scene.step();
+      expect(canvas().title).toBe('');
+      for (let y = line - ROW; y <= line + ROW; y += 2) {
+        for (let x = left + 4; x < left + 80; x += 4) {
+          move(x, y);
+          scene.step();
+          if (canvas().title !== '') return { title: canvas().title, cursor: canvas().style.cursor };
+        }
+      }
+      return { title: '', cursor: canvas().style.cursor };
+    };
+    // Held by the highest level a round may run at: written at the level it runs at, and what held it said.
+    expect(said(worked(1, { level: '3', raise: 0, cellLevel: '3', held: { asks: 1, by: 'agents.highest_level' } }))).toEqual({
+      title: 'level 3, levels_above 1, agents.highest_level 3',
+      cursor: '',
+    });
+    // Raised, and held by nothing: its keys alone.
+    expect(said(worked(2, { level: '3', raise: 1, cellLevel: '4', held: null }))).toEqual({
+      title: 'level 3, levels_above 1',
+      cursor: '',
+    });
+    expect(said(worked(3, { level: '2', raise: 0, cellLevel: '2', held: null })).title).toBe('level 2');
+    // A work whose engine gives no level: a dash, and why there is none.
+    expect(said(worked(4, { level: null, raise: 0, cellLevel: null, held: null })).title).toBe(NO_LEVEL.level);
   });
 
   it("writes the number of each card, a shadow's and a deliverable's too, as #n, and starts every title past the widest number the whole tree holds, folded items included", () => {

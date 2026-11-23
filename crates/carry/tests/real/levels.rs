@@ -96,6 +96,51 @@ async fn a_line_that_runs_above_its_item_s_level_runs_on_the_model_of_the_level_
     assert_eq!(kept(&real, work, "review", 1, 1), on(&real, "2", "claude-sonnet-5-5"));
 }
 
+/// The trial's review, on a line that runs one level above its item's, an item at level 1 that may be at no more than
+/// level 1, and the highest level one round may run at as given.
+async fn reviewed_above_the_highest_item(rounds_highest: Option<&str>) -> (Real, WorkNumber) {
+    let mut real = Real::trial(Fake::default());
+    for cell in real
+        .flow
+        .cells
+        .iter_mut()
+        .filter(|c| c.line.as_deref() == Some("reviewer"))
+    {
+        cell.levels_above = 1;
+    }
+    real.settings.items.highest_level = Some("1".to_string());
+    real.settings.agents.highest_level = rounds_highest.map(str::to_string);
+    real.restart();
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| ended(&real.decision(work))).await;
+    (real, work)
+}
+
+#[tokio::test]
+async fn a_line_that_runs_above_its_item_s_level_goes_above_the_highest_level_an_item_may_be_at() {
+    let (real, work) = reviewed_above_the_highest_item(None).await;
+    let calls = real.calls();
+    assert_eq!(
+        calls.iter().map(|c| ran_with(c).0).collect::<Vec<_>>(),
+        ["claude-haiku-5-5", "claude-haiku-5-5", "claude-sonnet-5-5"],
+        "the review at level 2, though no item may be above 1"
+    );
+    assert_eq!(kept(&real, work, "review", 1, 1), on(&real, "2", "claude-sonnet-5-5"));
+}
+
+#[tokio::test]
+async fn a_line_that_runs_above_its_item_s_level_goes_no_higher_than_the_highest_level_a_round_may_run_at() {
+    let (real, work) = reviewed_above_the_highest_item(Some("1")).await;
+    let calls = real.calls();
+    assert_eq!(
+        calls.iter().map(|c| ran_with(c).0).collect::<Vec<_>>(),
+        ["claude-haiku-5-5", "claude-haiku-5-5", "claude-haiku-5-5"],
+        "the review held at level 1"
+    );
+    assert_eq!(kept(&real, work, "review", 1, 1), on(&real, "1", "claude-haiku-5-5"));
+}
+
 #[tokio::test]
 async fn a_round_tried_again_keeps_what_each_try_ran_on() {
     let fake = Fake {
