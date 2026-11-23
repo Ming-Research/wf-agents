@@ -1,5 +1,5 @@
-//! What the tests of the context manager share: a small flow, its works taken through the engine's own loop, and the
-//! words beside the flows of the flow crate's tests.
+//! What the tests of the context manager share: a small flow and the engineer's flow, their works taken through the
+//! engine's own loop, and the words beside the flows of the flow crate's tests.
 //!
 //! The flow: `plan` and `build` on the line `engineer`, `review` on the line `reviewer`, and `close`, which nothing
 //! runs, so that a work never ends. People write `request` and `notes`, and the plan, the opinions and the verdict
@@ -210,7 +210,7 @@ pub struct Given {
     pub number: usize,
 }
 
-/// A work of the small flow, taken one thing at a time through the engine's loop. It is cloned where a search goes on
+/// A work of a flow, the small flow unless it is made of another, taken one thing at a time through the engine's loop. It is cloned where a search goes on
 /// from a state it reached.
 #[derive(Clone)]
 pub struct Sim {

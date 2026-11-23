@@ -70,8 +70,8 @@ pub const OWED: &str = "a return is sent back for the word it owes exactly where
 pub const NO_POINT: &str = "a judge's return is sent back for its points exactly where its fail brings none";
 pub const RULED: &str = "a judge's point the owner ruled on runs no cell";
 
-/// What the histories reached, each of which some history must reach: a property about a situation no history
-/// reaches checks nothing.
+/// What the histories reached, each of which at least `FLOOR` histories must reach: a property about a situation that
+/// few histories reach checks little.
 pub const REACHED: &[&str] = &[
     PERSON_UNDER_WAY,
     PERSON_AT_REST,

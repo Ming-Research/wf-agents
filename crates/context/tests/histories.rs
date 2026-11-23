@@ -30,9 +30,12 @@
 //! datum ([`stood`]: a real round is a product of every datum's own state, a written situation one cut of them): on the
 //! small flow in both directions, so that every state a datum stood in a round is one the tool writes, and every state it
 //! writes was stood in by a round of the histories, which is why the scripted history brings about what the random steps
-//! reach too seldom; on the engineer's flow, which these histories carry with the owner's words, questions and answers,
-//! only in the first direction: they reach part of its cells and of the states of each datum, so a state the tool
-//! writes that no round stood in is not held to there.
+//! reach too seldom; and on the engineer's flow, which these histories carry with the owner's words, questions and
+//! answers, in both directions too, by a search that keeps the state of a history whenever it reached a state of a datum
+//! none had and goes on from it, a group of the flow's cells to a test. A state the search does not reach is read: it is
+//! given a directed test, or it is deleted from the rules as one no round can stand in. The check holds each state of
+//! each datum, not the joint situations written, so that a datum stood in alone in each of its states may not be stood
+//! in together with the others as a written situation says.
 
 mod support;
 

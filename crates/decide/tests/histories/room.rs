@@ -14,7 +14,7 @@ use crate::properties::{Verdict, last_place};
 pub const AS_ITS_OWN: &str = "the pause of everything holds back what the work's own pause does";
 pub const SLOT_HOLDS: &str = "with no slot free, a cell that takes one begins no round, and nothing else is held";
 
-/// What the histories reached of the room, each of which some history must reach.
+/// What the histories reached of the room, each of which at least `FLOOR` histories must reach.
 pub const REACHED: &[&str] = &[EVERYTHING_HELD, EVERYTHING_ANSWERS, SLOT_WAITED, SLOT_HELD];
 
 const EVERYTHING_HELD: &str = "the pause of everything holds back a run";

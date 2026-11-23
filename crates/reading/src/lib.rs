@@ -4,8 +4,8 @@
 //! reading, so that a fault in the walk's own reading is not repeated in the judging. It reads only the records and the
 //! flow, with its named tests, never what the deciding code works out of them: it takes the deciding code's types and
 //! calls none of its walk. It is read by every test that judges the deciding code by the records, the histories of
-//! crate `decide` and the exploration of the repository's own flow (crate `flow`, `tests/explored`), so it is one crate
-//! they share.
+//! crate `decide`, those of the engineer's flow (crate `engine`, `tests/engineer`, which takes its file in) and the
+//! exploration of the repository's own flow (crate `flow`, `tests/explored`), so it is one reading they share.
 
 use std::collections::BTreeMap;
 

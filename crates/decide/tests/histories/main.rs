@@ -51,7 +51,8 @@
 //! - the room the engine leaves the work (`room`), as before: the owner's pause of everything and the slot come and go
 //!   in some histories, and every history asks the walk what it would decide in every other room.
 //!
-//! Every situation a property is about is counted, and a test fails if none of its histories reaches one of them.
+//! Every situation a property is about is counted by the histories that reached it, and a test fails if fewer than `FLOOR`
+//! of them did: the histories run in batches until each was reached in `FLOOR`.
 //!
 //! A failing case prints its seed, the properties it broke and the steps it took; `one_history(seed, drawn, ..)`
 //! replays it, `drawn` being what its test draws from.

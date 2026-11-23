@@ -2229,8 +2229,8 @@ fn in_parallel<T: Send>(from: u64, to: u64, f: impl Fn(u64) -> T + Sync) -> Vec<
     done.into_iter().map(|(_, t)| t).collect()
 }
 
-/// Runs the histories, prints what they reached and counted, and fails if one breaks a property, or if none reached a
-/// situation the properties are about. A panic anywhere in a history, raised while the hook is silenced, is kept as a
+/// Runs the histories, prints what they reached and counted, and fails if one breaks a property, or if fewer than
+/// [`FLOOR`] histories reached a situation the properties are about. A panic anywhere in a history, raised while the hook is silenced, is kept as a
 /// breach with its message, so that it is said when the test fails.
 fn histories() {
     let _hook = HOOK.lock().unwrap_or_else(PoisonError::into_inner);
