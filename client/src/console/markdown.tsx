@@ -470,8 +470,7 @@ function words(pieces: Inline[], pointers: Pointers | undefined, titles: Titles)
       if (p.kind === 'text') {
         // Words in a link are its words: a link to an item cannot stand inside another.
         run.push(p.href === null ? <Fragment key={i}>{linkItemNumbers(p.text, titles)}</Fragment> : p.text);
-      }
-      else if (p.kind === 'code') run.push(<code key={i}>{p.text}</code>);
+      } else if (p.kind === 'code') run.push(<code key={i}>{p.text}</code>);
       else if (p.kind === 'break') run.push(<br key={i} />);
       else if (p.kind === 'picture') {
         run.push(<img key={i} src={p.src} alt={p.alt} title={p.title ?? undefined} />);
