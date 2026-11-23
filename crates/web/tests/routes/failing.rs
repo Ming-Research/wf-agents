@@ -34,7 +34,8 @@ async fn a_failed_round_and_the_engines_pause_are_given_with_the_reason() {
     pass(2000).await;
     let failed_at = START + 4500;
     let page = get_json(router, "/api/v1/works/1").await;
-    let paused = json!({ "kind": "paused", "at": "plan", "by": "engine", "why": WHY });
+    let reason = format!("The round failed. The cause: {WHY}");
+    let paused = json!({ "kind": "paused", "at": "plan", "by": "engine", "why": reason });
     assert_eq!(page["summary"]["now"], paused);
     assert_eq!(page["summary"]["paused"], "engine");
     assert_eq!(
@@ -54,7 +55,7 @@ async fn a_failed_round_and_the_engines_pause_are_given_with_the_reason() {
     assert_eq!(rounds[0]["spent"]["rounds"], 1);
     let pause = steps.iter().rev().find(|s| s["kind"] == "paused").unwrap();
     assert_eq!(pause["by"], "engine");
-    assert_eq!(pause["why"], WHY);
+    assert_eq!(pause["why"], reason);
     assert_eq!(pause["time"], failed_at);
     // The list of works says it as well.
     let items = get_json(router, "/api/v1/items").await;
