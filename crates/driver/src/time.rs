@@ -144,7 +144,19 @@ pub struct Waits<'a> {
     pub from: Option<Time>,
     /// When the last of what ran ended.
     pub until: Option<Time>,
-    decided: BTreeMap<(Option<Seq>, Option<bool>, bool, bool, bool), Went>,
+    decided: BTreeMap<Then, Went>,
+}
+
+/// What a wait is decided by: the place of the first entry after the time, who set the pause of everything then (whether
+/// the engine), whether a stop stood, whether the agents' command line could not run, and whether another work of the
+/// project held the turn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct Then {
+    place: Option<Seq>,
+    everything: Option<bool>,
+    stopping: bool,
+    could_not_run: bool,
+    held: bool,
 }
 
 impl<'a> Waits<'a> {
@@ -204,13 +216,13 @@ impl<'a> Waits<'a> {
             .map(|wait| wait.why.as_str());
         let stopping = (self.stops.iter()).any(|stop| stop.from <= at && stop.until.is_none_or(|until| at < until));
         let held = (self.turns.iter()).any(|span| span.from <= at && span.until.is_none_or(|until| at < until));
-        let key = (
+        let key = Then {
             place,
-            everything.map(|by| by == Pauser::Engine),
+            everything: everything.map(|by| by == Pauser::Engine),
             stopping,
-            could_not_run.is_some(),
+            could_not_run: could_not_run.is_some(),
             held,
-        );
+        };
         let kept = self.kept;
         Some(*self.decided.entry(key).or_insert_with(|| {
             let then = owner::Shared {
