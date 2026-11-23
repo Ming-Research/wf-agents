@@ -46,6 +46,10 @@ The agents' program keeps its settings and sessions in the engine's `profile/` i
 - replaced: A directory for the program named by the installation's `agents.config_dir`, under the data directory's `agents/`, was on main; the owner changed it, because he did not want to keep that `agents` directory.
 - replaced: The program's own cleanup, deleting a session after thirty days, was on main; the owner changed it, because it deleted the agents' transcripts, which he wanted kept.
 
+### decision the-program-reads-only-the-users-settings
+Every command that runs the agents' program gives it `--setting-sources user`, so it reads no settings file that a work's worktree holds.
+- replaced: Setting which settings files the program reads in the installation (`agents.setting_sources`) was on main; the owner changed it, because every installation had to keep the same value, and any other would let the program read files an agent can write.
+
 ### decision agents-run-as-the-engines-user
 The agents' program runs as the engine's own system user, and nothing the engine does keeps it out of the data directory; only the program's own rules do.
 - rejected: an agent proposed another system user for the agents, or else refusing the data directory to their file tools by path and dropping the shell commands that read files; the owner rejected it, because an agent works in its own worktree, and only some harmless commands were to be allowed.

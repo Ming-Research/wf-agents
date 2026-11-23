@@ -472,7 +472,7 @@ fn read(data: &Path, dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>, Re
                     eprintln!("{fault}");
                     wrong = true;
                 }
-                for line in start.held.into_iter().chain(start.warned) {
+                for line in start.held {
                     eprintln!("{line}");
                 }
                 Some(Read::Settings(Box::new(settings), Box::new(beside)))
@@ -498,14 +498,11 @@ struct Start {
     /// What keeps a project's works from being carried out, each said with the project's key: the project is held, its
     /// works are paused with the reason, and the other projects go on.
     held: Vec<String>,
-    /// What the owner is told of a project that is carried, each said with the project's key: where what its
-    /// declaration would do is not done, as an agent that writes updating no lock file where it names no lock command.
-    warned: Vec<String>,
 }
 
 /// What keeps the real carriers from carrying out the flows, every fault at once: what the acts need of a flow and of
-/// their words beside the flows; what every agent is refused whatever its project, beside the flows
-/// ([`carry::permissions::faults`]), the same for every project and said once; what the texts sent to the agents name
+/// their words beside the flows; what every agent is refused whatever its project, beside the flows, and
+/// the program the installation names ([`carry::permissions::faults`]), the same for every project and said once; what the texts sent to the agents name
 /// and hold where it is the flows', the same for every project; and two projects in one repository, each said with the
 /// projects' keys. Of each project, what is wrong with its declaration on its main, with the files it names, its heavy
 /// commands and the commands its host needs of it, is no fault of the engine's but holds that project alone
@@ -516,7 +513,7 @@ fn start(settings: &carry::Settings, beside: &flow::agents::Agents, flows: &[Com
         .collect();
     let words = carry::word_faults(&beside.acts.check).into_iter();
     faults.extend(words.map(|fault| format!("{}/{fault}", beside.root.display())));
-    faults.extend(carry::permissions::faults(beside));
+    faults.extend(carry::permissions::faults(beside, &settings.agents.command));
     let (declared, wrong) = carry::projects::declared(settings, beside, flows);
     faults.extend(wrong);
     let held = (declared.iter())
@@ -528,19 +525,7 @@ fn start(settings: &carry::Settings, beside: &flow::agents::Agents, flows: &[Com
             ))
         })
         .collect();
-    let warned = (declared.iter())
-        .filter_map(|(name, declared)| {
-            let declared = declared.as_ref().ok()?;
-            declared.declaration.heavy.locks.is_empty().then(|| {
-                format!(
-                    "projects.{name}: {} [heavy] locks names no command that updates a lock file, so an agent that \
-                     writes may update none.",
-                    flow::agents::DECLARATION
-                )
-            })
-        })
-        .collect();
-    Start { faults, held, warned }
+    Start { faults, held }
 }
 
 /// What is written beside the flows, read from the directory that holds them, with the form of return of each line of
@@ -735,11 +720,9 @@ mod tests {
     }
 
     // A project whose declaration cannot be used is held, and every one is said at once with its project's key and why,
-    // whatever else is wrong: the declaration main does not hold, one that names no heavy commands, lock commands
-    // that fall under what every agent is refused or that would allow a heavy command whole, variables it names for the
-    // agents' command line that the engine, the settings or the agents' program own, and time limits of its workflows
-    // that are no times. None of it keeps the engine
-    // from starting, and the project that is fine is not held. Two projects that name one repository are a fault of the
+    // whatever else is wrong: the declaration main does not hold, one that names no heavy commands, variables it names
+    // for the agents' command line that the engine, the settings or the agents' program own, and time limits of its
+    // workflows that are no times. None of it keeps the engine from starting, and the project that is fine is not held. Two projects that name one repository are a fault of the
     // engine's, which their declarations do not cause, and keep it from starting.
     #[test]
     fn a_project_whose_declaration_cannot_be_used_is_held_and_each_is_said_with_its_key_and_why() {
@@ -749,14 +732,8 @@ mod tests {
         let (unheavy, _) = good
             .split_once("\n[heavy]\n")
             .expect("the declaration names its heavy commands");
-        let locks = good.replace(
-            "locks = [\"cargo update\"",
-            "locks = [\"git push\", \"cargo\", \"cargo update\"",
-        );
-        assert_ne!(locks, good, "the lock commands are written as the test expects");
         with_project(&mut settings, dir.path(), "other", None, false);
         with_project(&mut settings, dir.path(), "lacking", Some(unheavy), false);
-        with_project(&mut settings, dir.path(), "locks", Some(&locks), false);
         // The same declaration naming, for the agents' command line, a variable the engine owns, one the agents' program
         // reads itself and one the settings keep of the engine's environment.
         settings.agents.env = vec!["LANGUAGE".to_string()];
@@ -775,7 +752,7 @@ mod tests {
         let beside = beside(&[flows().join("engineer")], &[]).expect("the files beside the flows");
         let started = start(&settings, &beside, &[engineer()]);
         assert_eq!(started.faults, Vec::<String>::new(), "no fault of the engine's");
-        assert_eq!(started.held.len(), 5, "{:?}", started.held);
+        assert_eq!(started.held.len(), 4, "{:?}", started.held);
         let held = |name: &str| {
             (started.held.iter())
                 .find(|line| line.starts_with(&format!("projects.{name}: held")))
@@ -791,15 +768,6 @@ mod tests {
                 && held("lacking").contains("missing field `heavy`"),
             "{:?}",
             started.held
-        );
-        let locks = held("locks");
-        assert!(
-            locks.contains(
-                "wf-agents.toml [heavy] locks: \"git push\" falls under \"git push\", which every agent is refused \
-                 (flow/agents/refused.toml)"
-            ) && locks
-                .contains("wf-agents.toml [heavy] locks: \"cargo\" would allow all of the heavy command \"cargo\""),
-            "{locks}"
         );
         let unsafe_line = held("unsafe");
         for fault in [
@@ -827,7 +795,7 @@ mod tests {
             "{:?}",
             started.faults
         );
-        assert_eq!(started.held.len(), 5, "{:?}", started.held);
+        assert_eq!(started.held.len(), 4, "{:?}", started.held);
     }
 
     // The engine starts with its one project held, as with any: the held project's reason is the only thing said.
@@ -889,24 +857,9 @@ mod tests {
         let fast_limit = |limit: &str| good.replacen("too_long = \"2h\"", &format!("too_long = \"{limit}\""), 1);
         with_project(&mut settings, dir.path(), "short", Some(&fast_limit("5m")), true);
         with_project(&mut settings, dir.path(), "exact", Some(&fast_limit("10m")), true);
-        // A project that names no lock command is carried, and the owner is told that its agents may update no lock file.
-        let no_locks = good.replace(
-            "locks = [\"cargo update\", \"cargo add\", \"npm install --package-lock-only --ignore-scripts\"]",
-            "locks = []",
-        );
-        assert_ne!(no_locks, good, "the lock commands are written as the test expects");
-        with_project(&mut settings, dir.path(), "nolocks", Some(&no_locks), false);
         let beside = beside(&[flows().join("engineer")], &[]).expect("the files beside the flows");
         let started = start(&settings, &beside, &[engineer()]);
         assert_eq!(started.faults, Vec::<String>::new());
-        assert_eq!(
-            started.warned,
-            [
-                "projects.nolocks: wf-agents.toml [heavy] locks names no command that updates a lock file, so an agent \
-                 that writes may update none."
-            ],
-            "only a project that is carried and names none is warned of"
-        );
         let names: Vec<&str> = started
             .held
             .iter()

@@ -958,9 +958,7 @@ impl Real {
                     })
                     .into(),
                 slots: 2,
-                args: Vec::new(),
                 env: Vec::new(),
-                setting_sources: "user".to_string(),
                 subagents: Default::default(),
                 work_budget_usd: budget,
                 // What a letting-on of a work the engine paused for its budget allows it beyond that budget: the
@@ -974,8 +972,6 @@ impl Real {
             },
             backup: None,
             sessions: Default::default(),
-            history: Default::default(),
-            query: Default::default(),
         };
         let flow = compiled(on);
         let tokens = Arc::new(service::KeptTokens::new());

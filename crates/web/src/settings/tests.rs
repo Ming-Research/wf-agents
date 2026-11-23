@@ -16,8 +16,8 @@ language = "Chinese" # as the owner asked
 [agents]
 command = "claude"
 slots = 2
-args = [
-  "--allowedTools", "Edit(./**)",
+env = [
+  "HTTPS_PROXY",
 ]
 subagents = { most = 3 }
 
@@ -40,7 +40,7 @@ const RUNNING: usize = 2;
 /// The keys the stand-in reading knows, by table.
 const KNOWN: [(&str, &[&str]); 4] = [
     ("owner", &["language"]),
-    ("agents", &["command", "slots", "args", "subagents", "levels"]),
+    ("agents", &["command", "slots", "env", "subagents", "levels"]),
     ("items", &["default_level", "highest_level", "title_max"]),
     ("sessions", &["compact_at"]),
 ];
@@ -168,8 +168,8 @@ fn the_file_is_shown_as_it_writes_the_settings_in_its_order() {
     assert_eq!(language.running, None, "the engine runs with the value written");
     assert_eq!(language.change, Some(Change::Name));
     assert_eq!(
-        key(&page, "agents", "args").written.as_deref(),
-        Some("[\n  \"--allowedTools\", \"Edit(./**)\",\n]"),
+        key(&page, "agents", "env").written.as_deref(),
+        Some("[\n  \"HTTPS_PROXY\",\n]"),
         "a value as the file writes it, over lines"
     );
     assert_eq!(
