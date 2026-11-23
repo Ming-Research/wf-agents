@@ -176,9 +176,9 @@ pub fn continues_fault(continues: &Continues) -> Option<Refused> {
                 || name
                     .split('/')
                     .any(|part| part.starts_with('.') || part.ends_with(".lock"))
-                || name.chars().any(|c| {
-                    c == ' ' || c < ' ' || c == '\u{7f}' || matches!(c, '~' | '^' | ':' | '?' | '*' | '[' | '\\')
-                })
+                || name
+                    .chars()
+                    .any(|c| c <= ' ' || c == '\u{7f}' || matches!(c, '~' | '^' | ':' | '?' | '*' | '[' | '\\'))
         }
     };
     bad.then(|| Refused::BadContinues(continues.clone()))
