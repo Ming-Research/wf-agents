@@ -36,7 +36,6 @@ fn engineer(root: &Path) -> Compiled {
             "answer",
             "asked",
             "handed_in",
-            "parallel",
             "words",
             DEPENDENCIES,
             "main",
@@ -79,48 +78,6 @@ fn a_start_the_flow_gives_no_words_for_is_a_fault_on_the_file_that_holds_them() 
     assert_eq!(faults.len(), 1, "{faults:?}");
     assert!(faults[0].contains("data/start.toml"), "{}", faults[0]);
     assert!(faults[0].ends_with("its writes must give text"), "{}", faults[0]);
-}
-
-// The list of the works under way gives every text its entries are made of: where its file lacks one, the fault names
-// that file and the text.
-#[test]
-fn a_list_of_the_works_under_way_that_gives_no_words_is_a_fault_on_the_file_that_holds_them() {
-    let dir = copied();
-    without(dir.path(), "data/parallel.toml", "unread = ");
-    let faults = driver::faults(&engineer(dir.path()));
-    assert_eq!(faults.len(), 1, "{faults:?}");
-    assert!(faults[0].contains("data/parallel.toml"), "{}", faults[0]);
-    assert!(faults[0].ends_with("its writes must give unread"), "{}", faults[0]);
-}
-
-// The block of the list says in what block a work's plan names its files: where its file does not, the fault names that
-// file, as it does where another block says it.
-#[test]
-fn the_list_of_the_works_under_way_must_say_in_what_block_a_plan_names_its_files_and_no_other_block_may() {
-    let dir = copied();
-    without(dir.path(), "data/parallel.toml", "planned_in = ");
-    let faults = driver::faults(&engineer(dir.path()));
-    assert_eq!(faults.len(), 1, "{faults:?}");
-    assert!(faults[0].contains("data/parallel.toml"), "{}", faults[0]);
-    assert!(faults[0].ends_with("its file must give planned_in"), "{}", faults[0]);
-
-    let dir = copied();
-    let path = dir.path().join("data/main.toml");
-    let text = fs::read_to_string(&path).unwrap();
-    assert!(text.contains("from = \"main\"\n"));
-    fs::write(
-        &path,
-        text.replacen("from = \"main\"\n", "from = \"main\"\nplanned_in = \"plan_files\"\n", 1),
-    )
-    .unwrap();
-    let faults = driver::faults(&engineer(dir.path()));
-    assert_eq!(faults.len(), 1, "{faults:?}");
-    assert!(faults[0].contains("data/main.toml"), "{}", faults[0]);
-    assert!(
-        faults[0].ends_with("only a block from parallel gives planned_in"),
-        "{}",
-        faults[0]
-    );
 }
 
 // The block that says a cell has handed in gives the words the engine writes with its yes: where its file gives none,
