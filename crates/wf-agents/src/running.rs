@@ -1025,7 +1025,7 @@ mod tests {
         assert_eq!((install.read)(sample), Ok(install.running.clone()));
         assert_eq!(install.running["agents"]["slots"], 2);
         assert_eq!(
-            install.running["history"]["samples"], 19,
+            install.running["agents"]["subagents"]["most"], 3,
             "a key left out at its default"
         );
         let misspelt = sample.replace("slots = 2", "slots = 2\nslot = 3");
