@@ -98,6 +98,33 @@ fn an_empty_text_written_where_nothing_stands_says_nothing_and_over_content_it_c
     );
 }
 
+// Reference: the owner's answer to an-empty-text-says-nothing: an empty text over an empty one has no meaning of its own,
+// and over content it is a clearing, which is a change; so a clearing wakes the reader once, a second empty text after it
+// wakes none, and content after that is a change again.
+#[test]
+fn an_empty_text_over_a_clearing_says_nothing_and_content_after_it_runs_the_reader_again() {
+    let mut w = World::with_gate(vec![cell("ask", &["topic"], &["notes"]), cell("use", &["notes"], &[])]);
+    w.person_writes("topic");
+    w.run("ask", &[("notes", Matters)]);
+    assert_eq!(reasons(&w.decide()).0, "use");
+    w.run("use", &[]);
+    assert_eq!(w.decide(), resting());
+    // The clearing wakes the reader, which has consumed the content.
+    w.person_writes("topic");
+    w.run("ask", &[("notes", Nothing)]);
+    assert_eq!(reasons(&w.decide()).0, "use");
+    w.run("use", &[]);
+    assert_eq!(w.decide(), resting());
+    // Another empty text over the cleared one wakes nobody.
+    w.person_writes("topic");
+    w.run("ask", &[("notes", Nothing)]);
+    assert_eq!(w.decide(), resting());
+    // Content again is a change.
+    w.person_writes("topic");
+    w.run("ask", &[("notes", Matters)]);
+    assert_eq!(reasons(&w.decide()).0, "use");
+}
+
 // A block the owner and a cell add entries to replaces none of them: an empty entry has no meaning, whatever stands
 // before it.
 #[test]

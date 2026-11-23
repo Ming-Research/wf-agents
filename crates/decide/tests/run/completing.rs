@@ -229,3 +229,67 @@ fn what_the_next_return_completes_is_what_the_last_was_sent_back_for_not_naming(
     let after = [rounds[0].clone(), failed_as(Failure::Flagged)];
     assert_eq!(carried(&after, None), completes);
 }
+
+// Reference: decision a-sent-back-return-is-completed-by-what-is-missing (what a send-back does not name stands, what it
+// names is left out and given again), and the send-back's own words, which tell the cell it must hold none of the blocks
+// a `NothingBut` fault lists.
+#[test]
+fn a_return_sent_back_for_a_choice_that_allows_nothing_beside_it_gives_up_the_blocks_beside_it_too() {
+    let wrong = vec![Unmet::NothingBut {
+        block: "verdict".into(),
+        value: "no".to_string(),
+        besides: vec!["plan".into()],
+    }];
+    let before = || told(wrong.clone(), handed_in(vec![prose("plan"), valued("verdict", "no")]));
+    // Given the verdict alone again, the plan the fault named does not stand.
+    assert_eq!(
+        step(vec![before(), works(&[], vec![valued("verdict", "no")])], &spec()),
+        finish(vec![valued("verdict", "no")])
+    );
+    // Given nothing, neither the verdict nor the plan stands, and what the return dealt with does.
+    assert_eq!(step(vec![before(), works(&[], vec![])], &spec()), finish(vec![]));
+}
+
+// Reference: the same decision, for a send-back after a send-back: each return completes the one before it, and a block
+// that stood from the first return stands to the third.
+#[test]
+fn a_chain_of_returns_each_sent_back_for_another_fault_stands_as_the_blocks_none_of_the_faults_named() {
+    let s = must_write(&["verdict"]);
+    let first = told(vec![not_handed_in("verdict")], handed_in(vec![prose("plan")]));
+    let second = told(
+        vec![Unmet::NotAChoice {
+            block: "verdict".into(),
+        }],
+        works(&[], vec![valued("verdict", "maybe")]),
+    );
+    // The second is not met by what it carries with the first, and the third gives the verdict again.
+    assert_eq!(
+        step(vec![first.clone(), works(&[], vec![valued("verdict", "no")])], &s),
+        finish(vec![prose("plan"), valued("verdict", "no")])
+    );
+    assert_eq!(
+        step(vec![first, second, works(&[], vec![valued("verdict", "no")])], &s),
+        finish(vec![prose("plan"), valued("verdict", "no")])
+    );
+}
+
+// Reference: design document `data-and-context`, 35, and decision a-return-says-what-it-dealt-with: a return that names
+// the cell's own words as dealt with writes an answer in them; the next return completes it by giving that answer.
+#[test]
+fn a_return_sent_back_for_naming_the_owners_words_with_no_answer_is_completed_by_the_answer() {
+    let mut s = must_write(&["verdict"]);
+    s.outputs.push("spoken".into());
+    s.words = Some("spoken".into());
+    s.told.ran_by = vec!["request".into(), "spoken".into()];
+    let unanswered = vec![Unmet::NotAnswered {
+        name: "spoken".to_string(),
+    }];
+    let before = told(unanswered, works(&["spoken"], vec![]));
+    assert_eq!(
+        step(vec![before, works(&[], vec![prose("spoken")])], &s),
+        Step::Finish {
+            dealt_with: vec!["spoken".into()],
+            writes: vec![prose("spoken")],
+        }
+    );
+}
