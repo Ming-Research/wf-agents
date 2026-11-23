@@ -53,7 +53,10 @@ fn the_keys_that_keep_a_cell_from_applying_are_the_keys_of_its_condition_that_do
         when("more", "yes", cell("extra", &["brief"], &[])),
     ]);
     w.person_writes("brief");
-    let on = |w: &World, cell: &str| decide::skipped_on(&w.flow, &w.records, &cell.into());
+    let on = |w: &World, cell: &str| {
+        let mut skipped = decide::skipped(&w.flow, &w.records);
+        skipped.remove(&decide::CellId::from(cell)).unwrap_or_default()
+    };
     assert_eq!(
         on(&w, "extra"),
         vec![Condition::Is {

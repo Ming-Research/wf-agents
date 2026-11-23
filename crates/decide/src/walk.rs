@@ -488,11 +488,14 @@ pub fn applies(flow: &Flow, records: &Records, cell: &CellId) -> bool {
     flow.place(cell).is_some_and(|i| walk.applies(i))
 }
 
-/// The keys of the cell's condition that do not hold now, which keep it from applying: none where it applies or where
-/// the flow has no such cell.
-pub fn skipped_on(flow: &Flow, records: &Records, cell: &CellId) -> Vec<Condition> {
+/// Of each cell that does not apply now, the keys of its condition that do not hold, which keep it from applying; a
+/// cell that applies has none. All of them are worked out in one walk of the records.
+pub fn skipped(flow: &Flow, records: &Records) -> BTreeMap<CellId, Vec<Condition>> {
     let walk = Walk::new(flow, records);
-    (flow.place(cell)).map_or_else(Vec::new, |i| walk.skipped_on(i))
+    (flow.cells().iter().enumerate())
+        .map(|(i, cell)| (cell.id.clone(), walk.skipped_on(i)))
+        .filter(|(_, on)| !on.is_empty())
+        .collect()
 }
 
 /// The blocks that keep this key of the cell's preconditions from holding now, by the value each has: a write of any of

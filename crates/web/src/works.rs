@@ -827,6 +827,7 @@ impl QuestionPage {
     /// Each question of the work, as it stands, numbered as the version the work is on names each cell's questions.
     fn all(kept: &Kept<'_>) -> Result<Vec<QuestionPage>, Broken> {
         let work = kept.work;
+        let skipped = decide::skipped(&kept.flow.flow, &work.records);
         (decide::questions::questions(&work.records).into_iter())
             .map(|(name, q)| {
                 let (ask, options, recommends, withdrawn, tree) = match work.question(q.latest) {
@@ -850,15 +851,14 @@ impl QuestionPage {
                 };
                 // Why its cell does not run says why a question that stands holds nothing: one answered or withdrawn
                 // holds nothing and has nothing to be answered, so it says none.
-                let skipped = decide::skipped_on(&kept.flow.flow, &work.records, &q.latest.cell);
-                let skipped = match skipped.is_empty() || !q.unanswered() {
-                    true => None,
-                    false => {
-                        let on: Vec<CellKey> = (skipped.iter())
+                let skipped = match (skipped.get(&q.latest.cell), q.unanswered()) {
+                    (Some(keys), _) => {
+                        let on: Vec<CellKey> = (keys.iter())
                             .map(|key| key_of(kept, key))
                             .collect::<Result<_, Broken>>()?;
                         Some(skipped_words(&kept.flow.waits.stalled, &q.latest.cell.to_string(), &on))
                     }
+                    _ => None,
                 };
                 Ok(QuestionPage {
                     name: name.to_string(),
