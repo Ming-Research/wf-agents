@@ -205,9 +205,16 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
             keeping.run(handle.clone());
             about
         });
+        let (levels_of_observations, projects_of_observations) = (levels.clone(), projects.clone());
         let router = web::with_works_and_copies(flows_shown, handle, levels, projects, about);
-        // The observations are read, and marked read, through connections of their own to the store's file.
-        let router = router.merge(web::observations::router(service.handle(), data.join(store::FILE)));
+        // The observations are read, added to, changed and marked read through connections of their own to the store's
+        // file.
+        let router = router.merge(web::observations::router(
+            service.handle(),
+            data.join(store::FILE),
+            levels_of_observations,
+            projects_of_observations,
+        ));
         let router = match install {
             Some(install) => router.merge(web::settings::router(install, service.handle())),
             None => router,
