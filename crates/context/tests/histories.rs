@@ -236,6 +236,8 @@ enum Forced {
     Wrong,
     /// Hands in every block the cell writes.
     All,
+    /// Hands in the blocks the cell must write every time and no other.
+    Must,
 }
 
 impl History {
@@ -509,7 +511,7 @@ impl History {
         self.carry(&round, reached);
         // While it rests at the call, the request is written: the plan and the build, which hand in what they write, are
         // run before its next round, which the session holds as the build's hand-in last.
-        let close = self.forced.replace(vec![Forced::All, Forced::All]);
+        let close = self.forced.replace(vec![Forced::All, Forced::All, Forced::Must]);
         self.put("request");
         for _ in 0..20 {
             match self.sim.round() {
@@ -615,11 +617,12 @@ impl History {
     /// otherwise each block the cell writes with a chance of seven in ten, those it must write every time.
     fn came(&mut self, round: &Round) -> Came {
         let scripted = self.forced.is_some();
-        let (mut wrong, mut all) = (false, false);
+        let (mut wrong, mut all, mut only_must) = (false, false, false);
         match self.forced.as_mut().filter(|f| !f.is_empty()).map(|f| f.remove(0)) {
             Some(Forced::Ask(ask)) => return Came::asks(vec![ask]),
             Some(Forced::Wrong) => wrong = true,
             Some(Forced::All) => all = true,
+            Some(Forced::Must) => only_must = true,
             None => {}
         }
         if !scripted && self.rng.chance(15) {
@@ -651,7 +654,7 @@ impl History {
                 continue;
             }
             let must = cell.must_write.contains(&block);
-            if (must && !leaves_out) || (!must && (all || self.rng.chance(70))) {
+            if (must && !leaves_out) || (!must && !only_must && (all || self.rng.chance(70))) {
                 let passes = self.scene.passes.is_some_and(|percent| self.rng.chance(percent));
                 let value = self.sim.flow.blocks[&block].values.clone().map(|v| match passes {
                     true if v.iter().any(|x| x == "yes") => "yes".to_string(),
@@ -664,6 +667,26 @@ impl History {
                     matters: true,
                     value,
                 });
+            }
+        }
+        // A choice that says what a return holds nothing else but, with the value it is given, is handed in with just that.
+        for kept in writes.clone() {
+            let Some(value) = &kept.value else {
+                continue;
+            };
+            if let Some(only) = self.sim.flow.blocks[&kept.block].with_nothing_but.get(value) {
+                writes.retain(|w| w.block == kept.block || only.contains(&w.block));
+                for block in only {
+                    if !writes.iter().any(|w| w.block == *block) {
+                        let content = self.content(block.as_str());
+                        writes.push(Handed {
+                            block: block.clone(),
+                            content,
+                            matters: true,
+                            value: None,
+                        });
+                    }
+                }
             }
         }
         // A block the cell may not write is handed in beside the rest in one return of twenty-five, which is sent back,
@@ -1350,9 +1373,10 @@ fn the_rounds_of_works_of_the_engineer_s_flow_stand_in_what_the_tool_writes_for_
     assert!(
         reached.real.is_subset(&written) && written.is_subset(&reached.real),
         "rounds stood in what the tool does not write, {gaps}\n\nthe tool writes what no round stood in, {nothing}\n\nof the \
-         rounds, by cell: {}\nof the tool, by cell: {}\nthe histories carried {} rounds in {:?}",
+         rounds, by cell: {}\nof the tool, by cell: {}\nof the tool and no round, by cell: {}\nthe histories carried {} rounds in {:?}",
         per_cell(&reached.real),
         per_cell(&written),
+        per_cell(&written.difference(&reached.real).cloned().collect()),
         reached.rounds,
         began.elapsed()
     );
