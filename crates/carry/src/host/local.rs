@@ -224,6 +224,6 @@ mod tests {
     #[test]
     fn the_local_repository_has_no_pull_request_to_link() {
         let repo = Repo::new("true");
-        assert_eq!(Local::new(repo.project.clone()).pull_at(12), None);
+        assert_eq!(Local::new(repo.project.clone(), repo.check.clone()).pull_at(12), None);
     }
 }

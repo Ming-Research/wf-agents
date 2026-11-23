@@ -4722,7 +4722,8 @@ pub(crate) mod tests {
     #[test]
     fn each_reason_a_return_was_sent_back_reaches_the_page_by_its_key_with_every_value_it_records() {
         let block = |name: &str| BlockId::from(name);
-        let cases: Vec<(UnmetOf, &str, Vec<(&str, &str)>)> = vec![
+        type Case = (UnmetOf, &'static str, Vec<(&'static str, &'static str)>);
+        let cases: Vec<Case> = vec![
             (
                 UnmetOf::NothingBut {
                     block: block("tree_ok"),

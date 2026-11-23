@@ -27,7 +27,7 @@ pub(super) fn own(cell: &str) -> String {
         recommends = " Recommends {{option}}."
         waits = " Waits."
         goes_on = " Goes on."
-        withdrawn = "{{question}}, {{version}}: {{was}} withdrawn.{{why}}"
+        withdrawn = "{{question}}, {{version}}: {{was}} withdrawn.{{reason}}"
         why = " Why: {{why}}"
         [blocks.{cell}_words]
         outside = "words"
@@ -770,7 +770,7 @@ fn laid_out() -> Compiled {
              why = \" Why: {why}\"\nasked = \"{question}, {version}: {ask}{options}{recommends}{waits}\"\n\
              asked_anew = \"{question}, {version} for {was}: {ask}{options}{recommends}{waits}\"\n\
              option = \" [{option}. {does}]\"\nrecommends = \" Recommends {option}.\"\nwaits = \" Waits.\"\n\
-             goes_on = \" Goes on.\"\nwithdrawn = \"{question}, {version}: {was} withdrawn.{why}\"\n",
+             goes_on = \" Goes on.\"\nwithdrawn = \"{question}, {version}: {was} withdrawn.{reason}\"\n",
         ),
         (
             "../data/of_a_cell/words.toml",
