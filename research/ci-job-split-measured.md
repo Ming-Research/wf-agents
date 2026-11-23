@@ -25,30 +25,46 @@ change of only `design/` does not touch. `design/lint.py`, `design/lint_test.py`
 `docs/check_citations_test.py` are run by the job `tree` of `ci.yml`, and the first and third also by the lint of
 `fast.yml`; no test runs them.
 
-## The comparison and what rejects each part
 
-Whom the comparison serves: the owner, who runs it, and the review that applies the criteria. It is written before any
-number is taken. A part that a criterion rejects is dropped, and its decision then says what the numbers were.
+## What a full run of main's `ci.yml` takes (measured on 2026-11-23)
 
-Two variants of `ci.yml`, as the work's commits hold them, against main's file:
+Eight successful runs of main's file that the engine asked for, the last eight before 15:40 UTC, got with
+`gh run list --workflow ci.yml --event workflow_dispatch --branch main` and, for each run, `gh api
+repos/<repository>/actions/runs/<id>` (wall: creation to last update) and `.../runs/<id>/jobs` (each job from `started_at`
+to `completed_at`). Seconds. Page is the one job `page`; the three Rust jobs are `test 1`, `test 2` and `test 3 of 3`.
 
-- variant 1: `scope` and `tree` added and the jobs of the code made to wait for `scope`, the page still in one job;
-- variant 2: variant 1 with the page's type-check, lint and build in `page` and its tests in `page tests`.
+| Run | Wall | page | test 1 | test 2 | test 3 | lint | Longest job |
+|---|---|---|---|---|---|---|---|
+| 45207563003 | 129 | 99 | 84 | 103 | 65 | 33 | test 2 |
+| 45205075023 | 120 | 101 | 81 | 97 | 56 | 30 | page |
+| 45202751163 | 152 | 107 | 116 | 137 | 92 | 66 | test 2 |
+| 45202215743 | 142 | 121 | 88 | 104 | 55 | 31 | page |
+| 45200432909 | 128 | 103 | 89 | 106 | 62 | 37 | test 2 |
+| 45199905952 | 135 | 111 | 67 | 106 | 49 | 45 | page |
+| 45199400513 | 137 | 109 | 94 | 115 | 64 | 34 | test 2 |
+| 45198931733 | 121 | 101 | 80 | 106 | 62 | 24 | test 2 |
 
-The runs, by hand: `gh workflow run ci.yml --ref <ref> -f commit=<commit> -f call=<value>`, with `<ref>` a branch or tag
-at the file of main, of variant 1, or of variant 2, and `<commit>` one commit that changes a file outside `design/`,
-pushed to a branch of the repository, the same for every run. At least 5 runs of each, in turn, one run after the other,
-and in half of them another run of the full or the fast workflow is under way on the machine. For each run, from
-`gh api repos/<repository>/actions/runs/<id>/jobs`: its wall time (the run's creation to the last job's completion), and
-for each job its time from start to end and its wait for a runner (`created_at` to `started_at`). The ten slowest tests
-are in the summary of each run of main's file. One run of variant 2 on a commit that changes only files under
-`design/`, and one on such a commit that makes `design/lint.py` fail (a decision's first line over 200 characters).
+The median wall is 132 s (120 to 152). The page job takes 99 to 121 s (median 105), and is the longest job in 3 of the 8
+runs, by 4, 5 and 17 s over the next one (`test 2 of 3` in each); in the other 5 `test 2 of 3` is the longest. So the
+most that taking work out of `page` can shorten a run is those 4, 5 and 17 s in 3 of 8 runs, 3 s on average, and none
+in the 5 others; how much of `page` its tests are (the plan took about 75 to 81 s) and what two jobs on two runners cost
+in set-up are not measured. Every job waited 1 to 3 s for a runner.
 
-1. `scope` is rejected if the median wall time of variant 1 is more than 10 s longer than main's. Its break-even: 8.5%
-   of the runs save about 100 s and the other 91.5% wait for it, so a cost over about 10 s loses. Then each job of the
-   code decides for itself in its first steps, and the owner is asked again.
-2. The page in two jobs is rejected if the median wall time of variant 2 is not at least 10 s shorter than variant 1's,
-   or if the median wait for a runner of any job is over 15 s (a run holds up to 6 of the eight runners). Then the page
-   is one job again.
-3. A run on a change of only the tree is rejected if a job other than `scope`, `tree` and `check` ran, if its wall time
-   is over 40 s, or if the failing `design/lint.py` does not make `tree` and `check` red.
+The slowest test of five of those runs (the first, and 45205075023, 45202751163, 45202215743, 45200432909), read from
+each run's artifact `test-results` (`gh run download <id> -n test-results`, the `time` of each `testcase`), took 57,
+68, 60, 68 and 62 s: always `every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell`. The next
+one took 36 to 50 s. A split of the Rust jobs by the tests' time is then limited by `test 2 of 3` at 97 to 137 s, of which
+the longest test is 57 to 68 s; no test took 101 s in any of them.
+
+## What is not measured
+
+The owner chose to merge without a comparison of the branch's workflow against main's: a workflow takes effect only once
+on main, so the branch's file cannot be run before the merge. So these are inferred, not measured:
+
+- what `scope` adds to a run that changes code (a job on GitHub's machine that makes one API request and ends in seconds,
+  which `page`, `page tests`, `lint` and `test` then wait for);
+- how long a run of only the design tree takes (it runs `scope`, `tree` and `check`, none of which builds anything);
+- whether `scope` says the right thing for the commit the engine gives, a merge of main into the work's branch.
+
+The first runs on main after the merge show them (`gh api repos/<repository>/actions/runs/<id>/jobs`, the jobs'
+times); the owner reads them there.
