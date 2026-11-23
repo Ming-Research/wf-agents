@@ -827,20 +827,16 @@ async fn a_measurement_the_project_cannot_run_is_refused_before_anything_is_push
 }
 
 // A measure run is waited for as long as the declaration of the measure workflow says (`too_long` of `[ci.measure]`),
-// which counts the wait for the machine's lock, and not as long as the host waits for a fast run (`timeout`): one that
-// goes on past it is cancelled and said so with the time the declaration gave. About a second alone, which is the wait
-// itself; the one test of which limit a measure run is given, that no other test of the measure workflow holds.
+// which counts the wait for the machine's lock, and not as long as the declaration lets a fast run take (`too_long` of
+// `[ci.fast]`): one that goes on past it is cancelled and said so with the time the declaration gave. About a second
+// alone, which is the wait itself; the one test of which limit a measure run is given, that no other test of the
+// measure workflow holds.
 #[tokio::test]
 async fn a_measure_run_is_cancelled_when_the_time_its_own_declaration_gives_has_passed() {
     let hub = Hub::new().with(measuring).with(|config| {
-        config.timeout = Duration::from_secs(60);
-        let measure = config
-            .ci
-            .as_mut()
-            .expect("a declaration")
-            .measure
-            .as_mut()
-            .expect("measures");
+        let ci = config.ci.as_mut().expect("a declaration");
+        ci.fast.too_long = "1m".to_string();
+        let measure = ci.measure.as_mut().expect("measures");
         measure.too_long = "1s".to_string();
     });
     let head = hub.committed().await;
