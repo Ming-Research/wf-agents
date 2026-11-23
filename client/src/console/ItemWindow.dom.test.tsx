@@ -5,11 +5,12 @@ import { act } from 'react';
 import { type Root, createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { ItemTitlesProvider } from '../itemNumbers';
 import { levelWords } from '../marks';
 import { outlineOf } from '../testing';
 import { cellNowWords } from '../works/marks';
 import { NO_LEVEL, stateOf, stoppedAt } from '../works/words';
-import type { Act, CellNow, Item, Now, Question, Speaking, Wait, WorkPage } from '../works-api';
+import type { Act, CellNow, Item, Items, Now, Question, Speaking, Wait, WorkPage } from '../works-api';
 import type { Block, Flow } from '../api';
 import { FLOW, fixtureItems } from './fixtures';
 import { ItemPanel, type PageState } from './ItemWindow';
@@ -94,12 +95,14 @@ const answered =
   };
 
 /// Draws the panel of item `n`, or of this item, as the console does, in the same root as the panel drawn before it, if
-/// any; `asEngineer` draws item `n` with the engineer's flow's cell ids.
+/// any; `asEngineer` draws item `n` with the engineer's flow's cell ids, and `read` is the items the page has read,
+/// which give the numbers of items in its texts their titles.
 function draw(
   n: number | Item,
   send: (work: number, what: Act) => Promise<unknown>,
   page?: PageState,
   asEngineer = false,
+  read: Items | null = null,
 ) {
   const item = typeof n !== 'number' ? n : asEngineer ? engineer(itemOf(n)) : itemOf(n);
   if (root === undefined) {
@@ -110,12 +113,14 @@ function draw(
   const r = root;
   act(() =>
     r.render(
-      <ItemPanel
-        item={item}
-        page={page === undefined ? (asEngineer ? engineer(pageOf(item)) : pageOf(item)) : page}
-        act={send}
-        onTitle={() => undefined}
-      />,
+      <ItemTitlesProvider items={read}>
+        <ItemPanel
+          item={item}
+          page={page === undefined ? (asEngineer ? engineer(pageOf(item)) : pageOf(item)) : page}
+          act={send}
+          onTitle={() => undefined}
+        />
+      </ItemTitlesProvider>,
     ),
   );
   return container;
@@ -859,12 +864,13 @@ function drawQuestions(
   questions: Question[],
   send: (work: number, what: Act) => Promise<unknown>,
   waits: Wait[] = [],
+  read: Items | null = null,
 ) {
   const i = itemOf(12);
   const item: Item = { ...i, work: { ...i.work, now, waits } };
   const p = pageOf(item);
   if (p === null || !('page' in p)) throw new Error('no page');
-  return draw(item, send, { page: { ...p.page, questions } });
+  return draw(item, send, { page: { ...p.page, questions } }, false, read);
 }
 
 /// Picks the option at this place of the question at that place.
@@ -1031,5 +1037,33 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
     expect(el.querySelector('.cw-option, .cw-radio')).toBeNull();
     expect(el.querySelector('.cw-settled-taken svg')?.getAttribute('aria-label')).toBe('The option you took');
     expect(el.querySelector('.cw-confirm')).toBeNull();
+  });
+
+  it('draws the number of an item in the options of a question answered as a link, and in those still to pick as plain words, which stand in buttons', async () => {
+    const worded = [
+      { does: 'Link item 46 as written', follows: 'Only #46 and the words after item' },
+      { does: 'Drop it', follows: 'Nothing changes' },
+    ];
+    const el = drawQuestions(
+      { kind: 'next', cell: 'implement' },
+      [question('old', { options: worded, answer: { option: 2, at: 40, why: null } }), question('new', { options: worded })],
+      answered([]),
+      [],
+      { items: [{ number: 46, title: 'Link the numbers' } as Item] },
+    );
+    await act(async () => undefined);
+    // The answered question opens folded; its options are read once it is shown whole.
+    act(() => (el.querySelector('.cw-choice-turn') as HTMLButtonElement).click());
+    const links = [...el.querySelectorAll('.cw-settled a')];
+    expect(links.map((a) => [a.getAttribute('href'), a.getAttribute('title'), a.textContent])).toEqual([
+      ['#/console/items/46', '#46 Link the numbers', '46'],
+      ['#/console/items/46', '#46 Link the numbers', '#46'],
+    ]);
+    // The words are as they were written, in both questions.
+    expect(text(el, '.cw-settled .cw-option-label')).toEqual(['Link item 46 as writtenRecommended', 'Drop it']);
+    expect(text(el, '.cw-option .cw-option-label')).toEqual(['Link item 46 as writtenRecommended', 'Drop it']);
+    // The options still to pick are buttons, and no link stands in a button.
+    expect(el.querySelectorAll('.cw-option')).toHaveLength(2);
+    expect(el.querySelectorAll('.cw-option a')).toHaveLength(0);
   });
 });
