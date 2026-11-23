@@ -310,6 +310,11 @@ fn a_work_of_the_new_form_changed_at_or_lacking_an_entry_the_store_holds_is_refu
             ("put_in", Entry::At(e.at))
         },
         |w| {
+            let e = &mut w.records.hurried[0];
+            e.version = Seq(e.version.0 + 1);
+            ("hurried", Entry::At(e.at))
+        },
+        |w| {
             let e = &mut w.filled[0];
             e.fills.pop();
             ("filled", Entry::At(e.at))
@@ -330,6 +335,12 @@ fn a_work_of_the_new_form_changed_at_or_lacking_an_entry_the_store_holds_is_refu
             (
                 "put_in",
                 Entry::At(w.records.put_in.pop().expect("a version put in").at),
+            )
+        },
+        |w| {
+            (
+                "hurried",
+                Entry::At(w.records.hurried.pop().expect("a round told to hand in").at),
             )
         },
         |w| ("filled", Entry::At(w.filled.pop().expect("a filling").at)),

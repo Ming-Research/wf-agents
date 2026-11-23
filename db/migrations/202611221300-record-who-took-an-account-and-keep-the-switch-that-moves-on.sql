@@ -1,4 +1,4 @@
--- From version 22 of the schema to version 23: each time an account was taken as the one the agents run under says who
+-- From version 23 of the schema to version 24: each time an account was taken as the one the agents run under says who
 -- took it, the owner or the engine, and, where the engine took it, when the usage limit of the account it left resets,
 -- where that was said; every row kept before was the owner's, and says no reset. Whether the engine may move to another
 -- account at a usage limit is its own state, kept here, off until the owner switches it on. The version's one row is
@@ -10,4 +10,4 @@ CREATE TABLE moving_on (
     moving INTEGER NOT NULL CHECK (moving IN (0, 1)),
     time INTEGER NOT NULL
 );
-UPDATE schema_version SET version = 23;
+UPDATE schema_version SET version = 24;

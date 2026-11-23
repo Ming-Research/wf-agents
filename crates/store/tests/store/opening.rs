@@ -22,7 +22,7 @@ fn a_new_file_is_made_with_the_schema_its_version_and_a_write_ahead_log() {
     assert_eq!(store.works(), Ok(vec![]));
     let tables: BTreeSet<String> = dump(&db.path).into_keys().collect();
     assert_eq!(tables, schema_tables());
-    assert_eq!(tables.len(), 50);
+    assert_eq!(tables.len(), 51);
     let file = Connection::open(&db.path).expect("the database opens");
     let version: u32 = (file.query_row("SELECT version FROM schema_version", [], |row| row.get(0))).expect("a version");
     assert_eq!(version, SCHEMA_VERSION);
@@ -524,15 +524,15 @@ fn a_file_of_version_20_is_migrated_keeping_every_row_it_holds_its_tries_directo
 // An account taken before the engine could take one was the owner's, and no reset of a limit it left was said; the
 // engine may not move to another account until it is switched on.
 #[test]
-fn a_file_of_version_22_is_migrated_keeping_its_accounts_as_the_owners_with_no_reset_and_moving_on_off() {
+fn a_file_of_version_23_is_migrated_keeping_its_accounts_as_the_owners_with_no_reset_and_moving_on_off() {
     let db = Db::new();
     {
         let file = Connection::open(&db.path).expect("the database opens");
         file.execute_batch(SCHEMA_1).expect("the first schema is made");
         file.execute("INSERT INTO schema_version (version) VALUES (1)", [])
             .expect("its version is written");
-        store::migrate(&file, 1, 22).expect("the migrations run");
-        assert_eq!(versions(&db.path), [22]);
+        store::migrate(&file, 1, 23).expect("the migrations run");
+        assert_eq!(versions(&db.path), [23]);
         for (name, what, time) in [("work", "Added", 1), ("home", "Added", 2), ("home", "Taken", 3)] {
             file.execute(
                 "INSERT INTO accounts (name, what, time) VALUES (?1, ?2, ?3)",

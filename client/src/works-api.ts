@@ -757,6 +757,9 @@ export interface Question {
   recommends: number | null;
   /// The owner's answer to the latest version: the option taken, counted from one, when, and why where said.
   answer: { option: number; at: number; why: string | null } | null;
+  /// Why its cell does not run now, where its condition does not hold: a question of such a cell holds the work at no
+  /// cell. None while the cell runs; absent from an engine that does not give it.
+  skipped?: string | null;
 }
 
 /// What the owner's words are said to: a line of the work's flow, or a cell of it.
