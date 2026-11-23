@@ -116,9 +116,10 @@ enum Class {
     Rest,
 }
 
-/// The result of a call the engine never gives a round: the engine's own wait before a round is tried again, which is no
-/// result, and a call the work does not hold.
-const UNREACHED: &str = "unknown";
+/// The results of a call the engine never gives a round: of the engine's own wait before a round is tried again, which
+/// is no result, and of a call the work does not hold, and the owner's word to a run at its limit, which the run goes
+/// on after, in the same run, and so is given to no round of another.
+const UNREACHED: [&str; 2] = ["unknown", "at_limit"];
 
 /// A set of what the cell watches that ran it, with the name that says it.
 struct Ran<'a> {
@@ -817,7 +818,7 @@ impl<'a> Reach<'a> {
                 situation,
             };
             if n == 0 {
-                for key in CALLS.iter().filter(|key| **key != UNREACHED) {
+                for key in CALLS.iter().filter(|key| !UNREACHED.contains(key)) {
                     let results = vec![key.to_string()];
                     let situation = Situation {
                         results,

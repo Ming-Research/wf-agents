@@ -337,6 +337,7 @@ impl History {
             ("opinions", ["request", "notes", "tree"]),
         ] {
             self.put(ran);
+            self.under_way("plan");
             for block in written {
                 self.put(block);
             }
@@ -347,33 +348,31 @@ impl History {
         self.put("plan");
         self.drain(reached);
         self.put("plan");
+        self.under_way("build");
         self.put("request");
         self.forced = Some(vec![Forced::Wrong]);
         self.drain(reached);
-        // The close, run by the finish, reads the verdict: a datum that changed, held or lacked; and the calls of each
-        // kind, and a run that reaches the limit of its returns.
-        self.put("verdict");
-        self.put("finish");
-        self.drain(reached);
-        self.put("verdict");
-        self.put("finish");
-        self.drain(reached);
+        // The close, run by the finish, reads the verdict, and its run ends the work: it asks for a tool run on
+        // something and on nothing, and a question, is sent back twice, so that it reaches the limit of its returns,
+        // and the owner lets it go on; its rounds are given each result.
         self.forced = Some(vec![
             tool("x"),
             tool(""),
-            Forced::Wrong,
             question,
             Forced::Wrong,
             Forced::Wrong,
+            tool("y"),
         ]);
         self.put("verdict");
         self.put("finish");
+        self.under_way("close");
         self.drain(reached);
-        self.put("finish");
-        self.drain(reached);
-        self.forced = Some(vec![tool("x")]);
-        self.put("finish");
-        self.drain(reached);
+    }
+
+    /// The round under way is this cell's.
+    fn under_way(&self, cell: &str) {
+        let round = self.sim.round().expect("a round is under way");
+        assert_eq!(round.cell.as_str(), cell, "the round under way is another cell's");
     }
 
     /// Carries the round out, checking what it is sent.
