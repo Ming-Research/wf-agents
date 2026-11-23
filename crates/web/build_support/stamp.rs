@@ -97,6 +97,12 @@ pub fn parse(stamp: &str) -> Result<Vec<(String, String)>, String> {
 /// was built; or says every file that is not and every other fault, with how to mend it.
 pub fn check(client: &Path, stamp: &str) -> Result<Vec<String>, String> {
     let listed = parse(stamp).map_err(|e| format!("client/dist/source.sha256 is unreadable: {e}; {MEND}"))?;
+    // A stamp that names no source shows no more than a missing one that the page was made from the sources at hand.
+    if listed.is_empty() {
+        return Err(format!(
+            "client/dist/source.sha256 lists no file, so the page is not shown to be built from the sources of client/; {MEND}"
+        ));
+    }
     let mut wrong = Vec::new();
     for (hash, path) in &listed {
         match std::fs::read(client.join(path)) {
@@ -187,6 +193,14 @@ mod tests {
             assert!(said.contains("source.sha256 is unreadable"), "{said}");
             assert!(said.ends_with(MEND), "{said}");
         }
+    }
+
+    #[test]
+    fn a_stamp_that_lists_no_file_is_refused() {
+        let client = tempfile::tempdir().unwrap();
+        let said = check(client.path(), "").unwrap_err();
+        assert!(said.contains("lists no file"), "{said}");
+        assert!(said.ends_with(MEND), "{said}");
     }
 
     #[test]
