@@ -74,9 +74,10 @@
 //! ten only, so that they reach the check past the five judges before it, a choice a judge's own condition waits for
 //! (whether the change needs adversarial testing) is that value in seven of ten, and the owner only lets the work go
 //! on: answers each question at once, lets a cell go on at its limit, resumes a paused work, writes what the outside
-//! writes, and answers a question that stands anew; it does not cancel, pause, write a choice or prose a person writes,
-//! commit, speak to a line or remark on a question, which in the histories not steered end or rework a work before the
-//! check. In three of ten, the work is paused while the
+//! writes, writes a choice people write (a verdict as other than its refusal in nine of ten), and answers a question
+//! that stands anew; it does not cancel, pause, write prose a person writes, commit, speak to a line or remark on a
+//! question, which in the histories not steered end or rework a work before the check. In three of ten, the work is
+//! paused while the
 //! check's round is under way; once
 //! the check passed, a person writes, while the pause holds the merge back, for a judge that applies, who then refuses,
 //! or writes a verdict as its refusal, a coin of its own deciding; then the work is let on. In one of ten the check
@@ -1216,11 +1217,12 @@ impl Random {
             };
         }
         // A steered history's owner leaves the work as it is, but for what lets it go on: no cancelling, no pausing
-        // (the steering pauses it where it must), no writing of a choice or prose a person writes, no commit, no word to
-        // a line and no remark on a question. The steering has to reach the check, which a cancelled or reworked work
-        // seldom does in the steps there are.
+        // (the steering pauses it where it must), no prose a person writes, no commit, no word to a line and no remark
+        // on a question, and a verdict it writes is not a refusal in nine of ten. The steering has to reach the check
+        // in the random steps, which a cancelled or reworked work seldom does, and which a work held for a person's
+        // verdict never does.
         let roll = match d.rng.below(100) {
-            0..=36 | 77..=89 if quiet => 100,
+            0 | 22..=36 | 77..=89 if quiet => 100,
             67..=76 if quiet && !paused => 100,
             n => n,
         };
@@ -1228,7 +1230,12 @@ impl Random {
             0 => Some(Event::Cancelled { why: None }),
             1..=21 => pick(&mut d.rng, people_choices).map(|b| {
                 let values = blocks[&b].values.clone().expect("a choice");
-                let value = values[d.rng.below(values.len())].clone();
+                let value = match self.roles.refusals.get(&b) {
+                    Some(refusal) if quiet && d.rng.chance(90) => {
+                        values.iter().find(|v| *v != refusal).unwrap_or(refusal).clone()
+                    }
+                    _ => values[d.rng.below(values.len())].clone(),
+                };
                 wrote(&b, Outsider::Person, true, Some(value))
             }),
             22..=36 => pick(&mut d.rng, people_prose).map(|b| wrote(&b, Outsider::Person, true, None)),
