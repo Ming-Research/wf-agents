@@ -97,7 +97,7 @@ fn the_full_workflow_keeps_the_checks_a_merge_waits_for() {
     }
     let check = under(&jobs, "check").join("\n");
     assert!(check.contains("needs: [page, lint, test]"), "{check}");
-    assert!(check.contains("if: always()"), "{check}");
+    assert!(check.contains("if: ${{ always() &&"), "{check}");
     assert!(check.contains(r#"[ "$r" = success ] || red=true"#), "{check}");
     for (job, lines) in [("page", under(&jobs, "page")), ("check", under(&jobs, "check"))] {
         assert!(
@@ -107,19 +107,41 @@ fn the_full_workflow_keeps_the_checks_a_merge_waits_for() {
     }
 }
 
-// The full workflow runs only when asked for by hand: the engine reads only the runs it asked for, so no pull request
-// and no push starts it, and none of its jobs runs a fork's code on the owner's machine.
+// The full workflow runs when the engine asks for it by hand, and on each pull request into `main` that is neither a
+// work's nor a fork's, and on no push: the engine reads only the runs it asked for, which the pull request of a work's
+// branch would only repeat; a fork's code must not run on the owner's machine; and nothing reads a push to `main`.
 #[test]
-fn the_full_workflow_runs_only_by_hand() {
+fn the_full_workflow_runs_by_hand_and_on_the_pull_requests_of_neither_a_work_nor_a_fork() {
     let text = workflow("ci.yml");
     let on = block(&text, "on");
-    assert_eq!(children(&on), ["workflow_dispatch"]);
-    for word in ["pull_request", "github.event_name"] {
-        assert!(!text.contains(word), "ci.yml names {word}");
-    }
+    assert_eq!(children(&on), ["workflow_dispatch", "pull_request"]);
+    let branches: Vec<&str> = (under(&on, "pull_request").iter())
+        .filter_map(|l| l.trim().strip_prefix("- "))
+        .collect();
+    assert_eq!(branches, ["main"], "the branches of pull_request");
     assert!(
         !text.contains("refs/heads/next") && !text.lines().any(|l| l.trim() == "- next"),
         "the branch `next` is no part of the workflow"
+    );
+    let jobs = block(&text, "jobs");
+    let not_a_works = "!startsWith(github.head_ref, 'work-')";
+    for job in ["page", "lint", "test"] {
+        let lines = under(&jobs, job).join("\n");
+        assert!(
+            lines.contains(not_a_works),
+            "the job {job} runs on a work's pull request:\n{lines}"
+        );
+        assert!(
+            lines.contains("github.event.pull_request.head.repo.full_name == github.repository"),
+            "the job {job} runs on a fork's pull request:\n{lines}"
+        );
+    }
+    // `check` is skipped with the rest on a work's pull request, so that the run is not red there; on a fork's it stays,
+    // red, since its jobs are skipped.
+    let check = under(&jobs, "check").join("\n");
+    assert!(
+        check.contains("always()") && check.contains(not_a_works),
+        "check:\n{check}"
     );
 }
 
