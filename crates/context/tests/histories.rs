@@ -34,14 +34,17 @@ use context::message::{Values, kept};
 use context::text::as_written;
 use context::{Entered, Form, Piece, Situation, Stands};
 use decide::run::Unmet;
-use decide::{BlockId, CallId, CellId, Outsider, RunId, Seq, Who, Writer};
-use engine::{Ask, Back, Came, Fill, Given, Handed, Why};
+use decide::{BlockId, CallId, CellId, Decision, Outsider, RunId, Seq, Waited, Who, Writer, decide};
+use engine::{Ask, Back, Came, Event, Fill, Given, Handed, Why};
 use flow::agents::Part;
 use flow::{CellSpec, InputKind, Listed};
 use support::{Given as Round, Sim};
 
 /// How many histories are run.
 const SEEDS: u64 = 90;
+
+/// How many scripted histories are run, each by the seed after those of the random ones.
+const SCRIPTED: u64 = 6;
 
 /// How many steps each takes.
 const STEPS: usize = 120;
@@ -159,6 +162,15 @@ struct History {
     /// Every content written of each block, so that one may be written again.
     written: BTreeMap<String, Vec<String>>,
     count: u64,
+    /// What the next returns do, in turn, where a history is scripted: ask for this call, or hand in a block the cell
+    /// may not write beside the rest. A scripted history's other returns ask for nothing and are never sent back.
+    forced: Option<Vec<Forced>>,
+}
+
+/// What a scripted return does.
+enum Forced {
+    Ask(Ask),
+    Wrong,
 }
 
 impl History {
@@ -173,6 +185,7 @@ impl History {
             last: BTreeMap::new(),
             written: BTreeMap::new(),
             count: 0,
+            forced: None,
         };
         history.start();
         history
@@ -230,14 +243,7 @@ impl History {
                 "request", "notes", "tree", "plan", "opinions", "finish", "finish", "verdict", "verdict",
             ];
             let block = blocks[self.rng.below(blocks.len())];
-            let content = self.content(block);
-            match block {
-                "verdict" => {
-                    let value = ["yes", "no"][self.rng.below(2)];
-                    self.sim.wrote(block, value, Some(value), Outsider::Person);
-                }
-                _ => self.sim.writes(block, &content),
-            }
+            self.put(block);
         } else if roll < 26 {
             let line = if self.rng.chance(50) { "engineer" } else { "reviewer" };
             self.sim.anew(line, Why::Owner);
@@ -247,10 +253,121 @@ impl History {
             self.carry(&round, reached);
         } else if let Some(call) = self.sim.calls().first() {
             self.sim.done(*call, "the rows");
+        } else if let Some(cell) = self.limit() {
+            self.sim.take(Event::LetGo { cell });
         } else {
-            let content = self.content("request");
-            self.sim.writes("request", &content);
+            self.put("request");
         }
+    }
+
+    /// A person writes the block anew.
+    fn put(&mut self, block: &str) {
+        let content = self.content(block);
+        match block {
+            "verdict" => {
+                let value = ["yes", "no"][self.rng.below(2)];
+                self.sim.wrote(block, value, Some(value), Outsider::Person);
+            }
+            _ => self.sim.writes(block, &content),
+        }
+    }
+
+    /// The cell the work waits at for the owner to let it go on, where it does.
+    fn limit(&self) -> Option<CellId> {
+        match decide(&self.sim.flow.flow, &self.sim.work.records) {
+            Decision::Wait { at, on }
+                if on
+                    .iter()
+                    .any(|w| matches!(w, Waited::Limit { .. } | Waited::Calls { .. })) =>
+            {
+                Some(at)
+            }
+            _ => None,
+        }
+    }
+
+    /// Carries every round the work gives, answers every call and lets every cell at its limit go on, until it rests.
+    fn drain(&mut self, reached: &mut Reached) {
+        for _ in 0..200 {
+            if let Some(round) = self.sim.round() {
+                self.carry(&round, reached);
+            } else if let Some(call) = self.sim.calls().first() {
+                self.sim.done(*call, "the rows");
+            } else if let Some(cell) = self.limit() {
+                self.sim.take(Event::LetGo { cell });
+            } else {
+                return;
+            }
+        }
+    }
+
+    /// The scripted history: each state of a datum that the random steps reach too seldom to count on, in turn, each
+    /// brought about by what happens in the engine's own order. A datum the cell is given may be written after a run
+    /// began and before its round is entered, and a return sent back is followed by a round of the same run, which
+    /// holds what the first was sent.
+    fn script(&mut self, reached: &mut Reached) {
+        let tool = |input: &str| {
+            Forced::Ask(Ask::Tool {
+                name: "query".to_string(),
+                input: input.to_string(),
+            })
+        };
+        let question = Forced::Ask(Ask::Person {
+            who: Who::Owner,
+            question: "Which way?".to_string(),
+        });
+        self.forced = Some(Vec::new());
+        // The plan reads the notes and the tree, and the request, with the opinions, runs it.
+        self.put("notes");
+        self.put("tree");
+        // The opinions are written while the first run is under way, and its first return is sent back.
+        self.put("opinions");
+        self.forced = Some(vec![Forced::Wrong]);
+        self.drain(reached);
+        self.put("opinions");
+        self.drain(reached);
+        // A run by the request, in which the opinions, the notes and the tree are written, its return sent back; and
+        // the same by the opinions, in which the request is written.
+        for (ran, written) in [
+            ("request", ["opinions", "notes", "tree"]),
+            ("opinions", ["request", "notes", "tree"]),
+        ] {
+            self.put(ran);
+            for block in written {
+                self.put(block);
+            }
+            self.forced = Some(vec![Forced::Wrong]);
+            self.drain(reached);
+        }
+        // The build is run by a plan a person writes, and the request is written while its run is under way.
+        self.put("plan");
+        self.put("request");
+        self.forced = Some(vec![Forced::Wrong]);
+        self.drain(reached);
+        // The close, run by the finish, reads the verdict: a datum that changed, held or lacked; and the calls of each
+        // kind, and a run that reaches the limit of its returns.
+        self.put("verdict");
+        self.put("finish");
+        self.drain(reached);
+        self.put("verdict");
+        self.put("finish");
+        self.drain(reached);
+        self.forced = Some(vec![
+            tool("x"),
+            tool(""),
+            Forced::Wrong,
+            question,
+            Forced::Wrong,
+            Forced::Wrong,
+        ]);
+        self.put("verdict");
+        self.put("finish");
+        self.drain(reached);
+        self.put("finish");
+        self.drain(reached);
+        self.forced = Some(vec![tool("x")]);
+        self.put("finish");
+        self.drain(reached);
     }
 
     /// Carries the round out, checking what it is sent.
@@ -332,7 +449,14 @@ impl History {
     /// What the round returns: a tool asked for in one in ten, the review's verdict left out in one in seven, and
     /// otherwise each block the cell writes with a chance of seven in ten, those it must write every time.
     fn came(&mut self, round: &Round) -> Came {
-        if self.rng.chance(15) {
+        let scripted = self.forced.is_some();
+        let mut wrong = false;
+        match self.forced.as_mut().filter(|f| !f.is_empty()).map(|f| f.remove(0)) {
+            Some(Forced::Ask(ask)) => return Came::asks(vec![ask]),
+            Some(Forced::Wrong) => wrong = true,
+            None => {}
+        }
+        if !scripted && self.rng.chance(15) {
             // A tool run on something, a tool run on nothing, or a question for the owner.
             let ask = match self.rng.below(4) {
                 0 | 1 => Ask::Tool {
@@ -377,7 +501,7 @@ impl History {
             self.sim.work.given.get(&(round.run, round.number)),
             Some(Given::SentBack(_))
         );
-        if self.rng.chance(if again { 40 } else { 4 }) {
+        if wrong || (!scripted && self.rng.chance(if again { 40 } else { 4 })) {
             let others: Vec<BlockId> = (self.sim.flow.blocks.keys())
                 .filter(|b| !self.sim.flow.flow.cells()[place].outputs.contains(b))
                 .cloned()
@@ -888,11 +1012,15 @@ fn fits(pieces: &[Piece], text: &str) -> bool {
 #[test]
 fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() {
     let mut reached = Reached::default();
-    for seed in 0..SEEDS {
+    for seed in 0..SEEDS + SCRIPTED {
         let mut history = History::new(seed);
         let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            for _ in 0..STEPS {
-                history.step(&mut reached);
+            if seed < SEEDS {
+                for _ in 0..STEPS {
+                    history.step(&mut reached);
+                }
+            } else {
+                history.script(&mut reached);
             }
             reached.put_in += history.sim.work.records.put_in.len();
         }));

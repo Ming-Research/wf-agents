@@ -20,8 +20,9 @@
 //! A datum is certainly written when the cell runs where the work starts with it, or where the cells before it in the
 //! order that must write it, and surely run, run whichever way the conditions go: one of them runs on no condition, or
 //! between them they run on each value of a choice the cell itself does not run on one value of. A cell surely runs
-//! where something it watches is certainly written before it. The flow says no more of which blocks a cell writes each
-//! time than what it must write, so that a cell is taken to write no more.
+//! where something it watches is certainly written before it. A datum is also certainly written where the cell runs
+//! only because something it watches was written, that only cells write, and each of them ran. The flow says no more of
+//! which blocks a cell writes each time than what it must write, so that a cell is taken to write no more.
 //!
 //! On a first entry, a datum only the cell itself or cells after it in the order write is not written yet, and what the
 //! cell watches of such data runs no first entry.
@@ -317,9 +318,10 @@ impl<'a> Reach<'a> {
         };
         let given: Vec<BlockId> = reach.given.iter().map(|g| g.block.clone()).collect();
         reach.starts = given.iter().filter(|b| reach.starts_with(b)).cloned().collect();
+        let implied = reach.implied(cell, &mut Vec::new());
         let certain = given
             .iter()
-            .filter(|b| reach.starts.contains(*b) || reach.written_before(place, b));
+            .filter(|b| reach.starts.contains(*b) || implied.contains(*b) || reach.written_before(place, b));
         reach.certain = certain.cloned().collect();
         reach
     }
@@ -333,6 +335,40 @@ impl<'a> Reach<'a> {
         let people = |name: &str| flow.blocks.get(&BlockId::from(name)).is_some_and(|d| d.writers.people);
         let starting = first.and_then(|c| c.watches.iter().find(|t| !t.is_group() && people(&t.name)));
         starting.is_some_and(|t| t.name == block.as_str())
+    }
+
+    /// What is certainly written whenever the cell runs, because it ran: it runs where one of what it watches is
+    /// written, and that is certainly written; and where only cells write that, one of them ran, and wrote what it
+    /// must, and what is certainly written whenever it runs. What people or the outside write implies nothing more.
+    fn implied(&self, cell: &CellSpec, seen: &mut Vec<decide::CellId>) -> BTreeSet<BlockId> {
+        if seen.contains(&cell.id) {
+            return BTreeSet::new();
+        }
+        seen.push(cell.id.clone());
+        let mut common: Option<BTreeSet<BlockId>> = None;
+        for datum in cell.watches.iter().flat_map(|t| t.blocks.iter()) {
+            let mut set = BTreeSet::from([datum.clone()]);
+            let writers = self.flow.blocks.get(datum).map(|d| &d.writers);
+            if let Some(w) = writers.filter(|w| !w.people && w.outside.is_none() && !w.cells.is_empty()) {
+                let mut some: Option<BTreeSet<BlockId>> = None;
+                for id in &w.cells {
+                    let spec = self.flow.cells.iter().find(|c| c.id == *id);
+                    let mut by = spec.map(|c| self.implied(c, seen)).unwrap_or_default();
+                    by.extend(spec.into_iter().flat_map(|c| c.must_write.iter().cloned()));
+                    some = Some(match some {
+                        None => by,
+                        Some(known) => known.intersection(&by).cloned().collect(),
+                    });
+                }
+                set.extend(some.unwrap_or_default());
+            }
+            common = Some(match common {
+                None => set,
+                Some(known) => known.intersection(&set).cloned().collect(),
+            });
+        }
+        seen.pop();
+        common.unwrap_or_default()
     }
 
     /// Whether the cells before the one at this place that write the datum on every run and surely run, do run whichever
