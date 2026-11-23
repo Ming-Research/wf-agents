@@ -81,8 +81,7 @@ async fn all_time_gives_the_merge_and_what_was_spent_on_each_cell_and_model() {
     let (week, before) = (START - DAY, START - 8 * DAY);
     let weeks = get_json(router, &format!("/api/v1/system?weeks={week},{before}")).await;
     assert_eq!(weeks["from"], before, "the span begins with its earliest week");
-    let nothing =
-        json!({ "usdMicros": 0, "inputTokens": 0, "cachedTokens": 0, "outputTokens": 0, "workingMs": 0, "rounds": 0 });
+    let nothing = json!({ "usdMicros": 0, "inputTokens": 0, "cacheWrittenTokens": 0, "unsplitTokens": 0, "cachedTokens": 0, "outputTokens": 0, "workingMs": 0, "rounds": 0 });
     assert_eq!(
         weeks["weeks"],
         json!([
