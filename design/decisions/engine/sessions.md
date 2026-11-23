@@ -9,7 +9,7 @@ No line's session is forked from another line's, or from a session of another wo
 - rejected: the owner proposed keeping a session that holds the whole tree, and forking it to pick the entries for each work that starts on the same tree; the owner rejected it, because a larger project's tree would overflow that session, and the research would lose the reading R0 leaves in its own.
 
 ### decision a-line-goes-on-in-its-session-under-another-account
-A line goes on in its session after the owner switches to another account: a change of account starts no new session, and the line's next round writes the session to the new account's cache.
+A line goes on in its session after the account in use changes, the owner switching or the engine moving: a change of account starts no new session, and the next round writes the new account's cache.
 - replaced: Starting a new session for each line whose rounds came to run under another account was on main; the owner changed it, because with every account's sessions in one directory a line can go on in its own session, at the cost of one cache write.
 
 ### decision no-act-begins-a-session-anew

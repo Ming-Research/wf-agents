@@ -23,5 +23,5 @@ What the engine knows of an account's usage is what the service last reported fo
 - replaced: Knowing of an account's usage only that a round hit its limit, and when that resets, was on main; the owner changed it, because to choose an account he needs to see how much of each is used and when it resets.
 
 ### decision the-owner-lets-the-engine-move-by-a-switch
-The engine moves to another account at a usage limit only while the owner's switch is on; the switch is the engine's own state in the store, off until he turns it on, and takes effect at once.
+While the owner's switch is on, the engine at a usage limit checks each other account like the outside, one unchecked at once, and moves to the first found well; the switch acts at once, off at first.
 - rejected: an agent proposed no switch, the engine asking the owner at each usage limit; the owner rejected it, because nobody is there to answer at night, so the work stands still, which is what moving is for, and an account is the installation's, with no work to ask in.
