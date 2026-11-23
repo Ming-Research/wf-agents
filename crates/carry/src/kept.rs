@@ -26,6 +26,7 @@ use std::io::{ErrorKind, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 use decide::RunId;
+use flow::agents::{ProgramWords, fill};
 use serde::Deserialize;
 use serde::de::IgnoredAny;
 use service::{Back, Doing, Doings, Mark, Returned, Told, Try};
@@ -128,11 +129,17 @@ fn ran(path: &Path) -> Result<Option<RanOn>, String> {
 
 /// What the round of this number of the run of the work, kept in the data directory, was told and what came back of
 /// it, each try in order; no try where it kept nothing. A file that cannot be read is named from the data directory.
-pub(crate) fn told(data: &Path, work: WorkNumber, run: RunId, number: usize) -> Result<Told, String> {
-    told_within(data, &base(data, work, run, number), &BOUNDS)
+pub(crate) fn told(
+    data: &Path,
+    work: WorkNumber,
+    run: RunId,
+    number: usize,
+    words: &ProgramWords,
+) -> Result<Told, String> {
+    told_within(data, &base(data, work, run, number), &BOUNDS, words)
 }
 
-fn told_within(data: &Path, base: &Path, bounds: &Bounds) -> Result<Told, String> {
+fn told_within(data: &Path, base: &Path, bounds: &Bounds, words: &ProgramWords) -> Result<Told, String> {
     let named = |path: &Path| path.strip_prefix(data).unwrap_or(path).display().to_string();
     let mut told = Told::default();
     let mut read_so_far = 0;
@@ -151,17 +158,17 @@ fn told_within(data: &Path, base: &Path, bounds: &Bounds) -> Result<Told, String
         let streamed = length(&stream).map_err(|e| format!("{}: {e}", named(&stream)))?;
         let back = match streamed {
             Some(long) => {
-                result_of_stream(&stream, long, bounds.result).map_err(|e| format!("{}: {e}", named(&stream)))?
+                result_of_stream(&stream, long, bounds.result, words).map_err(|e| format!("{}: {e}", named(&stream)))?
             }
             None => match length(&result).map_err(|e| format!("{}: {e}", named(&result)))? {
                 None | Some(0) => Back::Nothing,
-                Some(long) if long > bounds.result => Back::Unreadable(format!(
-                    "it is {long} bytes long, more than the {} that are read of a result",
-                    bounds.result
+                Some(long) if long > bounds.result => Back::Unreadable(fill(
+                    &words.too_long,
+                    &[("long", &long.to_string()), ("most", &bounds.result.to_string())],
                 )),
                 Some(_) => {
                     let printed = std::fs::read(&result).map_err(|e| format!("{}: {e}", named(&result)))?;
-                    back(&printed)
+                    back(&printed, words)
                 }
             },
         };
@@ -181,7 +188,7 @@ fn told_within(data: &Path, base: &Path, bounds: &Bounds) -> Result<Told, String
 /// What came back, read from a stream this long: its result, the last line of it but for the command line's own
 /// `system` lines, which may follow the result. No more than `bound` bytes are read, from its end. A stream whose last
 /// line but for those is no result, as one under way or stopped, gave nothing back yet.
-fn result_of_stream(path: &Path, long: u64, bound: u64) -> std::io::Result<Back> {
+fn result_of_stream(path: &Path, long: u64, bound: u64, words: &ProgramWords) -> std::io::Result<Back> {
     let mut file = std::fs::File::open(path)?;
     // One byte more than the bound, so that the newline before a line of the bound's length is read.
     let from = long.saturating_sub(bound + 1);
@@ -192,15 +199,16 @@ fn result_of_stream(path: &Path, long: u64, bound: u64) -> std::io::Result<Back>
     while let Some(line) = lines.next() {
         // The first line read may have begun before what was read: none is whole that has none before it.
         if lines.peek().is_none() && from > 0 {
-            return Ok(Back::Unreadable(format!(
-                "its last lines are longer than the {bound} bytes that are read of a result"
+            return Ok(Back::Unreadable(fill(
+                &words.lines_too_long,
+                &[("most", &bound.to_string())],
             )));
         }
         let Ok(value) = serde_json::from_slice::<serde_json::Value>(line) else {
             return Ok(Back::Nothing);
         };
         match value["type"].as_str() {
-            Some("result") => return Ok(back(line)),
+            Some("result") => return Ok(back(line, words)),
             Some("system") => continue,
             _ => return Ok(Back::Nothing),
         }
@@ -267,17 +275,17 @@ struct PrintedUsage {
 
 /// What came back, read from what the command line printed: what it returned, or that it failed and why; or why it
 /// could not be read.
-fn back(printed: &[u8]) -> Back {
+fn back(printed: &[u8], words: &ProgramWords) -> Back {
     let printed: Printed = match serde_json::from_slice(printed) {
         Ok(printed) => printed,
-        Err(e) => return Back::Unreadable(format!("it is not a result: {e}")),
+        Err(e) => return Back::Unreadable(fill(&words.not_a_result, &[("why", &e.to_string())])),
     };
     let subtype = printed.subtype.filter(|s| s != "success");
     if printed.is_error || subtype.as_deref().is_some_and(|s| s.starts_with("error")) {
         let result = printed.result.filter(|r| !r.trim().is_empty());
         let why: Vec<String> = subtype.into_iter().chain(result).collect();
         return Back::Failed(match why.is_empty() {
-            true => "the program said it failed, and gave no reason".to_string(),
+            true => words.no_reason.clone(),
             false => why.join(": "),
         });
     }
@@ -435,8 +443,15 @@ mod tests {
         }
     }
 
+    /// The words beside the flows of this repository, which what could not be read is told in.
+    fn program() -> ProgramWords {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+        let beside = flow::agents::read(&root).expect("what is written beside the flows is read");
+        beside.cost.program
+    }
+
     fn told_at(dir: &tempfile::TempDir) -> Told {
-        told(dir.path(), WorkNumber(3), RunId(7), 2).unwrap()
+        told(dir.path(), WorkNumber(3), RunId(7), 2, &program()).unwrap()
     }
 
     /// What came back of [`RESULT`]: its structured return pretty-printed, its closing words, which are the same,
@@ -653,8 +668,8 @@ mod tests {
         std::fs::write(at(&base, 2).0, "Second.").unwrap();
         let short = format!("{}\n{{\"type\":\"result\",\"result\":\"ok\"}}\n", "x".repeat(100));
         std::fs::write(stream_at(&base, 2), short).unwrap();
-        let told = told_within(dir.path(), &base, &bounds).unwrap();
-        let unread = "its last lines are longer than the 40 bytes that are read of a result".to_string();
+        let told = told_within(dir.path(), &base, &bounds, &program()).unwrap();
+        let unread = fill(&program().lines_too_long, &[("most", "40")]);
         let ok = Back::Returned(Returned {
             text: Some("ok".to_string()),
             ..Returned::default()
@@ -763,7 +778,7 @@ mod tests {
         let tries = told_at(&dir).tries;
         assert_eq!(tries[0].message, "Greet the user.");
         match &tries[0].back {
-            Back::Unreadable(why) => assert!(why.starts_with("it is not a result: "), "{why}"),
+            Back::Unreadable(why) => assert!(why.starts_with("It is not a result: "), "{why}"),
             other => panic!("{other:?}"),
         }
     }
@@ -773,7 +788,7 @@ mod tests {
         let (dir, base) = kept();
         // A directory where the message is: it is there, and cannot be read as a file.
         std::fs::create_dir(at(&base, 1).0).unwrap();
-        let why = told(dir.path(), WorkNumber(3), RunId(7), 2).unwrap_err();
+        let why = told(dir.path(), WorkNumber(3), RunId(7), 2, &program()).unwrap_err();
         assert!(why.starts_with("rounds/3/7-2.message.md: "), "{why}");
         assert!(!why.contains(&dir.path().display().to_string()), "{why}");
     }
@@ -791,14 +806,14 @@ mod tests {
         keep(&base, 2, "Again.", Some(r#"{"result":"ok"}"#));
         keep(&base, 3, "And more.", Some(r#"{"result":"ok"}"#));
         keep(&base, 4, "Once more.", None);
-        let told = told_within(dir.path(), &base, &bounds).unwrap();
+        let told = told_within(dir.path(), &base, &bounds, &program()).unwrap();
         let ok = || {
             Back::Returned(Returned {
                 text: Some("ok".to_string()),
                 ..Returned::default()
             })
         };
-        let unread = "it is 28 bytes long, more than the 16 that are read of a result".to_string();
+        let unread = fill(&program().too_long, &[("long", "28"), ("most", "16")]);
         assert_eq!(
             told.tries,
             [

@@ -270,7 +270,7 @@ export function outageWords(outage: Outage): string | null {
   if (!outage.holds) return null;
   if (outage.first != null) {
     const what = outage.service === 'host' ? 'act' : 'round';
-    return `${capital(failureWords(outage.failure))} since ${clock(outage.since)}. It is well again: W${outage.first}'s ${what} goes first, and the rest begin once it comes back.`;
+    return `${capital(failureWords(outage.failure))} since ${clock(outage.since)}. It is well again: ${workName(outage.first)}'s ${what} goes first, and the rest begin once it comes back.`;
   }
   const found = outage.checked?.found;
   const down = outageDown(outage);
@@ -308,7 +308,7 @@ export function waitedWords(waited: Waited): string {
       const outage = waited.outage;
       if (outage.first != null) {
         const what = outage.service === 'host' ? 'act' : 'round';
-        return `W${outage.first}'s ${what} to come back: it is well again, and that ${what} goes first`;
+        return `${workName(outage.first)}'s ${what} to come back: it is well again, and that ${what} goes first`;
       }
       return `the agents' rounds to begin again, as ${failureWords(outageDown(outage).failure)}`;
     }
@@ -319,15 +319,21 @@ export function waitedWords(waited: Waited): string {
     case 'outside':
       return `${waited.source} to move, before ${waited.cell} runs again: ${waited.why}`;
     case 'turn':
-      return `the project's turn to check and merge, which W${waited.holder} holds`;
+      return `the project's turn to check and merge, which ${workName(waited.holder)} holds`;
     case 'items':
       return itemsWords(waited.items);
   }
 }
 
+/// A work's number as the engine writes it in words, everywhere: `W5`.
+export const workName = (number: number): string => `W${number}`;
+
+/// An item's number as the engine writes it in words, everywhere: `#5`.
+export const itemName = (number: number): string => `#${number}`;
+
 /// Items by their numbers, as a line names them: `#5`, `#5 and #7`, `#5, #6 and #7`.
 export function itemsWords(items: number[]): string {
-  const named = items.map((n) => `#${n}`);
+  const named = items.map(itemName);
   return named.length < 2 ? named.join('') : `${named.slice(0, -1).join(', ')} and ${named[named.length - 1]}`;
 }
 
@@ -416,7 +422,7 @@ function whoGives(w: Waited): string | null {
     case 'outside':
       return w.source;
     case 'turn':
-      return `W${w.holder}`;
+      return workName(w.holder);
     case 'limit':
     case 'calls':
     case 'answer':

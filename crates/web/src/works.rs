@@ -2676,9 +2676,12 @@ fn skipped_words(words: &flow::agents::StalledWords, cell: &str, on: &[CellKey])
     flow::agents::sentence(&unrun_words(words, cell, &skipped_why(words, on)))
 }
 
-/// A cell that does not run, and why, in the words of a stalled work.
-fn unrun_words(words: &flow::agents::StalledWords, cell: &str, why: &str) -> String {
-    flow::agents::fill(&words.unrun, &[("cell", &name_words(words, cell)), ("why", why)])
+/// A cell that does not run, and because of what, in the words of a stalled work.
+fn unrun_words(words: &flow::agents::StalledWords, cell: &str, because: &str) -> String {
+    flow::agents::fill(
+        &words.unrun,
+        &[("cell", &name_words(words, cell)), ("because", because)],
+    )
 }
 
 /// That a cell is skipped, its keys not holding, in the words of a stalled work.
@@ -3205,8 +3208,7 @@ fn numbered(records: &Records, block: &BlockId, at: Seq) -> Result<u64, Broken> 
 
 /// The deciding code's view of the work, which the driver holds, in the room what holds every work at once leaves it.
 pub(crate) fn viewed_at(driver: &Driver, number: WorkNumber, at_once: &driver::AtOnce) -> Result<View, Broken> {
-    (driver.view_at(number, at_once))
-        .ok_or_else(|| Broken(format!("the driver shows work {} and has no view of it", number.0)))
+    (driver.view_at(number, at_once)).ok_or_else(|| Broken(format!("the driver shows {number} and has no view of it")))
 }
 
 /// The link of the CI run a round or a call runs as, where what carries it out says it does.

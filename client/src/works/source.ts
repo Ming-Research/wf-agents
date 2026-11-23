@@ -35,6 +35,7 @@ import type {
   VersionPage,
   WorkPage,
 } from '../works-api';
+import { workName } from './words';
 
 export interface Source {
   loadCopies(): Promise<Copies>;
@@ -114,8 +115,8 @@ export const FIXTURES: Source = {
       stopped = true;
     };
   },
-  loadChanges: (work) => Promise.reject(new Error(`The made-up work ${work} changed no files`)),
-  loadDiff: (work) => Promise.reject(new Error(`The made-up work ${work} changed no files`)),
+  loadChanges: (work) => Promise.reject(new Error(`The made-up ${workName(work)} changed no files`)),
+  loadDiff: (work) => Promise.reject(new Error(`The made-up ${workName(work)} changed no files`)),
   loadSystem: async (work, line, session) => (await import('./fixtures')).fixtureSystem(work, line, session),
   loadCall: async (work, call) => (await import('./fixtures')).fixtureCall(work, call),
   act: async (work, what) => {

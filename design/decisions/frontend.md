@@ -91,6 +91,11 @@ A diagram wider than its place is drawn as narrow as the place and never scrolls
 Every list in a text an agent or the owner wrote is drawn as a numbered list, whatever marker it was written with.
 - replaced: Drawing each list as it was written, bulleted or numbered, was on main; the owner changed it, because he read two lists of one shape drawn in two ways as meant to differ.
 
+### decision an-item-number-in-a-text-is-a-link-by-two-forms
+In a text an agent or the owner wrote, `#n`, and a number after the word item or its Chinese word, is a link to that item once the page has read it; any other number is left as written.
+- rejected: an agent proposed linking only `#n`; the owner rejected it, because the owner also writes an item's number after the word item or its Chinese word, and such a number would then be no link.
+- rejected: an agent proposed linking any number that stands alone, outside code and links; the owner rejected it, because with hundreds of items nearly every small number names one, so Article 8, 2 files and round 3 would link to unrelated items, and no list of words for other numbers is complete.
+
 ### decision the-page-uses-no-component-library
 The page is drawn with a small set of parts of its own, and uses no component library.
 - replaced: GitHub's Primer, its tokens and its components, was on main; the owner changed it, because Primer wastes room on the screen and is not good to look at.
