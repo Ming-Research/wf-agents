@@ -52,8 +52,8 @@ const SCRIPTED: u64 = 6;
 const STEPS: usize = 120;
 
 /// How many histories of the engineer's flow are run, and how many steps each takes.
-const ENGINEER_SEEDS: u64 = 8;
-const ENGINEER_STEPS: usize = 400;
+const ENGINEER_SEEDS: u64 = 12;
+const ENGINEER_STEPS: usize = 250;
 
 pub struct Rng(u64);
 
@@ -155,6 +155,10 @@ struct Reached {
     at_limit: usize,
     /// What the entries of real rounds stood in, by [`stood`].
     real: BTreeSet<String>,
+    /// For a line of `real`, the first round that stood in it: why its run began, its number, and the situation.
+    examples: BTreeMap<String, String>,
+    /// Rounds carried to a session of an agent's cell.
+    rounds: usize,
 }
 
 /// What a history of a flow does beside carrying its rounds.
@@ -168,6 +172,8 @@ struct Scene {
     models: bool,
     /// Whether the owner speaks to the cells that take words and answers the questions cells ask.
     talks: bool,
+    /// How many steps in a hundred a person or the outside writes.
+    puts: usize,
     /// How often, in a hundred, a cell that writes a choice with the value `yes` writes it, so that the work goes on to
     /// its later cells; none where the choice is any of its values alike.
     passes: Option<u64>,
@@ -182,6 +188,7 @@ impl Scene {
             lines: vec!["engineer".to_string(), "reviewer".to_string()],
             models: true,
             talks: false,
+            puts: 22,
             passes: None,
         }
     }
@@ -195,6 +202,7 @@ impl Scene {
             lines,
             models: false,
             talks: true,
+            puts: 8,
             passes: Some(70),
         }
     }
@@ -217,12 +225,17 @@ struct History {
     /// What the next returns do, in turn, where a history is scripted: ask for this call, or hand in a block the cell
     /// may not write beside the rest. A scripted history's other returns ask for nothing and are never sent back.
     forced: Option<Vec<Forced>>,
+    /// How many of the first steps only carry what the work gives and let it go on, so that the history goes as far
+    /// into the flow as it can before anything else happens.
+    quiet: usize,
 }
 
 /// What a scripted return does.
 enum Forced {
     Ask(Ask),
     Wrong,
+    /// Hands in every block the cell writes.
+    All,
 }
 
 impl History {
@@ -243,6 +256,7 @@ impl History {
             written: BTreeMap::new(),
             count: 0,
             forced: None,
+            quiet: 0,
         };
         history.start();
         history
@@ -303,16 +317,29 @@ impl History {
     }
 
     fn step(&mut self, reached: &mut Reached) {
+        if self.quiet > 0 {
+            self.quiet -= 1;
+            if let Some(round) = self.sim.round() {
+                return self.carry(&round, reached);
+            }
+            if let Some(call) = self.sim.calls().first() {
+                return self.sim.done(*call, "the rows");
+            }
+            if self.lets_go() {
+                return;
+            }
+        }
         let roll = self.rng.below(100);
-        if roll < 22 {
+        let puts = self.scene.puts;
+        if roll < puts {
             let block = self.scene.writes[self.rng.below(self.scene.writes.len())];
             self.put(block);
-        } else if roll < 26 {
+        } else if roll < puts + 4 {
             let line = self.scene.lines[self.rng.below(self.scene.lines.len())].clone();
             self.sim.anew(&line, Why::Owner);
             self.lines.insert(line, Held::default());
             reached.reopened += 1;
-        } else if self.scene.talks && roll < 32 && self.speaks() {
+        } else if self.scene.talks && roll < puts + 10 && self.speaks() {
             // The owner spoke or answered.
         } else if let Some(round) = self.sim.round() {
             self.carry(&round, reached);
@@ -473,17 +500,24 @@ impl History {
         // The close, run by the finish, reads the verdict, and its run ends the work: it asks for a tool run on
         // something and on nothing, and a question, is sent back twice, so that it reaches the limit of its returns,
         // and the owner lets it go on; its rounds are given each result.
-        self.forced = Some(vec![
-            tool("x"),
-            tool(""),
-            question,
-            Forced::Wrong,
-            Forced::Wrong,
-            tool("y"),
-        ]);
+        let close = vec![tool("x"), tool(""), question, Forced::Wrong, Forced::Wrong, tool("y")];
+        self.forced = Some(close);
         self.put("verdict");
         self.put("finish");
         self.under_way("close");
+        let round = self.sim.round().expect("the close's round");
+        self.carry(&round, reached);
+        // While it rests at the call, the request is written: the plan and the build, which hand in what they write, are
+        // run before its next round, which the session holds as the build's hand-in last.
+        let close = self.forced.replace(vec![Forced::All, Forced::All]);
+        self.put("request");
+        for _ in 0..20 {
+            match self.sim.round() {
+                Some(round) if round.cell.as_str() != "close" => self.carry(&round, reached),
+                _ => break,
+            }
+        }
+        self.forced = close;
         self.drain(reached);
     }
 
@@ -581,10 +615,11 @@ impl History {
     /// otherwise each block the cell writes with a chance of seven in ten, those it must write every time.
     fn came(&mut self, round: &Round) -> Came {
         let scripted = self.forced.is_some();
-        let mut wrong = false;
+        let (mut wrong, mut all) = (false, false);
         match self.forced.as_mut().filter(|f| !f.is_empty()).map(|f| f.remove(0)) {
             Some(Forced::Ask(ask)) => return Came::asks(vec![ask]),
             Some(Forced::Wrong) => wrong = true,
+            Some(Forced::All) => all = true,
             None => {}
         }
         if !scripted && self.rng.chance(15) {
@@ -608,11 +643,11 @@ impl History {
         let cell = self.sim.cell(round).clone();
         let place = self.sim.flow.flow.place(&cell.id).expect("the cell's place");
         let outputs = self.sim.flow.flow.cells()[place].outputs.clone();
-        let leaves_out = !cell.must_write.is_empty() && self.rng.chance(14);
+        let leaves_out = !cell.must_write.is_empty() && !all && self.rng.chance(14);
         let mut writes = Vec::new();
         for block in outputs {
             let must = cell.must_write.contains(&block);
-            if (must && !leaves_out) || (!must && self.rng.chance(70)) {
+            if (must && !leaves_out) || (!must && (all || self.rng.chance(70))) {
                 let passes = self.scene.passes.is_some_and(|percent| self.rng.chance(percent));
                 let value = self.sim.flow.blocks[&block].values.clone().map(|v| match passes {
                     true if v.iter().any(|x| x == "yes") => "yes".to_string(),
@@ -894,7 +929,15 @@ impl History {
         let sim = &self.sim;
         let cell = sim.cell(round);
         if !self.scene.models {
-            reached.real.extend(stood(cell, &entered.situation));
+            let because = (sim.work.records.started.iter())
+                .find(|s| s.run == round.run)
+                .map(|s| format!("{:?}", s.because));
+            for line in stood(cell, &entered.situation) {
+                let example = format!("{because:?}, round {}, {:?}", round.number, entered.situation);
+                reached.examples.entry(line.clone()).or_insert(example);
+                reached.real.insert(line);
+            }
+            reached.rounds += 1;
             return;
         }
         assert_eq!(
@@ -1268,6 +1311,9 @@ fn the_rounds_of_works_of_the_engineer_s_flow_stand_in_what_the_tool_writes_for_
         let sim = support::engineer_sim();
         let scene = Scene::engineer(&sim);
         let mut history = History::of(sim, scene, seed);
+        // Each goes some way into the flow before anything else happens, the next further than the last.
+        history.quiet = 12 * (seed as usize % 12);
+        history.scene.passes = Some(60 + 10 * (seed % 5));
         let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             for _ in 0..ENGINEER_STEPS {
                 if history.ended() {
@@ -1283,12 +1329,20 @@ fn the_rounds_of_works_of_the_engineer_s_flow_stand_in_what_the_tool_writes_for_
     }
     let written = written(&support::engineer_sim());
     let (gaps, nothing) = (missing(&reached.real, &written), missing(&written, &reached.real));
+    let gaps = format!(
+        "{gaps}\n{}",
+        (reached.real.difference(&written))
+            .map(|line| format!("{line}\n    {}", reached.examples[line]))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
     assert!(
         reached.real.is_subset(&written) && written.is_subset(&reached.real),
         "rounds stood in what the tool does not write, {gaps}\n\nthe tool writes what no round stood in, {nothing}\n\nof the \
-         rounds, by cell: {}\nof the tool, by cell: {}\nthe histories took {:?}",
+         rounds, by cell: {}\nof the tool, by cell: {}\nthe histories carried {} rounds in {:?}",
         per_cell(&reached.real),
         per_cell(&written),
+        reached.rounds,
         began.elapsed()
     );
 }
