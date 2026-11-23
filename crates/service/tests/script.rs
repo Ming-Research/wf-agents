@@ -34,7 +34,6 @@ fn engineer() -> Compiled {
             "handed_in",
             "parallel",
             "main",
-            "session",
             "start",
             "head",
             "tree",
@@ -228,15 +227,16 @@ fn a_round_the_script_says_nothing_of_hands_a_value_that_stands_alone_in_with_wh
 fn a_round_the_script_says_nothing_of_writes_what_only_a_cell_that_never_runs_beside_it_reads_before_it() {
     let flow = engineer();
     // The plan's second look, before the deep research, runs only where `deep_needed` is no and the deep research only
-    // where it is yes, so the plan, which the second look reads, is no way back for the deep research: it writes it, and
-    // its answers in its dialogues, which only the research and the second look, as far apart, read before it. Its own
-    // questions and words, which the reading of the tree reads, it writes not.
+    // where it is yes, so the plan, which the second look reads, is no way back for the deep research: it writes it, the
+    // entries of the tree it names, and its answers in its dialogues, which only the research and the second look, as
+    // far apart, read before it. Its own questions and words, which the reading of the tree reads, it writes not.
     let words = |block: &str| format!("The {block} as D1 wrote it in its run 1, round 1.");
     let blocks = [
         "plan_owner",
         "plan_agent",
         "acceptance",
         "plan_files",
+        "tree_entries",
         "better_found",
         "plan_review",
         "tree_review",

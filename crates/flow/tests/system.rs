@@ -25,7 +25,6 @@ fn engineer() -> Compiled {
             "handed_in",
             "parallel",
             "main",
-            "session",
             "start",
             "head",
             "tree",

@@ -177,6 +177,58 @@ struct Said {
     ended: bool,
 }
 
+/// Why a block whose lines name entries of the design tree (`names_tree_entries`) can be neither checked nor given:
+/// the project's declaration says nothing of how an entry is found.
+fn no_tree_format() -> String {
+    format!(
+        "the project's declaration, {}, has no [tree_format], which a block whose file says names_tree_entries needs",
+        flow::agents::DECLARATION
+    )
+}
+
+/// What the round of this number of the run, of this cell, is given in place of the latest version of each block it
+/// is given whose lines name entries of the design tree (`names_tree_entries`): the entries whole, as the tree in the
+/// worktree at `dir` has them at the commit of the tree's latest version as the round began, by the block and the
+/// version's place. None of a cell given no such block; each name said to be held by no tree where the tree has no
+/// version.
+async fn entries_given(
+    flow: &flow::Compiled,
+    work: &Work,
+    run: RunId,
+    number: usize,
+    cell: &flow::CellSpec,
+    dir: &Path,
+    of: &Of,
+) -> Result<BTreeMap<(BlockId, Seq), String>, String> {
+    let mut given = BTreeMap::new();
+    let naming: Vec<&BlockId> = (cell.given.iter().map(|g| &g.block))
+        .filter(|block| flow.blocks.get(*block).is_some_and(|b| b.names_tree_entries))
+        .collect();
+    if naming.is_empty() {
+        return Ok(given);
+    }
+    let format = of.beside.project.tree_format.as_ref().ok_or_else(no_tree_format)?;
+    let began = work::sessions::began_at(work, run, number).unwrap_or_else(|| work.tick());
+    let versions = decide::versions(&work.records.before(began));
+    let latest = |block: &BlockId| {
+        let at = versions.get(block).and_then(|all| all.last()).map(|v| v.at)?;
+        Some((at, work.contents.get(&(block.clone(), at))?.as_str()))
+    };
+    let tree = (flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(crate::tree::TREE));
+    let commit = tree
+        .and_then(|(block, _)| latest(block))
+        .and_then(|(_, content)| crate::tree::commit_of(content));
+    let words = &of.beside.given.entries;
+    for block in naming {
+        let Some((at, names)) = latest(block) else {
+            continue;
+        };
+        let text = crate::tree::entries(dir, &of.project.tree, format, commit.as_deref(), names, words).await?;
+        given.insert((block.clone(), at), text);
+    }
+    Ok(given)
+}
+
 /// What the rounds of the works of a project's items are run with.
 pub struct Of {
     /// The project's settings.
@@ -607,11 +659,15 @@ impl Inner {
                 let results = tools::given(work, &of.beside.tools, &files);
                 let told = main.as_ref().and_then(CaughtUp::told);
                 let compared = branch::compared(flow);
+                // What the round is given in place of the names a block's lines write, where they name entries of the
+                // design tree: the entries whole, as the tree's latest version has them.
+                let given_as = entries_given(flow, work, round.run, round.number, &round.cell, &dir, of).await?;
                 let carried = context::Carried {
                     about,
                     main: told.as_ref(),
                     compared: &compared,
                     changes: &changes,
+                    given_as: &given_as,
                     named: &of.filling.named,
                     results: &results,
                 };
@@ -824,6 +880,33 @@ impl Inner {
                     let (project, tree) = (&of.project, of.project.tree.as_str());
                     match crate::tree::unwritten(project, &place, &of.main, tree, &round.kept, &came.said).await {
                         Ok(names) => (came.found).extend(names.into_iter().map(|name| Unmet::TreeUnchanged { name })),
+                        Err(why) => {
+                            return Ok(Carried::Failed(
+                                why,
+                                Failure::Other,
+                                failure::Said::default(),
+                                read.spent,
+                            ));
+                        }
+                    }
+                }
+                // A return that writes a block whose lines name entries of the design tree is held to lines that each
+                // name an entry the tree holds at the head of the work's branch, as the project's format of the tree
+                // finds it. A look that cannot be made, a declaration that gives no format among it, fails the round.
+                let naming: Vec<String> = (came.writes.iter())
+                    .filter(|h| (flow.blocks.get(&h.block)).is_some_and(|b| b.names_tree_entries))
+                    .map(|h| h.content.clone())
+                    .collect();
+                for names in &naming {
+                    let looked = match &of.beside.project.tree_format {
+                        Some(format) => {
+                            let (tree, head) = (of.project.tree.as_str(), place.reference());
+                            crate::tree::unknown(&place.dir, tree, format, &head, names).await
+                        }
+                        None => Err(no_tree_format()),
+                    };
+                    match looked {
+                        Ok(lines) => (came.found).extend(lines.into_iter().map(|line| Unmet::NotAnEntry { line })),
                         Err(why) => {
                             return Ok(Carried::Failed(
                                 why,
@@ -2492,7 +2575,6 @@ mod tests {
                 "handed_in",
                 "parallel",
                 "main",
-                "session",
                 "start",
                 "head",
                 "tree",

@@ -6,8 +6,9 @@ line = "deep_researcher"
 effort = "xhigh"
 takes_main = true
 task = '''
-Research what `found` left open, and work out how to do what `background` asks. This session has not read the tree:
-read it for this work as the tree's rules say, and read the code yourself. Treat `found` as a hypothesis to check. Use
+Research what `found` left open, and work out how to do what `background` asks. Read the design tree as its rules say,
+beyond `tree_entries`, for what the research reaches, and read the code yourself. Where the plan reaches entries that
+`tree_entries` does not name, hand in `tree_entries` again, the whole list. Treat `found` as a hypothesis to check. Use
 what the research left in `project.research` instead of running it again, and commit anything you make there. Find
 out the facts left open, try the approaches worth trying, and analyse a fault in the design itself as a design
 problem. Check any fact that would change the direction before you rely on it, and weigh the upkeep the solution adds.
@@ -32,13 +33,14 @@ watches = [
   "d1_questions",
   "d1_words",
 ]
-reads = ["tree"]
+reads = ["tree", "tree_entries"]
 outputs = [
   "plan_owner",
   "plan_agent",
   "d1_questions",
   "acceptance",
   "plan_files",
+  "tree_entries",
   "better_found",
   "plan_review",
   "tree_review",
@@ -46,8 +48,7 @@ outputs = [
   "d1_words",
 ]
 
-# What the cell does when each datum it watches is new; a datum with none is the task's alone. No session is watched:
-# the task has the cell read the tree where its session has not.
+# What the cell does when each datum it watches is new; a datum with none is the task's alone.
 [do]
 background = """Look at what changed since the version you last worked from (all of it, if you have worked from none), and update the research and the plan for it."""
 better_found = """Consider the approach in `better_found`: change the plan to it, or say why not, and answer in `better_found`."""
@@ -63,6 +64,8 @@ d1_words = """The owner has written to you in `d1_words`: deal with that first. 
 [kinds]
 # Given as the files that changed since the tree this session read.
 tree = "last_and_latest"
+# The entries of the design tree the plan was worked from, whole.
+tree_entries = "latest"
 background = "last_and_latest"
 found = "latest"
 better_found = "all"

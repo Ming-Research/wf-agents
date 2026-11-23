@@ -302,7 +302,6 @@ fn compiled(source: &Source) -> Compiled {
             "handed_in",
             "parallel",
             "main",
-            "session",
             "start",
             "head",
             "tree",

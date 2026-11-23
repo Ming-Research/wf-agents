@@ -74,7 +74,6 @@ pub(crate) fn the_engine_s(_: &flow::Source) -> flow::Has {
             "handed_in",
             "parallel",
             "main",
-            "session",
             "start",
             "head",
             "tree",
