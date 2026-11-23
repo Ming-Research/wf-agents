@@ -562,7 +562,7 @@ async fn untracked_names_a_directory_with_a_tracked_file_by_its_files_and_a_name
 #[tokio::test]
 async fn the_checks_merge_of_main_ends_with_the_lines_and_is_known_as_the_engines_by_its_whole_message() {
     let repo = Repo::new("true");
-    let started = start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+    let started = start(&repo.project, &repo.place(WORK), "main", "main").await.unwrap();
     commit(&started.place.dir, "farewell.txt", "Bye.\n");
     let main = commit(&repo.project.repo, "other.txt", "Other.\n");
     let dir = &started.place.dir;
@@ -596,7 +596,7 @@ async fn the_checks_merge_of_main_ends_with_the_lines_and_is_known_as_the_engine
 #[tokio::test]
 async fn the_works_messages_are_those_of_its_own_commits_oldest_first_without_the_merges() {
     let repo = Repo::new("true");
-    let started = start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+    let started = start(&repo.project, &repo.place(WORK), "main", "main").await.unwrap();
     let dir = &started.place.dir;
     commit(dir, "first.txt", "1\n");
     let main = commit(&repo.project.repo, "other.txt", "Other.\n");
