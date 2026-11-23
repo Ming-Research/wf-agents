@@ -55,6 +55,11 @@ async fn a_work_goes_to_its_merge_with_the_command_line() {
     assert_eq!(spent[0], plan_spent);
     assert_eq!(spent[1].usd_micros, 10_000);
     assert_eq!(spent[2].usd_micros, 10_000);
+    let measures = work::measured::of_round(&kept.measured, plan_run, 1).expect("the round's try is measured");
+    assert!(
+        !measures.priced,
+        "its result said what it spent, and nothing is priced from its calls"
+    );
 
     // The build's commit is merged into main, by a merge named by the work's number: the flow has no block that
     // names it.
@@ -105,4 +110,26 @@ async fn a_work_is_started_checked_and_merged_at_the_commit_the_check_passed() {
     );
     let parents = git_in(&real.repo, &["rev-list", "--parents", "-n", "1", "main"]);
     assert_eq!(parents.split(' ').nth(2), Some(head.as_str()));
+}
+
+// A result that does not say what the program spent since the result before it is charged what the round's calls cost at
+// their models' prices, and the try says it is priced so: not nothing, and not the session's whole cost.
+#[tokio::test]
+async fn a_round_whose_result_does_not_say_what_it_spent_is_charged_its_calls_at_their_prices_and_says_so() {
+    let fake = Fake {
+        omits_cost: true,
+        cost: "9.99",
+        ..Fake::default()
+    };
+    let mut real = Real::trial(fake);
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| real.work(work).spent.keys().any(|(_, round)| *round == 1))
+        .await;
+    let kept = real.work(work);
+    let plan_run = kept.records.started[0].run;
+    // Opus 5.5: 100 × 4 + 1,000 × 0.2 + 10 × 20 millionths of a dollar, not the $9.99 the session's total says.
+    assert_eq!(kept.spent[&(plan_run, 1)].usd_micros, 400 + 200 + 200);
+    let measures = work::measured::of_round(&kept.measured, plan_run, 1).expect("the round's try is measured");
+    assert!(measures.priced, "what it took is priced from its calls");
 }

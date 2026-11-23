@@ -61,6 +61,9 @@ pub struct Fake {
     /// Whether its first call crashes after one call to Opus 5.5, of 100 tokens sent, 1,000 read from the cache and 10
     /// back, printing no result, and exits with 1.
     pub crashes_first: bool,
+    /// Whether every call makes one call to Opus 5.5, of 100 tokens sent, 1,000 read from the cache and 10 back, and
+    /// prints a result that leaves out what the program spent since the result before it.
+    pub omits_cost: bool,
     /// Whether the build asks for the query of the check in its first run, and its run entered for the result, going
     /// on in the session, is told the first time that the session is not found.
     pub lose_session: bool,
@@ -152,6 +155,7 @@ impl Default for Fake {
             flag_first: false,
             error_first: false,
             crashes_first: false,
+            omits_cost: false,
             lose_session: false,
             lose_in_result: false,
             question_first: false,
@@ -683,7 +687,12 @@ if [ '{says_usage}' = yes ]; then
 fi
 total=$(awk -v seen="$(cat "$log/total" 2>/dev/null || echo 0)" 'BEGIN {{ printf "%.6f", seen + {cost} }}')
 printf '%s' "$total" > "$log/total"
-printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":%s,"model_usage_since_last_result":{{"m":{{"costUSD":{cost}}}}},"usage":{{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":100,"output_tokens":20%s}},"structured_output":%s}}\n' "$total" "$iterations" "$structured"
+since='"model_usage_since_last_result":{{"m":{{"costUSD":{cost}}}}},'
+if [ '{omits_cost}' = yes ]; then
+    printf '%s\n' '{{"type":"assistant","parent_tool_use_id":null,"message":{{"id":"msg_1","model":"claude-opus-5-5","usage":{{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":1000,"output_tokens":10}}}}}}'
+    since=''
+fi
+printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":%s,%s"usage":{{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":100,"output_tokens":20%s}},"structured_output":%s}}\n' "$total" "$since" "$iterations" "$structured"
 if [ '{returned_sleeps}' != 0 ] && [ "$first" = Plan ] && [ ! -f "$log/returned" ]; then
     touch "$log/returned"
     sleep '{returned_sleeps}'
@@ -694,6 +703,7 @@ fi
         flag = yes(fake.flag_first),
         error = yes(fake.error_first),
         crash = yes(fake.crashes_first),
+        omits_cost = yes(fake.omits_cost),
         lose = yes(fake.lose_session),
         lose_in_result = yes(fake.lose_in_result),
         question = yes(fake.question_first),
