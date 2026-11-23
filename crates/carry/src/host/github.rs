@@ -83,7 +83,7 @@ pub struct Config {
     pub merge_method: String,
     /// Whether the work's branch on GitHub is deleted once it is merged.
     pub delete_branch: bool,
-    /// The project's two workflows, as its declaration gives them; none where it declares none.
+    /// The project's workflows, as its declaration gives them; none where it declares none.
     pub ci: Option<flow::agents::Ci>,
     /// The runners this installation has, by the name a workflow of the project's declaration gives them.
     pub runners: Vec<String>,

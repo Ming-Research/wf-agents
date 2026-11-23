@@ -332,7 +332,7 @@ pub struct Project {
     pub project: BTreeMap<String, String>,
     /// Where the project's tests are, and what its tests expect.
     pub tests: Option<Tests>,
-    /// The project's two workflows, which the engine runs tests and checks through.
+    /// The project's workflows, which the engine runs tests, checks and measurements through.
     pub ci: Option<Ci>,
     /// The paths the project protects; none where it protects none.
     #[serde(default)]

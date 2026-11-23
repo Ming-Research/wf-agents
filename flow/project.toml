@@ -58,8 +58,9 @@ paths = [
 ]
 expected = ["crates/carry/tests/fixtures/", "crates/flow/tests/laid_out/"]
 
-# The project's two workflows, which the engine runs by hand on main's file with a commit given. Each reports every test
-# as JUnit XML, named as an agent asks for it, in the artifact `test-results`.
+# The project's workflows, which the engine runs by hand on main's file with a commit given: the fast and the full, and
+# the one that measures. Each reports every test, or every timing, as JUnit XML, named as an agent asks for it, in the
+# artifact `test-results`.
 [ci.fast]
 # Builds and runs only the tests and checks it is given.
 workflow = "fast.yml"
