@@ -1,7 +1,8 @@
 //! The levels of the items: how hard an item's work is, which chooses what its agents' rounds run on. The installation's
 //! settings name its levels, each with what work it is for; an item is given one as it is added, or later by the owner,
 //! the one the settings name for an item that is given none, and none above the highest they let an item be at. A round
-//! runs at its item's level, or above it where its line says so, but never above that highest level.
+//! runs at its item's level, or above it where its line says so, but never above the highest level they let one round
+//! run at, which is no lower than the highest an item may be at.
 //!
 //! The levels are in their order by their names: by number where they are numbers, by name otherwise, so that `10`
 //! comes after `2`. A refusal names the key of the settings it comes from, so that the owner knows where to look; the
@@ -15,7 +16,10 @@ pub struct Levels {
     /// Where among them the level an item is added at where it is given none is.
     default: usize,
     /// Where among them the highest level an item may be at is.
-    highest: usize,
+    items_highest: usize,
+    /// Where among them the highest level one round may run at is: no lower than `items_highest`, so that a round of
+    /// an item at its highest level can run at it.
+    rounds_highest: usize,
     /// Whether the levels are the settings', whose keys a refusal names.
     from_settings: bool,
     /// The most words an item's title may have, as [`crate::title_words`] counts them; none, any number. These are the
@@ -38,18 +42,35 @@ pub enum LevelsFault {
     /// The level an item is added at where it is given none is not among them.
     NoSuchDefault(String),
     /// The highest level an item may be at is not among them.
-    NoSuchHighest(String),
+    NoSuchItemsHighest(String),
+    /// The highest level one round may run at is not among them.
+    NoSuchRoundsHighest(String),
     /// The level an item is added at where it is given none is above the highest an item may be at.
-    DefaultAboveHighest { default: String, highest: String },
+    DefaultAboveItemsHighest { default: String, highest: String },
+    /// The highest level an item may be at is above the highest level one round may run at.
+    ItemsHighestAboveRounds { items: String, rounds: String },
+}
+
+/// The level a round runs at, and how far it was raised.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RoundLevel {
+    /// The level it runs at.
+    pub level: String,
+    /// How many levels above its item's it runs at: the line's raise, less what the highest level one round may run at
+    /// took off it.
+    pub raised: u32,
+    /// How many levels above its item's its line asks it to run at, whether or not it could.
+    pub asks: u32,
 }
 
 impl Levels {
-    /// The settings' levels, with the one an item is added at where it is given none, and the highest an item may be
-    /// at: the top level where none is named.
+    /// The settings' levels, with the one an item is added at where it is given none, the highest an item may be at and
+    /// the highest one round may run at: the top level where none is named.
     pub fn new(
         levels: impl IntoIterator<Item = Level>,
         default: &str,
-        highest: Option<&str>,
+        items_highest: Option<&str>,
+        rounds_highest: Option<&str>,
     ) -> Result<Levels, LevelsFault> {
         let mut levels: Vec<Level> = levels.into_iter().collect();
         levels.sort_by_key(|level| (level.name.parse::<u64>().ok(), level.name.clone()));
@@ -59,20 +80,31 @@ impl Levels {
         }
         let at = |name: &str| levels.iter().position(|l| l.name == name);
         let default_at = at(default).ok_or_else(|| LevelsFault::NoSuchDefault(default.to_string()))?;
-        let highest_at = match highest {
-            Some(highest) => at(highest).ok_or_else(|| LevelsFault::NoSuchHighest(highest.to_string()))?,
+        let items_at = match items_highest {
+            Some(highest) => at(highest).ok_or_else(|| LevelsFault::NoSuchItemsHighest(highest.to_string()))?,
             None => levels.len() - 1,
         };
-        if default_at > highest_at {
-            return Err(LevelsFault::DefaultAboveHighest {
+        let rounds_at = match rounds_highest {
+            Some(highest) => at(highest).ok_or_else(|| LevelsFault::NoSuchRoundsHighest(highest.to_string()))?,
+            None => levels.len() - 1,
+        };
+        if default_at > items_at {
+            return Err(LevelsFault::DefaultAboveItemsHighest {
                 default: default.to_string(),
-                highest: levels[highest_at].name.clone(),
+                highest: levels[items_at].name.clone(),
+            });
+        }
+        if items_at > rounds_at {
+            return Err(LevelsFault::ItemsHighestAboveRounds {
+                items: levels[items_at].name.clone(),
+                rounds: levels[rounds_at].name.clone(),
             });
         }
         Ok(Levels {
             levels,
             default: default_at,
-            highest: highest_at,
+            items_highest: items_at,
+            rounds_highest: rounds_at,
             from_settings: true,
             title_max: None,
         })
@@ -87,7 +119,8 @@ impl Levels {
         Levels {
             levels: vec![level],
             default: 0,
-            highest: 0,
+            items_highest: 0,
+            rounds_highest: 0,
             from_settings: false,
             title_max: None,
         }
@@ -118,8 +151,14 @@ impl Levels {
     }
 
     /// The highest level an item may be at.
-    pub fn highest(&self) -> &str {
-        &self.levels[self.highest].name
+    pub fn items_highest(&self) -> &str {
+        &self.levels[self.items_highest].name
+    }
+
+    /// The key of the settings that holds a round to its highest level, which a page says on pointing at a round it
+    /// held; none for the one level of no settings.
+    pub fn rounds_highest_key(&self) -> Option<&'static str> {
+        self.from_settings.then_some("agents.highest_level")
     }
 
     /// The level an item asked to be at is given: the one asked for, or the default where none is; refused, in words,
@@ -131,17 +170,22 @@ impl Levels {
         }
     }
 
-    /// The level a round runs at: its item's, or this many above it, but none above the highest an item may be at. An
-    /// item that has no level runs at the default: no level can be given to one whose level was never kept without
+    /// The level a round runs at: its item's, or this many above it, but none above the highest one round may run at.
+    /// An item that has no level runs at the default: no level can be given to one whose level was never kept without
     /// guessing. Refused, in words, where the item's level is not one of the levels, or is above the highest an item
     /// may be at: such an item is not run at another level, which would spend at a model nobody chose for it.
-    pub fn of_round(&self, item: Option<&str>, above: u32) -> Result<String, String> {
+    pub fn of_round(&self, item: Option<&str>, above: u32) -> Result<RoundLevel, String> {
         let at = match item {
             None => self.default,
             Some(level) => self.at(level).map_err(|why| format!("the item's level: {why}"))?,
         };
-        let raised = at.saturating_add(usize::try_from(above).unwrap_or(usize::MAX));
-        Ok(self.levels[raised.min(self.highest)].name.clone())
+        let wanted = at.saturating_add(usize::try_from(above).unwrap_or(usize::MAX));
+        let ran = wanted.min(self.rounds_highest);
+        Ok(RoundLevel {
+            level: self.levels[ran].name.clone(),
+            raised: u32::try_from(ran - at).unwrap_or(u32::MAX),
+            asks: above,
+        })
     }
 
     /// Where the level of this name is, where an item may be at it; or why it may not, in words.
@@ -151,10 +195,10 @@ impl Levels {
             false => String::new(),
         };
         match self.levels.iter().position(|l| l.name == level) {
-            Some(at) if at <= self.highest => Ok(at),
+            Some(at) if at <= self.items_highest => Ok(at),
             Some(_) => Err(format!(
                 "{level} is above {}, the highest level an item may be at{}",
-                self.highest(),
+                self.items_highest(),
                 key("items.highest_level")
             )),
             None => {
@@ -173,29 +217,40 @@ impl Levels {
 mod tests {
     use super::*;
 
-    fn made(names: &[&str], default: &str, highest: Option<&str>) -> Result<Levels, LevelsFault> {
+    fn made(names: &[&str], default: &str, items: Option<&str>, rounds: Option<&str>) -> Result<Levels, LevelsFault> {
         let levels = names.iter().map(|n| Level {
             name: n.to_string(),
             desc: format!("Work of level {n}"),
         });
-        Levels::new(levels, default, highest)
+        Levels::new(levels, default, items, rounds)
     }
 
     fn names(levels: &Levels) -> Vec<&str> {
         levels.levels().iter().map(|l| l.name.as_str()).collect()
     }
 
-    #[test]
-    fn levels_go_by_number_where_they_are_numbers() {
-        let levels = made(&["10", "2", "1"], "2", None).unwrap();
-        assert_eq!(names(&levels), ["1", "2", "10"]);
-        assert_eq!(levels.levels()[2].desc, "Work of level 10");
-        assert_eq!((levels.default(), levels.highest()), ("2", "10"));
+    /// What a round ran at, how far it was raised and how far its line asked: `(level, raised, asks)`.
+    fn ran(levels: &Levels, item: Option<&str>, above: u32) -> (String, u32, u32) {
+        let round = levels.of_round(item, above).unwrap();
+        (round.level, round.raised, round.asks)
     }
 
     #[test]
-    fn an_item_is_at_the_default_where_it_asks_for_none_and_never_above_the_highest() {
-        let levels = made(&["1", "2", "3", "4"], "2", Some("3")).unwrap();
+    fn levels_go_by_number_where_they_are_numbers() {
+        let levels = made(&["10", "2", "1"], "2", None, None).unwrap();
+        assert_eq!(names(&levels), ["1", "2", "10"]);
+        assert_eq!(levels.levels()[2].desc, "Work of level 10");
+        assert_eq!((levels.default(), levels.items_highest()), ("2", "10"));
+        assert_eq!(
+            ran(&levels, Some("1"), 5),
+            ("10".to_string(), 2, 5),
+            "the top level, where none is named"
+        );
+    }
+
+    #[test]
+    fn an_item_is_at_the_default_where_it_asks_for_none_and_never_above_its_highest() {
+        let levels = made(&["1", "2", "3", "4"], "2", Some("3"), None).unwrap();
         assert_eq!(levels.of_item(None).unwrap(), "2");
         assert_eq!(levels.of_item(Some("1")).unwrap(), "1");
         assert_eq!(levels.of_item(Some("3")).unwrap(), "3");
@@ -206,31 +261,45 @@ mod tests {
         );
         let none = levels.of_item(Some("5")).unwrap_err();
         assert_eq!(none, "5 is no level: the levels are 1, 2, 3, 4 (agents.levels)");
+        let held = made(&["1", "2", "3", "4"], "2", Some("3"), Some("3")).unwrap();
+        assert_eq!(
+            held.of_item(Some("4")).unwrap_err(),
+            above,
+            "the round's highest does not move it"
+        );
     }
 
     #[test]
-    fn a_round_runs_above_its_item_s_level_where_its_line_says_but_never_above_the_highest() {
-        let levels = made(&["1", "2", "3", "4"], "2", Some("3")).unwrap();
-        assert_eq!(levels.of_round(Some("1"), 0).unwrap(), "1");
-        assert_eq!(levels.of_round(Some("1"), 1).unwrap(), "2");
-        assert_eq!(levels.of_round(Some("2"), 1).unwrap(), "3");
+    fn a_round_runs_above_its_item_s_level_where_its_line_says_up_to_the_rounds_highest() {
+        // An item at most at 3, a round at most at 4: a line one above runs on 4 for an item at 3.
+        let levels = made(&["1", "2", "3", "4"], "2", Some("3"), Some("4")).unwrap();
+        assert_eq!(ran(&levels, Some("1"), 0), ("1".to_string(), 0, 0));
+        assert_eq!(ran(&levels, Some("1"), 1), ("2".to_string(), 1, 1));
+        assert_eq!(ran(&levels, Some("3"), 1), ("4".to_string(), 1, 1));
         assert_eq!(
-            levels.of_round(Some("3"), 1).unwrap(),
-            "3",
-            "the highest an item may be at"
+            ran(&levels, Some("3"), 2),
+            ("4".to_string(), 1, 2),
+            "held by the rounds' highest"
         );
         assert_eq!(
-            levels.of_round(None, 1).unwrap(),
-            "3",
+            ran(&levels, None, 1),
+            ("3".to_string(), 1, 1),
             "an item of no level is at the default"
         );
-        let gone = levels.of_round(Some("9"), 0).unwrap_err();
+        // With no highest for rounds named, the top level: the items' highest holds no round.
+        let open = made(&["1", "2", "3", "4"], "2", Some("3"), None).unwrap();
+        assert_eq!(ran(&open, Some("3"), 1), ("4".to_string(), 1, 1));
+        // Both at 3: the round of an item at 3 is held there, and says its line asked for one more.
+        let held = made(&["1", "2", "3", "4"], "2", Some("3"), Some("3")).unwrap();
+        assert_eq!(ran(&held, Some("2"), 1), ("3".to_string(), 1, 1));
+        assert_eq!(ran(&held, Some("3"), 1), ("3".to_string(), 0, 1));
+        let gone = held.of_round(Some("9"), 0).unwrap_err();
         assert!(gone.starts_with("the item's level: 9 is no level"), "{gone}");
-        let top = made(&["1", "2"], "1", None).unwrap();
+        let top = made(&["1", "2"], "1", None, None).unwrap();
         assert_eq!(
-            top.of_round(Some("2"), 1).unwrap(),
-            "2",
-            "with no highest named, the top level"
+            ran(&top, Some("2"), 1),
+            ("2".to_string(), 0, 1),
+            "with none named, the top level"
         );
     }
 
@@ -239,25 +308,47 @@ mod tests {
         let one = Levels::one("1", "The one level");
         assert_eq!(one.of_item(None).unwrap(), "1");
         assert_eq!(one.of_item(Some("2")).unwrap_err(), "2 is no level: the levels are 1");
+        assert_eq!(one.rounds_highest_key(), None);
+        let settings = made(&["1"], "1", None, None).unwrap();
+        assert_eq!(settings.rounds_highest_key(), Some("agents.highest_level"));
     }
 
     #[test]
     fn levels_that_name_what_they_do_not_have_are_refused() {
-        assert_eq!(made(&[], "1", None), Err(LevelsFault::None));
+        assert_eq!(made(&[], "1", None, None), Err(LevelsFault::None));
         assert_eq!(
-            made(&["1"], "2", None),
+            made(&["1"], "2", None, None),
             Err(LevelsFault::NoSuchDefault("2".to_string()))
         );
         assert_eq!(
-            made(&["1"], "1", Some("3")),
-            Err(LevelsFault::NoSuchHighest("3".to_string()))
+            made(&["1"], "1", Some("3"), None),
+            Err(LevelsFault::NoSuchItemsHighest("3".to_string()))
         );
         assert_eq!(
-            made(&["1", "2"], "2", Some("1")),
-            Err(LevelsFault::DefaultAboveHighest {
+            made(&["1"], "1", None, Some("3")),
+            Err(LevelsFault::NoSuchRoundsHighest("3".to_string()))
+        );
+        assert_eq!(
+            made(&["1", "2"], "2", Some("1"), None),
+            Err(LevelsFault::DefaultAboveItemsHighest {
                 default: "2".to_string(),
                 highest: "1".to_string()
             })
+        );
+        assert_eq!(
+            made(&["1", "2", "3"], "1", Some("3"), Some("2")),
+            Err(LevelsFault::ItemsHighestAboveRounds {
+                items: "3".to_string(),
+                rounds: "2".to_string()
+            })
+        );
+        assert_eq!(
+            made(&["1", "2", "3"], "1", None, Some("2")),
+            Err(LevelsFault::ItemsHighestAboveRounds {
+                items: "3".to_string(),
+                rounds: "2".to_string()
+            }),
+            "an items' highest left out is the top level, above the rounds'"
         );
     }
 }
