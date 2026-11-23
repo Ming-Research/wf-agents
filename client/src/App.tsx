@@ -6,7 +6,7 @@
 
 import { Fragment, type ReactNode, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { type Definition, type Flow, type Given, load } from './api';
+import { type Definition, type Flow, type Given, type Installed, load } from './api';
 import { Chart, type Chosen, MATRIX_MARKS } from './Chart';
 import { LazyConsolePage } from './console/lazy';
 import { type BarItems, Engine, useBarItems } from './Engine';
@@ -14,7 +14,7 @@ import { aheadCount, waitingCount } from './works/waiting';
 import { aheadCount as aheadWords, waitCount } from './works/words';
 import { LazyFlowChart } from './graph/lazy';
 import { FLOWCHART_MARKS, chartOf } from './graph/model';
-import { Legend } from './marks';
+import { Legend, MARKS, type MarkKey } from './marks';
 import { matrix } from './matrix';
 import { usesFixtures } from './mock-data';
 import { useNotifications } from './notify';
@@ -237,6 +237,26 @@ function everyAgentWords(flow: Flow): string {
   return ` reads ${flow.everyAgent.reads.map((n) => n.name).join(', ')}`;
 }
 
+/// The version of the flow the engine runs, by the start of its digest, beside the flow's name; and, where the files in
+/// the directory shown differ from it, the mark that says so (decision `the-flow-view-says-which-flow-the-engine-runs`).
+function InstalledVersion({ installed }: { installed: Installed }) {
+  return (
+    <span className="view-installed">
+      <span
+        className="mono muted"
+        title={`The version of the flow's files that the engine started with: ${installed.version}`}
+      >
+        {installed.version.slice(0, 8)}
+      </span>
+      {installed.same === false && (
+        <span title="The flow's files in the directory shown differ from the ones the engine started with">
+          {MARKS.filesChanged.draw()} {MARKS.filesChanged.name}
+        </span>
+      )}
+    </span>
+  );
+}
+
 /// The limits of the flow as a whole, by their keys as `flow.toml` writes them.
 function limitsWords(flow: Flow): string {
   const { runs, returns, calls } = flow.limits;
@@ -304,6 +324,8 @@ export function FlowPage({ definition, given, active = true }: {
     return () => window.removeEventListener('keydown', key);
   }, [active, win.open, choose]);
   const compiled = flow !== undefined;
+  // The mark of files that differ from the engine's is listed in the legend only while it is drawn.
+  const changed: MarkKey[] = definition.installed?.same === false ? ['filesChanged'] : [];
   useEffect(() => {
     const el = panel.current;
     if (el === null) return;
@@ -321,6 +343,7 @@ export function FlowPage({ definition, given, active = true }: {
       <>
         <div className="view-line">
           <span className="view-name">The flow does not compile</span>
+          {definition.installed && <InstalledVersion installed={definition.installed} />}
         </div>
         <main className="faults-view">
           {definition.state === 'faults' && (
@@ -389,6 +412,7 @@ export function FlowPage({ definition, given, active = true }: {
       <div className="view-line view-lines">
         <div className="view-row">
           <span className="view-name">{flow.name}</span>
+          {definition.installed && <InstalledVersion installed={definition.installed} />}
           <span className="view-facts" title="flow.toml">
             {limitsWords(flow)}
             {/* The flowchart has no rows for the tools or for what every agent's cell is given alike: its view's line
@@ -449,9 +473,9 @@ export function FlowPage({ definition, given, active = true }: {
         </div>
         <div className="view-row">
           {chartView === 'matrix' ? (
-            <Legend marks={MATRIX_MARKS} counts={{ wayBack: drawn.waysBack }} />
+            <Legend marks={[...MATRIX_MARKS, ...changed]} counts={{ wayBack: drawn.waysBack }} />
           ) : (
-            <Legend marks={FLOWCHART_MARKS} counts={{ wayBack: graphWaysBack }} />
+            <Legend marks={[...FLOWCHART_MARKS, ...changed]} counts={{ wayBack: graphWaysBack }} />
           )}
         </div>
       </div>
