@@ -271,7 +271,7 @@ fn the_check_waits_for_the_answer_to_an_early_protected_question() {
 fn the_check_waits_for_the_reviews_yes_whatever_main_does() {
     let mut w = W::started();
     w.hands_in("S1", &[("place", None)], Vec::new());
-    w.hands_in("R0", &[], Vec::new());
+    w.hands_in("R0", &[("tree_entries", None)], Vec::new());
     w.hands_in("R1", &[("deep_needed", Some("no"))], Vec::new());
     for _ in 0..3 {
         let Decision::Wait { at, on } = w.decision() else {

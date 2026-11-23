@@ -340,3 +340,298 @@ async fn a_look_that_cannot_be_made_says_why() {
     let looked = unwritten(&repo.project, &place, "no-such-main", "design/", &work, &[]).await;
     assert!(matches!(&looked, Err(why) if why.contains("merge-base")), "{looked:?}");
 }
+
+/// The format of the tree this repository's own declaration gives.
+fn kinds_of_this_repository() -> TreeFormat {
+    TreeFormat {
+        kinds: vec![
+            flow::agents::EntryKind {
+                kind: "principle".to_string(),
+                dir: "principles/".to_string(),
+            },
+            flow::agents::EntryKind {
+                kind: "decision".to_string(),
+                dir: "decisions/".to_string(),
+            },
+        ],
+        heading: "### {kind} {name}".to_string(),
+        reference: "{kind} {name}".to_string(),
+    }
+}
+
+/// The words the tests give the entries in.
+fn words() -> Entries {
+    Entries {
+        file: "In `{path}`:".to_string(),
+        gone: "{reference} is gone.".to_string(),
+    }
+}
+
+/// Writes the files of a tree of two kinds, a concept's file beside its subdirectory's, and gives the commit.
+fn a_tree(dir: &Path) -> String {
+    write(
+        dir,
+        "design/decisions/flow.md",
+        "# Flow\n\nWhat the flow covers.\n\n### decision b-two\nTwo.\n- rejected: an agent proposed three.\n\n\n\
+         ### decision a-one\nOne.\n",
+    );
+    write(
+        dir,
+        "design/decisions/flow/engineer.md",
+        "### decision c-three\nThree.\n",
+    );
+    write(
+        dir,
+        "design/principles/general.md",
+        "# General\n\n### principle p-one\nA rule.\nWhy: a reason.\n",
+    )
+}
+
+// What is given in place of the names: each named once, whole to the line before the next heading less its blank
+// lines, the principles before the decisions as the kinds are ordered, a concept's file before its subdirectory's, and
+// in a file in the file's order, whatever the order of the names, their blank lines and the white space around them.
+#[tokio::test]
+async fn each_entry_named_is_given_whole_once_under_its_file_in_the_order_of_the_kinds_and_then_of_the_paths() {
+    let (_repo, place) = started().await;
+    let commit = a_tree(&place.dir);
+    let names = "decision c-three\n  decision a-one  \n\nprinciple p-one\ndecision b-two\ndecision a-one\n";
+    let given = entries(
+        &place.dir,
+        "design/",
+        &kinds_of_this_repository(),
+        Some(&commit),
+        names,
+        &words(),
+    )
+    .await;
+    let expected = "In `design/principles/general.md`:\n\n### principle p-one\nA rule.\nWhy: a reason.\n\n\
+                    In `design/decisions/flow.md`:\n\n### decision b-two\nTwo.\n- rejected: an agent proposed three.\n\n\
+                    ### decision a-one\nOne.\n\n\
+                    In `design/decisions/flow/engineer.md`:\n\n### decision c-three\nThree.";
+    assert_eq!(given.as_deref(), Ok(expected));
+}
+
+// The entries are read at the commit given, not at the branch's head: of two commits, each gives its own text, and an
+// entry the later one removes is given in the words for a name the tree does not hold, after the entries, as a line
+// that is no reference is, and as every line is where the tree has no version.
+#[tokio::test]
+async fn each_entry_is_given_as_the_commit_given_has_it_and_a_name_it_does_not_hold_in_the_words_for_that() {
+    let (_repo, place) = started().await;
+    let first = a_tree(&place.dir);
+    let later = write(
+        &place.dir,
+        "design/decisions/flow.md",
+        "# Flow\n\n### decision b-two\nTwo, changed.\n",
+    );
+    let format = kinds_of_this_repository();
+    let names = "decision a-one\ndecision b-two\nnot a reference\n";
+    let at = |commit: Option<String>| {
+        let (dir, format) = (place.dir.clone(), format.clone());
+        async move { entries(&dir, "design/", &format, commit.as_deref(), names, &words()).await }
+    };
+    let before = "In `design/decisions/flow.md`:\n\n### decision b-two\nTwo.\n- rejected: an agent proposed three.\n\n\
+                  ### decision a-one\nOne.\n\nnot a reference is gone.";
+    assert_eq!(at(Some(first)).await.as_deref(), Ok(before));
+    let after = "In `design/decisions/flow.md`:\n\n### decision b-two\nTwo, changed.\n\ndecision a-one is gone.\n\n\
+                 not a reference is gone.";
+    assert_eq!(at(Some(later)).await.as_deref(), Ok(after));
+    let none = "decision a-one is gone.\n\ndecision b-two is gone.\n\nnot a reference is gone.";
+    assert_eq!(at(None).await.as_deref(), Ok(none));
+}
+
+// What a return that writes the names is sent back for: each line, trimmed and once, not written as a reference to an
+// entry, or naming one the tree lacks, of its kind; a blank line is none.
+#[tokio::test]
+async fn a_line_not_written_as_a_reference_or_naming_an_entry_the_tree_lacks_of_its_kind_is_unknown() {
+    let (_repo, place) = started().await;
+    let commit = a_tree(&place.dir);
+    let names = "decision a-one\ndecision no-such-entry\nprinciple a-one\nsee decision a-one\n\n decision a-one \n\
+                 decision no-such-entry\ndecision two words\n";
+    let unknown = unknown(&place.dir, "design/", &kinds_of_this_repository(), &commit, names).await;
+    let expected = [
+        "decision no-such-entry",
+        "principle a-one",
+        "see decision a-one",
+        "decision two words",
+    ];
+    assert_eq!(unknown, Ok(expected.map(str::to_string).to_vec()));
+}
+
+// Nothing of how an entry is found is the engine's own: a tree elsewhere, of one kind in a directory of its own, with
+// its own heading and way of referring, is checked and given by those, and an entry in this repository's form in it is
+// none.
+#[tokio::test]
+async fn a_tree_of_another_format_is_checked_and_given_by_its_own_kinds_heading_and_reference() {
+    let (_repo, place) = started().await;
+    write(
+        &place.dir,
+        "docs/tree/decisions/old.md",
+        "### decision keep-it\nKept.\n",
+    );
+    let commit = write(
+        &place.dir,
+        "docs/tree/rules/a.md",
+        "## rule: keep-it\nKeep it.\n## rule: drop-it\nDrop it.\n",
+    );
+    let format = TreeFormat {
+        kinds: vec![flow::agents::EntryKind {
+            kind: "rule".to_string(),
+            dir: "rules".to_string(),
+        }],
+        heading: "## {kind}: {name}".to_string(),
+        reference: "{kind} {name}".to_string(),
+    };
+    let names = "rule keep-it\ndecision keep-it\n";
+    let unknown = unknown(&place.dir, "docs/tree", &format, &commit, names).await;
+    assert_eq!(unknown, Ok(vec!["decision keep-it".to_string()]));
+    let given = entries(&place.dir, "docs/tree", &format, Some(&commit), names, &words()).await;
+    let expected = "In `docs/tree/rules/a.md`:\n\n## rule: keep-it\nKeep it.\n\ndecision keep-it is gone.";
+    assert_eq!(given.as_deref(), Ok(expected));
+}
+
+// A look at a commit the repository does not have says why, rather than take every name as unknown or as gone.
+#[tokio::test]
+async fn a_look_at_the_entries_that_cannot_be_made_says_why() {
+    let (_repo, place) = started().await;
+    let format = kinds_of_this_repository();
+    let missing = "0123456789abcdef0123456789abcdef01234567";
+    let unknown = unknown(&place.dir, "design/", &format, missing, "decision a-one").await;
+    assert!(unknown.is_err(), "{unknown:?}");
+    let given = entries(
+        &place.dir,
+        "design/",
+        &format,
+        Some(missing),
+        "decision a-one",
+        &words(),
+    )
+    .await;
+    assert!(given.is_err(), "{given:?}");
+}
+
+// The files of a commit are read as git-cat-file(1) says `--batch` writes them ("BATCH OUTPUT": `<oid> SP <type> SP
+// <size> LF <contents> LF` for each object, `<object> SP missing LF` for one it does not find): in the order asked, an
+// empty file as empty, a path the commit lacks as none, and a file whose text looks like such a header, or whose path
+// holds a space, as its own bytes, each object after it read from where the one before ends. A path that holds a line
+// break, which that input cannot carry, is refused.
+//
+// Alone it takes 0.07 s in CI. It is the only test that holds the framing of `--batch` against git's own words, where
+// the tests of the entries pass with any reading that happens to fit the files they write; five paths are the fewest
+// that put an empty file, a missing one and a header-like one each between two others.
+#[tokio::test]
+async fn the_files_of_a_commit_are_read_in_one_batch_as_git_frames_them_an_empty_or_missing_one_or_one_like_a_header() {
+    let (_repo, place) = started().await;
+    let like_a_header = "0123456789abcdef0123456789abcdef01234567 blob 3\nabc\n\nHEAD:t/x.md missing\n";
+    write(&place.dir, "t/empty.md", "");
+    write(&place.dir, "t/like a header.md", like_a_header);
+    let commit = write(&place.dir, "t/last.md", "no line break at the end");
+    let paths = [
+        "t/empty.md",
+        "t/nope.md",
+        "t/like a header.md",
+        "t/last.md",
+        "t/empty.md",
+    ];
+    let read = crate::git::blobs(&place.dir, &commit, &paths).await;
+    let expected = vec![
+        Some(Vec::new()),
+        None,
+        Some(like_a_header.as_bytes().to_vec()),
+        Some(b"no line break at the end".to_vec()),
+        Some(Vec::new()),
+    ];
+    assert_eq!(read, Ok(expected));
+    let refused = crate::git::blobs(&place.dir, &commit, &["t/a\nb.md"]).await;
+    assert!(refused.is_err(), "{refused:?}");
+}
+
+/// Each file of the directory, by its path from `root`, with its text.
+fn files_under(root: &Path, dir: &Path, into: &mut Vec<(String, String)>) {
+    for entry in std::fs::read_dir(root.join(dir)).expect("the directory is read") {
+        let entry = entry.expect("the directory is read");
+        let path = dir.join(entry.file_name());
+        if entry.file_type().expect("the file is looked at").is_dir() {
+            files_under(root, &path, into);
+        } else {
+            let text = std::fs::read_to_string(root.join(&path)).expect("the file is read");
+            into.push((path.to_string_lossy().into_owned(), text));
+        }
+    }
+}
+
+// This repository's own declaration (`[tree_format]` of `flow/project.toml`, with its words in
+// `flow/agents/message/given.toml`) finds every entry of this repository's own design tree as the tree's rules
+// (`design/README.md`) write one, and gives each whole. By those rules the principles are in `principles/` and the
+// decisions in `decisions/`, an entry begins `### principle <name>` or `### decision <name>`, "each line of an entry"
+// is "one line of the file" and one blank line is between entries: so an entry is its heading and the lines after it
+// up to a blank line or the file's end. Each is given under its file, the principles' files before the decisions', in
+// the order of their paths (acceptance 2), and none of the names is unknown. The rules' own templates, which
+// `design/README.md` writes as headings in its code fences, are no entry: that file is under neither directory.
+//
+// Alone it takes 0.34 s in CI, copying the whole tree (55 files, 313 KB when it was written) into a repository of its
+// own, and grows with the tree. It is the only test of the real declaration against the real tree, which the tests of
+// the format each write by hand: a heading form, a directory or the words of `given.toml` that no longer match the
+// tree would pass them all. It cannot take a sample of the tree, since an entry the format misses could be in any file,
+// and it is no part of another test, whose small trees are what make their faults readable.
+#[tokio::test]
+async fn this_repository_s_declaration_finds_and_gives_whole_every_entry_of_its_own_design_tree() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let agents = flow::agents::read(&root.join("flow")).expect("the files beside the flows are read");
+    let format = (agents.project.tree_format.clone()).expect("the declaration gives the format of the tree");
+    let tree = agents.project.tree.clone();
+    let words = agents.given.entries.clone();
+    let design = tree.trim_end_matches('/');
+    let readme = std::fs::read_to_string(root.join(design).join("README.md")).expect("the tree's rules are read");
+    for template in ["### principle <a-short-name>", "### decision <a-short-name>"] {
+        assert!(
+            readme.lines().any(|line| line == template),
+            "the rules write {template}"
+        );
+    }
+    let (_repo, place) = started().await;
+    let mut parts = Vec::new();
+    let mut references = Vec::new();
+    for (dir, kind) in [("principles", "principle"), ("decisions", "decision")] {
+        let mut files = Vec::new();
+        files_under(&root, &Path::new(design).join(dir), &mut files);
+        files.sort();
+        let before = references.len();
+        for (path, text) in &files {
+            let at = place.dir.join(path);
+            std::fs::create_dir_all(at.parent().expect("a directory")).expect("the directory is made");
+            std::fs::write(&at, text).expect("the file is written");
+            let lines: Vec<&str> = text.lines().collect();
+            let mut of_file = Vec::new();
+            for (i, line) in lines.iter().enumerate() {
+                if let Some(name) = line.strip_prefix(&format!("### {kind} ")) {
+                    let whole: Vec<&str> = lines[i..]
+                        .iter()
+                        .take_while(|l| !l.trim().is_empty())
+                        .copied()
+                        .collect();
+                    of_file.push(whole.join("\n"));
+                    references.push(format!("{kind} {name}"));
+                }
+            }
+            if !of_file.is_empty() {
+                parts.push(flow::agents::fill(&words.file, &[("path", path.as_str())]));
+                parts.extend(of_file);
+            }
+        }
+        assert!(references.len() > before, "the tree holds entries of the kind {kind}");
+    }
+    std::fs::write(place.dir.join(design).join("README.md"), &readme).expect("the rules are written");
+    run(&place.dir, &["add", design]);
+    run(&place.dir, &["commit", "-q", "-m", "Write the design tree"]);
+    let commit = run(&place.dir, &["rev-parse", "HEAD"]);
+    let names = references.join("\n");
+    let unknown_of = |names: String| {
+        let (dir, tree, format, commit) = (place.dir.clone(), tree.clone(), format.clone(), commit.clone());
+        async move { unknown(&dir, &tree, &format, &commit, &names).await }
+    };
+    assert_eq!(unknown_of(names.clone()).await, Ok(Vec::new()));
+    let templates = ["principle <a-short-name>", "decision <a-short-name>"].map(str::to_string);
+    assert_eq!(unknown_of(templates.join("\n")).await, Ok(templates.to_vec()));
+    let given = entries(&place.dir, &tree, &format, Some(&commit), &names, &words).await;
+    assert_eq!(given, Ok(parts.join("\n\n")));
+}

@@ -5,16 +5,17 @@
 //! the merge before it merges (decision a-version-read-at-a-rounds-end-is-that-rounds): read at the end of an agent's
 //! round on a line that may change the work, a version is what the round committed, which its run hands in; read
 //! anywhere else, it is no round's doing and is written from outside, put into the round where the round's own act
-//! read it, as taking main in. A round that failed hands in nothing: what it committed is read at the end of the round that takes it up. A new version of
-//! the head is kept under a reference of the engine's own as it is read (`crate::head::keep`). A round that asks for
-//! calls hands in none of what it committed, so a head committed by a round whose cell still waits for the results of
-//! its calls is not yet handed in: a read that would write it from outside leaves the head alone then (decision
-//! a-version-read-at-a-rounds-end-is-that-rounds).
+//! read it, as taking main in. A round that failed hands in nothing: what it committed is read at the end of the round
+//! that takes it up. A new version of the head is kept under a reference of the engine's own as it is read
+//! (`crate::head::keep`). A round that asks for calls hands in none of what it committed, so while a cell that may
+//! change the work waits for the results of its calls, what the branch holds beyond the records, the head and the design
+//! tree alike, is that cell's: no read takes it, whatever line or act reads, but the one that hands it in, the run
+//! entered for those results (decision a-version-read-at-a-rounds-end-is-that-rounds).
 
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use decide::{BlockId, RunId};
+use decide::{BlockId, Cause, RunId};
 use flow::Compiled;
 use service::Teller;
 use work::{Handed, Work};
@@ -78,15 +79,20 @@ struct Kept {
 pub(crate) struct Looking {
     reading: Reading,
     kept: Vec<Kept>,
-    /// Whether a cell that may change the work waits for the results of calls its round asked for: what it committed
-    /// is its run's to hand in, and no read that writes from outside reads the work's head meanwhile.
+    /// Whether a cell that may change the work waits for the results of calls, other than those the round's own run was
+    /// entered for: what the branch holds beyond the records is that cell's to hand in, and this round reads none of it.
     awaiting: bool,
+    /// Whether any cell that may change the work waits for the results of calls, the round's own run being entered for
+    /// them included: a read that writes from outside takes none of the branch's data then, since what it holds beyond
+    /// the records is that cell's, which the run entered for the results hands in as it ends.
+    held: bool,
 }
 
 impl Looking {
     /// The look for the work as it is kept, each block of the flow that the branch's data are written into holding what
-    /// its latest version says; none where the flow has no such block.
-    pub(crate) fn of(flow: &Compiled, work: &Work, reading: Reading) -> Looking {
+    /// its latest version says; none where the flow has no such block. `run` is the run the look is for, none where an
+    /// act of no run's looks.
+    pub(crate) fn of(flow: &Compiled, work: &Work, reading: Reading, run: Option<RunId>) -> Looking {
         let versions = decide::versions(&work.records);
         let kept = (flow.blocks.iter())
             .filter_map(|(block, declared)| {
@@ -100,29 +106,40 @@ impl Looking {
                 })
             })
             .collect();
-        let awaiting = (decide::owed(&flow.flow, &work.records).keys())
-            .any(|cell| flow.cells.iter().any(|c| &c.id == cell && !c.reads_only));
+        // The cell the run was entered to get the results of its calls for: the results are back, and the run hands in
+        // what its cell committed as it ends.
+        let entered_for_results = run
+            .and_then(|run| work.records.started.iter().find(|s| s.run == run))
+            .filter(|s| s.because.iter().any(|c| matches!(c, Cause::Results { .. })))
+            .map(|s| &s.cell);
+        let waiting: Vec<_> = (decide::owed(&flow.flow, &work.records).into_keys())
+            .filter(|cell| flow.cells.iter().any(|c| &c.id == cell && !c.reads_only))
+            .collect();
+        let awaiting = waiting.iter().any(|cell| Some(cell) != entered_for_results);
         Looking {
             reading,
             kept,
             awaiting,
+            held: !waiting.is_empty(),
         }
     }
 
     /// Reads the work's branch, and gives each block of which it makes a new version with that version's content; the
     /// latest of each is then what was read. Where one cannot be read, none is taken, and the next look is made against
     /// the last versions there are, so that what this one missed is found by it.
+    /// Nothing is read where a cell that may change the work waits for results other than those its own run was entered
+    /// for: what the branch holds then is that cell's.
     pub(crate) async fn read(&mut self, place: &Place) -> Result<Vec<(BlockId, String)>, String> {
-        self.read_of(place, false).await
+        self.read_of(place, self.awaiting).await
     }
 
-    /// Reads the branch as [`Self::read`] does, but for the work's head where `but_the_head`.
-    async fn read_of(&mut self, place: &Place, but_the_head: bool) -> Result<Vec<(BlockId, String)>, String> {
+    /// Reads the branch as [`Self::read`] does, but nothing where `held`.
+    async fn read_of(&mut self, place: &Place, held: bool) -> Result<Vec<(BlockId, String)>, String> {
         let mut new = Vec::new();
+        if held {
+            return Ok(new);
+        }
         for kept in &self.kept {
-            if but_the_head && kept.datum == Datum::Head {
-                continue;
-            }
             if let Some(content) = kept.datum.read(place, &self.reading, kept.last.as_deref()).await? {
                 // A new head is kept as it is read, so that what the work committed outlives its branch.
                 if kept.datum == Datum::Head {
@@ -157,9 +174,9 @@ impl Looking {
     /// Reads the branch, and says each new version to the loop as written from outside while the round is under way:
     /// put into the round where `for_round`, as what the round's own act read, as it took main in. A read that fails is
     /// said on the standard error and makes no version. While a cell that may change the work waits for the results of
-    /// its calls, the work's head is left as it is: what the branch holds beyond it is that cell's, not the outside's.
+    /// its calls, the branch is left as it is: what it holds beyond the records is that cell's, not the outside's.
     pub(crate) async fn tell(&mut self, place: &Place, teller: &Teller, for_round: bool) {
-        match self.read_of(place, self.awaiting).await {
+        match self.read_of(place, self.held).await {
             Ok(new) => {
                 for (block, content) in new {
                     if for_round {
@@ -199,6 +216,7 @@ impl Looking {
             reading,
             kept: Vec::new(),
             awaiting: false,
+            held: false,
         }
     }
 
@@ -215,6 +233,7 @@ impl Looking {
             reading,
             kept,
             awaiting: false,
+            held: false,
         }
     }
 

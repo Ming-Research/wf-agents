@@ -245,13 +245,17 @@ pub struct Summary {
     pub now: Now,
     /// Each cell of its flow as it stands for this work, in the order of the walk.
     pub cells: Vec<CellNow>,
-    /// What all its rounds that ended took, and its keep-warm pings, which count in what it spent as its rounds do:
-    /// `rounds` counts its rounds alone.
+    /// What all its rounds that ended took, and its keep-warm pings and its forks, which count in what it spent as its
+    /// rounds do: `rounds` counts its rounds alone.
     pub spent: Spent,
     /// What the keep-warm pings of its sessions took, each ping counted as a round, none of them under way for any
     /// time the page counts.
     #[serde(default)]
     pub pinged: Spent,
+    /// What the forks of its rounds' sessions took, each fork counted as a round, none of them under way for any time
+    /// the page counts.
+    #[serde(default)]
+    pub forked: Spent,
     /// When something last happened to it; none where nothing has.
     pub last: Option<u64>,
     /// When its first round began; none before it has one.
@@ -1356,6 +1360,8 @@ pub enum Unmet {
     /// It hands in the change while the question of this name, marked `tree`, has the owner's answer and the work's
     /// change changes nothing in the design tree.
     TreeUnchanged { name: String },
+    /// A line of a block that names entries of the design tree names none the tree on the work's branch holds.
+    NotAnEntry { line: String },
     /// It deals with what an act after its cell wrote, and leaves nothing new that runs the act and no question with an
     /// answer to come.
     Unanswered { block: String },
@@ -1886,7 +1892,7 @@ impl ForkPage {
         ForkPage {
             answer: forked.answer,
             text: forked.text,
-            usd_micros: forked.usd_micros,
+            usd_micros: forked.spent.usd_micros,
             read: forked.read,
             held: forked.held,
             expired: forked.expired,
@@ -2145,11 +2151,9 @@ impl Summary {
         };
         let cells = match &view.decision {
             Decision::Ended(_) => {
-                (OutlineView::of(kept.on.outline(), &work.records, &|id| kept.came_from(id).cloned())
-                    .cells
-                    .into_iter())
-                .map(|cell| ended(&cell.id))
-                .collect()
+                let came_from = |id: &CellId| kept.came_from(id).cloned();
+                let outline = OutlineView::of(kept.on.outline(), &kept.flow.card, &work.records, &came_from);
+                outline.cells.into_iter().map(|cell| ended(&cell.id)).collect()
             }
             _ => (view.cells.iter())
                 .map(|cell| CellNow {
@@ -2184,6 +2188,7 @@ impl Summary {
             .map(Wait::of)
             .collect();
         let ahead = QuestionPage::ahead(&QuestionPage::all(&kept)?, &waits);
+        let beside = spent_beside_rounds(work, &|_| true);
         Ok(Summary {
             number: kept.head.number.0,
             item: kept.head.item.0,
@@ -2196,8 +2201,9 @@ impl Summary {
             now,
             cells,
             spent: (runs.iter().fold(Spent::default(), |sum, run| sum.with(run.spent)))
-                .with(pinged(work, &|_| true).as_no_round()),
-            pinged: pinged(work, &|_| true),
+                .with(beside.all().as_no_round()),
+            pinged: beside.pinged,
+            forked: beside.forked,
             last: work.moments.last().map(|moment| moment.at.0),
             from: (runs.iter().flat_map(|run| &run.rounds)).map(|round| round.began).min(),
             bar: bar(kept, &every.held, when),
@@ -2240,11 +2246,7 @@ pub fn asked(driver: &Driver, summary: &Summary) -> Option<service::OfWork> {
         (None, Now::Merged) => merge_wrote(&kept),
         _ => None,
     };
-    Some(service::OfWork {
-        work: number,
-        item: kept.item.clone(),
-        merged,
-    })
+    Some(service::OfWork::of(&kept, merged))
 }
 
 /// What the run that merged the work wrote, of a work that merged: its latest finished run, the merge's finish being
@@ -2719,20 +2721,53 @@ impl Spent {
     }
 }
 
-/// What the keep-warm pings of the work that ended at a time `within` takes took, each counted as a round.
-pub(crate) fn pinged(work: &work::Work, within: &dyn Fn(u64) -> bool) -> Spent {
-    (work.pinged.iter())
-        .filter(|p| work.time_of(p.at).is_some_and(|at| within(at.0)))
-        .fold(Spent::default(), |sum, p| {
-            sum.with(Spent {
-                usd_micros: p.spent.usd_micros,
-                input_tokens: p.spent.input_tokens,
-                cached_tokens: p.spent.cached_tokens,
-                output_tokens: p.spent.output_tokens,
+/// What the work's calls beside its rounds that ended at a time `within` took, each counted as a round: its keep-warm
+/// pings and its forks, apart.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Beside {
+    pub pinged: Spent,
+    pub forked: Spent,
+}
+
+impl Beside {
+    /// What all of them took together.
+    pub(crate) fn all(&self) -> Spent {
+        self.pinged.with(self.forked)
+    }
+}
+
+/// What each call of the work beside its rounds that ended at a time `within` took, each counted as a round, with the
+/// time of its place: the one reading of what a work spent beside its rounds that the pages share
+/// ([`work::Work::spent_beside_rounds`]).
+pub(crate) fn beside_rounds(work: &work::Work, within: &dyn Fn(u64) -> bool) -> Vec<(u64, work::BesideKind, Spent)> {
+    (work.spent_beside_rounds().into_iter())
+        .filter_map(|call| {
+            let at = work.time_of(call.at).map(|at| at.0).filter(|at| within(*at))?;
+            let one = Spent {
+                usd_micros: call.spent.usd_micros,
+                input_tokens: call.spent.input_tokens,
+                cached_tokens: call.spent.cached_tokens,
+                output_tokens: call.spent.output_tokens,
                 working_ms: 0,
                 rounds: 1,
-            })
+            };
+            Some((at, call.kind, one))
         })
+        .collect()
+}
+
+/// What the work's calls beside its rounds that ended at a time `within` took, the keep-warm pings and the forks apart.
+pub(crate) fn spent_beside_rounds(work: &work::Work, within: &dyn Fn(u64) -> bool) -> Beside {
+    (beside_rounds(work, within).into_iter()).fold(Beside::default(), |sum, (_, kind, one)| match kind {
+        work::BesideKind::Ping => Beside {
+            pinged: sum.pinged.with(one),
+            ..sum
+        },
+        work::BesideKind::Fork => Beside {
+            forked: sum.forked.with(one),
+            ..sum
+        },
+    })
 }
 
 impl WorkPage {
@@ -2866,7 +2901,9 @@ impl WorkPage {
             project: kept.item.project.clone(),
             tags: kept.item.tags.clone(),
             history: ItemHistory::of(kept.item),
-            outline: OutlineView::of(kept.on.outline(), records, &|id| kept.came_from(id).cloned()),
+            outline: OutlineView::of(kept.on.outline(), &kept.flow.card, records, &|id| {
+                kept.came_from(id).cloned()
+            }),
             flow: (!ended).then(|| Flow::of(kept.flow)),
             cells: if ended { Vec::new() } else { cells },
             blocks,
@@ -3299,6 +3336,7 @@ impl Unmet {
                 changes: changes.clone(),
             },
             UnmetOf::TreeUnchanged { name } => Unmet::TreeUnchanged { name: name.clone() },
+            UnmetOf::NotAnEntry { line } => Unmet::NotAnEntry { line: line.clone() },
             UnmetOf::Unanswered { block } => Unmet::Unanswered {
                 block: block.to_string(),
             },
@@ -4330,6 +4368,64 @@ pub(crate) mod tests {
             ..Has::default()
         };
         compile(&source, &has).expect("the deliver flow compiles")
+    }
+
+    // What a work spent beside its rounds is told by kind, each call counted as a round, and by when it ended: a ping and
+    // a fork that ended at different times. Microseconds.
+    #[test]
+    fn what_a_work_spent_beside_its_rounds_is_told_by_kind_and_by_when_each_call_ended() {
+        let mut work = Work::default();
+        for (from, at) in [(1, 1_000), (10, 5_000)] {
+            work.moments.push(work::Moment {
+                from: decide::Seq(from),
+                at: Time(at),
+            });
+        }
+        work.pinged.push(work::Pinged {
+            at: decide::Seq(2),
+            line: "engineer".to_string(),
+            session: 0,
+            spent: work::Spent {
+                usd_micros: 20_000,
+                input_tokens: 5,
+                cached_tokens: 100,
+                output_tokens: 1,
+                ..Default::default()
+            },
+            failed: None,
+        });
+        work.forked.push(work::Forked {
+            at: decide::Seq(11),
+            run: decide::RunId(1),
+            round: 1,
+            usd_micros: 300_000,
+            input_tokens: 120,
+            cached_tokens: 18_100,
+            output_tokens: 30,
+        });
+        let each = |usd_micros, input_tokens, cached_tokens, output_tokens| Spent {
+            usd_micros,
+            input_tokens,
+            cached_tokens,
+            output_tokens,
+            working_ms: 0,
+            rounds: 1,
+        };
+        let all = spent_beside_rounds(&work, &|_| true);
+        assert_eq!(all.pinged, each(20_000, 5, 100, 1));
+        assert_eq!(all.forked, each(300_000, 120, 18_100, 30));
+        assert_eq!((all.all().usd_micros, all.all().rounds), (320_000, 2));
+        let early = spent_beside_rounds(&work, &|at| at < 2_000);
+        assert_eq!(
+            (early.pinged.rounds, early.forked.rounds),
+            (1, 0),
+            "only the ping had ended"
+        );
+        let kinds: Vec<work::BesideKind> = beside_rounds(&work, &|_| true)
+            .into_iter()
+            .map(|(_, kind, _)| kind)
+            .collect();
+        assert_eq!(kinds, [work::BesideKind::Ping, work::BesideKind::Fork]);
     }
 
     // The bar of a work going on is the one it keeps as it ends (decision a-work-keeps-what-its-time-went-to): drawn

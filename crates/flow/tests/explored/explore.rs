@@ -695,11 +695,6 @@ impl Explorer<'_> {
                                 events.push(Event::Source(source));
                             }
                         }
-                        for (line, block) in &m.sessions {
-                            if cells[i].runs_on.contains(block) {
-                                events.push(Event::Session(line.clone()));
-                            }
-                        }
                     }
                     for e in events {
                         out.push(self.event(s, d, e));
@@ -774,7 +769,6 @@ impl Explorer<'_> {
             }
         }
         events.push(Event::Source(MAIN));
-        events.extend(m.sessions.keys().map(|line| Event::Session(line.clone())));
         // The tree runs no cell: once is enough to show it. A commit no round made moves the work's head, as a
         // person's, once.
         if s.spent == 0 {
@@ -886,11 +880,6 @@ impl Explorer<'_> {
             }
             Event::Source(source) => {
                 let block = m.sources[source].clone();
-                let at = w.outside_writes(block.as_str());
-                written.push((block, at));
-            }
-            Event::Session(line) => {
-                let block = m.sessions[line].clone();
                 let at = w.outside_writes(block.as_str());
                 written.push((block, at));
             }

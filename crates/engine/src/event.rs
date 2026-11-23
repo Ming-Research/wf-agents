@@ -102,6 +102,9 @@ pub enum Event {
         spent: Spent,
         failed: Option<String>,
     },
+    /// A fork of the session the round of this number of the run ran in, asked a question, ended, having taken this,
+    /// whether it answered or not. It is taken of a work that has ended too, and in whatever place the run's round is.
+    Forked { run: RunId, round: usize, spent: Spent },
     /// The host of the work's repository found the work checked through the pull request of this number, at this
     /// address, opening it where the work had none: kept with the work where it is another than the latest kept.
     Pulled { number: u64, url: String },
@@ -313,6 +316,8 @@ pub enum Refused {
     NoSuchCell(CellId),
     /// No round of the run is under way.
     NoRoundUnderWay(RunId),
+    /// The work has no such run, or the run has no such round that began.
+    NoSuchRound { run: RunId, round: usize },
     /// The work has no such call.
     NoSuchCall(CallId),
     /// The call has its result already.

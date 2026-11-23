@@ -10,17 +10,25 @@
 //! back for each such question while it does not. The check before the merge makes the same look, and fails while it
 //! does not (`crate::acts`): an answer given after the change was handed in, taking the recommended option to a
 //! question that does not wait, runs no cell, so no return is held to it.
+//!
+//! A block whose lines name entries of the tree (`names_tree_entries` of its file) is read by the project's format of
+//! the tree (`[tree_format]` of its declaration), which says how an entry is found and referred to: a return that
+//! writes it is sent back for each line that names no entry the tree holds at the head of the work's branch
+//! ([`unknown`]), and a round that lacks its latest version is given, in place of the names, each entry named whole,
+//! as the tree's latest version has it ([`entries`]).
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use decide::questions::{Standing, questions};
+use flow::agents::{Entries, TreeFormat, fill};
 use work::{Question, Work};
 
 use crate::git::{self, Place};
 use crate::settings::Project;
 
 /// The source outside the work that writes the block of the design tree.
-pub const TREE: &str = "tree";
+pub const TREE: &str = flow::TREE;
 
 /// What the version holds for the id of the tree where the branch has no design tree.
 const ABSENT: &str = "-";
@@ -107,6 +115,152 @@ async fn between(dir: &Path, tree: &str, was: &str, now: &str) -> Result<Vec<Str
     )
     .await?;
     Ok(names.lines().map(str::to_string).collect())
+}
+
+/// The commit of the version of the tree a content says; none where it says none.
+pub(crate) fn commit_of(content: &str) -> Option<String> {
+    Version::read(content).map(|v| v.commit)
+}
+
+/// A file of the design tree, by its path, with the entries it holds, each by its kind and name, whole.
+struct TreeFile {
+    path: String,
+    entries: Vec<(String, String, String)>,
+}
+
+/// The files of the design tree in this directory of the checkout, at the commit, that hold its entries, as the
+/// project's format finds them: those under the directory of each kind, in the order of the kinds and then by the byte
+/// order of their paths, which puts a concept's file before its subdirectory's, each once. Their paths come from git,
+/// and no text an agent wrote is given to git.
+async fn tree_files(dir: &Path, tree: &str, format: &TreeFormat, commit: &str) -> Result<Vec<TreeFile>, String> {
+    let root = tree.trim_end_matches('/');
+    let mut paths: Vec<String> = Vec::new();
+    for kind in &format.kinds {
+        let under = kind.dir.trim_end_matches('/');
+        let under = if root.is_empty() {
+            under.to_string()
+        } else {
+            format!("{root}/{under}")
+        };
+        let listed = git::git(dir, &["ls-tree", "-r", "-z", "--name-only", commit, &under]).await?;
+        let mut these: Vec<String> = (listed.split('\0'))
+            .filter(|p| !p.is_empty())
+            .map(str::to_string)
+            .collect();
+        these.sort();
+        for path in these {
+            if !paths.contains(&path) {
+                paths.push(path);
+            }
+        }
+    }
+    let named: Vec<&str> = paths.iter().map(String::as_str).collect();
+    let texts = git::blobs(dir, commit, &named).await?;
+    Ok((paths.into_iter().zip(texts))
+        .filter_map(|(path, text)| {
+            let text = String::from_utf8(text?).ok()?;
+            Some(TreeFile {
+                entries: entries_of(format, &text),
+                path,
+            })
+        })
+        .collect())
+}
+
+/// The entries of a file of the tree, in their order: each from a line the format's `heading` fits to the line before
+/// the next it fits, of any kind, or to the file's end, less the blank lines at its end.
+fn entries_of(format: &TreeFormat, text: &str) -> Vec<(String, String, String)> {
+    let lines: Vec<&str> = text.lines().collect();
+    let begins: Vec<(usize, &str, &str)> = (lines.iter().enumerate())
+        .filter_map(|(i, line)| format.heading_of(line).map(|(kind, name)| (i, kind, name)))
+        .collect();
+    let mut entries = Vec::new();
+    for (n, (start, kind, name)) in begins.iter().enumerate() {
+        let end = begins.get(n + 1).map_or(lines.len(), |(next, ..)| *next);
+        let mut whole = &lines[*start..end];
+        while let [rest @ .., last] = whole
+            && last.trim().is_empty()
+        {
+            whole = rest;
+        }
+        entries.push((kind.to_string(), name.to_string(), whole.join("\n")));
+    }
+    entries
+}
+
+/// Each line written of a block whose lines name entries of the tree, trimmed, each once, in its order, but a blank one.
+fn named_lines(text: &str) -> Vec<&str> {
+    let mut lines: Vec<&str> = Vec::new();
+    for line in text.lines().map(str::trim).filter(|line| !line.is_empty()) {
+        if !lines.contains(&line) {
+            lines.push(line);
+        }
+    }
+    lines
+}
+
+/// Where the entry a line refers to is among these files, by the file's place and the entry's in it; none where the
+/// line is not written as the format refers to an entry, or names one the files do not hold.
+fn found(format: &TreeFormat, files: &[TreeFile], line: &str) -> Option<(usize, usize)> {
+    let (kind, name) = format.referred(line)?;
+    (files.iter().enumerate()).find_map(|(f, file)| {
+        let e = (file.entries.iter()).position(|(k, n, _)| k == kind && n == name)?;
+        Some((f, e))
+    })
+}
+
+/// What a round is given in place of the names a block's lines write (`names_tree_entries`), as the design tree in
+/// this directory of the checkout has the entries at the commit, none where the tree has no version: each entry named,
+/// whole, once, those of one file after the words of `file` with its path, the files in the order [`tree_files`] gives
+/// them and the entries in their file's order; and after the files, each line that names none of them, in the words of
+/// `gone`. The parts are joined by a blank line.
+pub(crate) async fn entries(
+    dir: &Path,
+    tree: &str,
+    format: &TreeFormat,
+    commit: Option<&str>,
+    names: &str,
+    words: &Entries,
+) -> Result<String, String> {
+    let files = match commit {
+        Some(commit) => tree_files(dir, tree, format, commit).await?,
+        None => Vec::new(),
+    };
+    let mut chosen: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();
+    let mut gone = Vec::new();
+    for line in named_lines(names) {
+        match found(format, &files, line) {
+            Some((f, e)) => {
+                chosen.entry(f).or_default().insert(e);
+            }
+            None => gone.push(fill(&words.gone, &[("reference", line)])),
+        }
+    }
+    let mut parts = Vec::new();
+    for (f, of_file) in &chosen {
+        let file = &files[*f];
+        parts.push(fill(&words.file, &[("path", file.path.as_str())]));
+        parts.extend(of_file.iter().map(|e| file.entries[*e].2.clone()));
+    }
+    parts.extend(gone);
+    Ok(parts.join("\n\n"))
+}
+
+/// Each line written of a block whose lines name entries of the tree (`names_tree_entries`) that names none the design
+/// tree in this directory of the checkout holds at the commit, trimmed, each once, in its order: one not written as
+/// the format refers to an entry, or naming one the tree lacks.
+pub(crate) async fn unknown(
+    dir: &Path,
+    tree: &str,
+    format: &TreeFormat,
+    commit: &str,
+    names: &str,
+) -> Result<Vec<String>, String> {
+    let files = tree_files(dir, tree, format, commit).await?;
+    Ok((named_lines(names).into_iter())
+        .filter(|line| found(format, &files, line).is_none())
+        .map(str::to_string)
+        .collect())
 }
 
 /// The name of each question of the work whose answer the design tree in this directory of the checkout does not hold,

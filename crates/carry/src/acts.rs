@@ -343,7 +343,7 @@ impl<H: Host> Inner<H> {
             tree: project.tree.clone(),
             main: self.host.kept_main(),
         };
-        let looking = || Looking::of(&round.flow, &round.kept, read_with.clone());
+        let looking = || Looking::of(&round.flow, &round.kept, read_with.clone(), Some(round.run));
         match act {
             "start" => {
                 let started = start(project, &self.host, &branch, &self.repository).await?;
@@ -494,7 +494,8 @@ impl<H: Host> Inner<H> {
     async fn seen(&self, of: OfWork) -> Result<Seen, String> {
         let (repo, main) = (&self.project.repo, self.host.kept_main());
         let place = git::place(&self.data, &self.tag, of.work);
-        let changed = self.known.changed(repo, &main, of.work, &place).await?;
+        let at = (of.place, of.under_way);
+        let changed = self.known.stat(repo, &main, (of.work, &place), at).await?;
         let merged = (of.merged.as_deref()).and_then(|said| changed::merged_commit(said, &self.words.merge.text));
         let named = match merged {
             Some(commit) => self.known.pull_named(repo, &commit).await?,
@@ -506,10 +507,7 @@ impl<H: Host> Inner<H> {
                 url: self.host.pull_at(number)?,
             })
         });
-        Ok(Seen {
-            changed: changed.map(|changed| changed.stat()),
-            pull,
-        })
+        Ok(Seen { changed, pull })
     }
 
     /// Lets go of what the acts made for the work, which has ended, holding the repository: the host lets go of what it

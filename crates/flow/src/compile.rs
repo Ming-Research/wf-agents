@@ -16,7 +16,7 @@ use crate::outline::Renumbering;
 use crate::source::{
     BLOCKS_DIR, BlockFile, CELLS_DIR, CellFile, ChangedBy, DATA_DIR, Effort, EveryAgentFile, FLOW_FILE, FlowFile,
     InputKind, Keys, Kind, LINES_DIR, LaidOutBlockFile, LaidOutFlowFile, LaidOutLineFile, LineFile, Listed, OF_A_CELL,
-    OF_A_LINE, RULES_DIR, RenumberingFile, Source, TESTS_DIR, Task, TestFile, Texts, WHEN_TEST, rules_file, waits_file,
+    RULES_DIR, RenumberingFile, Source, TESTS_DIR, Task, TestFile, Texts, WHEN_TEST, rules_file, waits_file,
 };
 
 /// A flow's definition compiled.
@@ -123,6 +123,12 @@ pub const WORDS: &str = "words";
 /// 30, 31). A block of this source a cell writes holds the questions it asks, and the cells that write one are those
 /// that may ask.
 pub const ANSWER: &str = "answer";
+
+/// The source of the design tree on the work's branch: the engine writes a version of it where the tree differs from
+/// the last version, and a cell is given what changed in it as the files that changed (design document
+/// `data-and-context`, 23). A block whose lines name entries of the tree (`names_tree_entries`) is given by its latest
+/// version, so a flow that has one has this datum.
+pub const TREE: &str = "tree";
 
 /// The sources outside a work a new version of whose block is the owner turning to the cells it runs: the owner's words
 /// to a cell, and an answer ([`WORDS`], [`ANSWER`]). Such a block stops a round under way of a later cell
@@ -307,6 +313,11 @@ pub struct Block {
     /// latest version and the work's change against main changes nothing in the project's design tree, as its file
     /// says (`answers_in_the_tree`).
     pub answers_in_the_tree: bool,
+    /// Its lines name entries of the project's design tree, one to a line, as its file says (`names_tree_entries`): a
+    /// return that writes it is held to lines that each name an entry the tree on the work's branch holds, and a round
+    /// that lacks its latest version is given each entry named whole in its place, as the tree's latest version has
+    /// it. A cell takes it only as its latest.
+    pub names_tree_entries: bool,
     /// Who writes it.
     pub writers: Writers,
     /// Who reads it.
@@ -445,8 +456,8 @@ pub enum FaultKind {
     /// The thing is defined in this file and in another, `also`: two files of one name, or a datum the flow names that
     /// it defines as well.
     DefinedTwice { name: String, also: String },
-    /// The name of a file beside the flows of a datum each cell or each line has its own of does not hold what stands
-    /// for whose own it is, `{cell}` or `{line}`.
+    /// The name of a file beside the flows of a datum each cell has its own of does not hold what stands for whose own
+    /// it is, `{cell}`.
     MissingPlaceholder { placeholder: String },
     /// The cell writes the block, its questions to the owner (one the source [`ANSWER`] writes), and does not watch it:
     /// the owner's answer to a question it asks would run no cell.
@@ -468,9 +479,12 @@ pub enum FaultKind {
     /// The agent's cell hands in the verdict and holds no dialogue as the judge that its points could go in: each that
     /// judges has a dialogue with the maker (design document `data-and-context`, 36).
     VerdictWithoutDialogue { verdict: String },
-    /// The cell watches or reads the block, a datum this line, not the cell's, has its own of (design document
-    /// `data-and-context`, 25).
-    LineDataOfAnother { block: String, line: String },
+    /// The block's lines name entries of the design tree (`names_tree_entries`), and no datum of the flow is the design
+    /// tree ([`TREE`]), whose latest version the entries are given as.
+    EntriesWithoutTree { block: String },
+    /// The cell is given the block, whose lines name entries of the design tree (`names_tree_entries`), in another
+    /// kind than its latest: what changed in its names is not what changed in the entries' text.
+    EntriesNotLatest { block: String },
     /// The flow names this cell for the engine to ask in, and it cannot change the work as the answer asks, being of an
     /// engine or of a line that only reads, or writes no questions of its own to ask in, or cannot be spoken to, having
     /// no words of its own (design document `data-and-context`, 34).
@@ -787,7 +801,7 @@ struct Parsed {
     waits: Waits,
     /// What is wrong with how the files make one definition, found as they are gathered: a thing defined twice, a
     /// datum of the engine's the flow names that is not there, and a file beside the flows that lacks the name that
-    /// stands for each cell or each line.
+    /// stands for each cell.
     faults: Vec<Fault>,
     /// Of a flow laid out one thing to a file, what the item's card shows, as `flow.toml` names it.
     card: Vec<String>,
@@ -795,7 +809,7 @@ struct Parsed {
     engine_asks_in: Option<String>,
     /// Of a flow laid out one thing to a file, what every agent cell reads, as `flow.toml` names it.
     every_agent: EveryAgentFile,
-    /// The data each cell or each line has its own of that the flow's cells name.
+    /// The data each cell has its own of that the flow's cells name.
     own: Own,
     /// The table of earlier ids, as `flow.toml` writes it.
     earlier_ids: Vec<RenumberingFile>,
@@ -814,14 +828,12 @@ struct Whole {
     earlier_ids: Vec<RenumberingFile>,
 }
 
-/// The data each cell or each line has its own of that the flow's cells name, each made from its file beside the flows
+/// The data each cell has its own of that the flow's cells name, each made from its file beside the flows
 /// where a cell names it: by its name, whose own it is.
 #[derive(Default)]
 struct Own {
     /// Of each datum a cell has its own of, the cell's id.
     cells: BTreeMap<String, String>,
-    /// Of each datum a line has its own of, the line.
-    lines: BTreeMap<String, String>,
     /// The data each file of `../data/of_a_cell/` made, by the name it writes, `{cell}` in it, each list in the order of
     /// the cells whose own they are.
     made: BTreeMap<String, Vec<String>>,
@@ -995,9 +1007,6 @@ fn task_files(
 /// What stands for the id of a cell, in small letters, in the name of a datum each cell has its own of.
 const CELL: &str = "{cell}";
 
-/// What stands for the name of a line in the name of a datum each line has its own of.
-const LINE: &str = "{line}";
-
 /// The text of a file read into its shape, or none, with the fault that it cannot be read.
 fn shape<T: DeserializeOwned>(file: &str, text: &str, faults: &mut Vec<Fault>) -> Option<T> {
     toml::from_str(text)
@@ -1005,7 +1014,7 @@ fn shape<T: DeserializeOwned>(file: &str, text: &str, faults: &mut Vec<Fault>) -
         .ok()
 }
 
-/// The file of a datum each cell or each line has its own of, read into its shape: the name it writes, which a fault
+/// The file of a datum each cell has its own of, read into its shape: the name it writes, which a fault
 /// says is missing where it is, holding `placeholder`, beside what any datum's file writes.
 fn own_datum(
     path: &str,
@@ -1038,7 +1047,7 @@ fn whose<'n>(written: &str, placeholder: &str, name: &'n str) -> Option<&'n str>
     (!middle.is_empty()).then_some(middle)
 }
 
-/// The file of a datum each cell or each line has its own of, as a datum's, what stands for whose own it is filled in
+/// The file of a datum each cell has its own of, as a datum's, what stands for whose own it is filled in
 /// its words.
 fn own_block(file: &LaidOutBlockFile, placeholder: &str, small: &str) -> BlockFile {
     let fill = |text: &String| text.replace(placeholder, small);
@@ -1085,8 +1094,6 @@ struct LaidOut {
     data: Vec<(String, LaidOutBlockFile)>,
     /// The data each cell has its own of, by their files, each with the name it writes, which holds `{cell}`.
     cell_data: Vec<(String, String, LaidOutBlockFile)>,
-    /// The data each line has its own of, by their files, each with the name it writes, which holds `{line}`.
-    line_data: Vec<(String, String, LaidOutBlockFile)>,
     rule_sets: Option<BTreeMap<String, RuleSetFile>>,
     waits: Option<Waits>,
 }
@@ -1107,8 +1114,6 @@ impl LaidOut {
                 laid.tests.extend(shape(&path, text, faults).map(|f| (path, f)));
             } else if under(&path, &format!("{DATA_DIR}/{OF_A_CELL}")) {
                 laid.cell_data.extend(own_datum(&path, text, CELL, faults));
-            } else if under(&path, &format!("{DATA_DIR}/{OF_A_LINE}")) {
-                laid.line_data.extend(own_datum(&path, text, LINE, faults));
             } else if under(&path, DATA_DIR) {
                 laid.data.extend(shape(&path, text, faults).map(|f| (path, f)));
             } else if path == rules {
@@ -1123,8 +1128,8 @@ impl LaidOut {
     /// Gathers the lines, blocks and named tests into the flow, each by the name of its file, with the data of the
     /// engine's the flow names among `data`, where it is laid out one thing to a file; and gives the names of the sets
     /// of rules a line may take. A fault is each second file of one name, on it, naming the first; a datum the flow
-    /// names that `../data/` does not define, or that the flow defines as well; and a datum each cell or each line has
-    /// its own of whose name does not hold `{cell}` or `{line}`, or is the name of another.
+    /// names that `../data/` does not define, or that the flow defines as well; and a datum each cell has its own of
+    /// whose name does not hold `{cell}`, or is the name of another.
     fn gather(
         &self,
         flow: &mut FlowFile,
@@ -1188,12 +1193,10 @@ impl LaidOut {
                 }
             }
         }
-        // A datum each cell or each line has its own of is named by the name its file writes, which holds what stands
+        // A datum each cell has its own of is named by the name its file writes, which holds what stands
         // for whose own it is.
         let mut own: BTreeMap<&str, &str> = BTreeMap::new();
-        for (path, name, placeholder) in (self.cell_data.iter().map(|(p, n, _)| (p, n, CELL)))
-            .chain(self.line_data.iter().map(|(p, n, _)| (p, n, LINE)))
-        {
+        for (path, name, placeholder) in self.cell_data.iter().map(|(p, n, _)| (p, n, CELL)) {
             if !name.contains(placeholder) {
                 let what = FaultKind::MissingPlaceholder {
                     placeholder: placeholder.to_string(),
@@ -1228,10 +1231,10 @@ impl LaidOut {
         (self.rule_sets.iter()).flat_map(|sets| sets.keys().cloned()).collect()
     }
 
-    /// Makes each datum each cell or each line has its own of that a cell of the order names among what it watches,
-    /// reads or writes, or as a key of its condition or its preconditions, and that the flow does not define otherwise:
-    /// a name a file of `../data/of_a_cell/` makes of the id of a cell of the order, in small letters, or one of
-    /// `../data/of_a_line/` makes of a line of the flow (decision a-datum-of-a-cell-s-own-is-made-where-a-cell-names-it).
+    /// Makes each datum each cell has its own of that a cell of the order names among what it watches, reads or writes,
+    /// or as a key of its condition or its preconditions, and that the flow does not define otherwise: a name a file of
+    /// `../data/of_a_cell/` makes of the id of a cell of the order, in small letters (decision
+    /// a-datum-of-a-cell-s-own-is-made-where-a-cell-names-it).
     /// Each is declared in the file that makes it.
     fn own(&self, cells: &BTreeMap<String, CellFile>, flow: &mut FlowFile, places: &mut Places) -> Own {
         let mut own = Own::default();
@@ -1257,15 +1260,6 @@ impl LaidOut {
                 own.cells.insert(name.clone(), id.clone());
                 own.made.entry(written.clone()).or_default().push(name.clone());
                 continue;
-            }
-            let of_a_line = (self.line_data.iter()).find_map(|(path, written, file)| {
-                let line = whose(written, LINE, name).filter(|line| flow.lines.contains_key(*line))?;
-                Some((path, own_block(file, LINE, line), line.to_string()))
-            });
-            if let Some((path, block, line)) = of_a_line {
-                flow.blocks.insert(name.clone(), block);
-                places.files.insert(("blocks", name.clone()), path.clone());
-                own.lines.insert(name.clone(), line);
             }
         }
         // Each in the order of the cells whose own it is.
@@ -1406,7 +1400,7 @@ struct Definition<'a> {
     every: &'a EveryAgentFile,
     /// What every agent cell reads, each name with the data it stands for, in the order written.
     every_reads: Vec<Named>,
-    /// The data each cell or each line has its own of that the flow's cells name.
+    /// The data each cell has its own of that the flow's cells name.
     own: &'a Own,
     /// What the item's card shows, as `flow.toml` names it.
     card: &'a [String],
@@ -1528,6 +1522,7 @@ impl<'a> Definition<'a> {
     /// The faults of the declared blocks: values that make no choice, a source the engine does not have, a block with
     /// no writer, and one with no reader.
     fn check_blocks(&self, has: &Has, faults: &mut Vec<Fault>) {
+        let has_tree = (self.flow.blocks.values()).any(|b| b.outside.as_deref() == Some(TREE));
         for (name, block) in &self.flow.blocks {
             let at = |field: &str, what| self.places.fault("blocks", name, field, what);
             if let Some(values) = &block.values {
@@ -1589,6 +1584,10 @@ impl<'a> Definition<'a> {
                     "changed_by",
                     FaultKind::ChangedByWithoutSource { block: name.clone() },
                 ));
+            }
+            if block.names_tree_entries && !has_tree {
+                let what = FaultKind::EntriesWithoutTree { block: name.clone() };
+                faults.push(at("names_tree_entries", what));
             }
             if let Some(source) = &block.outside
                 && !has.sources.contains(source)
@@ -2247,9 +2246,10 @@ impl<'a> Definition<'a> {
 
     /// The faults of what a cell names that it watches and reads: an agent cell that nothing runs; a datum or group
     /// named twice, or both watched and read; one the flow does not have; a block taken by two names, by itself and
-    /// through a group or through two groups (decision a-cell-names-a-block-once); a datum of a line's own that is not
-    /// the cell's line's; one an engine cell reads; a block an agent cell is given whose kind it does not say; a kind of
-    /// a block it is not given; what it does for a datum it does not watch; a kind or what it does, of an engine cell.
+    /// through a group or through two groups (decision a-cell-names-a-block-once); one an engine cell reads; a block an
+    /// agent cell is given whose kind it does not say; a kind of a block it is not given, or other than its latest, of
+    /// a block whose lines name entries of the design tree; what it does for a datum it does not watch; a kind or what
+    /// it does, of an engine cell.
     fn check_watches(&self, file: &CellFile) -> Vec<(String, FaultKind)> {
         let mut found = Vec::new();
         let agent = file.kind == Kind::Agent;
@@ -2269,7 +2269,6 @@ impl<'a> Definition<'a> {
                 });
                 taken.extend(members.into_iter().map(|block| (block, name)));
                 let again = names[..i].contains(name) || (list == "reads" && file.watches.contains(name));
-                let other_line = (self.own.lines.get(name)).filter(|line| file.line.as_ref() != Some(*line));
                 let kindless = (self.members(name).into_iter())
                     .find(|b| !file.kinds.contains_key(b.as_str()) && self.every_kind(b.as_str()).is_none());
                 let what = if again {
@@ -2281,11 +2280,6 @@ impl<'a> Definition<'a> {
                         block: block.to_string(),
                         first: first.clone(),
                         also: name.clone(),
-                    }
-                } else if let Some(line) = other_line {
-                    FaultKind::LineDataOfAnother {
-                        block: name.clone(),
-                        line: line.clone(),
                     }
                 } else if !agent && list == "reads" {
                     FaultKind::EngineIsGiven { block: name.clone() }
@@ -2302,11 +2296,14 @@ impl<'a> Definition<'a> {
         let given: Vec<BlockId> = (file.watches.iter().chain(&file.reads))
             .flat_map(|name| self.members(name))
             .collect();
-        for block in file.kinds.keys() {
+        let names_entries = |block: &str| self.flow.blocks.get(block).is_some_and(|b| b.names_tree_entries);
+        for (block, kind) in &file.kinds {
             let what = if !agent {
                 FaultKind::EngineIsGiven { block: block.clone() }
             } else if !given.iter().any(|g| g.as_str() == block) {
                 FaultKind::NotGiven { block: block.clone() }
+            } else if names_entries(block) && *kind != InputKind::Latest {
+                FaultKind::EntriesNotLatest { block: block.clone() }
             } else {
                 continue;
             };
@@ -2631,6 +2628,7 @@ impl<'a> Definition<'a> {
                         .map(|(value, blocks)| (value.clone(), blocks.iter().map(|b| BlockId(b.clone())).collect()))
                         .collect(),
                     answers_in_the_tree: declared.answers_in_the_tree,
+                    names_tree_entries: declared.names_tree_entries,
                     writers: Writers {
                         cells: ids(&writers),
                         people: declared.people,
