@@ -2,8 +2,8 @@
 // what it finds has room under it. It finds an item by its number or a part of its title, over every item, open, done
 // or cancelled (`findItems`), and lists what it finds, each row the item's number, its title and how it stands; while it
 // finds any, the tree lights them and dims the rest, as it does round the item under the pointer. The arrow keys or the
-// pointer move in the list, the tree bringing the item of the row they stand on into view, and Enter or a click picks
-// that row, which the console then shows. A pick, Escape, or a press anywhere else closes it. What is typed and not yet picked is kept in the browser, and shows again
+// pointer move in the list, which changes nothing in the tree, and Enter or a click picks the row they stand on, which
+// the console then shows. A pick, Escape, or a press anywhere else closes it. What is typed and not yet picked is kept in the browser, and shows again
 // the next time it opens (principle typed-words-are-kept); a pick or Escape empties it.
 
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
@@ -26,7 +26,7 @@ export const FIND_SAYS = {
   none: 'No item has that number or title',
 } as const;
 
-export function Find({ data, onPick, onClose, onFound, onChosen }: {
+export function Find({ data, onPick, onClose, onFound }: {
   data: Items | undefined;
   /// Told the number of the item picked.
   onPick: (id: number) => void;
@@ -34,24 +34,18 @@ export function Find({ data, onPick, onClose, onFound, onChosen }: {
   onClose: () => void;
   /// Told the numbers of the items found as they change, and none as the search closes.
   onFound: (ids: number[]) => void;
-  /// Told the number of the item of the row the arrow keys or the pointer stand on, as it changes.
-  onChosen: (id: number) => void;
 }) {
   const [query, setQuery] = useState(() => read(KEPT) ?? '');
   // The row of the list the arrow keys stand on.
   const [at, setAt] = useState(0);
   const found = useMemo(() => (data === undefined ? [] : findItems(data, query, MOST)), [data, query]);
   // What the console is told, as the latest render gave it.
-  const tell = useRef({ onFound, onChosen });
+  const tell = useRef({ onFound });
   useEffect(() => {
-    tell.current = { onFound, onChosen };
+    tell.current = { onFound };
   });
   useEffect(() => tell.current.onFound(found.map((i) => i.number)), [found]);
   useEffect(() => () => tell.current.onFound([]), []);
-  const chosen = found[Math.min(at, found.length - 1)]?.number;
-  useEffect(() => {
-    if (chosen !== undefined) tell.current.onChosen(chosen);
-  }, [chosen]);
   const type = (q: string) => {
     setQuery(q);
     setAt(0);

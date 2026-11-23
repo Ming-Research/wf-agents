@@ -370,7 +370,6 @@ export function ConsolePage({
           onPick={pick}
           onClose={() => setFinding(false)}
           onFound={(ids) => scene.current?.find(ids)}
-          onChosen={(id) => scene.current?.reveal(id, room(open))}
         />
       )}
     </div>
