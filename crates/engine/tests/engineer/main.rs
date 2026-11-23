@@ -74,10 +74,11 @@
 //! taking every random step it may; in them a judge's verdict, where a return hands one in, is its refusal in one of
 //! ten only, so that they reach the check past the five judges before it, a choice a judge's own condition waits for
 //! (whether the change needs adversarial testing) is that value in seven of ten, and the owner only lets the work go
-//! on: answers each question at once, lets a cell go on at its limit, resumes a paused work, writes what the outside
-//! writes, writes a choice people write (a verdict as other than its refusal in nine of ten), and answers a question
-//! that stands anew; it does not cancel, pause, write prose a person writes, commit, speak to a line or remark on a
-//! question, which in the histories not steered end or rework a work before the check. In three of ten, the work is
+//! on: writes the background first, so that the plan's cells and the implementation run before the check, answers each
+//! question at once, lets a cell go on at its limit, resumes a paused work, writes what the outside writes, writes a
+//! choice people write (a verdict as other than its refusal in nine of ten), and answers a question that stands anew;
+//! it does not cancel, pause, write other prose a person writes, commit, speak to a line or remark on a question,
+//! which in the histories not steered end or rework a work before the check. In three of ten, the work is
 //! paused while the
 //! check's round is under way; once
 //! the check passed, a person writes, while the pause holds the merge back, an input only people write that runs a cell
@@ -717,6 +718,9 @@ struct Random {
     refuse_next: bool,
     /// Whether the steered check failure was handed in.
     check_failed: bool,
+    /// Whether the owner of a steered history wrote the background, which runs the plan's cells and so the implementation
+    /// before the check, as its first act.
+    briefed: bool,
     /// The run of the cell told of the failure that answered it as the steering has it: with a commit and nothing that
     /// matters, or with nothing committed.
     answered: Option<RunId>,
@@ -738,6 +742,20 @@ fn passed_before_merge(d: &Driver, roles: &Roles) -> bool {
 }
 
 impl Random {
+    /// The block the owner of a steered history writes first: the first block only people write, and not a choice, that a
+    /// cell which applies runs on, which is the background.
+    fn brief(&self, d: &Driver) -> Option<BlockId> {
+        let reading = Reading::new(&d.flow.flow, &d.work.records, None);
+        (d.flow.flow.cells().iter().enumerate())
+            .filter(|(i, _)| reading.applies(*i))
+            .flat_map(|(_, c)| c.runs_on.iter())
+            .find(|b| {
+                let block = &d.flow.blocks[*b];
+                block.writers.people && block.writers.cells.is_empty() && block.values.is_none()
+            })
+            .cloned()
+    }
+
     /// A hand-in of everything the cell writes as it stands: each choice as it is, or its first value where it never
     /// was, a verdict as its refusal where `refuse` says so; each other block, no opinion for a cell before it among
     /// them, as a change that does not matter.
@@ -765,6 +783,15 @@ impl Random {
     /// lets the work on. Where the check failed under its
     /// pause, it lets the work on, to try at the next check.
     fn steered(&mut self, d: &Driver) -> Option<Event> {
+        // The owner of a steered history briefs first, as the owner of a work does, so that the plan's cells and the
+        // implementation run, and ask, before the check does: a quiet owner that never wrote it would have each verdict
+        // written by a person and the check run with no cell that may ask having handed in.
+        if self.steer != Steer::Not && !self.briefed {
+            self.briefed = true;
+            if let Some(background) = self.brief(d) {
+                return Some(wrote(&background, Outsider::Person, true, None));
+            }
+        }
         if self.steer != Steer::Refuse || self.stage >= 2 {
             return None;
         }
@@ -2094,6 +2121,7 @@ fn one_history(flow: &Compiled, seed: u64, log: &mut Vec<String>) -> Verdict {
         paused_it: false,
         refuse_next: false,
         check_failed: false,
+        briefed: false,
         answered: None,
         branch: branch.clone(),
     };
