@@ -569,6 +569,7 @@ fn a_stop_is_given_with_the_rests_of_what_is_under_way_and_holds_a_work_that_wou
         project: "trial".to_string(),
         depends_on: Vec::new(),
         tags: Vec::new(),
+        continues: None,
         flow: "trial".to_string(),
         writes: vec![driver::FirstWrite {
             block: decide::BlockId("request".to_string()),
