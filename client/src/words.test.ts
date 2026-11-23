@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { TestKind } from './api';
+import type { Fault, TestKind } from './api';
 import { test } from './testing';
 import { conditionWords, faultWords, readsWords, writersBesideCells } from './words';
 
@@ -265,5 +265,26 @@ describe('the words of the page', () => {
     expect(faultWords({ file: 'check.toml', field: 'act', what: { kind: 'unknownAct', act: 'merge ' } })).toBe(
       'The engine has no act named "merge ".',
     );
+  });
+
+  it('say a fault of a cell that asks the owner, is spoken to or judges by the block, the verdict and the cell it is about', () => {
+    const said = (field: string, what: Fault['what']) => faultWords({ file: 'cells/a.toml', field, what });
+    const all = [
+      said('outputs[1]', { kind: 'notItsOwn', block: 'plan_questions' }),
+      said('outputs[1]', { kind: 'spokenToAndAsksNothing', block: 'plan_words' }),
+      said('outputs[0]', { kind: 'verdictOfDialogues', verdict: 'verdict', dialogues: ['plan_review', 'code_review'] }),
+      said('outputs[0]', { kind: 'verdictWithoutDialogue', verdict: 'verdict' }),
+      said('engine_asks_in', { kind: 'cannotBeAskedIn', cell: 'check' }),
+      said('do.design', { kind: 'notWatched', block: 'design' }),
+    ];
+    expect(all).toEqual([
+      "The cell writes plan_questions, a block of the owner's answers or words that is not its own.",
+      'The cell writes plan_words, its words with the owner, but asks the owner nothing.',
+      'The cell hands in verdict, its verdict, and judges in plan_review, code_review, so its points could go in more than one.',
+      'The cell hands in verdict, its verdict, and judges in no dialogue its points could go in.',
+      "The engine cannot ask in check: it must be an agent's cell, on a line that may change the work, with words of its own.",
+      'There is a do for design, but design is not watched.',
+    ]);
+    expect(new Set(all).size).toBe(all.length);
   });
 });
