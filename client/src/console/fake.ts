@@ -120,6 +120,8 @@ export function fakeShown(count: number): Shown[] {
           last: Date.now(),
           level: '2',
           raise: i.id % 5 === 0 ? 1 : 0,
+          cellLevel: i.id % 5 === 0 ? '3' : '2',
+          held: null,
           lines: i.id % 3 === 0 ? { added: 210, removed: 40, files: 4 } : null,
         };
   const shown = (i: FakeItem): Shown => ({

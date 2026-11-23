@@ -16,7 +16,7 @@ export interface Line {
   name: string;
   /// In the order of the walk.
   cells: string[];
-  /// How many levels above its item's its rounds run at, never above the highest an item may be at.
+  /// How many levels above its item's its rounds run at, never above the highest one round may run at.
   levelsAbove: number;
   /// The file it is written in, from the flow's directory.
   file: string;

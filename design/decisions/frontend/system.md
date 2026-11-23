@@ -12,7 +12,7 @@ The wait every work shares is described by what is down and since when, what the
 - replaced: The same last sentence for every cause, that no round begins until the command line runs again, was on main; the owner changed it, because it did not fit a limit, the network or the service, so each cause says what ends it.
 
 ### decision the-page-changes-what-is-tuned-while-the-engine-runs
-The Settings view changes the owner's language, each level's model, the highest level an item may have, the context past which a line starts a new session, and the slots; the rest only in the file.
+The Settings view changes the language, each level's model, the highest level of an item and of a round, the context past which a line starts a new session, and the slots; the rest only in the file.
 - replaced: Four settings from the installation's file, shown but not changeable on the page, was on main; the owner changed it, because the page showed too little, and what is tuned while works go on should be changed there.
 - replaced: The levels' models set only in the installation's file was on main; the owner changed it, because he wanted the levels' models, and what goes with them, in the page's settings.
 

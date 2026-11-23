@@ -133,6 +133,7 @@ export function fixtureSettings(): SettingsPage {
         keys: [
           key('command', '"claude"'),
           key('slots', '3', '2', { kind: 'count' }),
+          { key: 'highest_level', written: null, running: null, change: { kind: 'level' } },
           key('args', '["--allowedTools", "Edit(./**)"]'),
           key('work_budget_usd', '5.0'),
         ],

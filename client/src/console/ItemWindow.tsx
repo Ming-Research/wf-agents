@@ -724,7 +724,14 @@ function ItemView({
           item={item}
           goal={goal}
           tier={mock.tier}
-          level={<LevelMark level={work.level ?? null} raise={work.raise ?? 0} />}
+          level={
+            <LevelMark
+              level={work.level ?? null}
+              raise={work.raise ?? 0}
+              held={work.held ?? null}
+              cellLevel={work.cellLevel ?? null}
+            />
+          }
         >
           <Progress w={work} page={read} />
         </ItemLine>
