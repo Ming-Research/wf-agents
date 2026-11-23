@@ -595,10 +595,10 @@ impl Inner {
             Begun::Anew(token, under) => {
                 // What the round is sent in the session as it stands, and in one that holds nothing: one begun under
                 // the round, or compacted during it.
-                let (work, item) = (round.work.to_string(), round.item.number.to_string());
+                let (written_work, written_item) = (round.work.to_string(), round.item.number.to_string());
                 let about = context::For {
-                    work: &work,
-                    item: &item,
+                    work: &written_work,
+                    item: &written_item,
                     title: &round.item.title,
                 };
                 // What changed in the branch's data, which git compares, from each earlier version to the latest: the
@@ -1901,7 +1901,7 @@ async fn uncommitted_in(place: &git::Place) -> Result<Vec<Unmet>, String> {
 /// Takes away the checkout at the place a fork of the work ran in, saying where it cannot; one already gone is passed.
 async fn removed(project: &Project, place: &git::Place, work: WorkNumber) {
     if let Err(why) = git::remove(project, place).await {
-        eprintln!("The checkout {} was forked in could not be taken away: {why}", work);
+        eprintln!("The checkout {work} was forked in could not be taken away: {why}");
     }
 }
 

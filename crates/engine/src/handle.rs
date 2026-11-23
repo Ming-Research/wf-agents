@@ -1234,33 +1234,3 @@ fn pausing_words(words: &flow::agents::PausedWords, pausing: &Pausing, why: &str
         Pausing::GuardedAgain => why.to_string(),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // Every reason the engine stores for a pause is a sentence of the words beside the flows, with the cause of whoever
-    // carried the round out after a colon: the owner's card says "The engine paused the work." before it, and reads
-    // whole whatever the cause begins with.
-    #[test]
-    fn a_reason_stored_for_a_pause_is_a_sentence_of_the_files_with_the_cause_after_a_colon() {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
-        let words = flow::agents::read(&root)
-            .expect("what is written beside the flows is read")
-            .waits
-            .paused;
-        let cause = "the command line's result holds no structured return";
-        let pausings = [
-            Pausing::Failed(Failure::Other),
-            Pausing::Failed(Failure::PromptTooLong),
-            Pausing::Passing { failed: 3 },
-            Pausing::Outside { failed: 9 },
-            Pausing::FlaggedAgain,
-        ];
-        for pausing in pausings {
-            let said = pausing_words(&words, &pausing, cause);
-            assert!(said.starts_with(|c: char| c.is_uppercase()), "{pausing:?}: {said}");
-            assert!(said.ends_with(&format!(": {cause}.")), "{pausing:?}: {said}");
-        }
-    }
-}

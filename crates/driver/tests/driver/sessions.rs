@@ -79,6 +79,7 @@ fn flow() -> Compiled {
         .into_iter()
         .map(|(id, text)| (id.to_string(), text))
         .collect(),
+        files: beside(),
         ..Default::default()
     };
     let has = Has {
@@ -151,6 +152,7 @@ fn two_lines() -> Compiled {
         .into_iter()
         .map(|(id, text)| (id.to_string(), text))
         .collect(),
+        files: beside(),
         ..Default::default()
     };
     let has = Has {
@@ -226,6 +228,7 @@ fn remarks() -> Compiled {
         .into_iter()
         .map(|(id, text)| (id.to_string(), text))
         .collect(),
+        files: beside(),
         ..Default::default()
     };
     let has = Has {

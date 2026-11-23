@@ -119,6 +119,24 @@ fn a_prompt_too_long_pauses_the_work_saying_so() {
     );
 }
 
+// The reason the engine stores is a sentence of the words beside the flows with the cause, whoever wrote it and however
+// it begins, after a colon: the owner's card says "The engine paused the work." before it.
+#[test]
+fn a_round_that_failed_for_another_cause_pauses_the_work_with_a_sentence_and_the_cause_after_a_colon() {
+    let (mut w, write, _) = W::requested();
+    let cause = "the command line's result holds no structured return";
+    w.on(Event::Failed {
+        run: write,
+        why: cause.to_string(),
+        failure: Failure::Other,
+        resets: None,
+        spent: spent(1),
+    });
+    let pause = decide::pause(&w.work.records).expect("the work is paused");
+    let said = format!("The round failed. The cause: {cause}.");
+    assert_eq!(pause.why.as_deref(), Some(said.as_str()));
+}
+
 #[test]
 fn a_cause_every_work_shares_pauses_nothing_and_the_shut_gate_holds_only_agents_rounds() {
     let (mut w, write, _) = W::requested();

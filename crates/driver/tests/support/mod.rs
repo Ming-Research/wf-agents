@@ -49,6 +49,16 @@ pub fn has() -> Has {
     }
 }
 
+/// The words the engine says to the owner, as the files beside the repository's flows have them: what a flow compiled
+/// without them says in their places is nothing, as the engine refuses to start on.
+pub fn beside() -> BTreeMap<String, String> {
+    [(
+        flow::waits_file(),
+        include_str!("../../../../flow/agents/waits.toml").to_string(),
+    )]
+    .into()
+}
+
 /// A flow compiled from the text of its files, beside it the words the engine says to the owner, as beside the
 /// repository's flows.
 pub fn compiled(flow: &str, cells: &[(&str, &str)]) -> Compiled {
@@ -57,11 +67,7 @@ pub fn compiled(flow: &str, cells: &[(&str, &str)]) -> Compiled {
         cells: (cells.iter())
             .map(|(id, text)| (id.to_string(), text.to_string()))
             .collect(),
-        files: [(
-            flow::waits_file(),
-            include_str!("../../../../flow/agents/waits.toml").to_string(),
-        )]
-        .into(),
+        files: beside(),
         ..Default::default()
     };
     compile(&source, &has()).expect("the definition compiles")
