@@ -16,8 +16,10 @@
 //! An agent's `run_tests` runs the tests and checks it names by the fast workflow (the module `fast`), on the commit it
 //! names or else the last commit of its work's branch, which is pushed to a branch of its own for the call and deleted
 //! once the run's result is read; the work's own branch and its pull request are the check's. Where no commit is
-//! named, what the worktree holds that is not committed is said, and nothing is pushed. A request that names neither a
-//! test nor a check runs nothing.
+//! named, what the worktree holds that is not committed is said, and nothing is pushed. The measurements it names are
+//! timed by the project's measure workflow, once, on that commit and on the one the work's change began from, after the
+//! fast workflow where tests or checks are named too; a workflow the project cannot run is refused before anything is
+//! pushed. A request that names no test, no check and no measurement runs nothing.
 //!
 //! - `api`: what is asked of GitHub besides pushing and fetching, and `gh`, which asks it with the `gh` command line.
 //! - `output`: what a test said, as a reader wants it.
@@ -51,6 +53,7 @@ use super::{Asking, Branch, Failed, Host, Named, NotMerged, Verdict};
 use crate::git::{self, With};
 use crate::held::Stop;
 use crate::settings::{self, Project};
+use fast::Role;
 
 /// How often GitHub is asked how a run of a workflow goes: a run takes from half a minute to some minutes, and is waited
 /// for while an agent or the check before a merge waits, so it is seen done within a few seconds, for a call a time.
@@ -538,9 +541,23 @@ impl<A: Api> Host for GitHub<A> {
         if named.is_empty() {
             return Ok(Some(words.none_named.clone()));
         }
-        let role = match self.role(self.config.ci.as_ref(), named)? {
-            Ok(role) => role,
-            Err(refused) => return Ok(Some(refused)),
+        // Each workflow the request needs is asked for before anything is pushed, so that one the project cannot run
+        // keeps the others from being run either: the fast workflow for the tests and checks named, the measure
+        // workflow for the measurements.
+        let ci = self.config.ci.as_ref();
+        let fast = match named.tests.is_empty() && named.checks.is_empty() {
+            true => None,
+            false => match self.role(ci, named)? {
+                Ok(role) => Some(role),
+                Err(refused) => return Ok(Some(refused)),
+            },
+        };
+        let measure = match named.measure.is_empty() {
+            true => None,
+            false => match self.measure_role(ci)? {
+                Ok(measure) => Some(measure),
+                Err(refused) => return Ok(Some(refused)),
+            },
         };
         let repo = &self.project.repo;
         let (commit, untracked) = match &named.commit {
@@ -576,7 +593,27 @@ impl<A: Api> Host for GitHub<A> {
             commit: &commit,
             asking,
         };
-        let said = self.run_role(role, request, named, stop).await?;
+        // The fast workflow first, then the measure workflow, which times the commit against the one the work's change
+        // began from: the newest commit main and the work's commit have in common, a commit of main's, so that what is
+        // timed is the change alone and not what other works merged into main since.
+        let mut said: Vec<String> = Vec::new();
+        if let Some(role) = fast {
+            match self.run_role(role, request, named, stop).await? {
+                Some(one) => said.push(one),
+                None => return Ok(None),
+            }
+        }
+        if let Some(measure) = measure {
+            let base = git::git(repo, &["merge-base", &self.kept_main(), &commit]).await?;
+            match self
+                .run_role(Role::Measure(measure, &base), request, named, stop)
+                .await?
+            {
+                Some(one) => said.push(one),
+                None => return Ok(None),
+            }
+        }
+        let said = Some(said.join("\n\n"));
         // The branch is kept until the run has ended and its result is read: a run the engine stopped waiting for is
         // found again by the same call, and checks the commit out when it starts. One that could not be deleted is
         // deleted as the work ends ([`Host::end`]).

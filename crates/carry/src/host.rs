@@ -218,9 +218,9 @@ pub trait Host: Send + Sync + 'static {
     /// the host again: where a work's change begins is worked out from it.
     fn kept_main(&self) -> String;
 
-    /// What the agents' tool `run_tests` finds of the work, with the tests and checks the agent named, on the commit it
-    /// named or else the work's last commit, in words for the agent whose call asks, whole; none where it was told to
-    /// stop. A request that names neither a test nor a check is run as nothing, and said so. An `Err` is why it could not
+    /// What the agents' tool `run_tests` finds of the work, with the tests, checks and measurements the agent named, on
+    /// the commit it named or else the work's last commit, in words for the agent whose call asks, whole; none where it
+    /// was told to stop. A request that names none of them is run as nothing, and said so. An `Err` is why it could not
     /// run them, for the agent too. What failed is said as [`Host::verdict`] says it.
     fn run_tests(
         &self,
@@ -247,19 +247,23 @@ pub trait Host: Send + Sync + 'static {
     fn pull_at(&self, number: u64) -> Option<String>;
 }
 
-/// The tests and the checks an agent names to `run_tests`, each as it wrote it, and the commit it names to run them on.
+/// The tests, the checks and the measurements an agent names to `run_tests`, each as it wrote it, and the commit it names
+/// to run them on.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Named {
     pub tests: Vec<String>,
     pub checks: Vec<String>,
+    /// The measurements to time on the commit and on the commit the work's change began from.
+    pub measure: Vec<String>,
     /// The commit to run on, as git names one in the agent's worktree; none for the last commit of the work's branch.
     pub commit: Option<String>,
 }
 
 impl Named {
-    /// Whether neither a test nor a check is named, which a commit alone does not make a request to run anything.
+    /// Whether neither a test, a check nor a measurement is named, which a commit alone does not make a request to run
+    /// anything.
     pub fn is_empty(&self) -> bool {
-        self.tests.is_empty() && self.checks.is_empty()
+        self.tests.is_empty() && self.checks.is_empty() && self.measure.is_empty()
     }
 }
 

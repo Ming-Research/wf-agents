@@ -31,6 +31,10 @@ path = "design/README.md"
 [project]
 # Where an agent keeps what it makes for research, committed.
 research = "research/"
+# How an agent names a measurement to `run_tests`: by the file of `measure/` that times it.
+measure_names = '''
+A measurement is named by its file in `measure/`: `design-lint` times `measure/design-lint`. A name holds letters, digits,
+`_` and `-`.'''
 # The command that checks the design tree's files, which an agent runs after changing the tree, before the project's
 # check.
 tree_check = "python3 design/lint.py"
@@ -68,6 +72,14 @@ workflows = ["ci.yml"]
 runner = "14900k"
 too_long = "2h"
 
+# The workflow that times the measurements an agent's `run_tests` names, each on the commit the work's change began from and
+# on the work's commit, in one run. It reports every timing as JUnit XML in the artifact `test-results`. Its job holds the
+# machine's lock while it times, and its time limit counts the wait, so `too_long` is the job's `timeout-minutes`.
+[ci.measure]
+workflow = "measure.yml"
+runner = "14900k"
+too_long = "30m"
+
 # The paths that govern the project's agents, which the owner changes: where a work's change against main touches one,
 # the work says why each such change is needed (`agents/return/fields/protected_changes.toml`) or takes it back, and the
 # engine asks the owner whether the change stays (`agents/asks.toml`). A path ending in `/` is a directory and
@@ -82,3 +94,11 @@ paths = ["AGENTS.md", "design/constitution.md", "design/principles/", "flow/", "
 # installation's (`agents.permissions.locks`).
 [heavy]
 commands = ["cargo", "rustc", "rustup", "npm", "npx", "node --test", "tsc", "vitest", "hyperfine"]
+
+# The variables every agent's command line of the project's works is given beside the engine's own, by name: what the
+# project's toolchain reads, so that a command an agent may run reaches no further than its worktree. Rustup installs no
+# Rust toolchain that a command asks for and the machine lacks: the command fails instead of downloading one, which
+# would write beyond the worktree. The engine's own variables, the installation's `agents.env` and the agents' program's
+# (`CLAUDE_*`, `ANTHROPIC_*`) are refused here.
+[environment]
+RUSTUP_AUTO_INSTALL = "0"

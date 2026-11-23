@@ -691,7 +691,29 @@ mod tests {
         std::fs::write(lacking.join(flow::agents::DECLARATION), unheavy).unwrap();
         git(&lacking, &["add", "."]);
         git(&lacking, &[&who[..], &["commit", "-q", "-m", "Declared"][..]].concat());
-        for (name, repo) in [("other", other), ("lacking", lacking)] {
+        // The same declaration naming, for the agents' command line, a variable the engine owns and one the agents'
+        // program reads itself.
+        let unsafe_repo = dir.path().join("unsafe");
+        std::fs::create_dir_all(unsafe_repo.join("flow")).unwrap();
+        std::fs::create_dir_all(unsafe_repo.join("design")).unwrap();
+        for path in ["AGENTS.md", "design/constitution.md", "design/README.md"] {
+            std::fs::write(unsafe_repo.join(path), "Some text.\n").unwrap();
+        }
+        git(&unsafe_repo, &["init", "-q", "-b", "main"]);
+        let (_, kept) = declared
+            .split_once("\n[environment]\n")
+            .expect("the declaration names its environment");
+        let named = declared.replace(
+            kept,
+            "PATH = \"/elsewhere\"\nANTHROPIC_BASE_URL = \"https://example.com\"\n",
+        );
+        std::fs::write(unsafe_repo.join(flow::agents::DECLARATION), named).unwrap();
+        git(&unsafe_repo, &["add", "."]);
+        git(
+            &unsafe_repo,
+            &[&who[..], &["commit", "-q", "-m", "Declared"][..]].concat(),
+        );
+        for (name, repo) in [("other", other), ("lacking", lacking), ("unsafe", unsafe_repo)] {
             let mut project = example.clone();
             project.repo = repo;
             settings.projects.insert(name.to_string(), project);
@@ -701,7 +723,7 @@ mod tests {
         let faults = start_faults(&settings, &beside, &[engineer()]);
         let cargo = "agents.permissions.locks: \"cargo\" would allow all of the heavy command \"cargo\" \
                      (flow/project.toml [heavy])";
-        assert_eq!(faults.len(), 6, "{faults:?}");
+        assert_eq!(faults.len(), 9, "{faults:?}");
         assert_eq!(
             faults[0],
             "agents.permissions.locks: \"git push\" falls under \"git push\", which every agent is refused \
@@ -725,6 +747,17 @@ mod tests {
             "{faults:?}"
         );
         assert_eq!(faults[5], format!("projects.same: {cargo}"));
+        assert_eq!(faults[6], format!("projects.unsafe: {cargo}"));
+        assert_eq!(
+            faults[7],
+            "projects.unsafe: flow/project.toml [environment]: ANTHROPIC_BASE_URL is read by the agents' program \
+             itself, which it would change in a round beside what the records name"
+        );
+        assert_eq!(
+            faults[8],
+            "projects.unsafe: flow/project.toml [environment]: PATH is the engine's own, which it gives every round \
+             itself"
+        );
     }
 
     // The flows given are beside one directory, whose files every flow shares; flows from two are refused.

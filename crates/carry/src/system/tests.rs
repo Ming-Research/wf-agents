@@ -502,6 +502,43 @@ fn the_checks_an_agent_may_name_are_said_as_the_project_declares_its_fast_workfl
     assert_eq!(faults(&local, &beside, &flow), Vec::<String>::new());
 }
 
+// What `run_tests` says of measurements is said only where the project declares a workflow that times them, with the
+// project's own setting for how one is named beside it; a project that declares one and gives no such setting is refused as
+// the engine starts, since its agents would be sent the setting's bare name. Milliseconds alone, as the test above it.
+#[test]
+fn run_tests_is_told_of_measurements_only_where_the_project_declares_a_workflow_that_times_them() {
+    let (beside, flow) = (beside(), engineer());
+    let told = |beside: &Agents| {
+        let cell = cell(&flow, "engineer");
+        of_line(beside, &filling(&settings(), beside), &flow, cell, "", project).expect("it is made")
+    };
+    assert_eq!(faults(&settings(), &beside, &flow), Vec::<String>::new());
+    let measuring = told(&beside);
+    assert!(
+        measuring.contains("Add `\"measure\": [...]` to time measurements: name them as `project.measure_names` (A measurement is named by its file in `measure/`"),
+        "{measuring}"
+    );
+    assert!(!measuring.contains("{measure}"), "{measuring}");
+    let mut none = beside.clone();
+    none.project
+        .ci
+        .as_mut()
+        .expect("the project declares its workflows")
+        .measure = None;
+    let silent = told(&none);
+    assert!(!silent.contains("to time measurements"), "{silent}");
+    assert!(!silent.contains("{measure}"), "{silent}");
+    // A project that measures says how a measurement is named.
+    let mut lacking = beside.clone();
+    lacking.project.project.remove("measure_names");
+    assert_eq!(
+        faults(&settings(), &lacking, &flow),
+        [
+            "flow engineer: flow/project.toml: declares [ci.measure] and gives no `measure_names` in [project], which the words of run_tests name"
+        ]
+    );
+}
+
 // A place the engine does not fill, in the heading a file of the project stands under or in the engine's words, and a
 // set of rules or a tool nothing beside the flows defines, are said as the engine starts, every one of them.
 #[test]

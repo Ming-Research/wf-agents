@@ -33,10 +33,6 @@ The agents' program takes its message as a stream of JSON and gives its output a
 The engine runs the agents' program with `CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING` set to 0, so that the service checks each tool's input as JSON before it streams it.
 - replaced: Leaving the program to stream tool inputs as they are made was on main; the owner changed it, because it matters to mend the returns that came back cut off, and with that streaming the service no longer checks a tool's input.
 
-### decision no-toolchain-is-installed-in-a-round
-The engine runs the agents' program with `RUSTUP_AUTO_INSTALL` set to 0, so that no toolchain is installed during a round.
-- replaced: Leaving the variable unset was on main; the owner changed it, because then a round does not download hundreds of megabytes unseen, and a missing toolchain is an error the agent sees.
-
 ### decision an-agent-ends-with-the-engine
 An agent's program, like every program the engine runs, is stopped when the engine's process ends, however it ends, by a small shell in its own process group that waits on a pipe the engine holds.
 - replaced: Letting the agents' programs outlive the engine, with the next engine stopping them before it runs a round, was on main; the owner changed it, because a program left running spends and changes the worktree unseen: one ran eight seconds after the engine ended and committed.

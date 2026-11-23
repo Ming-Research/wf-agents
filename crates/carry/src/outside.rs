@@ -11,6 +11,7 @@
 //! ([`Check::check_token`]). What the short request's stream says of the account's usage is heard with what was found:
 //! the owner's look at the accounts is this check, under each account looked under.
 
+use std::collections::BTreeMap;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -104,6 +105,8 @@ impl Check {
                 &self.agents,
                 &self.profile,
                 self.engine.iter().cloned(),
+                // The program is run for no project's command, so no project's variables are given it.
+                &BTreeMap::new(),
                 token,
             ))
             .current_dir(&self.dir);
