@@ -73,6 +73,10 @@ export function ConsolePage({
   // Which kinds of item the tree shows, open, done and cancelled each ticked or not, and what stands over them.
   const [shows, tick] = useKeptTicks(CHOICE_KEYS.consoleShows, ['open'], STANDINGS);
   const showsNow = useRef(shows);
+  const tickNow = useRef(tick);
+  useEffect(() => {
+    tickNow.current = tick;
+  }, [tick]);
   // Which items the owner folded and which he unfolded, as he last chose: the others fold as the tree's rule says.
   const [folds, turnFold] = useKeptFolds(CHOICE_KEYS.consoleFolds);
   const foldsNow = useRef(folds);
@@ -168,7 +172,7 @@ export function ConsolePage({
     if (found === undefined) return;
     const standing = standingOf(found);
     if (!showsNow.current.has(standing)) {
-      tick(standing, true);
+      tickNow.current(standing, true);
       return;
     }
     toSelect.current = undefined;
