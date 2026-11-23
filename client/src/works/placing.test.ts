@@ -26,7 +26,16 @@ import { partsText } from './words';
 /// The outline of the fixtures' flow, as a work on its version is given it.
 const OUTLINE = outlineOf(FLOW);
 
-const SPENT = { usdMicros: 0, inputTokens: 0, cachedTokens: 0, outputTokens: 0, workingMs: 0, rounds: 0 };
+const SPENT = {
+  usdMicros: 0,
+  inputTokens: 0,
+  cacheWrittenTokens: 0,
+  unsplitTokens: 0,
+  cachedTokens: 0,
+  outputTokens: 0,
+  workingMs: 0,
+  rounds: 0,
+};
 
 /// A round of a run, ended with what came back, in the session of its line where one is given.
 function round(number: number, back: Back | null, session: RoundSession | null = null, began = 0): Round {

@@ -197,9 +197,17 @@ fn kept_in_works(version: u32, works: &[&Work]) -> (Db, Db) {
             let names: Vec<String> = (query.query_map([], |row| row.get(1)).expect("its columns"))
                 .collect::<Result<_, _>>()
                 .expect("its columns");
-            let names = names.join(", ");
+            // The tokens sent and not read from the cache were named `input_tokens` in the tables of a round's, a ping's
+            // and a fork's spend before version 26.
+            let from: Vec<&str> = (names.iter())
+                .map(|name| match (table.as_str(), name.as_str()) {
+                    ("spent" | "pinged" | "forked", "input_tokens") => "uncached_tokens",
+                    _ => name.as_str(),
+                })
+                .collect();
+            let (names, from) = (names.join(", "), from.join(", "));
             file.execute(
-                &format!("INSERT INTO main.{table} ({names}) SELECT {names} FROM new.{table}"),
+                &format!("INSERT INTO main.{table} ({names}) SELECT {from} FROM new.{table}"),
                 [],
             )
             .expect("the rows are copied");

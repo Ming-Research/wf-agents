@@ -6,9 +6,11 @@ import { changeables, problem, unquoted } from './SettingsView';
 import { fixtureSettings } from './fixtures';
 import { STANDING_WORDS, cacheShare, mergeAverages, nextWeekStart, standingOf, summed, weekStarts } from './standing';
 
-const spent = (usdMicros: number, inputTokens = 0, cachedTokens = 0): Spent => ({
+const spent = (usdMicros: number, inputTokens = 0, cachedTokens = 0, cacheWrittenTokens = 0, unsplitTokens = 0): Spent => ({
   usdMicros,
   inputTokens,
+  cacheWrittenTokens,
+  unsplitTokens,
   cachedTokens,
   outputTokens: 0,
   workingMs: 1000,
@@ -98,6 +100,8 @@ describe('the span', () => {
 describe('what the span adds up to', () => {
   it('gives the share read from the cache, the averages of the merges, and sums', () => {
     expect(cacheShare(spent(0, 1000, 3000))).toBe(0.75);
+    // What was written to the cache and what the records do not tell from it were sent, as what was sent fresh was.
+    expect(cacheShare(spent(0, 500, 3000, 250, 250))).toBe(0.75);
     expect(cacheShare(spent(0))).toBeNull();
     expect(mergeAverages([])).toBeNull();
     expect(

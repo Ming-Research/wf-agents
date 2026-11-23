@@ -152,12 +152,23 @@ interface RoundSpec {
   fails?: string;
 }
 
-const nothing = (): Spent => ({ usdMicros: 0, inputTokens: 0, cachedTokens: 0, outputTokens: 0, workingMs: 0, rounds: 0 });
+const nothing = (): Spent => ({
+  usdMicros: 0,
+  inputTokens: 0,
+  cacheWrittenTokens: 0,
+  unsplitTokens: 0,
+  cachedTokens: 0,
+  outputTokens: 0,
+  workingMs: 0,
+  rounds: 0,
+});
 
 function add(a: Spent, b: Spent): Spent {
   return {
     usdMicros: a.usdMicros + b.usdMicros,
     inputTokens: a.inputTokens + b.inputTokens,
+    cacheWrittenTokens: a.cacheWrittenTokens + b.cacheWrittenTokens,
+    unsplitTokens: a.unsplitTokens + b.unsplitTokens,
     cachedTokens: a.cachedTokens + b.cachedTokens,
     outputTokens: a.outputTokens + b.outputTokens,
     workingMs: a.workingMs + b.workingMs,
@@ -320,11 +331,15 @@ class History {
     this.next(minutes);
     round.ended = this.time;
     const input = Math.round(14_000 + minutes * 3_100);
+    // Nearly all of what a round sends and does not read from the cache it writes to it.
+    const fresh = Math.round(input * 0.02);
     const cached = Math.round(input * 0.7);
     const output = Math.round(600 + minutes * 450);
     round.spent = {
       usdMicros: Math.round((spec.usd ?? (input * 3 + cached * 0.3 + output * 15) / 1_000_000) * 1_000_000),
-      inputTokens: input,
+      inputTokens: fresh,
+      cacheWrittenTokens: input - fresh,
+      unsplitTokens: 0,
       cachedTokens: cached,
       outputTokens: output,
       workingMs: minutes * MINUTE,

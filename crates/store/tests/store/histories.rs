@@ -194,7 +194,11 @@ impl History {
     fn spent(&self, run: RunId) -> Spent {
         Spent {
             usd_micros: run.0,
-            input_tokens: self.clock % 997,
+            // Over the 996 the tries' `Measures` above can add up to, so that no round's tokens are the sum of its
+            // try's, which the migration to this version would read as the tokens it wrote to the cache.
+            uncached_tokens: 1_000 + self.clock % 997,
+            // Some rounds tell how many of them were written to the cache, and some do not.
+            cache_written_tokens: (self.clock / 1000).is_multiple_of(2).then_some(self.clock % 13),
             cached_tokens: self.clock % 991,
             output_tokens: 1,
             ..Default::default()

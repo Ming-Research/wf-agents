@@ -228,7 +228,7 @@ async fn a_failed_round_whose_result_says_what_it_cost_is_charged_it_and_the_nex
     assert!(decide::pause(&kept.records).is_none(), "the work is paused");
     let failed = kept.spent[&(plan_run, 1)];
     assert_eq!(
-        (failed.usd_micros, failed.input_tokens, failed.output_tokens),
+        (failed.usd_micros, failed.uncached_tokens, failed.output_tokens),
         (800_000, 1000, 300)
     );
 

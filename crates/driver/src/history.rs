@@ -453,7 +453,8 @@ mod tests {
             run: decide::RunId(1),
             round: 1,
             usd_micros: 300_000,
-            input_tokens: 0,
+            uncached_tokens: 0,
+            cache_written_tokens: None,
             cached_tokens: 0,
             output_tokens: 0,
         });

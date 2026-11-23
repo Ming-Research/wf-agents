@@ -7,7 +7,7 @@ use decide::{BlockId, Decision, End, Outsider, Seq};
 use engine::{Came, Effect, Event, handle};
 use flow::{CellSpec, Compiled};
 use service::Script;
-use service::script::{Ends, INPUT_TOKENS, OUTPUT_TOKENS, ROUND_MS, TOOL_MS, USD_MICROS};
+use service::script::{CACHE_WRITTEN_TOKENS, Ends, INPUT_TOKENS, OUTPUT_TOKENS, ROUND_MS, TOOL_MS, USD_MICROS};
 use work::{Ask, Handed, Spent, Time, Work};
 
 fn trial() -> Compiled {
@@ -282,7 +282,8 @@ fn a_round_the_script_says_nothing_of_hands_in_the_outputs_no_earlier_cell_reads
         planned.spent,
         Spent {
             usd_micros: USD_MICROS,
-            input_tokens: INPUT_TOKENS,
+            uncached_tokens: INPUT_TOKENS + CACHE_WRITTEN_TOKENS,
+            cache_written_tokens: Some(CACHE_WRITTEN_TOKENS),
             cached_tokens: 0,
             output_tokens: OUTPUT_TOKENS,
             ..Default::default()

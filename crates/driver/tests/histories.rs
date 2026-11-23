@@ -627,7 +627,7 @@ impl History {
     fn spent(&self, run: RunId) -> Spent {
         Spent {
             usd_micros: run.0,
-            input_tokens: self.step as u64,
+            uncached_tokens: self.step as u64,
             cached_tokens: 0,
             output_tokens: 1,
             ..Default::default()

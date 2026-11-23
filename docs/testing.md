@@ -223,6 +223,5 @@ of each part.
 31. The trial's costs, by cell and in all, are set against the history of the flow's works. Once a work ends, each of
     its lines' sessions is forked, as 27 says, and asked about the rules it worked under.
 
-32. Not built: a round's panel showing first what was new to it (document `the-owners-page`, 3), and a work's cost by
-    kind of token (the same, 4); and walking a changed flow without acting (document `changed-flow-walks-the-records`,
-    3).
+32. Not built: a round's panel showing first what was new to it (document `the-owners-page`, 3); and walking a changed
+    flow without acting (document `changed-flow-walks-the-records`, 3).

@@ -1932,7 +1932,7 @@ pub fn proper(flow: &Compiled, cell: &str) -> Came {
 pub fn spent(n: u64) -> Spent {
     Spent {
         usd_micros: 7 * n,
-        input_tokens: 11 * n,
+        uncached_tokens: 11 * n,
         cached_tokens: 13 * n,
         output_tokens: 17 * n,
         ..Default::default()

@@ -342,7 +342,7 @@ fn what_a_work_spent_on_a_fork_is_counted_in_the_system_view_in_its_total_its_we
     let run = driver.work(work).unwrap().work.records.rounds[0].run;
     let spent = engine::Spent {
         usd_micros: 7_000,
-        input_tokens: 10,
+        uncached_tokens: 10,
         cached_tokens: 20,
         output_tokens: 3,
         ..engine::Spent::default()

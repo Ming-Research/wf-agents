@@ -39,7 +39,8 @@ async fn a_round_ending_with_more_context_than_the_installations_number_has_its_
         kept.sessions
     );
     assert!(
-        (kept.spent.values().filter(|spent| spent.input_tokens > 0)).all(|spent| spent.context_tokens == Some(600_000)),
+        (kept.spent.values().filter(|spent| spent.uncached_tokens > 0))
+            .all(|spent| spent.context_tokens == Some(600_000)),
         "each agent's round's context is recorded"
     );
 }
@@ -67,7 +68,7 @@ async fn a_compaction_within_a_round_is_counted_and_given_the_rounds_whole_messa
     }
     let kept = real.work(work);
     assert!(
-        (kept.spent.values().filter(|spent| spent.input_tokens > 0)).all(|spent| spent.compactions == 1),
+        (kept.spent.values().filter(|spent| spent.uncached_tokens > 0)).all(|spent| spent.compactions == 1),
         "{:?}",
         kept.spent
     );

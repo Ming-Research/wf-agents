@@ -287,7 +287,8 @@ fn a_fork_of_a_round_is_kept_with_what_it_took_for_a_work_under_way_and_for_one_
     let (mut w, write, _) = W::requested();
     let spent = Spent {
         usd_micros: 400_000,
-        input_tokens: 120,
+        uncached_tokens: 120,
+        cache_written_tokens: Some(100),
         cached_tokens: 18_100,
         output_tokens: 30,
         context_tokens: Some(9_100),
@@ -300,9 +301,9 @@ fn a_fork_of_a_round_is_kept_with_what_it_took_for_a_work_under_way_and_for_one_
     let first = w.work.tick().0 - 1;
     assert_eq!(w.work.moments.len(), moments + 1, "kept as a moment of its own");
     assert_eq!(w.work.records.started.len(), started, "no cell runs for it");
-    // What is kept of what it took is its cost and its three counts of tokens: the rest of what a round keeps is not
-    // a fork's.
-    let kept = |w: &W| -> Vec<(u64, RunId, usize, u64, u64, u64, u64)> {
+    // What is kept of what it took is its cost and its counts of tokens: the rest of what a round keeps is not a
+    // fork's.
+    let kept = |w: &W| -> Vec<(u64, RunId, usize, u64, u64, Option<u64>, u64, u64)> {
         (w.work.forked.iter())
             .map(|f| {
                 (
@@ -310,14 +311,15 @@ fn a_fork_of_a_round_is_kept_with_what_it_took_for_a_work_under_way_and_for_one_
                     f.run,
                     f.round,
                     f.usd_micros,
-                    f.input_tokens,
+                    f.uncached_tokens,
+                    f.cache_written_tokens,
                     f.cached_tokens,
                     f.output_tokens,
                 )
             })
             .collect()
     };
-    assert_eq!(kept(&w), [(first, write, 1, 400_000, 120, 18_100, 30)]);
+    assert_eq!(kept(&w), [(first, write, 1, 400_000, 120, Some(100), 18_100, 30)]);
 
     let before = w.work.clone();
     assert_eq!(w.refused(fork(write, 2)), Refused::NoSuchRound { run: write, round: 2 });

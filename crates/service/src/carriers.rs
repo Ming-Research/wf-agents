@@ -399,7 +399,8 @@ pub struct Returned {
     pub duration_ms: Option<u64>,
     /// The models it was answered by, by name.
     pub models: Vec<String>,
-    /// The tokens it wrote to the prompt cache, which the records count among those not read from it.
+    /// The tokens it wrote to the prompt cache, as the program printed them: a try's own, where a round's are in what
+    /// it took.
     pub cache_creation_input_tokens: Option<u64>,
 }
 

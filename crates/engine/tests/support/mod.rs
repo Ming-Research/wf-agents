@@ -523,7 +523,7 @@ impl Driver {
     pub fn spent(&self, run: RunId) -> Spent {
         Spent {
             usd_micros: run.0,
-            input_tokens: self.clock % 997,
+            uncached_tokens: self.clock % 997,
             cached_tokens: 0,
             output_tokens: 1,
             ..Default::default()
