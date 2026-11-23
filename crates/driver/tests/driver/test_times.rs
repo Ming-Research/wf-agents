@@ -8,17 +8,19 @@ use work::timed::{Reading, Test};
 
 use super::*;
 
-/// A flow of one cell that asks for the tests and reads the datum of their times.
+/// A flow of a cell that asks for the tests and reads the datum of their times, and the merge after it: a run that asks
+/// for a call finishes, and a flow whose last cell finished has ended.
 fn timed() -> Compiled {
     let flow = r#"
         name = "timed"
-        order = ["write"]
+        order = ["write", "merge"]
         [limits]
         runs = 3
         returns = 2
         calls = 3
         [lines.main]
         [blocks.text]
+        [blocks.merged]
         shown = true
         [blocks.start]
         outside = "start"
@@ -41,9 +43,20 @@ fn timed() -> Compiled {
         start = "last_and_latest"
         times = "latest"
     "#;
+    let merge = r#"
+        title = "Merge"
+        kind = "engine"
+        act = "merge"
+        watches = ["text"]
+        outputs = ["merged"]
+    "#;
     let source = Source {
         flow: flow.to_string(),
-        cells: [("write".to_string(), write.to_string())].into(),
+        cells: [
+            ("write".to_string(), write.to_string()),
+            ("merge".to_string(), merge.to_string()),
+        ]
+        .into(),
         files: [(
             flow::waits_file(),
             include_str!("../../../../flow/agents/waits.toml").to_string(),
@@ -53,6 +66,7 @@ fn timed() -> Compiled {
     };
     let has = Has {
         sources: [driver::START.to_string(), driver::timed::TEST_TIMES.to_string()].into(),
+        acts: ["merge".to_string()].into(),
         ..Default::default()
     };
     compile(&source, &has).expect("the flow compiles")
