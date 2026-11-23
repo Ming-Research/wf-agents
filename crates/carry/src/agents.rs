@@ -627,9 +627,6 @@ impl Inner {
             // which no process of the engine saw ([`Inner::left`]). Nothing is given the session again.
             Begun::Left(left) => {
                 let left = *left;
-                if left.anew {
-                    begin = Begin::New;
-                }
                 (None, left.stream, String::new(), left.compactions)
             }
             Begun::Anew(token, under) => {
@@ -1191,7 +1188,6 @@ impl Inner {
             stream,
             compactions,
             guarded,
-            anew: lost_in(work, line, round),
         }))
     }
 
@@ -2246,8 +2242,6 @@ struct Left {
     compactions: u32,
     /// Where it went past a signal the run guard stops a round on and printed no result, the round's failure for it.
     guarded: Option<Carried>,
-    /// Whether it ran after a try of the round found the session lost, and so began it again under its id.
-    anew: bool,
 }
 
 /// Says to the loop what came of the try of this number: each of these compactions of the session during it as the

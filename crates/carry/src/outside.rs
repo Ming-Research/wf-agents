@@ -216,7 +216,7 @@ impl Check {
             return (Found::Well, said);
         }
         let had_result = stream.has_result();
-        let no = match stream.read(cli::Begin::New, 0) {
+        let no = match stream.read() {
             Ok(_) => return (Found::Well, said),
             Err(no) => no,
         };
