@@ -656,6 +656,31 @@ describe("the Step of the work's item window", () => {
     expect(scrolledTo(container.querySelector('section.cw-fold-chosen'))).toBe(1);
   });
 
+  it('has the section open when it is scrolled to, though it was drawn folded before the address named it', async () => {
+    const { page, run, second } = twice();
+    localStorage.setItem('console-window-folded', JSON.stringify(['Ran again']));
+    // What the section shows at the moment it is scrolled to: its body is drawn only while it is open.
+    const open: boolean[] = [];
+    vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(function (this: Element) {
+      if (this.classList.contains('cw-fold-chosen')) open.push(this.querySelector('.cw-fold-body') !== null);
+    });
+    const { container, render } = drawAgain();
+    const work = (props: { round?: number }) => (
+      <WorkScreen page={page} onActed={() => undefined} run={run} {...props} />
+    );
+    render(work({}));
+    await settle();
+    // The run is chosen and its Step drawn, the round kept folded: no light, no scroll.
+    const ranAgain = () =>
+      [...container.querySelectorAll<HTMLElement>('.cw-fold-head')].find((h) => h.textContent?.startsWith('Ran again'));
+    expect(ranAgain()?.getAttribute('aria-expanded')).toBe('false');
+    expect(open).toEqual([]);
+    render(work({ round: second }));
+    await settle();
+    expect(open).toEqual([true]);
+    expect(ranAgain()?.getAttribute('aria-expanded')).toBe('true');
+  });
+
   it('follows the address as it changes, choosing the run it names and bringing the window out on its Step, and lights nothing for another run', async () => {
     const { page, run, second } = twice();
     const { container, render } = drawAgain();

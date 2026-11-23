@@ -465,9 +465,13 @@ export function Fold({ title, count, note, children, chosen, section }: {
   section?: RefObject<HTMLElement | null>;
 }) {
   const [folded, setFolded] = useState(() => chosen === undefined && foldedNow().includes(title));
-  useEffect(() => {
+  // A section that becomes the one chosen opens as it is drawn, not in an effect after it: the one that scrolls to it
+  // measures the section open.
+  const [wasChosen, setWasChosen] = useState(chosen);
+  if (wasChosen !== chosen) {
+    setWasChosen(chosen);
     if (chosen !== undefined) setFolded(false);
-  }, [chosen]);
+  }
   const turn = () => {
     const now = !folded;
     setFolded(now);
