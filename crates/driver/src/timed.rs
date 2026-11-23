@@ -15,7 +15,7 @@
 //! - What the work's own runs say of the tests it added, for the work's reviewers: the facts of the datum `test_times`
 //!   ([`facts`], [`render`]). The engine judges no new test's time; the reviewer does, with these.
 //!
-//! Nothing is judged where the history has fewer values than the installation's `history.samples`.
+//! Nothing is judged where the history has fewer values than [`crate::history::HISTORY_SAMPLES`].
 
 use std::collections::{BTreeMap, BTreeSet};
 

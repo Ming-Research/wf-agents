@@ -58,9 +58,9 @@ An item's background tells a reader new to the problem, in about 300 characters 
 - replaced: A single first paragraph saying what the item is, why it is to be done, what brought it about and the result wanted was on main; the owner changed it, because the three mixed into one paragraph read badly.
 
 ### decision which-item-starts-first
-Among the items that can start, one that makes a red main green goes first, then what the owner said comes first, then the one that most items not on hold wait for; there is no policy.
+Among the items that can start, one that makes a red main green goes first, then what the owner said comes first, then the one that most items not paused wait for; there is no policy.
 - rejected: an agent proposed that the policy and the dependencies decide which item that can start goes first, as on the board; the owner rejected it, because the new system has no policy.
 
-### decision nothing-is-held-without-a-reason
-An item that is not to start yet is held with what it waits for, an item's merge or the owner's word, and no item is held without such a reason.
+### decision nothing-is-paused-without-a-reason
+An item that is not to start yet is paused with `--why` saying what it waits for, an item's merge, named with `--waits-for`, or the owner's word, and no item is paused without such a reason.
 - rejected: an agent proposed ordering the items by the holds they had, which said the owner wanted them after a fix list; the owner rejected it, because he had asked for no hold, and the architect must hold nothing without a reason, judging only by the project's needs.

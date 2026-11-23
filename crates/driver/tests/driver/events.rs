@@ -227,7 +227,8 @@ fn a_pause_holds_back_only_what_would_begin_a_round() {
             w,
             Event::Paused {
                 by: Pauser::Owner,
-                why: None
+                why: None,
+                waits_for: Vec::new(),
             }
         ),
         vec![]
@@ -251,7 +252,8 @@ fn a_pause_holds_back_only_what_would_begin_a_round() {
             w,
             Event::Paused {
                 by: Pauser::Owner,
-                why: None
+                why: None,
+                waits_for: Vec::new(),
             }
         ),
         vec![]

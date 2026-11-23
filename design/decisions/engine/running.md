@@ -60,6 +60,10 @@ The agents' program keeps its settings and sessions in the engine's `profile/` i
 - replaced: A directory for the program named by the installation's `agents.config_dir`, under the data directory's `agents/`, was on main; the owner changed it, because he did not want to keep that `agents` directory.
 - replaced: The program's own cleanup, deleting a session after thirty days, was on main; the owner changed it, because it deleted the agents' transcripts, which he wanted kept.
 
+### decision the-program-reads-only-the-users-settings
+Every command that runs the agents' program gives it `--setting-sources user`, so it reads no settings file that a work's worktree holds.
+- replaced: Setting which settings files the program reads in the installation (`agents.setting_sources`) was on main; the owner changed it, because every installation had to keep the same value, and any other would let the program read files an agent can write.
+
 ### decision agents-run-as-the-engines-user
 The agents' program runs as the engine's own system user, and nothing the engine does keeps it out of the data directory; only the program's own rules do.
 - rejected: an agent proposed another system user for the agents, or else refusing the data directory to their file tools by path and dropping the shell commands that read files; the owner rejected it, because an agent works in its own worktree, and only some harmless commands were to be allowed.
@@ -73,3 +77,7 @@ Asked to stop, the engine begins no round of any work and ends once the rounds u
 As a program the engine runs ends by itself, what it left in its group is stopped, TERM then KILL 3 s later, and its work's records count it with the program, a fork's too.
 - rejected: an agent proposed waiting for what a program left to end by itself, its time and cost counted in its round; the owner rejected it, because the round would hold its slot for output nobody reads, and a service left running would never let it end.
 - replaced: Leaving what a program left in its group running, unwatched and uncounted, was on main; the owner changed it, because it went on running and spending where nobody saw it, while nobody reads what it does once its program has ended.
+
+### decision data-directory-is-made-on-purpose
+The engine makes a data directory's store only when started with `--new`, and refuses `--new` where the directory holds a store, so that a named directory is never taken for a new data directory.
+- rejected: an agent proposed no switch: a directory that holds a store is run in, one that holds none is refused unless it holds only a known list of entries; the owner rejected it, because the list is arbitrary and an empty wrong directory is not caught.

@@ -48,6 +48,7 @@ impl W {
         let mut effects = self.on(Event::Paused {
             by: Pauser::Owner,
             why: None,
+            waits_for: Vec::new(),
         });
         for block in blocks {
             let declared = &self.flow.blocks[&BlockId::from(*block)];

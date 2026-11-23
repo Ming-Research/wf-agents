@@ -50,7 +50,7 @@ async fn cancelling_at_a_tool_withdraws_it() {
     let (_, work) = trial.add("Greet the user", &[]);
     trial.act(work, Act::Resume).unwrap();
     trial.to_the_owners_call(work).await;
-    trial.answer(work, "Yes, by name.");
+    trial.let_go_on(work);
     trial
         .until(
             work,

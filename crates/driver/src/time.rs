@@ -331,6 +331,7 @@ mod tests {
                 at: Seq(2),
                 by,
                 why: Some("it spent more than it may".to_string()),
+                waits_for: Vec::new(),
             });
         }
         work

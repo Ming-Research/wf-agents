@@ -983,9 +983,7 @@ impl Real {
                     .into(),
                 highest_level: None,
                 slots: 2,
-                args: Vec::new(),
                 env: Vec::new(),
-                setting_sources: "user".to_string(),
                 subagents: Default::default(),
                 work_budget_usd: budget,
                 // What a letting-on of a work the engine paused for its budget allows it beyond that budget: the
@@ -999,8 +997,6 @@ impl Real {
             },
             backup: None,
             sessions: Default::default(),
-            history: Default::default(),
-            query: Default::default(),
         };
         let flow = compiled(on);
         let tokens = Arc::new(service::KeptTokens::new());
@@ -1157,6 +1153,8 @@ impl Real {
             continues: None,
             flow: self.flow.name.clone(),
             writes: request.into_iter().collect(),
+            why: None,
+            waits_for: Vec::new(),
         };
         let (reply, mut answer) = oneshot::channel();
         self.service

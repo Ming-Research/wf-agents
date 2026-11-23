@@ -925,6 +925,7 @@ fn points_the_owner_ruled_on_are_new_to_no_cell_in_the_walk_in_the_points_told_a
     sim.take(Event::Paused {
         by: Pauser::Owner,
         why: None,
+        waits_for: Vec::new(),
     });
     let points = [
         ("plan_ok", "", Some("no")),
@@ -1039,6 +1040,7 @@ fn points_the_owner_ruled_on_are_new_to_no_cell_in_the_walk_in_the_points_told_a
     sim.take(Event::Paused {
         by: Pauser::Owner,
         why: None,
+        waits_for: Vec::new(),
     });
     sim.hands_in(
         &review,

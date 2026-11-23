@@ -294,7 +294,7 @@ CREATE TABLE let_go (
 );
 
 -- The work was paused (1) or let on again (0), by `pauser` (`Owner` or `Engine`), and why where it was paused with a
--- reason: the engine gives one, the owner none.
+-- reason: the engine always gives one, the owner where they will.
 CREATE TABLE pauses (
     work INTEGER NOT NULL REFERENCES works (number),
     at INTEGER NOT NULL,
@@ -302,6 +302,16 @@ CREATE TABLE pauses (
     pauser TEXT NOT NULL,
     why TEXT,
     PRIMARY KEY (work, at)
+);
+
+-- The pause of the work at this place waits for the item of this number to merge or be cancelled: the owner's pause
+-- says the items it is made for, and the work waits no more once each has ended. A pause with no row waits for no item.
+CREATE TABLE pause_waits (
+    work INTEGER NOT NULL,
+    at INTEGER NOT NULL,
+    item INTEGER NOT NULL,
+    PRIMARY KEY (work, at, item),
+    FOREIGN KEY (work, at) REFERENCES pauses (work, at)
 );
 
 -- The work's item was cancelled, with why where whoever cancelled it said. A work has a row for each time it was, each

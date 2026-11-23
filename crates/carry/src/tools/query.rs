@@ -24,8 +24,6 @@ use rusqlite::types::ValueRef;
 use rusqlite::{Connection, ErrorCode, InterruptHandle, OpenFlags};
 use serde_json::{Map, Value, json};
 
-use crate::settings;
-
 /// The name of the tool.
 pub const QUERY: &str = "query";
 
@@ -170,14 +168,13 @@ pub struct Limits {
 }
 
 impl Limits {
-    fn of(settings: &settings::Query) -> Self {
-        Limits {
-            max_rows: settings.max_rows,
-            timeout: Duration::from_millis(settings.timeout_ms),
-            max_bytes: settings.max_bytes,
-            max_value_bytes: settings.max_value_bytes,
-        }
-    }
+    /// The bounds every installation has: 200 rows, 5 seconds, a megabyte of rows and 64 KiB for one value.
+    pub const FIXED: Limits = Limits {
+        max_rows: 200,
+        timeout: Duration::from_millis(5_000),
+        max_bytes: 1 << 20,
+        max_value_bytes: 1 << 16,
+    };
 }
 
 /// Stops a query that runs: told, it interrupts the connection, which stops it at the VM's next instruction.
@@ -222,69 +219,46 @@ struct Open {
     hidden_columns: Vec<(String, String)>,
 }
 
-/// The tool `query` on this installation: its file in the flow, and the store where the settings open it.
+/// The tool `query` on this installation: its file in the flow, and the store, which is always open to it.
 #[derive(Clone, Debug)]
 pub struct Querying {
     words: String,
     texts: BTreeMap<String, String>,
     schema: String,
-    open: Option<Open>,
+    open: Open,
 }
 
 impl Querying {
-    /// The tool as it is before the settings are known: closed, and saying nothing of its answers.
-    pub fn closed() -> Self {
+    /// The tool as the flow's file for it says, on the store in this data directory, which `schema` describes, held to
+    /// `limits`. What the agents may not see is what the schema's comments mark hidden. Without the tool's file nothing
+    /// is told, and nothing is said of an answer.
+    pub fn new(limits: Limits, tool: Option<&Tool>, data: &Path, schema: &str) -> Self {
+        let all = tables(schema);
+        let hidden_columns: Vec<(String, String)> = (all.iter())
+            .flat_map(|t| {
+                t.columns
+                    .iter()
+                    .filter(|c| c.hidden())
+                    .map(|c| (t.name.clone(), c.name.clone()))
+            })
+            .collect();
+        let hidden: Vec<String> = all.iter().filter(|t| t.hidden()).map(|t| t.name.clone()).collect();
         Querying {
-            words: String::new(),
-            texts: BTreeMap::new(),
-            schema: String::new(),
-            open: None,
-        }
-    }
-
-    /// The tool as the settings and the flow's file for it say, on the store in this data directory, which `schema`
-    /// describes. Open to the agents it is refused, in the words of the file, while the schema hides no table and no
-    /// column from them: what they may see is the owner's to mark, and none is not that. Without the tool's file
-    /// nothing is told, and nothing is said of an answer.
-    pub fn new(settings: &settings::Query, tool: Option<&Tool>, data: &Path, schema: &str) -> Result<Self, String> {
-        let texts = tool.map(|t| t.texts.clone()).unwrap_or_default();
-        let mut querying = Querying {
             words: tool.map(|t| t.words.clone()).unwrap_or_default(),
-            texts,
+            texts: tool.map(|t| t.texts.clone()).unwrap_or_default(),
             schema: schema.to_string(),
-            open: None,
-        };
-        if settings.open {
-            let all = tables(schema);
-            let hidden_columns: Vec<(String, String)> = (all.iter())
-                .flat_map(|t| {
-                    t.columns
-                        .iter()
-                        .filter(|c| c.hidden())
-                        .map(|c| (t.name.clone(), c.name.clone()))
-                })
-                .collect();
-            let hidden: Vec<String> = all.iter().filter(|t| t.hidden()).map(|t| t.name.clone()).collect();
-            if hidden.is_empty() && hidden_columns.is_empty() {
-                return Err(querying.text("hides_nothing", &[]));
-            }
-            querying.open = Some(Open {
+            open: Open {
                 store: data.join(store::FILE),
-                limits: Limits::of(settings),
+                limits,
                 hidden,
                 hidden_columns,
-            });
+            },
         }
-        Ok(querying)
     }
 
-    /// What fills `{store}` in the tool's words: what the schema's comments say of the store where it is open, and the
-    /// file's own answer that it is not where it is not.
+    /// What fills `{store}` in the tool's words: what the schema's comments say of the store.
     pub fn store(&self) -> String {
-        match &self.open {
-            Some(_) => describe(&self.schema, &self.texts),
-            None => self.text("closed", &[]),
-        }
+        describe(&self.schema, &self.texts)
     }
 
     /// The tool's words, `{store}` filled.
@@ -302,11 +276,9 @@ impl Querying {
     }
 
     /// The answer to a request, as `{"sql": "..."}`. It blocks while the query runs, within its time limit, or until
-    /// `cancel` is told; where the store is not open it touches nothing.
+    /// `cancel` is told.
     pub fn answer(&self, input: &str, cancel: &Arc<Cancel>) -> String {
-        let Some(open) = &self.open else {
-            return self.text("closed", &[]);
-        };
+        let open = &self.open;
         let sql = match serde_json::from_str::<Value>(input) {
             Ok(Value::Object(request)) => match request.get("sql") {
                 Some(Value::String(sql)) => sql.clone(),

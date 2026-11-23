@@ -492,6 +492,7 @@ mod tests {
             at: Seq(30),
             by,
             why: why.map(str::to_string),
+            waits_for: Vec::new(),
         });
     }
 

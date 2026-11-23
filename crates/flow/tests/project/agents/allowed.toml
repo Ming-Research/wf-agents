@@ -1,0 +1,2 @@
+# What every agent may do, in words that name no program.
+may = ["shell", "files", "temp_files", "web", "subagents"]

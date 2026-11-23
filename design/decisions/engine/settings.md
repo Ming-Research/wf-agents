@@ -12,8 +12,8 @@ The project's setting `project.test_names`, which the tool's words name, says ho
 - replaced: The project's guide telling the engine's agents how to name tests to the engine's checks was on main; the owner changed it, because the guide holds what belongs to the project, and is not to be coupled to the engine.
 
 ### decision a-project-declares-what-is-its-own
-What is one project's alone (its files, tests, workflows, heavy and lock commands, check command, how its pull requests merge) is in its declaration; the installation keeps what is of its machine.
-- replaced: Keeping the lock commands, the local check command, the merge method, branch deletion and the fast workflow's time limit in the installation's settings was on main; the owner changed it, because each installation had to copy them, and it was not clear whose they were.
+What is one project's alone (its files, tests, workflows, heavy commands, check command, how its pull requests merge) is in its declaration; the installation keeps what is of its machine.
+- replaced: Keeping the local check command, the merge method, branch deletion and the fast workflow's time limit in the installation's settings was on main; the owner changed it, because each installation had to copy them, and it was not clear whose they were.
 
 ### decision a-declaration-is-wf-agents-toml-at-the-root
 A project's declaration is `wf-agents.toml` at the root of its repository, read from its main branch; no default declaration stands beside the flows for a project that has none.
@@ -30,8 +30,3 @@ A declaration whose `[protected]` paths do not hold `wf-agents.toml` holds its p
 ### decision a-held-projects-declaration-is-read-as-the-engine-starts
 A held project's declaration is read again only as the engine starts: the owner mends it and starts the engine again.
 - rejected: an agent proposed reading a held project's declaration again when its main moves, and carrying the project out at once; the owner rejected it, because the engine would then set up a project's whole carrying while running, a kind of state it has none of, with much more code and tests.
-
-### decision a-start-warns-of-a-project-that-names-no-lock-command
-As the engine starts it says, for each carried project whose declaration names no lock command, that an agent that writes may update no lock file; the project is not held.
-- replaced: The start-up warning for the installation's empty `agents.permissions.locks` was on main; the owner changed it, because the lock commands are the project's now, so the warning is said for each project whose declaration names none.
-- rejected: an agent proposed no warning, since a project with no lock file names no lock command and its agents are told what they may run; the owner rejected it, because the engine would then pass in silence a lock file that no agent can update.

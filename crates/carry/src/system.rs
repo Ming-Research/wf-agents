@@ -129,8 +129,7 @@ pub struct Filling {
     pub named_checks: Option<String>,
     /// What fills `{measure}`; none where no tool's file gives words for it.
     pub measure: Option<String>,
-    /// What fills `{store}`: what the schema's comments say of the store where the settings open it to the agents, and
-    /// the tool's file's words that it is not open where they do not ([`crate::store`]).
+    /// What fills `{store}`: what the schema's comments say of the store ([`crate::store`]).
     pub store: String,
 }
 
@@ -161,8 +160,7 @@ pub fn filling(settings: &Settings, beside: &Agents, declaration: &Declaration) 
     let measure = (beside.tools.values())
         .find_map(|tool| tool.places.get(MEASURE))
         .and_then(|ways| ways.get(if measures { "declared" } else { "none" }).cloned());
-    // Settings that cannot open the store are refused as the carriers are made, before any prompt is.
-    let store = crate::store(settings, beside).unwrap_or_default();
+    let store = crate::store(beside);
     Filling {
         named: named(settings, beside, declaration),
         named_checks,
