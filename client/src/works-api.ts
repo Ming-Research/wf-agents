@@ -104,6 +104,9 @@ export interface Outage {
   /// Whether it holds rounds now: once a check found the outside well it stands only until a round that began after
   /// the latest that failed so comes back, and holds nothing meanwhile.
   holds: boolean;
+  /// Whether the owner has let the engine move to another account at a usage limit and some other account may yet be
+  /// moved to in this wait.
+  mayMove: boolean;
 }
 
 /// Who can make a precondition hold: the owner, a source outside the work (such as the items it depends on, as they

@@ -77,6 +77,10 @@ pub struct Outage {
     /// Whether it holds rounds now: once a check found the outside well, it stands only until a round that began after
     /// the latest that failed so comes back, and holds nothing meanwhile.
     pub holds: bool,
+    /// Whether the owner has let the engine move to another account at a usage limit and some other account may yet be
+    /// moved to in this wait: then the wait ends when the engine moves as well as when the limit resets.
+    #[serde(default)]
+    pub may_move: bool,
 }
 
 /// The latest check of the outside of the agents' rounds in a wait: when, how many were taken in the wait, and what it
@@ -3652,6 +3656,7 @@ impl Outage {
                 UntilOf::Looked { at } => Until::Looked { at: at.0 },
             },
             holds,
+            may_move: outage.may_move,
         }
     }
 }

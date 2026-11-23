@@ -51,6 +51,7 @@ const shared = (failure: Failure): Now => {
     checked: null,
     until: { kind: 'checked', at: 0 },
     holds: true,
+    mayMove: false,
   };
   return { kind: 'waits', at: 'plan', on: [{ kind: 'agents', outage }] };
 };
