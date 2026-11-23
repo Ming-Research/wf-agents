@@ -3,7 +3,8 @@
 How a work arrives at its plan: the reading of the design tree (R0), the research (R1), the deep research (D1), and the search for a better way (R2, D2).
 
 ### decision the-tree-is-read-in-a-cell-of-its-own
-R0 exists so that the design tree is read before any work on the item: it understands the item only as far as it needs to know where in the tree to look, and hands in nothing.
+R0 exists so that the design tree is read before any work on the item: it understands the item only as far as the tree needs, and names in `tree_entries` the entries that bear on it.
+- replaced: R0 handing in nothing, and reading the tree again in each new session, was on main; the owner changed it, because a new session is given the entries as any datum it lacks, and those readings cost 4.4% of what the works measured spent (data: `research/tree-reading-measured.md`).
 - replaced: R0 on a separate line, gathering the history into a brief of at most 500 words for R1 to read in a new session, was on main; the owner changed it, because agents do not read the tree, or not deeply, which is why R0 exists, and what R0 reads stays in the session that R1 goes on in.
 - replaced: R0 handing in the decisions related to the item and a supplement to its background was on main; the owner changed it, because their first reason, what a reopened session would lack, was gone once each new session had R0 read the tree again.
 - rejected: an agent proposed that R0 also confirm the defect or the need in the code and its history; the owner rejected it, because R0's one purpose is that the tree is read, since agents have skipped it and changed the code at will countless times.

@@ -279,6 +279,10 @@ impl Agents {
     /// flows; or why it cannot be read, or lacks a file the session names, said with where it was read.
     pub fn declared(&self, text: &str, at: &str) -> Result<Agents, String> {
         let project: Project = toml::from_str(text).map_err(|e| format!("{at}: {}", e.to_string().trim_end()))?;
+        let faults = project.tree_format.as_ref().map(TreeFormat::faults).unwrap_or_default();
+        if !faults.is_empty() {
+            return Err(format!("{at}: {}", faults.join("; ")));
+        }
         for part in &self.session.parts {
             if let Some(name) = part.file()
                 && !project.files.contains_key(name)
@@ -308,6 +312,9 @@ impl Agents {
 pub struct Project {
     /// The directory of the project's checkout that holds its design tree, from the root of the checkout.
     pub tree: String,
+    /// How an entry of the design tree is found and referred to; none where the declaration says nothing of it, and a
+    /// block whose lines name entries of the tree (`names_tree_entries`) can then be neither checked nor given.
+    pub tree_format: Option<TreeFormat>,
     /// The project's files, by the name a part of a session gives them.
     pub files: BTreeMap<String, ProjectFile>,
     /// The project's settings, which the words sent to the agents name as `project.<name>`.
@@ -323,6 +330,78 @@ pub struct Project {
     /// The project's heavy commands, which no agent runs. A declaration names them, none where its project has none,
     /// so that one that leaves them out is refused rather than taken to refuse nothing.
     pub heavy: Commands,
+}
+
+/// `[tree_format]` of `project.toml`: how an entry of the project's design tree is found and referred to, so that the
+/// engine names no kind, directory or form of the tree's own (Article 1). An entry begins at a line in the form of
+/// `heading` and runs to the line before the next line in that form, of any kind, or to its file's end, less the blank
+/// lines at its end; a text refers to it in the form of `reference`. In both, `{kind}` stands for a kind's name and
+/// `{name}` for the entry's, which holds no white space.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TreeFormat {
+    /// Each kind of entry, in the order the tree's rules read them.
+    pub kinds: Vec<EntryKind>,
+    /// The line an entry begins with.
+    pub heading: String,
+    /// How a text refers to an entry.
+    pub reference: String,
+}
+
+/// A kind of entry of the design tree, and the directory under the tree that holds its files.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EntryKind {
+    pub kind: String,
+    pub dir: String,
+}
+
+/// What stands for a kind's name, and for an entry's, in the forms of a [`TreeFormat`].
+const KIND: &str = "{kind}";
+const NAME: &str = "{name}";
+
+impl TreeFormat {
+    /// What is wrong with the format, each in words: no kind, a kind or a directory that is empty, and a form that
+    /// lacks `{kind}` or `{name}`.
+    pub fn faults(&self) -> Vec<String> {
+        let mut faults = Vec::new();
+        if self.kinds.is_empty() {
+            faults.push("tree_format.kinds names no kind".to_string());
+        }
+        for (i, kind) in self.kinds.iter().enumerate() {
+            if kind.kind.trim().is_empty() || kind.dir.trim().is_empty() {
+                faults.push(format!("tree_format.kinds[{i}] must give a kind and a directory"));
+            }
+        }
+        for (field, form) in [("heading", &self.heading), ("reference", &self.reference)] {
+            for place in [KIND, NAME] {
+                if !form.contains(place) {
+                    faults.push(format!("tree_format.{field} must hold {place}"));
+                }
+            }
+        }
+        faults
+    }
+
+    /// The kind and the name of the entry this line of the tree begins, where it begins one.
+    pub fn heading_of<'l>(&self, line: &'l str) -> Option<(&str, &'l str)> {
+        self.matched(&self.heading, line.trim_end())
+    }
+
+    /// The kind and the name of the entry this line refers to, where it is written as the format refers to one.
+    pub fn referred<'l>(&self, line: &'l str) -> Option<(&str, &'l str)> {
+        self.matched(&self.reference, line.trim())
+    }
+
+    /// The kind and the name a line holds in this form, the first kind that fits it.
+    fn matched<'l>(&self, form: &str, line: &'l str) -> Option<(&str, &'l str)> {
+        self.kinds.iter().find_map(|kind| {
+            let form = form.replace(KIND, &kind.kind);
+            let (before, after) = form.split_once(NAME)?;
+            let name = line.strip_prefix(before)?.strip_suffix(after)?;
+            (!name.is_empty() && !name.contains(char::is_whitespace)).then_some((kind.kind.as_str(), name))
+        })
+    }
 }
 
 /// The paths of the project's checkout that govern its agents, which the owner changes (principle
@@ -799,6 +878,9 @@ pub struct SentBackFaults {
     /// writes a block handed in only with the answer in the design tree (`answers_in_the_tree`) and the work's change
     /// against main changes nothing in the tree.
     pub tree_unchanged: String,
+    /// `{line}` a line of a block whose lines name entries of the design tree (`names_tree_entries`) that is not
+    /// written as the project's `[tree_format]` refers to an entry, or names one the tree on the work's branch lacks.
+    pub not_an_entry: String,
     /// `{block}` what an act of the engine's wrote, dealt with by a return that leaves nothing new that runs the act.
     pub unanswered: String,
     /// `{name}` a dialogue the cell answers as the maker, named as dealt with and answered in nothing, and `{watched}`
@@ -1110,9 +1192,20 @@ pub struct Given {
     /// run wrote it, `{line}`; or the owner. Nothing where neither did (design document `data-and-context`, 29).
     pub by_line: String,
     pub by_owner: String,
+    /// How a block whose lines name entries of the design tree (`names_tree_entries`) is given in place of its names.
+    pub entries: Entries,
     pub latest: GivenKind,
     pub last_and_latest: GivenKind,
     pub all: GivenKind,
+}
+
+/// How the entries a block names are given: each file's entries under `file`, `{path}` the file's path, and an entry
+/// named that the tree's latest version does not hold as `gone`, `{reference}` its line, after the files.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Entries {
+    pub file: String,
+    pub gone: String,
 }
 
 /// How a datum given in one kind is put in.
@@ -1350,6 +1443,10 @@ pub fn read(root: &Path) -> Result<Agents, String> {
     let session_file = at.join("session.toml");
     let session: Session = file(&session_file)?;
     let project: Project = file(&root.join(PROJECT_FILE))?;
+    let faults = project.tree_format.as_ref().map(TreeFormat::faults).unwrap_or_default();
+    if !faults.is_empty() {
+        return Err(format!("{}: {}", root.join(PROJECT_FILE).display(), faults.join("; ")));
+    }
     let mut words = BTreeMap::new();
     for part in &session.parts {
         match part {
