@@ -39,6 +39,7 @@ outputs = [
   "plan_agent",
   "d1_questions",
   "acceptance",
+  "plan_files",
   "tree_entries",
   "better_found",
   "plan_review",

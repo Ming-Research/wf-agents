@@ -467,6 +467,9 @@ pub struct BlockFile {
     /// latest version and the work's change against main changes nothing in the project's design tree.
     #[serde(default)]
     pub answers_in_the_tree: bool,
+    /// Of a block the source of the works under way writes, the block of a work in which its plan names the files it
+    /// will touch: a block of the flow.
+    pub planned_in: Option<String>,
     /// Its lines name entries of the project's design tree, one to a line, as the project's `[tree_format]` refers to
     /// one: a return that writes it is sent back for a line that names none the tree on the work's branch holds, and a
     /// round is given each entry named whole in place of the names, as the tree's latest version has it.
@@ -524,6 +527,9 @@ pub struct LaidOutBlockFile {
     /// latest version and the work's change against main changes nothing in the project's design tree.
     #[serde(default)]
     pub answers_in_the_tree: bool,
+    /// Of a block the source of the works under way writes, the block of a work in which its plan names the files it
+    /// will touch: a block of the flow.
+    pub planned_in: Option<String>,
     /// Its lines name entries of the project's design tree, one to a line, as the project's `[tree_format]` refers to
     /// one: a return that writes it is sent back for a line that names none the tree on the work's branch holds, and a
     /// round is given each entry named whole in place of the names, as the tree's latest version has it.
@@ -558,6 +564,7 @@ impl From<LaidOutBlockFile> for BlockFile {
             changed_by: block.changed_by,
             with_nothing_but: block.with_nothing_but,
             answers_in_the_tree: block.answers_in_the_tree,
+            planned_in: block.planned_in,
             names_tree_entries: block.names_tree_entries,
         }
     }
