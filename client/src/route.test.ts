@@ -13,6 +13,10 @@ describe('the route', () => {
     expect(routeOf('#/works/twelve')).toEqual({ view: 'console' });
     expect(routeOf('#/works/12/runs/3')).toEqual({ view: 'work', work: 12, run: 3 });
     expect(routeOf('#/works/12/runs/three')).toEqual({ view: 'console' });
+    expect(routeOf('#/works/12/runs/3/rounds/2')).toEqual({ view: 'work', work: 12, run: 3, round: 2 });
+    expect(routeOf('#/works/12/runs/3/rounds/2/')).toEqual({ view: 'work', work: 12, run: 3, round: 2 });
+    expect(routeOf('#/works/12/runs/3/rounds/two')).toEqual({ view: 'console' });
+    expect(routeOf('#/works/12/rounds/2')).toEqual({ view: 'console' });
     expect(routeOf('#/console')).toEqual({ view: 'console' });
     expect(routeOf('#/console/items/141')).toEqual({ view: 'console', item: 141 });
     expect(routeOf('#/console/items/one')).toEqual({ view: 'console' });
@@ -32,6 +36,14 @@ describe('the route', () => {
     expect(tabOf({ view: 'work', work: 7 })).toBe('#/works');
     expect(hashOf({ view: 'work', work: 7, run: 3 })).toBe('#/works/7/runs/3');
     expect(tabOf({ view: 'work', work: 7, run: 3 })).toBe('#/works');
+    expect(hashOf({ view: 'work', work: 7, run: 3, round: 2 })).toBe('#/works/7/runs/3/rounds/2');
+    expect(routeOf(hashOf({ view: 'work', work: 7, run: 3, round: 2 }))).toEqual({
+      view: 'work',
+      work: 7,
+      run: 3,
+      round: 2,
+    });
+    expect(tabOf({ view: 'work', work: 7, run: 3, round: 2 })).toBe('#/works');
     expect(tabOf({ view: 'console' })).toBe('#/console');
     expect(hashOf({ view: 'console', item: 141 })).toBe('#/console/items/141');
     expect(tabOf({ view: 'console', item: 141 })).toBe('#/console');
