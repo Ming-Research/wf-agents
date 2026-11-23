@@ -1500,7 +1500,7 @@ describe('the console page, as things happen', () => {
       await expect.poll(() => container.querySelector('.bar-count')?.textContent ?? '0').not.toBe('0');
       expect(reads).toBe(1);
       // A change of a work: the store reads at once, for both.
-      for (const on of told) on({ works: [1], items: false, copies: false, accounts: false });
+      for (const on of told) on({ works: [1], items: false, copies: false, accounts: false, observations: false });
       expect(reads).toBe(2);
     } finally {
       root.unmount();
