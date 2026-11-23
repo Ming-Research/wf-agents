@@ -1,0 +1,17 @@
+outcome.outputs.found:
+No tool was used. This is a plan and nothing has been observed yet.
+
+(1) First step: check that each claim is true and not already built. I would find where a fork reads its cell (near `crates/service/src/lib.rs` 1310) and where `GET /api/v1/flow` reads its files. I would also confirm on main that #21 has merged and see what the work's version gives to read. Only after that would I try to reproduce either fault.
+Went by (task): "Check that what the item says is true, where it can be seen." and "For something it asks for, check that it is not there already."
+
+(2) Seeing the faults happen:
+- Flow page. I would run the real engine on its own data, change a file in the flow directory after the engine has started, then open the Flow page in a real browser. I would count it as seen when the page shows the changed definition while a work's recorded version outline shows the other one, and the page says nothing about which version it shows.
+- Fork. I would use a work that ended on an earlier version where a cell was renumbered later, and fork one of its rounds through the real engine. I would count it as seen when the fork's recorded `given` and `filled` hold the task of the later flow's cell, not the cell the run recorded.
+- Reading line 1310, or a mock or simulated page, would not count as seeing either fault.
+Went by (task): "see the fault happen where it really shows, such as in the program on its own data" and "A cause read from the code, or a test in a stand-in, such as a mock or a simulation of where it shows, has not seen it."
+Went by (guide), for the page: "A fault of the owner's page is seen in a real browser, not in a simulated page (`docs/testing.md`, item 8)."
+
+It cost $0.1348.
+Its first request read only 46% of the session from the cache (24668 of the 52646 tokens it held): the session's cache had expired 6 minutes before.
+It began at the end of run 2 round 1, the session's later rounds left out: run 3 round 1, run 3 round 2, run 6 round 1, run 7 round 1, run 9 round 1, run 9 round 2, run 12 round 1, run 15 round 1, run 17 round 1, run 19 round 1.
+
