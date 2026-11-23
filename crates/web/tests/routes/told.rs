@@ -214,7 +214,7 @@ async fn a_round_under_way_is_given_its_message_and_nothing_back() {
         tries: vec![tried("The owner answered.", Back::Nothing)],
         left_out: 0,
     };
-    let running = keeping(BTreeMap::from([((1, 3, 1), told)]));
+    let running = keeping(BTreeMap::from([((1, 1, 4), told)]));
     let router = &running.router;
     greeted(router).await;
     let answer = json!({ "kind": "result", "call": 2, "result": "Yes, by name." });
@@ -222,14 +222,14 @@ async fn a_round_under_way_is_given_its_message_and_nothing_back() {
         post(router, "/api/v1/works/1/acts", &answer).await.0,
         StatusCode::NO_CONTENT
     );
-    // The plan, entered again for the answer, has its round under way for a second and a half.
+    // The plan's run, let go on, has its fourth round under way for a second and a half.
     pass(100).await;
     assert_eq!(
         get_json(router, "/api/v1/works/1").await["summary"]["now"]["kind"],
         "round"
     );
     assert_eq!(
-        get_json(router, "/api/v1/works/1/runs/3/rounds/1/told").await,
+        get_json(router, "/api/v1/works/1/runs/1/rounds/4/told").await,
         json!({
             "tries": [{ "message": "The owner answered.", "cut": null, "back": { "kind": "nothing" }, "ran": null }],
             "leftOut": 0,

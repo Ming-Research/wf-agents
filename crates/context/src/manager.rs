@@ -516,10 +516,10 @@ fn result(work: &Work, call: CallId, given: &BTreeMap<CallId, String>) -> messag
             name: name.clone(),
             input: input.clone(),
         },
-        Some(Call::Asked(Ask::Person { question, .. })) => Called::Question(question.clone()),
         Some(Call::AtLimit(_)) => Called::AtLimit,
-        // The engine's wait before a round is tried again is no result a round is given.
-        Some(Call::Wait { .. }) | None => Called::Unknown(call),
+        // The engine's wait before a round is tried again is no result a round is given, nor is a question for a person,
+        // which no round is given a result of now.
+        Some(Call::Asked(Ask::Person { .. }) | Call::Wait { .. }) | None => Called::Unknown(call),
     };
     message::Result {
         call: called,

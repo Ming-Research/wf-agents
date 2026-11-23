@@ -2,8 +2,8 @@
 //! mark, the cards the owner acts on, the browser's notifications, the stretches of a work's bar the owner held it, and
 //! what `wf-agents wait` says rests for a person are all read from [`waits`].
 //!
-//! A work waits on the owner for: a question put to them that holds it, at its cell, as a call, or at a precondition
-//! that only their answers make hold, as the check before the merge does; a cell at its limit, or its run; a
+//! A work waits on the owner for: a question put to them that holds it, at its cell or at a precondition that only
+//! their answers make hold, as the check before the merge does; a cell at its limit, or its run; a
 //! precondition the owner makes hold by writing a block, as a review's verdict for them to rule on; a pause the engine
 //! made; and the agents' command line where it cannot run, which only the owner mends. Who can make a precondition
 //! hold is what the flow declares of each block, as the deciding code reads it ([`Maker::Owner`]). Nothing else is the
@@ -17,11 +17,11 @@
 use decide::questions::{self, Standing};
 use decide::run::Limit;
 use decide::{
-    BlockId, CallId, CellId, Condition, Decision, End, Holder, Maker, Pauser, Records, Seq, TestKind, Waited, Who,
+    BlockId, CallId, CellId, Condition, Decision, End, Holder, Maker, Pauser, Records, Seq, TestKind, Waited,
 };
 use flow::Kind;
 use flow::agents::{OwnerWords, fill, sentence};
-use work::{Ask, Call};
+use work::Call;
 
 use crate::Kept;
 
@@ -51,8 +51,6 @@ pub enum Ends {
     /// among the versions of its cell's questions, none where it has none, as a question of a cell with no questions of
     /// its own.
     Answer { question: String, version: Option<u64> },
-    /// Answers in words the question this call puts to them.
-    Reply { call: CallId },
     /// Lets the run that reached its limit go on, as the result of this call.
     GoOn { call: CallId },
     /// Lets the cell go on past its limit.
@@ -161,8 +159,8 @@ fn at_cell(
 ) {
     let cell = at.as_str();
     match waited {
-        Waited::Call { call, on } => match kept.work.calls.get(call) {
-            Some(Call::AtLimit(limit)) => {
+        Waited::Call { call, .. } => {
+            if let Some(Call::AtLimit(limit)) = kept.work.calls.get(call) {
                 let why = match limit {
                     Limit::Returns { sent_back } => {
                         let sent_back = sent_back.to_string();
@@ -175,19 +173,7 @@ fn at_cell(
                 };
                 push(waits, LIMIT.to_string(), why, Ends::GoOn { call: *call });
             }
-            Some(Call::Asked(Ask::Person {
-                who: Who::Owner,
-                question,
-            })) if *on == Some(Who::Owner) => {
-                push(
-                    waits,
-                    format!("call-{}", call.0),
-                    question.clone(),
-                    Ends::Reply { call: *call },
-                );
-            }
-            _ => {}
-        },
+        }
         Waited::Precondition { on: key, by } if by.contains(&Maker::Owner) => {
             for block in decide::keeping(&kept.flow.flow, records, at, key) {
                 let Some(outsiders) = kept.flow.flow.outsiders(&block) else {
@@ -300,7 +286,7 @@ mod tests {
 
     use std::collections::BTreeMap;
 
-    use decide::{Called, Outsider, Pause, Questioned, Returned, RunId, Written};
+    use decide::{Outsider, Pause, Questioned, Returned, RunId, Who, Written};
     use flow::{Compiled, Has, Source, compile};
     use store::{First, Item, ItemNumber, WorkHead, WorkNumber};
     use work::{Back, Question, Said, Time, Work};
@@ -584,36 +570,6 @@ mod tests {
         assert_eq!(
             of(&work, &at("merge", vec![Waited::Precondition { on: key, by }])),
             Vec::<Waiting>::new()
-        );
-    }
-
-    #[test]
-    fn a_question_put_as_a_call_is_the_owners_and_one_put_to_the_architect_is_not() {
-        let mut work = Work::default();
-        for (call, who) in [(7, Who::Owner), (8, Who::Architect)] {
-            work.records.called.push(Called {
-                call: CallId(call),
-                run: RunId(1),
-                on: Some(who.clone()),
-                at: Seq(call),
-            });
-            let question = format!("Question {call}?");
-            work.calls
-                .insert(CallId(call), Call::Asked(Ask::Person { who, question }));
-        }
-        let call = |n: u64, who: Who| Waited::Call {
-            call: CallId(n),
-            on: Some(who),
-        };
-        let waits = of(&work, &at("write", vec![call(7, Who::Owner), call(8, Who::Architect)]));
-        let ends = Ends::Reply { call: CallId(7) };
-        assert_eq!(
-            waits,
-            [Waiting {
-                key: "call-7".to_string(),
-                why: "Question 7?".to_string(),
-                ends,
-            }]
         );
     }
 

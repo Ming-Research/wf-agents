@@ -716,7 +716,7 @@ pub struct Carriers {
     /// What keeps the tokens of the accounts the agents' program may run under.
     pub tokens: Arc<dyn Tokens>,
     /// The result a call has where the engine ends it itself, in the words beside the flows: the loop gives it to a
-    /// person's call, a run at its limit and the engine's wait, and the tools give it to a tool's call they stop.
+    /// run at its limit and to the engine's wait, and the tools give it to a tool's call they stop.
     pub calls: flow::agents::Calls,
 }
 

@@ -247,7 +247,7 @@ function cellsAt(at: string | null, state: CellState, deep = true): CellNow[] {
     if (skipped) return { cell, state: 'skipped', finished: 0, record: null, open: null };
     if (i < here) return { cell, state: 'done', finished: 1, record: 10 + i, open: null };
     if (i === here) {
-      const open = state === 'running' || state === 'resting' || state === 'failed' ? 40 + i : null;
+      const open = state === 'running' || state === 'resting' || state === 'calling' || state === 'failed' ? 40 + i : null;
       return { cell, state, finished: state === 'again' ? 1 : 0, record: state === 'again' ? 10 + i : null, open };
     }
     return { cell, state: 'notYet', finished: 0, record: null, open: null };
@@ -434,15 +434,10 @@ export function fixtureItems(start = Date.now()): Items {
             kind: 'waits',
             at: 'research',
             on: [
-              {
-                kind: 'call',
-                call: 3,
-                who: 'architect',
-                what: { kind: 'question', who: 'architect', question: 'Which table keeps the tokens of a round?' },
-              },
+              { kind: 'call', call: 3, who: null, what: { kind: 'tool', name: 'ci', input: 'all' } },
             ],
           },
-          cellsAt('research', 'resting'),
+          cellsAt('research', 'calling'),
           { hours: 0.3, dollars: 0.21, rounds: 2 },
         ),
     },
@@ -510,12 +505,7 @@ export function fixtureItems(start = Date.now()): Items {
             kind: 'waits',
             at: 'implement',
             on: [
-              {
-                kind: 'call',
-                call: 12,
-                who: 'owner',
-                what: { kind: 'question', who: 'owner', question: 'May a page keep its stream open while hidden?' },
-              },
+              { kind: 'call', call: 12, who: 'owner', what: { kind: 'atLimit', limit: { of: 'returns', sentBack: 2 } } },
               owners(PLAN_CONFIRMED),
             ],
           },
@@ -526,7 +516,7 @@ export function fixtureItems(start = Date.now()): Items {
             rounds: 19,
             quiet: 12,
             waits: [
-              wait('call-12', 'May a page keep its stream open while hidden?', { kind: 'reply', call: 12 }),
+              wait('limit', "The cell's run had 2 returns sent back, which is its limit.", { kind: 'goOn', call: 12 }),
               ruling(PLAN_CONFIRMED, 'plan_confirmed'),
             ],
           },

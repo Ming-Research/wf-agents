@@ -29,26 +29,20 @@ fn an_item_is_added_let_on_answered_and_merged_from_the_command_line() {
     let now = engine.until(&["show", "1"], |line| line.starts_with("Now: waits"));
     assert_eq!(
         now,
-        "Now: waits at plan for the owner to answer call 2: \"Should the greeting name the user?\"."
+        "Now: waits at plan for the owner to answer call 2: its run reached its limit, 2 returns having been sent back."
     );
     let shown = engine.says(&["show", "1"]);
     assert!(
         shown.starts_with("Work W1 of item #1 \"Greet the user\" at level 1, project script, on the flow trial.\n"),
         "{shown}"
     );
-    // The plan's return asked, which ended its run: it is to run again once the owner answers.
-    assert!(
-        shown.contains("\n  plan: runs again, its record being run 1\n"),
-        "{shown}"
-    );
+    // The plan's run rests at the owner's call, which it made at its limit of returns.
+    assert!(shown.contains("\n  plan: resting in run 1\n"), "{shown}");
     assert!(
         shown.contains("\n  request: 1 version, the latest 23 characters, by the owner\n"),
         "{shown}"
     );
-    assert!(
-        shown.contains("\n  run 1 of plan: 1 round, calls 2, finished"),
-        "{shown}"
-    );
+    assert!(shown.contains("\n  run 1 of plan: 3 rounds, calls 2, open"), "{shown}");
 
     assert_eq!(
         engine.says(&["result", "1", "2", "Yes, by name."]),

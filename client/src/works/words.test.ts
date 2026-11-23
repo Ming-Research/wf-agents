@@ -37,6 +37,12 @@ const precondition: Waited = {
   words: 'The owner approved the merge',
   by: [{ kind: 'owner' }],
 };
+const sentBackTwice: Waited = {
+  kind: 'call',
+  call: 4,
+  who: 'owner',
+  what: { kind: 'atLimit', limit: { of: 'returns', sentBack: 2 } },
+};
 const question: Waited = {
   kind: 'call',
   call: 4,
@@ -98,10 +104,16 @@ describe('what a work does now, in words', () => {
       why: '`verdict` keeps `verdict = yes` from holding.',
       ends: { kind: 'write', block: 'verdict', value: 'yes' },
     };
-    const asked: Wait = { key: 'call-4', why: 'Show the cached tokens apart?', ends: { kind: 'reply', call: 4 } };
-    expect(nowWords(doing({ kind: 'waits', at: 'merge', on: [precondition, question] }, [asked, ruling, pause]))).toBe(
-      'Waiting for you · merge · Show the cached tokens apart? verdict keeps verdict = yes from holding. The engine ' +
-        'paused the work. The agent could not start.',
+    const sentBackLimit: Wait = {
+      key: 'limit',
+      why: "The cell's run had 2 returns sent back, which is its limit.",
+      ends: { kind: 'goOn', call: 4 },
+    };
+    expect(
+      nowWords(doing({ kind: 'waits', at: 'merge', on: [precondition, sentBackTwice] }, [sentBackLimit, ruling, pause])),
+    ).toBe(
+      "Waiting for you · merge · The cell's run had 2 returns sent back, which is its limit. verdict keeps verdict = " +
+        'yes from holding. The engine paused the work. The agent could not start.',
     );
     // A question the merge waits for is said by what it asks, each once.
     const merge = (name: string, ask: string): Wait => ({
@@ -139,17 +151,6 @@ describe('what a work does now, in words', () => {
       cell: 'plan',
     });
     expect(stateOf(doing({ kind: 'fault', words: 'x' }))).toEqual({ tone: 'failed', word: STATE.halted, cell: null });
-    const architect: Waited = {
-      kind: 'call',
-      call: 3,
-      who: 'architect',
-      what: { kind: 'question', who: 'architect', question: 'Which table?' },
-    };
-    expect(stateOf(doing({ kind: 'waits', at: 'plan', on: [architect] }))).toEqual({
-      tone: 'quiet',
-      word: 'Waiting for the architect',
-      cell: 'plan',
-    });
     // A work that waits for the calls of tools the engine carries out is neither running nor done: it waits for each
     // tool by its name, where it runs, in the yellow of a call (decision a-call-waited-for-is-no-run).
     const tool: Waited = { kind: 'call', call: 2, who: null, what: { kind: 'tool', name: 'ci', input: 'all' } };

@@ -443,7 +443,23 @@ impl Trial {
         }
     }
 
-    /// Takes the work to its end, answering the owner's questions as they come.
+    /// Takes what comes until the work waits for the owner's call, and gives it: the plan's run reaches its limit of
+    /// returns after its first three rounds.
+    pub async fn to_the_owners_call(&mut self, work: WorkNumber) -> CallId {
+        loop {
+            if let Some(call) = self.owners_call(work) {
+                return call;
+            }
+            if self.step().await.is_none() {
+                panic!(
+                    "nothing more comes, and work {} waits for no call of the owner's",
+                    work.0
+                );
+            }
+        }
+    }
+
+    /// Takes the work to its end, answering the owner's calls as they come.
     pub async fn drive(&mut self, work: WorkNumber) -> Decision {
         loop {
             let decision = self.decision(work);
