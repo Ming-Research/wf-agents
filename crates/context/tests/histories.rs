@@ -42,7 +42,7 @@ use context::message::{Values, kept};
 use context::text::as_written;
 use context::{Entered, Form, Piece, Situation, Stands};
 use decide::run::Unmet;
-use decide::{BlockId, CallId, CellId, Decision, Outsider, RunId, Seq, Waited, Who, Writer, decide};
+use decide::{BlockId, CallId, CellId, Decision, Outsider, RunId, Seq, Waited, Writer, decide};
 use engine::spoken::{self, To};
 use engine::{Ask, Back, Call, Came, Event, Fill, Given, Handed, Why};
 use flow::agents::Part;
@@ -485,10 +485,6 @@ impl History {
                 input: input.to_string(),
             })
         };
-        let question = Forced::Ask(Ask::Person {
-            who: Who::Owner,
-            question: "Which way?".to_string(),
-        });
         self.forced = Some(Vec::new());
         // The plan reads the notes and the tree, and the request, with the opinions, runs it.
         self.put("notes");
@@ -524,14 +520,14 @@ impl History {
         self.put("request");
         self.forced = Some(vec![Forced::Wrong]);
         self.drain(reached);
-        // A build asks for a tool run on something and on nothing, and a question, is sent back twice, so that it
+        // A build asks for a tool run on something and on nothing, and for another, is sent back twice, so that it
         // reaches the limit of its returns, and the owner lets it go on; its rounds are given each result.
         self.put("plan");
         self.under_way("build");
         self.forced = Some(vec![
             tool("x"),
             tool(""),
-            question,
+            tool("z"),
             Forced::Wrong,
             Forced::Wrong,
             tool("y"),
@@ -675,19 +671,15 @@ impl History {
             None => {}
         }
         if !scripted && self.rng.chance(15) {
-            // A tool run on something, a tool run on nothing, or a question for the owner.
-            let ask = match self.rng.below(4) {
+            // A tool run on something, or a tool run on nothing.
+            let ask = match self.rng.below(3) {
                 0 | 1 => Ask::Tool {
                     name: "query".to_string(),
                     input: format!("{{\"n\": {}}}", self.count),
                 },
-                2 => Ask::Tool {
+                _ => Ask::Tool {
                     name: "query".to_string(),
                     input: String::new(),
-                },
-                _ => Ask::Person {
-                    who: Who::Owner,
-                    question: "Which way?".to_string(),
                 },
             };
             return Came::asks(vec![ask]);
