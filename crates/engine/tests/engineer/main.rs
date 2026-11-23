@@ -80,7 +80,8 @@
 //! paused while the
 //! check's round is under way; once
 //! the check passed, a person writes, while the pause holds the merge back, for a judge that applies, who then refuses,
-//! or writes a verdict as its refusal, a coin of its own deciding; then the work is let on. In one of ten the check
+//! or writes a verdict as its refusal, or commits on the branch, after which the first judge of the head to hand in
+//! refuses in one of two, a coin of its own deciding; then the work is let on. In one of ten the check
 //! fails the first time it runs and the random steps end there; in two of ten, they end only once the cell told of
 //! the failure has answered it with a commit and nothing that matters, the commit running the review and the check
 //! again through the work's head; in one of ten, the first cell that may ask asks a question that does not wait, and
@@ -787,11 +788,13 @@ impl Random {
             return Some(Event::Resumed);
         }
         self.stage = 1;
-        // A person commits on the branch, which the merge finds moved since the check passed.
+        // A person commits on the branch, which the merge finds moved since the check passed, and which the judges of the
+        // head look at again: the first to hand in refuses in one of two.
         if self.steering.chance(33) {
             let mut b = self.branch.get();
             b.head += 1;
             self.branch.set(b);
+            self.refuse_next = self.steering.chance(50);
             return Some(Event::Look);
         }
         let reading = Reading::new(&d.flow.flow, &d.work.records, None);
