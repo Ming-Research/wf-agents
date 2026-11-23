@@ -1,8 +1,9 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { build } from 'vite';
 import { describe, expect, it } from 'vitest';
-import { sourceStamp } from './stamp';
+import { STAMP, sourceStamp, sourceStampPlugin } from './stamp';
 
 // The SHA-256 of "abc", from FIPS 180-4: the same value crates/web/build_support/stamp.rs is held to, so that the two
 // sides hash the same bytes alike.
@@ -40,5 +41,36 @@ describe('the stamp of the page sources', () => {
       `${join(root, 'src/a.css')}?inline`,
     ]);
     expect(stamp).toBe(`${ABC}  src/a.css\n`);
+  });
+});
+
+describe('the stamp a build writes', () => {
+  it('lists the files the build read, with the page, the lock file and the type configuration, and no other', async () => {
+    const root = client({
+      'index.html': '<!doctype html><script type="module" src="/src/main.ts"></script>',
+      'src/main.ts': "import { a } from './a';\nconsole.log(a);\n",
+      'src/a.ts': 'export const a = 1;\n',
+      'src/a.test.ts': 'a test, which no build reads',
+      'src/unused.ts': 'export const unused = 1;\n',
+      'package-lock.json': '{}',
+      'tsconfig.json': '{}',
+    });
+    await build({
+      root,
+      configFile: false,
+      logLevel: 'silent',
+      plugins: [sourceStampPlugin()],
+      build: { outDir: 'dist', emptyOutDir: true },
+    });
+    // Each line is a SHA-256 in hex (64 characters), two spaces and the path.
+    const lines = readFileSync(join(root, 'dist', STAMP), 'utf8').split('\n').filter((line) => line !== '');
+    expect(lines.map((line) => line.slice(66))).toEqual([
+      'index.html',
+      'package-lock.json',
+      'src/a.ts',
+      'src/main.ts',
+      'tsconfig.json',
+    ]);
+    expect(lines.every((line) => /^[0-9a-f]{64} {2}/.test(line))).toBe(true);
   });
 });

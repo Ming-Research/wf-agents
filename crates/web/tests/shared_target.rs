@@ -187,3 +187,16 @@ fn a_page_not_built_from_the_sources_at_hand_is_not_built_in() {
     );
     assert!(said.contains("npm run build"), "{said}");
 }
+
+#[test]
+fn a_page_with_no_stamp_is_not_built_in() {
+    let base = tempfile::tempdir().unwrap();
+    let target = base.path().join("target");
+    let a = checkout(base.path(), "a", "the page of a");
+    std::fs::remove_file(a.join("client/dist/source.sha256")).unwrap();
+    let out = cargo_build(&a, &target);
+    assert!(!out.status.success());
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert!(said.contains("source.sha256"), "{said}");
+    assert!(said.contains("npm run build"), "{said}");
+}
