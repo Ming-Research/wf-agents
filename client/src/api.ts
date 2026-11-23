@@ -262,8 +262,10 @@ export type What =
   | { kind: 'verdictOfDialogues'; verdict: string; dialogues: string[] }
   /// The agent's cell hands in a verdict and judges in no dialogue its points could go in.
   | { kind: 'verdictWithoutDialogue'; verdict: string }
-  /// The cell watches or reads a datum of another line's own.
-  | { kind: 'lineDataOfAnother'; block: string; line: string }
+  /// The block names entries of the design tree, and no datum of the flow is the design tree.
+  | { kind: 'entriesWithoutTree'; block: string }
+  /// The cell is given a block that names entries of the design tree in another kind than its latest.
+  | { kind: 'entriesNotLatest'; block: string }
   /// The flow names a cell for the engine to ask in that cannot change the work or cannot be spoken to.
   | { kind: 'cannotBeAskedIn'; cell: string }
   | { kind: 'engineIsGiven'; block: string }

@@ -20,7 +20,9 @@ CREATE TABLE schema_version (
 -- an item kept before items had levels. Its project is the name the installation's settings give the project it
 -- belongs to, whose repository its works run in; null for an item kept before items had projects. Its continues is the
 -- branch (`branch:<name>`) or the pull request (`pull:<number>`) its work starts from as it is added, null for an item
--- that continues nothing and starts from the head of main.
+-- that continues nothing and starts from the head of main. What happened to an item is in `item_changes`; its one work
+-- is in `works`, whose records are the tables keyed by `work`, a block's content in `contents`; why its work was
+-- cancelled is in `cancelled`.
 CREATE TABLE items (
     number INTEGER PRIMARY KEY,
     title TEXT NOT NULL,
@@ -46,11 +48,12 @@ CREATE TABLE tagged (
 );
 
 -- A change made to an item since it was added, its nth counting from one, at this time (JSON), and why, as whoever
--- made it said: it was given a title, put at a level, came to depend on an item or no longer depends on one, or came to
--- carry a tag or no longer carries one, or came to continue a branch or a pull request or to continue none. Changes made together have one time and one reason. `why` is null for a change
--- kept before changes said why. What an item is as it stands is what it was added as with each of its changes made in
--- turn: its latest title and level, or those it was added with where it has none, the items it was added depending on
--- with each it came to depend on, but those it no longer depends on, and so its tags and what it continues.
+-- made it said: it was given a title, put at a level, came to depend on an item or no longer depends on one, came to
+-- carry a tag or no longer carries one, or came to continue a branch or a pull request or to continue none. Changes
+-- made together have one time and one reason. `why` is null for a change kept before changes said why. What an item is
+-- as it stands is what it was added as with each of its changes made in turn: its latest title and level, or those it
+-- was added with where it has none, the items it was added depending on with each it came to depend on, but those it no
+-- longer depends on, and so its tags and what it continues.
 CREATE TABLE item_changes (
     item INTEGER NOT NULL REFERENCES items (number),
     n INTEGER NOT NULL,
@@ -216,6 +219,19 @@ CREATE TABLE abandoned (
 -- A version of a block (`version`, the place of the entry that wrote it, before this one) was put into the round of a
 -- run that was under way, after the round began, so that the round was told of it.
 CREATE TABLE put_in (
+    work INTEGER NOT NULL,
+    at INTEGER NOT NULL,
+    run INTEGER NOT NULL,
+    block TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    PRIMARY KEY (work, at),
+    FOREIGN KEY (work, run) REFERENCES started (work, run)
+);
+
+-- The round of a run that was under way began to be told to hand in what it has now, for this version of a block the
+-- owner wrote (`version`, the place of the entry that wrote it): the owner turned to a cell before the run's. Whether
+-- the round was given the telling is a row of `put_in`.
+CREATE TABLE hurried (
     work INTEGER NOT NULL,
     at INTEGER NOT NULL,
     run INTEGER NOT NULL,
@@ -501,6 +517,20 @@ CREATE TABLE pinged (
     context_tokens INTEGER,
     compactions INTEGER NOT NULL,
     failed TEXT, -- Hidden from agents.
+    PRIMARY KEY (work, at)
+);
+
+-- A fork of a round's session asked a question, whether it answered or not: the run and the round whose session it was
+-- forked from, and what it took.
+CREATE TABLE forked (
+    work INTEGER NOT NULL REFERENCES works (number),
+    at INTEGER NOT NULL,
+    run INTEGER NOT NULL,
+    round INTEGER NOT NULL,
+    usd_micros INTEGER NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    cached_tokens INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
     PRIMARY KEY (work, at)
 );
 

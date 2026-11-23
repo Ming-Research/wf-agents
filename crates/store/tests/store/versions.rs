@@ -113,8 +113,8 @@ fn a_file_of_version_21_is_migrated_with_no_version_kept_no_work_on_one_and_no_t
     history(&mut d);
     let (old, new) = kept_in_21(&d.work);
     let store = old.open();
+    // The file ends at the schema of this build, whichever migrations follow the one that makes the tables below.
     assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
-    assert_eq!(SCHEMA_VERSION, 23);
     assert_eq!(
         columns(&old.path),
         columns(&new.path),
@@ -130,4 +130,60 @@ fn a_file_of_version_21_is_migrated_with_no_version_kept_no_work_on_one_and_no_t
 /// The work as a file of version 21 of the schema holds it, and a file of this version that holds it.
 fn kept_in_21(work: &Work) -> (Db, Db) {
     super::opening::kept_in(21, work)
+}
+
+#[test]
+fn a_file_of_version_23_is_migrated_with_no_fork_kept() {
+    let mut d = Driver::new();
+    history(&mut d);
+    let (old, new) = super::opening::kept_in(23, &d.work);
+    let store = old.open();
+    assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
+    assert_eq!(
+        columns(&old.path),
+        columns(&new.path),
+        "the migrated file has other tables than a new one"
+    );
+    assert_eq!(store.load(WorkNumber(1)), Ok(d.work));
+    assert_eq!(count(&old.path, "forked"), 0, "a work kept before has no fork");
+}
+
+#[test]
+fn the_forks_of_a_work_read_back_as_written_each_with_its_round_and_what_it_took() {
+    let db = Db::new();
+    let mut store = db.open();
+    let number = first_work(&mut store);
+    let mut d = Driver::new();
+    history(&mut d);
+    let run = d.work.records.rounds[0].run;
+    let spent = |usd_micros| Spent {
+        usd_micros,
+        input_tokens: 120,
+        cached_tokens: 18_100,
+        output_tokens: 30,
+        ..Spent::default()
+    };
+    d.on(Event::Forked {
+        run,
+        round: 1,
+        spent: spent(400_000),
+    });
+    store.save(number, &d.work).expect("the work is saved with a fork");
+    d.on(Event::Forked {
+        run,
+        round: 1,
+        spent: spent(250_000),
+    });
+    store
+        .save(number, &d.work)
+        .expect("the work is saved with a second fork");
+    assert_eq!(d.work.forked.len(), 2);
+    let loaded = db.open().load(number).expect("the work loads");
+    assert_eq!(loaded.forked, d.work.forked);
+    assert_eq!(
+        (loaded.forked[0].usd_micros, loaded.forked[1].usd_micros),
+        (400_000, 250_000)
+    );
+    assert_eq!(loaded, d.work);
+    assert_eq!(count(&db.path, "forked"), 2);
 }

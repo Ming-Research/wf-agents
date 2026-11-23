@@ -1481,7 +1481,7 @@ impl H {
         let agents = |cell: &decide::CellId| hold.holds(flow, cell);
         match shown {
             Decision::Run { cell, .. } | Decision::GoOn { cell, .. } if agents(cell) => {}
-            Decision::Run { .. } | Decision::Abandon { .. } | Decision::Fault(_) => {
+            Decision::Run { .. } | Decision::Hurry { .. } | Decision::Abandon { .. } | Decision::Fault(_) => {
                 panic!("after a call work {} is left deciding {shown:?}", number.0)
             }
             Decision::GoOn { .. } => assert!(

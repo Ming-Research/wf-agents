@@ -317,6 +317,82 @@ fn what_went_past_the_lines_of_its_history_and_what_is_under_way_are_given_again
     assert_eq!(plan["rounds"][0]["judged"], past[0]["judged"]);
 }
 
+// A fork's cost counts in the System view as a keep-warm ping's does, in the total, the week it ended in and the
+// work's spend, and a work whose only spend in a span is a fork is listed for that span. One work of the trial flow,
+// its plan costing 1,000 millionths of a dollar and a fork of its round, long after, 7,000; the span that begins
+// between them. Milliseconds.
+#[test]
+fn what_a_work_spent_on_a_fork_is_counted_in_the_system_view_in_its_total_its_week_and_its_work() {
+    const S: u64 = 1000;
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path().join("store.sqlite")).unwrap();
+    let flow = flow::compile(
+        &flow::read(&crate::trial_dir().join("flow")).unwrap(),
+        &crate::trial_has(&flow::Source::default()),
+    )
+    .unwrap();
+    let policy = driver::Policy {
+        samples: 2,
+        model: Box::new(|_, _| Some(opus().model)),
+        changed: None,
+        warm: None,
+    };
+    let (mut driver, _) =
+        driver::Driver::open(Box::new(store), vec![flow], 10, Some(policy), work::Time(START)).unwrap();
+    let work = planned(&mut driver, START, 10 * S, 1_000);
+    let run = driver.work(work).unwrap().work.records.rounds[0].run;
+    let spent = engine::Spent {
+        usd_micros: 7_000,
+        input_tokens: 10,
+        cached_tokens: 20,
+        output_tokens: 3,
+        ..engine::Spent::default()
+    };
+    happened(
+        &mut driver,
+        START + 60 * S,
+        work,
+        engine::Event::Forked { run, round: 1, spent },
+    );
+    let now = work::Time(START + 600 * S);
+    let usd = |value: &Value| value["usdMicros"].as_u64().unwrap();
+    let all = serde_json::to_value(web::system::System::of(&driver, now, &[]).unwrap()).unwrap();
+    assert_eq!(
+        (usd(&all["spent"]), &all["spent"]["rounds"]),
+        (8_000, &json!(1)),
+        "{all}"
+    );
+    assert_eq!(usd(&all["pinged"]), 0, "a fork is no ping: {all}");
+    assert_eq!(usd(&all["byWork"][0]["spent"]), 8_000, "{all}");
+    // The span that begins after the plan ended holds the fork alone: its spend, no round, and its work listed.
+    let span = [START + 30 * S];
+    let late = serde_json::to_value(web::system::System::of(&driver, now, &span).unwrap()).unwrap();
+    assert_eq!(
+        (usd(&late["spent"]), &late["spent"]["rounds"]),
+        (7_000, &json!(0)),
+        "{late}"
+    );
+    assert_eq!(late["byWork"].as_array().unwrap().len(), 1, "{late}");
+    assert_eq!(usd(&late["byWork"][0]["spent"]), 7_000, "{late}");
+    assert_eq!(usd(&late["weeks"][0]["spent"]), 7_000, "{late}");
+    assert_eq!(usd(&late["weeks"][0]["pinged"]), 0, "{late}");
+    // The work's page, which the list of the works reads its Cost from, counts the fork in what the work spent and
+    // gives it apart, in no round.
+    let page = web::works::WorkPage::of(&driver, &crate::levels(), work, now)
+        .unwrap()
+        .unwrap();
+    let page = serde_json::to_value(page).unwrap();
+    let summary = &page["summary"];
+    assert_eq!(usd(&summary["spent"]), 8_000, "{summary}");
+    assert_eq!(summary["spent"]["rounds"], all["spent"]["rounds"], "{summary}");
+    assert_eq!(
+        (usd(&summary["forked"]), &summary["forked"]["rounds"]),
+        (7_000, &json!(1)),
+        "{summary}"
+    );
+    assert_eq!(usd(&summary["pinged"]), 0, "{summary}");
+}
+
 /// A work of the trial flow added and let on at `at`, whose plan asks for a tool at once and has the result, of this
 /// many bytes, two seconds later: the call, the work it is of, and when it had its result.
 fn answered(driver: &mut driver::Driver, at: u64, bytes: usize) -> (store::WorkNumber, decide::CallId, u64) {

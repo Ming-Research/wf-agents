@@ -245,6 +245,48 @@ fn a_declaration_of_ci_that_lacks_one_of_its_two_workflows_is_refused_with_the_p
     );
 }
 
+// How an entry of the design tree is found is the project's: a `[tree_format]` that names no kind, or whose heading or
+// reference lacks the place of the kind or of the name, could find no entry, and is refused as the declaration is
+// read, beside the flows or on the project's main, with where it was read; one that holds both is taken as written.
+#[test]
+fn a_format_of_the_tree_that_could_find_no_entry_is_refused_as_the_declaration_is_read_with_where_it_was_read() {
+    let dir = copy("tree-format");
+    let project = dir.join("project.toml");
+    let text = fs::read_to_string(&project).unwrap();
+    let wrong = "\n[tree_format]\nkinds = []\nheading = \"## {kind}\"\nreference = \"{name}\"\n";
+    fs::write(&project, format!("{text}{wrong}")).unwrap();
+    let refused = agents::read(&dir).unwrap_err();
+    assert!(refused.contains(&project.display().to_string()), "{refused}");
+    for fault in [
+        "tree_format.kinds names no kind",
+        "tree_format.heading must hold {name}",
+        "tree_format.reference must hold {kind}",
+    ] {
+        assert!(refused.contains(fault), "{fault} is not in: {refused}");
+    }
+    let empty = "\n[tree_format]\nkinds = [{ kind = \"rule\", dir = \"\" }]\nheading = \"## {kind}: {name}\"\nreference = \"{kind} {name}\"\n";
+    let declared = agents::read(&beside())
+        .unwrap()
+        .declared(&format!("{text}{empty}"), "main:flow/project.toml");
+    let refused = declared.expect_err("a kind with no directory is refused");
+    assert!(refused.starts_with("main:flow/project.toml: "), "{refused}");
+    assert!(
+        refused.contains("tree_format.kinds[0] must give a kind and a directory"),
+        "{refused}"
+    );
+    let right = "\n[tree_format]\nkinds = [{ kind = \"rule\", dir = \"rules/\" }]\nheading = \"## {kind}: {name}\"\nreference = \"{kind} {name}\"\n";
+    fs::write(&project, format!("{text}{right}")).unwrap();
+    let read = agents::read(&dir).unwrap();
+    fs::remove_dir_all(&dir).unwrap();
+    let format = read.project.tree_format.expect("the format is read");
+    assert_eq!(format.heading_of("## rule: keep-it  "), Some(("rule", "keep-it")));
+    assert_eq!(format.heading_of("### rule: keep-it"), None);
+    assert_eq!(format.referred("  rule keep-it "), Some(("rule", "keep-it")));
+    assert_eq!(format.referred("rule keep it"), None, "a name holds no white space");
+    assert_eq!(format.referred("rule "), None, "a name is not empty");
+    assert_eq!(format.referred("decision keep-it"), None, "no kind of the format");
+}
+
 #[test]
 fn a_value_no_kind_of_it_has_is_refused_with_the_path_of_its_file() {
     let dir = copy("value");
@@ -409,4 +451,14 @@ fn the_context_part_orders_what_a_round_is_given_by_naming_each_list_of_a_cell_o
         assert!(refused.contains(&file), "{name}: {refused}");
         assert!(refused.contains(named), "{name}: {refused}");
     }
+}
+
+// The first message every fork of a round is sent is not blank, in the repository's own words as the engine reads them:
+// a blank message is no message, and the fork would then be sent its question alone. A few files read: milliseconds.
+#[test]
+fn the_first_message_of_a_fork_in_the_repositorys_flow_is_not_blank() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+    let read = agents::read(&root).expect("the files beside the repository's flows are read");
+    let first = &read.cost.fork.first;
+    assert!(!first.trim().is_empty(), "a blank message is sent first");
 }
