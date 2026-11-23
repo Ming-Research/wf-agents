@@ -82,8 +82,9 @@
 //! ([`branch`](crate::branch)): what is read as main is taken in is the outside's, put into the round; what is read as
 //! the round ends is what it committed, handed in with its return, where its line may change the work and the return
 //! does the cell's work (a round that asks for calls hands in none of it, and its commit is read by the round that ends
-//! the cell's work), and the outside's where it only reads, but for the head while a cell that may change the work
-//! waits for the results of calls.
+//! the cell's work), and the outside's where it only reads, but while a cell that may change the work waits for the
+//! results of calls no read takes the head or the design tree, whichever round or act reads, but the one that ends that
+//! cell's work.
 //!
 //! Each round runs on the model of its item's level, or of a level above it where its cell's line says so, at the
 //! effort its cell sets, under the account it was handed out with (`Settings::ran_on`); a round whose item's level the
