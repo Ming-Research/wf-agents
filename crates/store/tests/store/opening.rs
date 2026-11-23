@@ -620,6 +620,43 @@ fn an_item_kept_before_items_had_projects_is_opened_with_none() {
     assert_eq!(items[1].depends_on, [ItemNumber(1)]);
 }
 
+// An item kept before items could continue a branch or a pull request continues nothing: it is opened with none, and
+// an item added beside it keeps what it continues.
+#[test]
+fn an_item_kept_before_items_could_continue_anything_is_opened_continuing_nothing() {
+    let db = Db::new();
+    {
+        let file = Connection::open(&db.path).expect("the database opens");
+        file.execute_batch(SCHEMA_1).expect("the first schema is made");
+        file.execute("INSERT INTO schema_version (version) VALUES (1)", [])
+            .expect("its version is written");
+        store::migrate(&file, 1, 22).expect("the migrations run");
+        assert_eq!(versions(&db.path), [22]);
+        file.execute(
+            "INSERT INTO items (title, added, level, project) VALUES ('kept before', 5, '2', 'one')",
+            [],
+        )
+        .expect("an item is kept");
+    }
+    let mut store = db.open();
+    assert_eq!(versions(&db.path), [SCHEMA_VERSION]);
+    store
+        .add(
+            &store::First {
+                continues: Some(store::Continues::Pull(226)),
+                ..first("added now", "1", &[ItemNumber(1)])
+            },
+            "judged",
+            Time(START),
+            &Work::default(),
+        )
+        .expect("the item is added");
+    let items = store.items().expect("the items are read");
+    assert_eq!(items[0].continues, None);
+    assert_eq!(items[0].first.continues, None);
+    assert_eq!(items[1].continues, Some(store::Continues::Pull(226)));
+}
+
 #[test]
 fn a_migration_that_fails_leaves_the_file_as_it_was() {
     let db = Db::new();

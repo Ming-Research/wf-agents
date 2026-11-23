@@ -114,7 +114,7 @@ fn a_file_of_version_21_is_migrated_with_no_version_kept_no_work_on_one_and_no_t
     let (old, new) = kept_in_21(&d.work);
     let store = old.open();
     assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
-    assert_eq!(SCHEMA_VERSION, 22);
+    assert_eq!(SCHEMA_VERSION, 23);
     assert_eq!(
         columns(&old.path),
         columns(&new.path),

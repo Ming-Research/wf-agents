@@ -318,6 +318,7 @@ impl History {
             project: "one".to_string(),
             depends_on,
             tags: Vec::new(),
+            continues: None,
             flow: flow.to_string(),
             writes,
         };

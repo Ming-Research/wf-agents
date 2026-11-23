@@ -185,6 +185,7 @@ fn planned(driver: &mut driver::Driver, at: u64, ms: u64, usd: u64) -> store::Wo
         project: "trial".to_string(),
         depends_on: Vec::new(),
         tags: Vec::new(),
+        continues: None,
         flow: "trial".to_string(),
         writes: vec![driver::FirstWrite {
             block: decide::BlockId("request".to_string()),
@@ -325,6 +326,7 @@ fn answered(driver: &mut driver::Driver, at: u64, bytes: usize) -> (store::WorkN
         project: "trial".to_string(),
         depends_on: Vec::new(),
         tags: Vec::new(),
+        continues: None,
         flow: "trial".to_string(),
         writes: vec![driver::FirstWrite {
             block: decide::BlockId("request".to_string()),

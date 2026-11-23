@@ -16,6 +16,7 @@ fn planned(number: u64, on: &[u64], gone: Gone) -> Planned {
         project: Some("one".to_string()),
         depends_on: n(on),
         tags: vec!["engine".to_string()],
+        continues: None,
     };
     Planned {
         item: Item::new(ItemNumber(number), Time(0), first, Vec::new()),
@@ -25,6 +26,8 @@ fn planned(number: u64, on: &[u64], gone: Gone) -> Planned {
             _ => None,
         },
         letting_go: false,
+        placed: false,
+        starts: true,
     }
 }
 
@@ -122,6 +125,95 @@ fn a_started_work_keeps_what_it_depends_on_and_takes_a_title_a_level_and_tags() 
         judged(4, Gone::Started, ItemChange::Untagged("engine".into())),
         Ok(true)
     );
+}
+
+fn continuing(number: u64, placed: bool, starts: bool, what: Option<Continues>) -> Result<bool, Refused> {
+    let mut items = graph();
+    let planned = items.get_mut(&ItemNumber(number)).expect("the item is there");
+    planned.placed = placed;
+    planned.starts = starts;
+    one(&items, number, Asked::Item(ItemChange::Continues(what)))
+}
+
+fn branch(name: &str) -> Option<Continues> {
+    Some(Continues::Branch(name.to_string()))
+}
+
+#[test]
+fn an_item_comes_to_continue_a_branch_or_a_pull_request_and_to_continue_nothing_again() {
+    assert_eq!(continuing(2, false, true, branch("old")), Ok(true));
+    assert_eq!(continuing(2, false, true, Some(Continues::Pull(226))), Ok(true));
+    // An item that continues nothing is not changed by being made to continue nothing.
+    assert_eq!(continuing(2, false, true, None), Ok(false));
+    let mut items = graph();
+    let judged = judge(
+        &items,
+        &[
+            (ItemNumber(2), Asked::Item(ItemChange::Continues(branch("old")))),
+            (ItemNumber(2), Asked::Item(ItemChange::Continues(branch("old")))),
+            (ItemNumber(2), Asked::Item(ItemChange::Continues(None))),
+        ],
+    );
+    assert_eq!(judged, Ok(vec![true, false, true]));
+    items.get_mut(&ItemNumber(2)).expect("the item is there").item.continues = branch("old");
+    assert_eq!(one(&items, 2, Asked::Item(ItemChange::Continues(None))), Ok(true));
+}
+
+#[test]
+fn what_an_item_continues_changes_until_its_branch_is_made_and_not_after() {
+    // A work that started a run, as one whose start was refused has, is not yet placed.
+    let mut items = with(graph(), 2, Gone::Started);
+    assert_eq!(
+        one(&items, 2, Asked::Item(ItemChange::Continues(branch("old")))),
+        Ok(true)
+    );
+    items.get_mut(&ItemNumber(2)).expect("the item is there").placed = true;
+    assert_eq!(
+        one(&items, 2, Asked::Item(ItemChange::Continues(branch("old")))),
+        unchangeable(Unchangeable::Placed)
+    );
+    assert_eq!(
+        one(&items, 2, Asked::Item(ItemChange::Continues(None))),
+        unchangeable(Unchangeable::Placed)
+    );
+}
+
+#[test]
+fn an_item_whose_flow_has_no_start_cannot_continue_anything_and_can_be_made_to_continue_nothing() {
+    assert_eq!(continuing(2, false, false, branch("old")), Err(Refused::NoStart));
+    assert_eq!(continuing(2, false, false, None), Ok(false));
+}
+
+#[test]
+fn a_name_that_is_no_branch_is_refused() {
+    for name in [
+        "", "-x", "a b", "a\tb", "a:b", "a?b", "a*b", "a[b", "a~b", "a^b", "a\\b", "a..b", "a//b", "/a", "a/", ".a",
+        "a.", "a.lock", "a@{b", "@",
+    ] {
+        assert_eq!(
+            continuing(2, false, true, branch(name)),
+            Err(Refused::BadContinues(Continues::Branch(name.to_string()))),
+            "{name:?}"
+        );
+    }
+    assert_eq!(
+        continuing(2, false, true, Some(Continues::Pull(0))),
+        Err(Refused::BadContinues(Continues::Pull(0)))
+    );
+    for name in ["work-226-0a1b2c3d", "feature/x", "a.b", "v1_2", "ünï"] {
+        assert_eq!(continuing(2, false, true, branch(name)), Ok(true), "{name:?}");
+    }
+}
+
+#[test]
+fn an_ended_work_takes_no_change_of_what_it_continues() {
+    for end in [End::Merged, End::Cancelled] {
+        let items = with(graph(), 5, Gone::Ended(end));
+        assert_eq!(
+            one(&items, 5, Asked::Item(ItemChange::Continues(branch("old")))),
+            unchangeable(Unchangeable::Ended(end))
+        );
+    }
 }
 
 #[test]

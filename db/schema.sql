@@ -18,13 +18,16 @@ CREATE TABLE schema_version (
 -- An item: a thing to be done, as it was added. Its number is given by the store, counting from one, one sequence
 -- across the projects. Its level is the name of the level of the installation it was given as it was added; null for
 -- an item kept before items had levels. Its project is the name the installation's settings give the project it
--- belongs to, whose repository its works run in; null for an item kept before items had projects.
+-- belongs to, whose repository its works run in; null for an item kept before items had projects. Its continues is the
+-- branch (`branch:<name>`) or the pull request (`pull:<number>`) its work starts from as it is added, null for an item
+-- that continues nothing and starts from the head of main.
 CREATE TABLE items (
     number INTEGER PRIMARY KEY,
     title TEXT NOT NULL,
     added INTEGER NOT NULL,
     level TEXT,
-    project TEXT
+    project TEXT,
+    continues TEXT
 );
 
 -- An item depends on another as it is added, one added before it, of its own project or another.
@@ -44,10 +47,10 @@ CREATE TABLE tagged (
 
 -- A change made to an item since it was added, its nth counting from one, at this time (JSON), and why, as whoever
 -- made it said: it was given a title, put at a level, came to depend on an item or no longer depends on one, or came to
--- carry a tag or no longer carries one. Changes made together have one time and one reason. `why` is null for a change
+-- carry a tag or no longer carries one, or came to continue a branch or a pull request or to continue none. Changes made together have one time and one reason. `why` is null for a change
 -- kept before changes said why. What an item is as it stands is what it was added as with each of its changes made in
 -- turn: its latest title and level, or those it was added with where it has none, the items it was added depending on
--- with each it came to depend on, but those it no longer depends on, and so its tags.
+-- with each it came to depend on, but those it no longer depends on, and so its tags and what it continues.
 CREATE TABLE item_changes (
     item INTEGER NOT NULL REFERENCES items (number),
     n INTEGER NOT NULL,

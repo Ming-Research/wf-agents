@@ -127,8 +127,8 @@ use flow::Compiled;
 use flow::agents::fill;
 pub use outage::{Checked, Found, Limit, Outage, Service, Until};
 use store::{
-    AccountAct, AccountRecord, Change, EverythingPaused, First, Item, ItemChange, ItemNumber, Storage, WorkHead,
-    WorkNumber,
+    AccountAct, AccountRecord, Change, Continues, EverythingPaused, First, Item, ItemChange, ItemNumber, Storage,
+    WorkHead, WorkNumber,
 };
 use versions::Installed;
 pub use versions::{Misread, On};
@@ -512,6 +512,8 @@ pub struct NewItem {
     pub depends_on: Vec<ItemNumber>,
     /// The tags it carries.
     pub tags: Vec<String>,
+    /// What it continues, where its work starts from an existing branch or pull request and not from the head of main.
+    pub continues: Option<Continues>,
     /// The name of the flow its work runs on.
     pub flow: String,
     /// What people write for it as it is added, in order.
@@ -569,6 +571,12 @@ pub enum Failed {
     BlankTitle,
     /// An item was to be added carrying a tag that is no name an item may carry. Nothing was changed.
     BadTag(String),
+    /// An item was to be added continuing what is no branch name or pull request number an item may name. Nothing was
+    /// changed.
+    BadContinues(Continues),
+    /// An item was to be added continuing something, on a flow that has no cell that starts a work, which would read
+    /// it. Nothing was changed.
+    NoStart(String),
     /// Changes asked together were refused, each of these for its reason. None of them was made.
     NotChanged { asked: usize, refused: Vec<NotMade> },
     /// The driver has no such work. Nothing was changed.
@@ -828,6 +836,14 @@ impl Driver {
             return Err(Failed::NoSuchFlow(new.flow));
         };
         let flow = installed.flow.clone();
+        if let Some(continues) = &new.continues {
+            if changes::continues_fault(continues).is_some() {
+                return Err(Failed::BadContinues(continues.clone()));
+            }
+            if !changes::starts(&flow) {
+                return Err(Failed::NoStart(new.flow));
+            }
+        }
         let mut depends_on = new.depends_on;
         depends_on.sort();
         depends_on.dedup();
@@ -869,6 +885,7 @@ impl Driver {
             project: Some(new.project),
             depends_on,
             tags,
+            continues: new.continues,
         };
         let (item, number) = (self.store)
             .add(&first, &new.flow, now, &work)
@@ -921,6 +938,8 @@ impl Driver {
                         _ => None,
                     },
                     letting_go: held.letting_go(),
+                    placed: changes::placed(&held.flow, &held.work),
+                    starts: changes::starts(&held.flow),
                 };
                 (held.item.number, planned)
             })

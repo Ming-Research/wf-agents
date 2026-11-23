@@ -1653,6 +1653,7 @@ mod tests {
                 project: None,
                 depends_on: Vec::new(),
                 tags: Vec::new(),
+                continues: None,
             };
             Stored {
                 head: WorkHead {

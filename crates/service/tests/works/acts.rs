@@ -61,6 +61,7 @@ async fn an_item_on_a_flow_there_is_none_of_is_refused() {
         project: "trial".to_string(),
         depends_on: Vec::new(),
         tags: Vec::new(),
+        continues: None,
         flow: "other".to_string(),
         writes: vec![FirstWrite {
             block: "request".into(),

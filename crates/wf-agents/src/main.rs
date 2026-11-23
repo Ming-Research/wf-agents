@@ -19,7 +19,7 @@ use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
 use flow::{Fault, FaultKind, Has, Source};
-use web::works::{Act, ChangeAsked, EngineAct, SpokenTo};
+use web::works::{Act, ChangeAsked, EngineAct, NewItem, SpokenTo};
 
 use crate::talk::Asked;
 
@@ -88,6 +88,12 @@ enum Command {
         /// A tag it carries, which classifies it; given once for each.
         #[arg(long = "tag", value_name = "TAG")]
         tags: Vec<String>,
+        /// A branch its work continues: the work starts from that branch's head, not from the head of main.
+        #[arg(long = "continue-branch", value_name = "BRANCH", conflicts_with = "continue_pull")]
+        continue_branch: Option<String>,
+        /// A pull request its work continues, by number: the work starts from that pull request's head.
+        #[arg(long = "continue-pull", value_name = "PULL")]
+        continue_pull: Option<u64>,
         /// A block written for it, with this text.
         #[arg(long = "write", value_name = "BLOCK=TEXT")]
         texts: Vec<String>,
@@ -102,8 +108,9 @@ enum Command {
     },
     /// Makes several changes of items at once, for one reason: in the order given, each judged against what those
     /// before it make, all of them or none. Each is ITEM:KIND or ITEM:KIND=VALUE, the kind one of title=TEXT,
-    /// level=LEVEL, depends-on=ITEM, no-longer-depends-on=ITEM, tag=TAG, untag=TAG, cancel and reopen. Every refusal
-    /// is said at once, by the change's place among them.
+    /// level=LEVEL, depends-on=ITEM, no-longer-depends-on=ITEM, tag=TAG, untag=TAG, continue-branch=BRANCH,
+    /// continue-pull=PULL, no-longer-continues, cancel and reopen. Every refusal is said at once, by the change's place
+    /// among them.
     Change {
         #[command(flatten)]
         why: Why,
@@ -532,6 +539,8 @@ fn main() -> ExitCode {
             flow,
             depends_on,
             tags,
+            continue_branch,
+            continue_pull,
             texts,
             files,
             choices,
@@ -543,7 +552,13 @@ fn main() -> ExitCode {
                 choices: &choices,
             };
             match talk::new_item(title, level, project, flow, depends_on, tags, written) {
-                Ok(item) => talk::ask(at.port, Asked::Add(item)),
+                Ok(item) => talk::ask(
+                    at.port,
+                    Asked::Add(NewItem {
+                        continues: talk::continues(continue_branch, continue_pull),
+                        ..item
+                    }),
+                ),
                 Err(why) => {
                     eprintln!("{why}");
                     ExitCode::FAILURE
