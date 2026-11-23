@@ -1282,8 +1282,12 @@ pub struct Missed {
     /// The tokens its session held.
     pub held: u64,
     /// What comes before the session's messages in the prompt and differs from the call before, by name: the cause by
-    /// design; none where nothing does, and the miss is a fault of wf-agents.
+    /// design; none where nothing does, and the miss is a fault of wf-agents unless `unknown`.
     pub differs: Vec<String>,
+    /// Whether the records do not say why it missed: none of the parts differs by what they hold, and they do not hold
+    /// what both calls were given, or the first prompt is shorter than what the session held with no compaction
+    /// recorded.
+    pub unknown: bool,
 }
 
 /// The session of its line a round runs in.
@@ -3326,7 +3330,11 @@ fn in_detail(
                 .map(|m| Missed {
                     read: m.read,
                     held: m.held,
-                    differs: m.differs.clone(),
+                    differs: match &m.cause {
+                        driver::cache::Cause::Differs(parts) => parts.clone(),
+                        driver::cache::Cause::Unknown | driver::cache::Cause::Fault => Vec::new(),
+                    },
+                    unknown: m.cause == driver::cache::Cause::Unknown,
                 });
             round.session = line.map(|line| {
                 let on_line = |other: RunId| line_of(other) == Some(line);
