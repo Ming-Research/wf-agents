@@ -117,9 +117,9 @@ fn bad_tag(tag: &str) -> String {
 fn bad_continues(continues: &Continues) -> String {
     match continues {
         Continues::Branch(name) => format!(
-            "{name:?} is no branch an item may continue: a branch name is not empty, begins with no dash, dot or \
-             slash, ends with no dot, slash or `.lock`, and holds no space, control character, `..`, `//`, `@{{` or \
-             any of ~ ^ : ? * [ \\"
+            "{name:?} is no branch an item may continue: a branch name is not empty, begins with no dash or \
+             slash, ends with no dot or slash, has no part between slashes that begins with a dot or ends with \
+             `.lock`, and holds no space, control character, `..`, `//`, `@{{` or any of ~ ^ : ? * [ \\"
         ),
         Continues::Pull(number) => format!("{number} is no pull request an item may continue: its number is 1 or more"),
     }

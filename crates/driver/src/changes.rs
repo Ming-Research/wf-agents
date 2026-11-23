@@ -159,23 +159,25 @@ pub fn tag_fault(tag: &str) -> Option<Refused> {
     bad.then(|| Refused::BadTag(tag.to_string()))
 }
 
-/// Whether the item may continue this: a pull request of a number, or a branch of a name git takes for one and a
-/// command takes for no option, no pattern and no revision (a name with none of the characters git refuses in a
-/// reference, none of the glob's, and none that could make a command line read it as something else).
+/// Whether the item may continue this: a pull request of a number, or a branch of a name git takes for one
+/// (`git check-ref-format`: no part between slashes begins with a dot or ends with `.lock`, and no space, control
+/// character, `..`, `//`, `@{`, a backslash or any of ~ ^ : ? * [) and a command takes for no option.
 pub fn continues_fault(continues: &Continues) -> Option<Refused> {
     let bad = match continues {
         Continues::Pull(number) => *number == 0,
         Continues::Branch(name) => {
             name.is_empty()
-                || name.starts_with(['-', '/', '.'])
+                || name.starts_with(['-', '/'])
                 || name.ends_with(['/', '.'])
                 || name.contains("..")
                 || name.contains("//")
                 || name.contains("@{")
-                || name.ends_with(".lock")
                 || name == "@"
+                || name
+                    .split('/')
+                    .any(|part| part.starts_with('.') || part.ends_with(".lock"))
                 || name.chars().any(|c| {
-                    c.is_whitespace() || c.is_control() || matches!(c, '~' | '^' | ':' | '?' | '*' | '[' | '\\')
+                    c == ' ' || c < ' ' || c == '\u{7f}' || matches!(c, '~' | '^' | ':' | '?' | '*' | '[' | '\\')
                 })
         }
     };

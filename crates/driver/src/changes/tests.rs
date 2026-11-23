@@ -232,6 +232,7 @@ fn no_name_git_refuses_for_a_branch_is_taken_for_one_an_item_continues() {
         "a/@",
         "a@b",
         "a{b",
+        "a\u{a0}b",
         "work-226-0a1b2c3d",
     ] {
         let taken = continuing(2, false, true, branch(name)) == Ok(true);
@@ -243,7 +244,7 @@ fn no_name_git_refuses_for_a_branch_is_taken_for_one_an_item_continues() {
         taken_wrongly.is_empty(),
         "names git refuses for a branch, that an item may continue: {taken_wrongly:?}"
     );
-    for name in ["feature/x", "a./b", "a@b", "a{b", "work-226-0a1b2c3d"] {
+    for name in ["feature/x", "a./b", "a@b", "a{b", "a\u{a0}b", "work-226-0a1b2c3d"] {
         assert!(git_takes(name), "{name}: the reference of this test is wrong");
         assert_eq!(continuing(2, false, true, branch(name)), Ok(true), "{name}");
     }

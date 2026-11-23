@@ -203,6 +203,20 @@ pub async fn start(project: &Project, place: &Place, at: &str, main: &str) -> Re
         if kept {
             git(repo, &["worktree", "add", &dir, &place.branch]).await?;
         } else {
+            // A branch with no history in common with main could never be merged into it. It is refused before the
+            // branch is made: a branch made is taken as it is by the next start, which reads nothing of what the item
+            // continues, so the work would stay stuck at it.
+            let shared = said(repo, &["merge-base", main, at]).await?;
+            match shared.code {
+                Some(0) => {}
+                Some(1) => {
+                    return Err(format!(
+                        "the commit {at} has no history in common with main, which is {main}: a branch made there \
+                         could never be merged into main, so the work's branch is not made"
+                    ));
+                }
+                _ => return Err(format!("git merge-base {main} {at}: {}", shared.err)),
+            }
             git(repo, &["worktree", "add", "-b", &place.branch, &dir, at]).await?;
         }
     }

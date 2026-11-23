@@ -160,16 +160,23 @@ async fn a_start_at_a_commit_that_shares_no_history_with_main_leaves_no_branch_b
     let lone = commit(dir, "lone.txt", "Alone.\n");
     run(dir, &["switch", "-q", "main"]);
     let place = repo.place(WORK);
-    let started = start(&repo.project, &place, &lone, &main).await;
+    let refused = start(&repo.project, &place, &lone, &main)
+        .await
+        .expect_err("the start is refused");
+    assert!(refused.contains("no history in common with main"), "{refused}");
     // Such a branch can never be merged into main. A start that fails over it must not leave the work's branch made at
     // it: the branch made, a later start takes it up as it is and fails the same way, whatever the item is then made
     // to continue (a start made once is not made again from what its item continues).
-    if started.is_err() {
-        assert!(
-            !branch_made(&repo.project, &place).await.unwrap(),
-            "the start failed, and the work's branch is made at the commit that shares nothing with main"
-        );
-    }
+    assert!(
+        !branch_made(&repo.project, &place).await.unwrap(),
+        "the start failed, and the work's branch is made at the commit that shares nothing with main"
+    );
+    assert!(!place.dir.exists(), "no worktree is made");
+    // Corrected to a commit that shares history with main, the same work starts.
+    let started = start(&repo.project, &place, &main, &main)
+        .await
+        .expect("it starts from main");
+    assert_eq!(started.from, main);
 }
 
 #[tokio::test]
