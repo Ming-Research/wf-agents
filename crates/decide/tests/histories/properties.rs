@@ -728,8 +728,27 @@ fn question_holds(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision)
         Decision::Ended(End::Merged) => Some(flow.cells().len()),
         _ => None,
     };
+    // A round under way ends before anything else begins: one that began while no question held the work before its
+    // cell is no breach, though one holds it now.
+    let began_clear = match d {
+        Decision::Busy { run, .. } => {
+            let r = reading.records;
+            let began = r.rounds.iter().filter(|x| x.run == *run).map(|x| x.at).max();
+            began.is_some_and(|began| {
+                let then = r.before(began);
+                let before = Reading::new(flow, &then);
+                let held_then = (before.holding(now).iter())
+                    .filter(|(_, cell)| flow.place(cell).is_some_and(|j| before.applies(flow, j)))
+                    .filter_map(|(_, cell)| flow.place(cell))
+                    .min();
+                at.is_some_and(|j| held_then.is_none_or(|h| h >= j))
+            })
+        }
+        _ => false,
+    };
     if let Some(j) = at
         && j > q
+        && !began_clear
     {
         v.fail(
             QUESTION_HOLDS,
