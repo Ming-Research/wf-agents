@@ -1,5 +1,7 @@
 //! What each thing that happens does to the records, and what comes back to be done.
 
+use work::Forked;
+
 use super::*;
 
 #[test]
@@ -303,23 +305,19 @@ fn a_fork_of_a_round_is_kept_with_what_it_took_for_a_work_under_way_and_for_one_
     assert_eq!(w.work.records.started.len(), started, "no cell runs for it");
     // What is kept of what it took is its cost and its counts of tokens: the rest of what a round keeps is not a
     // fork's.
-    let kept = |w: &W| -> Vec<(u64, RunId, usize, u64, u64, Option<u64>, u64, u64)> {
-        (w.work.forked.iter())
-            .map(|f| {
-                (
-                    f.at.0,
-                    f.run,
-                    f.round,
-                    f.usd_micros,
-                    f.uncached_tokens,
-                    f.cache_written_tokens,
-                    f.cached_tokens,
-                    f.output_tokens,
-                )
-            })
-            .collect()
-    };
-    assert_eq!(kept(&w), [(first, write, 1, 400_000, 120, Some(100), 18_100, 30)]);
+    assert_eq!(
+        w.work.forked,
+        [Forked {
+            at: Seq(first),
+            run: write,
+            round: 1,
+            usd_micros: 400_000,
+            uncached_tokens: 120,
+            cache_written_tokens: Some(100),
+            cached_tokens: 18_100,
+            output_tokens: 30,
+        }]
+    );
 
     let before = w.work.clone();
     assert_eq!(w.refused(fork(write, 2)), Refused::NoSuchRound { run: write, round: 2 });
@@ -334,9 +332,9 @@ fn a_fork_of_a_round_is_kept_with_what_it_took_for_a_work_under_way_and_for_one_
 
     w.on(Event::Cancelled { why: None });
     w.on(fork(write, 1));
-    let kept = kept(&w);
+    let kept = &w.work.forked;
     assert_eq!(kept.len(), 2, "kept for a work that has ended too");
-    assert!(kept[1].0 > kept[0].0, "at a place after the first's");
-    assert_eq!(kept[1].1, write);
-    assert_eq!(kept[1].3, 400_000);
+    assert!(kept[1].at > kept[0].at, "at a place after the first's");
+    assert_eq!(kept[1].run, write);
+    assert_eq!(kept[1].usd_micros, 400_000);
 }

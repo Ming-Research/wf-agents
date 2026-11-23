@@ -74,6 +74,21 @@ fn a_file_made_before_the_tokens_written_to_the_cache_were_kept_apart_is_brought
         file.execute("INSERT INTO schema_version (version) VALUES (1)", [])
             .expect("its version is written");
         store::migrate(&file, 1, 25).expect("the migrations run");
+        // The work and its two runs, which every round, ping and fork below belongs to.
+        file.execute("INSERT INTO items (number, title, added) VALUES (1, 'kept', 1)", [])
+            .expect("an item is kept");
+        file.execute(
+            "INSERT INTO works (number, item, flow, added) VALUES (1, 1, 'engineer', 1)",
+            [],
+        )
+        .expect("a work is kept");
+        for (at, run) in [(2, 1), (3, 2)] {
+            file.execute(
+                "INSERT INTO started (work, at, run, cell, because) VALUES (1, ?1, ?2, 'plan', '[]')",
+                [at, run],
+            )
+            .expect("a run is kept");
+        }
         // Run 1 round 1: its one try's tokens add up to its own. Round 2: they do not. Round 3: it has no try kept.
         // Run 2 round 1: its first try's tokens do not add up to its own and its last try's do.
         took(&file, 1, 1, 1_060);
