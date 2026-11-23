@@ -1417,10 +1417,16 @@ const DEEPENING: u64 = 3;
 const DEEP_STEPS: usize = 260;
 const BRANCHES: usize = 40;
 const BRANCH_STEPS: usize = 30;
-const FRONTIER: usize = 6;
+const FRONTIER: usize = 2;
 
-/// The state of a history as the round of a cell is to be carried, kept to branch from.
+/// The states of a history as the round of a cell is to be carried, kept to branch from, by the cell and how far into
+/// the flow the work had gone: `cell@0` to `cell@2`, by how many cells had begun a run.
 type Frontier = BTreeMap<String, Vec<History>>;
+
+/// The keys of the frontier that are of this cell.
+fn keys_of<'a>(frontier: &'a Frontier, cell: &str) -> Vec<&'a String> {
+    frontier.keys().filter(|k| k.split('@').next() == Some(cell)).collect()
+}
 
 /// Keeps the history as it stands where a round of a cell not kept enough of is given and is not yet carried: the
 /// states a datum stands in at a round depend on what was written and what the session held before it, so that many
@@ -1433,7 +1439,13 @@ fn keep_at_the_round(frontier: &mut Frontier, history: &History, last: &mut Opti
         return;
     }
     *last = Some((round.run, round.number));
-    let kept = frontier.entry(round.cell.as_str().to_string()).or_default();
+    let begun: BTreeSet<&CellId> = history.sim.work.records.started.iter().map(|s| &s.cell).collect();
+    let far = match begun.len() {
+        0..=4 => 0,
+        5..=9 => 1,
+        _ => 2,
+    };
+    let kept = frontier.entry(format!("{}@{far}", round.cell.as_str())).or_default();
     if kept.len() < FRONTIER {
         kept.push(history.clone());
     } else if rng.chance(15) {
@@ -1496,16 +1508,17 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
         }
         // A cell with a line open and a state kept at one of its rounds; where there is none, the deepest cell there is.
         let cells: Vec<&String> = (order.iter())
-            .filter(|c| open.contains(c.as_str()) && frontier.contains_key(*c))
+            .filter(|c| open.contains(c.as_str()) && !keys_of(&frontier, c).is_empty())
             .collect();
         let cell = match cells.len() {
-            0 => (order.iter().rev().find(|c| frontier.contains_key(*c))).cloned(),
+            0 => (order.iter().rev().find(|c| !keys_of(&frontier, c).is_empty())).cloned(),
             n => Some(cells[branch % n].clone()),
         };
         let Some(cell) = cell else {
             break;
         };
-        let states = &frontier[&cell];
+        let keys = keys_of(&frontier, &cell);
+        let states = &frontier[keys[rng.below(keys.len())]];
         let mut history = states[rng.below(states.len())].clone();
         history.rng = Rng::new(seed.wrapping_mul(104_729).wrapping_add(branch as u64));
         history.quiet = 0;
