@@ -59,7 +59,12 @@ async fn a_round_that_fails_pauses_its_work_with_the_reason_and_hands_out_nothin
         })
     );
     let pause = decide::pause(&kept.records).expect("the work is paused");
-    assert_eq!((pause.by, pause.why.as_deref()), (Pauser::Engine, Some(WHY)));
+    // A sentence of the files' words, with the failure's own words after a colon.
+    let reason = format!("The round failed. The cause: {WHY}");
+    assert_eq!(
+        (pause.by, pause.why.as_deref()),
+        (Pauser::Engine, Some(reason.as_str()))
+    );
     // The plan's run is at rest, its next round held by the pause: nothing more comes.
     assert_eq!(
         trial.decision(work),

@@ -24,13 +24,14 @@ fn a_failed_round_and_the_engines_pause_are_said_with_the_reason() {
     ]);
     assert_eq!(engine.says(&["resume", "1"]), "Work W1 goes on.\n");
     // The engine's pause and its reason, each a sentence.
-    let paused =
-        format!("#1 \"Greet the user\" at level 1, project script, W1 on trial: paused at plan by the engine. {WHY}.");
+    let paused = format!(
+        "#1 \"Greet the user\" at level 1, project script, W1 on trial: paused at plan by the engine. The round failed. The cause: {WHY}."
+    );
     engine.until(&["list"], |line| line == paused);
     let shown = engine.says(&["show", "1"]);
     assert!(
         shown.contains(&format!(
-            "\nNow: paused at plan by the engine. {WHY}.\nPaused: by the engine.\n"
+            "\nNow: paused at plan by the engine. The round failed. The cause: {WHY}.\nPaused: by the engine.\n"
         )),
         "{shown}"
     );

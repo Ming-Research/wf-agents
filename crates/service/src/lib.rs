@@ -1713,7 +1713,7 @@ mod tests {
         assert_eq!(
             fork_outline(&stored.kept(&none)),
             Err(
-                "The version of the flow work 1 ran on was not kept: which session its round ran in is not known."
+                "The version of the flow W1 ran on was not kept: which session its round ran in is not known."
                     .to_string()
             )
         );

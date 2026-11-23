@@ -737,7 +737,7 @@ impl Inner {
                     let stderr = String::from_utf8_lossy(&stderr).into_owned();
                     // A session begun before its first round was cut off, or one the program no longer has, is tried
                     // the other way, once.
-                    if !status.success() && stream.is_empty() && !tried && begin.refused(&stderr) {
+                    if !status.success() && !tried && stream.refused(begin, &stderr) {
                         if begin == Begin::Resume && !recorded {
                             teller.session_began(line.to_string(), Why::Lost);
                         }
@@ -2237,7 +2237,8 @@ fn lost_in(work: &Work, line: &str, round: &Round) -> bool {
 /// Of a round given again after the process of the engine that gave it ended while a try of it ran: that try's number
 /// and its program's stream, read from what the try kept of it, where the program said it began, reached the service
 /// or printed its result. None where the round has kept no try, or its last try's program said none of these, as one
-/// the engine ended before it read its message, or one the command line refused to begin, which is given again.
+/// the engine ended before it read its message, or one the command line refused to begin or to go on in, on its
+/// standard error or in a result that is all its stream holds, which is given again.
 async fn left_try(base: &Path) -> Option<(usize, cli::Stream)> {
     let (next, ..) = attempt(base).await;
     let last = next.checked_sub(1).filter(|n| *n > 0)?;
@@ -2246,7 +2247,8 @@ async fn left_try(base: &Path) -> Option<(usize, cli::Stream)> {
     for line in printed.split(|b| *b == b'\n').filter(|line| !line.is_empty()) {
         stream.line(line);
     }
-    (stream.began() || stream.priced().is_some() || stream.has_result()).then_some((last, stream))
+    let said = stream.began() || stream.priced().is_some() || stream.has_result();
+    (said && stream.refusal().is_none()).then_some((last, stream))
 }
 
 /// The last message of the round of this base in its session, as its tries' streams name it ([`cli::last_message`]):
@@ -3325,6 +3327,28 @@ mod tests {
             Carried::Stopped => panic!("the round was stopped"),
         };
         assert_eq!(spent.usd_micros, 30_000);
+    }
+
+    // A left try whose stream is only a result saying that its session is not found, as version 2.1.327 prints it, was
+    // refused, and is none: its round is given again and tries the session the other way. A result that is an error for
+    // another reason is a left try. Well under a second alone; no other test holds a left try that was refused.
+    #[tokio::test]
+    async fn a_left_try_whose_result_says_only_that_its_session_is_not_found_is_given_again() {
+        let failed = |said: &str| {
+            serde_json::json!({ "type": "result", "subtype": "error_during_execution", "is_error": true,
+                "num_turns": 0, "total_cost_usd": 0, "errors": [said] })
+            .to_string()
+        };
+        let lost = failed("No conversation found with session ID: 00000000-0000-5000-8000-000000000001");
+        let dir = tempfile::tempdir().unwrap();
+        let (agents, round) = given_round_of(dir.path(), left_work(false), Default::default());
+        left_by_an_engine(&agents, &round, &[lost], 0);
+        assert!(agents.inner.left(&round, None).await.expect("it is read").is_none());
+
+        let dir = tempfile::tempdir().unwrap();
+        let (agents, round) = given_round_of(dir.path(), left_work(false), Default::default());
+        left_by_an_engine(&agents, &round, &[failed("Prompt is too long")], 0);
+        assert!(agents.inner.left(&round, None).await.expect("it is read").is_some());
     }
 
     // A stream kept before the start of each call was kept with it says what the calls cost and not their prompts: no

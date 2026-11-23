@@ -442,7 +442,7 @@ mod tests {
             limited.found,
             Found::Down {
                 failure: Failure::UsageLimit,
-                why: "the command line's result is an error: You've hit your weekly limit".to_string(),
+                why: "The command line's result is an error: You've hit your weekly limit".to_string(),
                 resets: Some(Time(1_793_394_000_000)),
             }
         );
