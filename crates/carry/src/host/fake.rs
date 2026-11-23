@@ -6,6 +6,8 @@
 use std::collections::VecDeque;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
+use store::Continues;
+
 use super::{Asking, Branch, Failed, Host, Named, NotMerged, Verdict};
 use crate::held::Stop;
 
@@ -24,6 +26,8 @@ pub(crate) struct Fake {
     titles: Mutex<Vec<String>>,
     /// What asked for each verdict and each run of the tests, in order.
     askings: Mutex<Vec<Asking>>,
+    /// What it gives of what an item continues; a refusal where it is given none.
+    continuing: Mutex<Option<Result<String, Failed>>>,
 }
 
 /// What the host was asked.
@@ -41,6 +45,8 @@ pub(crate) enum Asked {
     End(String, bool),
     /// To take up again what it held for the branch, the work having been reopened.
     Reopen(String),
+    /// The head of what an item continues.
+    Continued(Continues),
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -59,7 +65,14 @@ impl Fake {
             tests: Mutex::new(None),
             titles: Mutex::new(Vec::new()),
             askings: Mutex::new(Vec::new()),
+            continuing: Mutex::new(None),
         }
+    }
+
+    /// Gives this when it is asked for the head of what an item continues.
+    pub(crate) fn continued_at(self, answer: Result<String, Failed>) -> Fake {
+        *lock(&self.continuing) = Some(answer);
+        self
     }
 
     /// Fails to let go, with these words, until it is told otherwise.
@@ -135,6 +148,12 @@ impl Host for Fake {
             return Err(refusal);
         }
         Ok(lock(&self.main).clone())
+    }
+
+    async fn continued(&self, what: &Continues) -> Result<String, Failed> {
+        lock(&self.asked).push(Asked::Continued(what.clone()));
+        let answer = lock(&self.continuing).clone();
+        answer.unwrap_or_else(|| Err(Failed::refused("the fake host has nothing an item continues to give")))
     }
 
     fn kept_main(&self) -> String {
