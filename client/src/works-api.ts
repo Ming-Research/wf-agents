@@ -540,11 +540,13 @@ export type Scope = 'cell' | 'flow' | 'tool' | 'works' | 'line';
 
 /// How a round missed its session's prompt cache: it went on in its session within the cache's lifetime, and its first
 /// call read less than half of what the session held from the cache. `differs` names what comes before the session's
-/// messages and differs from the call before, the cause by design; none where nothing does, a fault of wf-agents.
+/// messages and differs from the call before, the cause by design; none where nothing does, a fault of wf-agents,
+/// unless `unknown`: the records do not say why it missed.
 export interface Missed {
   read: number;
   held: number;
   differs: string[];
+  unknown: boolean;
 }
 
 /// The session of its line a round runs in: which of the line's sessions, as the records count them, the line's first
