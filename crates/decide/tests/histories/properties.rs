@@ -728,12 +728,12 @@ fn question_holds(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision)
         Decision::Ended(End::Merged) => Some(flow.cells().len()),
         _ => None,
     };
-    // A round under way ends before anything else begins: one that began while no question held the work before its
-    // cell is no breach, though one holds it now.
+    // A run under way, its sent-back rounds included, ends before anything else begins: one that began while no
+    // question held the work before its cell is no breach, though one holds it now.
     let began_clear = match d {
         Decision::Busy { run, .. } => {
             let r = reading.records;
-            let began = r.rounds.iter().filter(|x| x.run == *run).map(|x| x.at).max();
+            let began = r.started.iter().find(|x| x.run == *run).map(|x| x.at);
             began.is_some_and(|began| {
                 let then = r.before(began);
                 let before = Reading::new(flow, &then);
