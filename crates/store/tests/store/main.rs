@@ -18,7 +18,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use decide::{
-    CallId, Called, Done, Finished, Outsider, Pauser, PutIn, Returned, Round, RunId, Seq, Started, Who, Write, Written,
+    CallId, Called, Done, Finished, Hurried, Outsider, Pauser, PutIn, Returned, Round, RunId, Seq, Started, Who, Write,
+    Written,
 };
 use engine::{Ask, Came, Effect, Event, Given, Handed, Spent, Time, Work, handle, pending};
 use flow::{Compiled, Has, Source, compile};
@@ -537,7 +538,8 @@ fn reopened_after(d: &mut Driver) {
 ///
 /// - The owner writes the request, and the writer is entered: its first try begins, and its session is filled with
 ///   which work and item it is for, the task, and the request whole. While its round is under way the owner writes the
-///   request again, and that version is put in to it. Its return deals with the request and hands in the text.
+///   request again, and the round is told to hand in what it has and given that version. Its return deals with the
+///   request and hands in the text.
 /// - The judge is entered for the text, filled likewise. Its return asks for a tool and deals with nothing: the call is
 ///   made as the return is taken, which ends the run, and the cell waits until the call has its result.
 /// - The judge is entered again, as a new run, for the result: its session, which holds the rest, is filled with the
@@ -564,6 +566,7 @@ fn of_the_new_form() -> Work {
         vec![b.for_work(), Fill::part("task", WRITE), whole("request", first)],
     );
     let second = b.person_writes("request");
+    b.hurries(writer, "request", second);
     b.put_in(writer, "request", second);
     b.returns(writer);
     let text = b.finishes(writer, &[("text", false, None)], &["request"]);
@@ -731,6 +734,17 @@ impl Building {
             at,
             line: line.to_string(),
             why: engine::Why::Lost,
+        });
+    }
+
+    /// The round of the run is told to hand in what it has, for this version of the block.
+    fn hurries(&mut self, run: RunId, block: &str, version: Seq) {
+        let at = self.w.tick();
+        self.w.records.hurried.push(Hurried {
+            run,
+            block: block.into(),
+            version,
+            at,
         });
     }
 

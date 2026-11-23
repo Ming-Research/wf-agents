@@ -1,8 +1,9 @@
 //! A round that missed its session's prompt cache, as the work's records tell it. A round that goes on in its session
 //! within the cache's lifetime since the session's last call reads from the cache, at its first call, what the session
 //! held; one whose first call read less than half of it paid for writing the rest again, which the cache should have
-//! held. What a round wrote to the cache is no measure of a miss: it is also what the session gained since, the answer
-//! of the round before and the round's own message, which after a round of tools is large.
+//! held ([`missed`], by which a fork of the session is judged too). What a round wrote to the cache is no measure of a
+//! miss: it is also what the session gained since, the answer of the round before and the round's own message, which
+//! after a round of tools is large.
 //!
 //! A miss after what comes before the session's messages in the prompt changed since the call before (the model, the
 //! effort, the account, whose cache is its own, the program's version, the system prompt, the schema, the tools) is
@@ -47,6 +48,13 @@ impl Miss {
     }
 }
 
+/// Whether a call that went on in a session, a round's or a fork's, missed the session's prompt cache, where the cache
+/// was alive: its first call read under half of the `held` tokens the session held. The one test for a round and for a
+/// fork.
+pub fn missed(read: u64, held: u64) -> bool {
+    held > 0 && read.saturating_mul(2) < held
+}
+
 /// Each round of the work that missed its session's prompt cache, which keeps a session `life_ms` after its last call,
 /// in the order the rounds began.
 pub fn misses(flow: &Compiled, work: &Work, life_ms: u64) -> Vec<Miss> {
@@ -74,7 +82,7 @@ pub fn misses_by(line_of: &dyn Fn(&CellId) -> Option<String>, work: &Work, life_
         let (Some(read), Some(held)) = (measures.first_read, held) else {
             continue;
         };
-        if held == 0 || read.saturating_mul(2) >= held {
+        if !missed(read, held) {
             continue;
         }
         let Some((last, before)) = last_call(line_of, work, line, round.run, number) else {
@@ -162,4 +170,22 @@ fn last_call(
 fn line_of_run(line_of: &dyn Fn(&CellId) -> Option<String>, work: &Work, run: RunId) -> Option<String> {
     let started = work.records.started.iter().find(|s| s.run == run)?;
     line_of(&started.cell)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The one test of a miss, for a round and for a fork: under half of what the session held was read. Half is not a
+    // miss, and a session that held nothing has nothing to miss.
+    #[test]
+    fn a_call_missed_its_sessions_cache_if_it_read_under_half_of_what_the_session_held() {
+        assert!(missed(0, 10_000));
+        assert!(missed(4_999, 10_000));
+        assert!(!missed(5_000, 10_000));
+        assert!(!missed(9_000, 10_000));
+        assert!(!missed(10_000, 10_000));
+        assert!(!missed(0, 0), "nothing was held");
+        assert!(!missed(u64::MAX, u64::MAX), "no overflow");
+    }
 }

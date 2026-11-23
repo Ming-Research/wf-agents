@@ -6,7 +6,8 @@ line = "engineer"
 effort = "xhigh"
 takes_main = true
 task = '''
-Implement `plan_agent`, changing only what this work needs. For each question put to the owner, follow the option the
+Implement `plan_agent`, changing only what this work needs. Read the design tree as its rules say, beyond
+`tree_entries`, for what the change touches. For each question put to the owner, follow the option the
 owner took, or else the one it recommends. For each answered question marked `tree`, write the option taken into the
 design tree, as its rules say. If main's tree has changed since, an entry may follow its wording and place, but not
 change its meaning. After you change the tree, run `project.tree_check` and fix what it
@@ -42,7 +43,7 @@ watches = [
   "i1_questions",
   "i1_words",
 ]
-reads = ["background", "tree"]
+reads = ["background", "tree", "tree_entries"]
 outputs = [
   "code",
   "title",
@@ -74,6 +75,8 @@ check = """Fix what `check` found and commit. If you judge it is not this change
 [kinds]
 # Given as the files that changed since the tree this session read.
 tree = "last_and_latest"
+# The entries of the design tree the plan was worked from, whole.
+tree_entries = "latest"
 background = "latest"
 plan_owner = "last_and_latest"
 plan_doubts = "all"

@@ -8,9 +8,9 @@ The list of works shows #, Title, State, Cells, Level, Cell level, Cost, Time an
 - rejected: an agent proposed columns of fixed widths, sortable only by #, Cost, Time or Last; the owner rejected it, because each column must widen when its header is dragged, and a click on the header of every column that has an order must sort by it.
 - rejected: the owner proposed the model's name beside each level; the owner rejected it, because level and model are two layers, another vendor's names are long, and an ended work would show the model that today's mapping gives.
 
-### decision taken-is-the-time-under-way
-The time a work has taken is the time its rounds were under way, not counting its waits.
-- rejected: an agent proposed counting a work's time from its start; the owner rejected it, because time counted from the start does not show whether a work ran too long.
+### decision a-cards-time-counts-from-the-first-round
+A work's card shows how long ago its first round began, waits included; the time its rounds were under way is in its usage on the works page.
+- replaced: A card's time counting only the time its work's rounds were under way was on main; the owner changed it, because how long a work has gone on tells at a glance how long it has dragged, and the card had never counted so.
 
 ### decision a-works-page-shows-its-item-window
 A work's page shows the console's item window for the work's item over its right side, its Step showing the chosen row of the history; only there does the owner answer, choose and write.

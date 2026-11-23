@@ -21,8 +21,9 @@ A return asking for no call, from a line that may change the work, is sent back 
 - rejected: an agent proposed that the engine delete every untracked file as a round ends; the owner rejected it, because it would delete a new file the agent forgot to commit, losing work already paid for, and cannot tell a cache from a new file.
 
 ### decision heavy-commands-are-the-projects
-Every agent is refused pushing, which the files beside the flows refuse to every agent, and the heavy commands that its project's declaration names.
+Every agent is refused pushing and the agents' own program, which the files beside the flows refuse to every agent, and the heavy commands its project's declaration names.
 - replaced: A list of heavy commands written in the engine, other projects' commands among them, with pushing refused in the code, was on main; the owner changed it, because what belongs to a project goes in its own declaration, and only the engine pushes.
+- replaced: Refusing every agent pushing alone was on main; the owner changed it, because an agent that ran the agents' program itself spent where no work's record or budget counts it.
 - rejected: an agent proposed dropping the agents' rule against heavy work on this machine once their permissions refuse it; the owner rejected it, because an agent may still try to run it locally for convenience, so the rule says it briefly and the permissions refuse it too.
 
 ### decision lock-commands-under-heavy-ones

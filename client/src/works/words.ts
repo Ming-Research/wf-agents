@@ -686,6 +686,8 @@ export function unmetWords(unmet: Unmet): string {
       return 'it ended its round with a merge under way that is not committed';
     case 'treeUnchanged':
       return `it handed in the change, which changes nothing in the design tree, while ${unmet.name}, marked tree, has the owner's answer`;
+    case 'notAnEntry':
+      return `it named ${unmet.line}, which is no entry of the design tree on the work's branch`;
     case 'unanswered':
       return `it dealt with ${unmet.block}, and committed nothing and asked nothing`;
     case 'wordOwed':

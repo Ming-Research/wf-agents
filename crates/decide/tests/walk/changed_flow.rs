@@ -71,3 +71,23 @@ fn a_changed_specification_runs_its_cell_when_the_owner_says_it_matters_and_not_
         )
     );
 }
+
+#[test]
+fn a_hurry_recorded_before_a_move_reads_by_the_name_the_move_gave_its_block_and_one_after_it_as_recorded() {
+    let mut records = decide::Records::default();
+    for at in [3, 9] {
+        records.hurried.push(decide::Hurried {
+            run: RunId(1),
+            block: "old".into(),
+            version: Seq(2),
+            at: Seq(at),
+        });
+    }
+    let reading = decide::Reading {
+        cells: BTreeMap::new(),
+        blocks: BTreeMap::from([(BlockId::from("old"), BlockId::from("new"))]),
+    };
+    reading.read(&mut records, Seq(5));
+    assert_eq!(records.hurried[0].block, BlockId::from("new"));
+    assert_eq!(records.hurried[1].block, BlockId::from("old"));
+}
