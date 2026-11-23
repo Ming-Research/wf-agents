@@ -427,8 +427,7 @@ fn a_migrated_file_has_sound_foreign_keys_and_takes_the_reading_and_the_changes_
         Ok(Ok(vec![true, true, true]))
     );
     let all = observations.all().expect("read");
-    let said: Vec<(u64, Option<String>, Vec<String>, Option<Time>)> =
-        (all.into_iter()).map(|o| (o.number, o.title, o.tags, o.read)).collect();
+    let said: Vec<_> = (all.into_iter()).map(|o| (o.number, o.title, o.tags, o.read)).collect();
     assert_eq!(
         said,
         [
