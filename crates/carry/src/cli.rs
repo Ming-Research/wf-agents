@@ -9,8 +9,9 @@
 //! that happens, and near the end the result, which only the command line's own `system` lines (a `task_summary`)
 //! follow, with the structured return in `structured_output`, the tokens of this call in `usage`, and in
 //! `model_usage_since_last_result` what the program spent, subagents and compactions included, since the result before
-//! it, or since the program began where there is none (`total_cost_usd`, the whole session's cost, is read by nothing):
-//! a round's own cost is the sum of those over its results. Each message of the model comes whole in an `assistant` line;
+//! it, or since the program began where there is none: a round's own cost is the sum of those over its results, and
+//! `total_cost_usd`, the whole session's cost, is read only by the one-off repair of recorded costs ([`Stream::told`]).
+//! Each message of the model comes whole in an `assistant` line;
 //! with `--include-partial-messages` it also comes in pieces as the model writes it (`stream_event` lines), the input
 //! of each tool among them. The result gives no text of an attempt at a return the command line refused: an attempt
 //! that is JSON is whole in its `assistant` line, and one cut off, which is no JSON, only in its pieces. A failed call
