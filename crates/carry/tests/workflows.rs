@@ -163,7 +163,9 @@ fn each_workflow_the_engine_runs_takes_a_commit_and_a_call_and_names_its_run_by_
 #[test]
 fn the_stop_the_engine_gives_goes_into_a_copy_of_nextests_file_and_with_none_the_file_is_used_as_it_is() {
     for file in ["ci.yml", "fast.yml"] {
-        let dispatch = under(&block(&workflow(file), "on"), "workflow_dispatch");
+        let text = workflow(file);
+        let on = block(&text, "on");
+        let dispatch = under(&on, "workflow_dispatch");
         let inputs = children(&under(&dispatch, "inputs")[1..]);
         assert!(
             inputs.iter().any(|i| i == "test_stop"),

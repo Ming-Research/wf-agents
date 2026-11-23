@@ -357,9 +357,9 @@ error[E0599]: no method named `rounds_mark` found
         };
         assert_eq!(one(r#" time="4.887""#).unwrap().cases[0].millis, Some(4887));
         assert_eq!(one("").unwrap().cases[0].millis, None);
-        let refused = one(r#" time="soon""#)
-            .err()
-            .expect("a time that is no number is refused");
+        let Err(refused) = one(r#" time="soon""#) else {
+            panic!("a time that is no number is refused");
+        };
         assert!(
             refused.contains("test.xml") && refused.contains("the time of the test a"),
             "{refused}"

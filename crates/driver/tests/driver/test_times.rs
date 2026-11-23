@@ -19,6 +19,7 @@ fn timed() -> Compiled {
         calls = 3
         [lines.main]
         [blocks.text]
+        shown = true
         [blocks.start]
         outside = "start"
         writes = { text = "The owner started the work." }
