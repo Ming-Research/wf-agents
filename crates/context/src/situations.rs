@@ -5,13 +5,14 @@
 //! An entry is `first`, where the cell has worked from nothing; `later`, where the cell was entered before in the same
 //! session, which holds every part of the message it keeps, the last return in it being that of the cell or of another
 //! cell of its line entered since; `reopened`, where the cell ran before and its session was begun anew since, so that
-//! it holds nothing; `compacted`, where the session was compacted as the last round of the line's session ended, that of
-//! the cell or of another cell of its line, and holds what that return handed in and no part of the message; or `reopened_after_read`, where the session
-//! was begun anew or compacted since the cell ran, and another cell of its line was entered in it first, so that it
-//! holds what that cell was sent and what its return handed in, and of the message only what it has in common with
-//! this cell. On a first entry the session holds nothing where the cell is the first of its line in the flow's order or
-//! the session was begun anew; otherwise it goes on from the cell of the line before it, and holds each part of the
-//! message kept alike for both, and what that cell's return handed in, where it writes any block and handed one in.
+//! it holds nothing; `compacted`, where the session was compacted as the last round of the line's session ended, that
+//! of the cell or of another cell of its line, and holds what that return handed in and no part of the message; or
+//! `reopened_after_read`, where the session was begun anew or compacted since the cell ran, and another cell of its
+//! line was entered in it first, so that it holds what that cell was sent and what its return handed in, and of the
+//! message only what it has in common with this cell. On a first entry the session holds nothing where the cell is the
+//! first of its line in the flow's order or the session was begun anew; otherwise it goes on from the cell of the line
+//! before it, and holds each part of the message kept alike for both, and what that cell's return handed in, where it
+//! writes any block and handed one in.
 //!
 //! What it watches that ran it is each datum or group alone, those whose blocks one cell's return writes together, and
 //! all of them at once. On a first entry, where everything written is new to the cell, every datum it watches that the
@@ -29,38 +30,37 @@
 //! On a first entry, a datum only the cell itself or cells after it in the order write is not written yet, and what the
 //! cell watches of such data runs no first entry.
 //!
-//! A datum the cell watches that ran it is new to it: the session lacks it, or holds it from a cell of the line that
-//! is given it or writes it, as the version last worked from or the latest, or as one the cell never worked from; of a
-//! group, one datum of the group at least is new, and each stands by its own state. A datum the cell writes as well
-//! may stand with nothing new in it though it ran the cell: a version written by another while its run was under way
-//! ran it, and the cell's own, after it, is the one it last worked from; not the record of its questions, whose versions
-//! are the owner's. Any other datum the cell is given, the cell's own writes aside,
-//! stands any way the entry allows, since a version of it may be written while the run is under way: unwritten where
-//! it is not certainly written, lacking, held from a cell of the line, or, on a later entry, held as last worked from,
-//! latest, or with nothing new; but a datum only people write that an earlier cell of the line watches is never held as
-//! last worked from where it did not run the cell, since its new version runs that cell, whose round fills it first; and
-//! the datum the work starts with is never held as one the first agent's cell never worked from where it did not run it,
-//! though a later agent's cell may never have worked from it, its run having been stopped for the earlier cell that the
-//! datum ran. A datum only the cell writes is never new to it: unwritten on a first entry, held on a
-//! later one, held or, where its return handed in none, lacking on one compacted, lacking on one reopened, and lacking
-//! or, held from another cell of the line, held on one reopened after another cell read, and unwritten on any where it
-//! is not certainly written. A block the cell writes that nothing else gives it is given only where the session lacks
-//! its latest: lacking or, held from a cell of the line, held on a first entry where it may be written before; held on
-//! a later one, or lacking where another writes it too; held or lacking on one compacted; lacking on one reopened;
-//! lacking or, held from another cell of the line, held on one reopened after another cell read; and unwritten on any
-//! where it is not certainly written. A datum whose versions the carrier compares itself, given `last_and_latest`, that
-//! stands lacking is unread: the session holds none of it, and on a first entry it may hold an earlier version, which
-//! it is told what changed since.
+//! A datum the cell watches that ran it is new to it: the session lacks it, or holds it from a cell of the line that is
+//! given it or writes it, as the version last worked from or the latest, or as one the cell never worked from; of a
+//! group, one datum of the group at least is new, and each stands by its own state. A datum the cell writes as well may
+//! stand with nothing new in it though it ran the cell: a version written by another while its run was under way ran
+//! it, and the cell's own, after it, is the one it last worked from; not the record of its questions, whose versions
+//! are the owner's. Any other datum the cell is given, the cell's own writes aside, stands any way the entry allows,
+//! since a version of it may be written while the run is under way: unwritten where it is not certainly written,
+//! lacking, held from a cell of the line, or, on a later entry, held as last worked from, latest, or with nothing new;
+//! but a datum only people write that an earlier cell of the line watches is never held as last worked from where it
+//! did not run the cell, since its new version runs that cell, whose round fills it first; and the datum the work
+//! starts with is never held as one the first agent's cell never worked from where it did not run it, though a later
+//! agent's cell may never have worked from it, its run having been stopped for the earlier cell that the datum ran. A
+//! datum only the cell writes is never new to it: unwritten on a first entry, held on a later one, held or, where its
+//! return handed in none, lacking on one compacted, lacking on one reopened, and lacking or, held from another cell of
+//! the line, held on one reopened after another cell read, and unwritten on any where it is not certainly written. A
+//! block the cell writes that nothing else gives it is given only where the session lacks its latest: lacking or, held
+//! from a cell of the line, held on a first entry where it may be written before; held on a later one, or lacking where
+//! another writes it too; held or lacking on one compacted; lacking on one reopened; lacking or, held from another cell
+//! of the line, held on one reopened after another cell read; and unwritten on any where it is not certainly written. A
+//! datum whose versions the carrier compares itself, given `last_and_latest`, that stands lacking is unread: the
+//! session holds none of it, and on a first entry it may hold an earlier version, which it is told what changed since.
 //!
 //! A datum's text is the builder's from its kind and from how the session stands with it alone, so a product of every
 //! datum's own states repeats the same texts: it is counted ([`combinations`]), and the situations hold every state of
-//! each datum: the data of what ran the cell and the rest each stand alike where they can, each state of either in
-//! some situation, and each datum that stands in a state of its own goes through its states as the situations go on; a
-//! datum that cannot stand as its class does is unwritten where it may be, else lacking. Besides, on a later entry run by the
+//! each datum: the data of what ran the cell and the rest each stand alike where they can, each state of either in some
+//! situation, and each datum that stands in a state of its own goes through its states as the situations go on; a datum
+//! that cannot stand as its class does is unwritten where it may be, else lacking. Besides, on a later entry run by the
 //! first datum or group the cell watches, with the data of what ran it held as last worked from and the rest held: the
-//! result of a call of each kind the engine gives a round and why a return was sent back, which come after a return that
-//! handed in nothing, each come of taking main in where the cell takes it, new to the session, and an entry after a
-//! return that handed in nothing; and, where the cell takes main in, one that holds what came of it.
+//! result of a call of each kind the engine gives a round and why a return was sent back, which come after a return
+//! that handed in nothing, each come of taking main in where the cell takes it, new to the session, and an entry after
+//! a return that handed in nothing; and, where the cell takes main in, one that holds what came of it.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -129,10 +129,6 @@ enum Class {
 /// is no result, and of a call the work does not hold, and the owner's word to a run at its limit, which the run goes
 /// on after, in the same run, and so is given to no round of another.
 const UNREACHED: [&str; 2] = ["unknown", "at_limit"];
-
-/// The name of the engine's own source that writes yes into the datum a cell names in its condition once a run of the
-/// cell that dealt with something has finished (`../data/of_a_cell/handed_in.toml`), and never writes it again.
-const HANDED_IN: &str = "handed_in";
 
 /// A set of what the cell watches that ran it, with the name that says it.
 struct Ran<'a> {
@@ -390,9 +386,9 @@ impl<'a> Reach<'a> {
         common.unwrap_or_default()
     }
 
-    /// Whether the cells before the one at this place that write the datum on every run and surely run, do run whichever
-    /// way the conditions go, as the module says. A cell surely runs where something it watches is certainly written
-    /// before it.
+    /// Whether the cells before the one at this place that write the datum on every run and surely run, do run
+    /// whichever way the conditions go, as the module says. A cell surely runs where something it watches is certainly
+    /// written before it.
     fn written_before(&self, place: usize, block: &BlockId) -> bool {
         let flow = self.flow;
         let cells = flow.flow.cells();
@@ -594,7 +590,7 @@ impl<'a> Reach<'a> {
         let cell = &flow.flow.cells()[place];
         let ends = cell.applies.iter().any(|key| match key {
             Condition::Is { block, .. } => (flow.blocks.get(block))
-                .is_some_and(|d| d.writers.outside.as_deref() == Some(HANDED_IN) && !d.writers.people),
+                .is_some_and(|d| d.writers.outside.as_deref() == Some(flow::HANDED_IN) && !d.writers.people),
             Condition::Test(_) => false,
         });
         ends && !cell.outputs.contains(block) && self.cell.watches.iter().any(|t| t.blocks.contains(block))
@@ -912,9 +908,8 @@ impl<'a> Reach<'a> {
                 }
             }
             Entry::Reopened => add(Vec::new(), false, None),
-            // Its session holds what its return handed in, and none of the message.
-            // Its session holds what the return of the last round in it handed in, that of any cell of the line, and none
-            // of the message.
+            // Its session holds what the return of the last round in it handed in, that of any cell of the line, and
+            // none of the message.
             Entry::Compacted if self.writes() || self.others.iter().any(|o| self.writes_of(o)) => {
                 add(Vec::new(), true, None)
             }

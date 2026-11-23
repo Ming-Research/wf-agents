@@ -27,8 +27,8 @@ pub mod source;
 pub mod system;
 
 pub use compile::{
-    ANSWER, Block, CellSpec, Compiled, EveryAgent, Fault, FaultKind, Given, Has, Limits, Line, Readers, Shape, TREE,
-    TURNING, Taken, WORDS, Watched, Writers, compile,
+    ANSWER, Block, CellSpec, Compiled, EveryAgent, Fault, FaultKind, Given, HANDED_IN, Has, Limits, Line, Readers,
+    Shape, TREE, TURNING, Taken, WORDS, Watched, Writers, compile,
 };
 pub use decide::{Test, TestKind};
 pub use outline::{Outline, Renumbering, reading};

@@ -11,9 +11,9 @@ use decide::{BlockId, CellId, Outsider, Written};
 use flow::Compiled;
 use work::Work;
 
-/// The source of the datum that says whether a cell has handed its work in. Such a block is a choice of no and
-/// [`YES`].
-pub const HANDED_IN: &str = "handed_in";
+/// The source of the datum that says whether a cell has handed its work in ([`flow::HANDED_IN`]). Such a block is a
+/// choice of no and [`YES`].
+pub use flow::HANDED_IN;
 /// The value of a [`HANDED_IN`] block once its cell has handed its work in.
 pub const YES: &str = "yes";
 

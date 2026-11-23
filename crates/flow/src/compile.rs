@@ -124,6 +124,10 @@ pub const WORDS: &str = "words";
 /// that may ask.
 pub const ANSWER: &str = "answer";
 
+/// The source of a cell's own word that it has handed its work in: the engine writes yes into it as the first run of
+/// the cell that dealt with something finishes, and never writes it again (design document `data-and-context`, 2).
+pub const HANDED_IN: &str = "handed_in";
+
 /// The source of the design tree on the work's branch: the engine writes a version of it where the tree differs from
 /// the last version, and a cell is given what changed in it as the files that changed (design document
 /// `data-and-context`, 23). A block whose lines name entries of the tree (`names_tree_entries`) is given by its latest
