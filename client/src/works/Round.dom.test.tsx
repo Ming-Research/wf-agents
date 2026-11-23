@@ -152,13 +152,31 @@ describe("a round's part of a run's panel", () => {
     const run = page.steps.find((s) => s.kind === 'run');
     if (run?.kind !== 'run') throw new Error('no run');
     const second = run.rounds[1];
-    second.missed = { read: 1_200, held: 34_340, differs: ['model'] };
+    second.missed = { read: 1_200, held: 34_340, differs: ['model'], unknown: false };
     second.estimated = true;
     const panel = await runPanel(page, 0, sourceOf());
     const round = roundPart(panel, 2);
     expect(keys(pair(round, 'Missed'))).toEqual(['first_read 1,200', 'held 34,340', 'differs model']);
     expect(keys(pair(round, 'Took')).at(-1)).toBe('priced true');
   });
+
+  // A round's miss says why in its `differs` key: the parts that differed, that the records do not say, or none, which
+  // is a fault of wf-agents.
+  const why: [string, { differs: string[]; unknown: boolean }, string][] = [
+    ['names what differed from the call before', { differs: ['program_tools'], unknown: false }, 'differs program_tools'],
+    ['says that the records do not say why', { differs: [], unknown: true }, 'differs unknown'],
+    ['says that nothing differed, a fault of wf-agents', { differs: [], unknown: false }, 'differs none'],
+  ];
+  for (const [title, missed, said] of why) {
+    it(`a round that missed its cache ${title}`, async () => {
+      const page = fixtureWork(41);
+      const run = page.steps.find((s) => s.kind === 'run');
+      if (run?.kind !== 'run') throw new Error('no run');
+      run.rounds[1].missed = { read: 1_200, held: 34_340, ...missed };
+      const panel = await runPanel(page, 0, sourceOf());
+      expect(keys(pair(roundPart(panel, 2), 'Missed')).at(-1)).toBe(said);
+    });
+  }
 
   it('names its times by what they were and never by a number, and says why it ran again', async () => {
     const panel = await runPanel(fixtureWork(41), 0, sourceOf());

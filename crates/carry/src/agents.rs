@@ -695,7 +695,7 @@ impl Inner {
                     let told = &entered.text;
                     keep_told(&base, n, &told_at, told).await?;
                     let (system, form) = begun_with()?;
-                    let before = self.before_messages(&on, round.account.as_deref(), &system, &form, &permissions);
+                    let before = before_messages(&on, round.account.as_deref(), &system, &form);
                     let command = self.command(
                         &dir,
                         &on,
@@ -1116,29 +1116,16 @@ impl Inner {
         let session = session::session(self.installation, round.work, line, number);
         let begun = |what| std::fs::read_to_string(system::kept_at(&self.data, session, what)).ok();
         let (system, form) = (begun(system::Begun::System), begun(system::Begun::Form));
-        let (args, added) = (&self.settings.agents.args, &self.settings.agents.permissions);
-        let refused = of.map(|of| permissions::refused_commands(&of.beside));
-        let permissions = Permissions::of(
-            round.cell.reads_only,
-            args,
-            refused.as_deref().unwrap_or_default(),
-            added,
-        );
         let mut before = match &on {
-            Some(on) => self.before_messages(
+            Some(on) => before_messages(
                 on,
                 account.as_deref(),
                 system.as_deref().unwrap_or_default(),
                 form.as_deref().unwrap_or_default(),
-                &permissions,
             ),
             None => BTreeMap::new(),
         };
-        for (part, there) in [
-            ("system", system.is_some()),
-            ("schema", form.is_some()),
-            ("tools", of.is_some()),
-        ] {
+        for (part, there) in [("system", system.is_some()), ("schema", form.is_some())] {
             if !there {
                 before.remove(part);
             }
@@ -1407,41 +1394,29 @@ fn chars_of(back: &Back) -> u64 {
     written.map_or(0, |text| text.chars().count() as u64)
 }
 
+/// What comes before a session's messages in the prompt of a call on this, under this account, with this system
+/// prompt and form of return, which the cache reads only where it is what the call before had: the model, the
+/// account, whose cache is its own, by its name, left out where there is none, and a digest each of the system
+/// prompt and the schema ([`work::Measures::before`]). What the program says it gave the model, its version, tools
+/// and agents, is added from its stream ([`measures`]); the effort is no part of it, a change of it alone having
+/// missed no cache (research/cache-miss-causes.md).
+fn before_messages(on: &RanOn, account: Option<&str>, system: &str, form: &str) -> BTreeMap<String, String> {
+    let mut before = BTreeMap::from([
+        ("model".to_string(), on.model.clone()),
+        ("system".to_string(), work::digest(system)),
+        ("schema".to_string(), work::digest(form)),
+    ]);
+    if let Some(account) = account {
+        before.insert("account".to_string(), account.to_string());
+    }
+    before
+}
+
 impl Inner {
     /// The lock of the line of the work, made where it has none.
     fn lock(&self, work: WorkNumber, line: &str) -> Arc<tokio::sync::Mutex<()>> {
         let mut locks = self.in_work.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         locks.entry((work, line.to_string())).or_default().clone()
-    }
-
-    /// What comes before a session's messages in the prompt of a call on this, under this account, with this system
-    /// prompt, form of return and permissions, which the cache reads only where it is what the call before had: the
-    /// model, the effort, the account, whose cache is its own, by its name, left out where there is none, and a digest
-    /// each of the system prompt, the schema and the tools the program is given ([`work::Measures::before`]).
-    fn before_messages(
-        &self,
-        on: &RanOn,
-        account: Option<&str>,
-        system: &str,
-        form: &str,
-        permissions: &Permissions,
-    ) -> BTreeMap<String, String> {
-        let tools: Vec<String> = (self.settings.agents.args.iter().cloned())
-            .chain(permissions.arguments())
-            .collect();
-        let mut before = BTreeMap::from([
-            ("model".to_string(), on.model.clone()),
-            ("system".to_string(), work::digest(system)),
-            ("schema".to_string(), work::digest(form)),
-            ("tools".to_string(), work::digest(&tools.join("\n"))),
-        ]);
-        if let Some(effort) = &on.effort {
-            before.insert("effort".to_string(), effort.clone());
-        }
-        if let Some(account) = account {
-            before.insert("account".to_string(), account.to_string());
-        }
-        before
     }
 
     /// Sends the session of the ping its keep-warm message, with the command line of the session's last round, which
@@ -2219,8 +2194,8 @@ impl Keeping {
 }
 
 /// What a try's calls came to, as its stream told them, given a message of this many characters, with what came before
-/// the session's messages and the program's version as its stream told it, whether it went past the run guard's
-/// lines, and whether what it took is priced from its calls; none where its program printed nothing.
+/// the session's messages and the program's version, tools and agents as its stream told them, whether it went past the
+/// run guard's lines, and whether what it took is priced from its calls; none where its program printed nothing.
 fn measures(
     stream: &cli::Stream,
     given: u64,
@@ -2233,6 +2208,16 @@ fn measures(
     }
     if let Some(program) = &stream.program {
         before.insert("program".to_string(), program.clone());
+    }
+    // What the program says it gave the model, which it may change with the engine's arguments the same: the cache
+    // reads the tools before anything else in the prompt, in the order given.
+    for (part, names) in [
+        ("program_tools", &stream.program_tools),
+        ("program_agents", &stream.program_agents),
+    ] {
+        if let Some(names) = names {
+            before.insert(part.to_string(), work::digest(&names.join("\n")));
+        }
     }
     let calls = &stream.own;
     // The program's own count where it printed its result; what the stream told of the agent's calls where not, as of
@@ -3350,17 +3335,57 @@ mod tests {
     }
 
     // What comes before a session's messages names the account a call runs under, so that a miss after another is taken
-    // says it, and leaves it out where none is in use, as it leaves out an effort.
+    // says it, and leaves it out where none is in use. It holds neither the effort, which caused no miss, nor a digest
+    // of the engine's own arguments, the program's own report of its tools being kept in its place.
     #[test]
     fn what_comes_before_the_messages_names_the_account_and_leaves_it_out_where_there_is_none() {
-        let dir = tempfile::tempdir().unwrap();
-        let (agents, _) = given_round_of(dir.path(), Work::default(), Default::default());
-        let permissions = Permissions::of(false, &[], &[], &Default::default());
-        let under = (agents.inner).before_messages(&sonnet(), Some("work"), "system", "form", &permissions);
+        let under = before_messages(&sonnet(), Some("work"), "system", "form");
         assert_eq!(under.get("account").map(String::as_str), Some("work"));
-        let none = (agents.inner).before_messages(&sonnet(), None, "system", "form", &permissions);
+        let none = before_messages(&sonnet(), None, "system", "form");
         assert!(!none.contains_key("account"));
         assert_eq!(under.len(), none.len() + 1);
+        for part in ["effort", "tools"] {
+            assert!(!under.contains_key(part), "{part} is no part of what the engine says");
+        }
+    }
+
+    // What the program says it gave the model, from its first line, is kept in the try's measures under names of their
+    // own, in the order it gave it, so that a tool taken out of the list changes the digest, and an equal list does not.
+    // The shape of work 23 run 15: the program's list lost WebFetch with the engine's arguments unchanged.
+    #[test]
+    fn what_the_program_says_it_gave_the_model_is_kept_in_the_measures_before_the_messages() {
+        // The program's first partial message of a call of its own agent, which tells the call's prompt.
+        const CALL: &str = r#"{"type":"stream_event","event":{"type":"message_start","message":{"usage":{"input_tokens":2,"cache_read_input_tokens":90,"cache_creation_input_tokens":8}}},"parent_tool_use_id":null}"#;
+        let before_of = |init: serde_json::Value| {
+            let mut stream = cli::Stream::default();
+            stream.line(init.to_string().as_bytes());
+            stream.line(CALL.as_bytes());
+            measures(&stream, 10, BTreeMap::new(), false, false)
+                .expect("the stream holds a call")
+                .before
+        };
+        let init = |tools: &[&str], agents: &[&str]| {
+            serde_json::json!({
+                "type": "system", "subtype": "init", "claude_code_version": "2.1.327", "tools": tools, "agents": agents,
+            })
+        };
+        let with = before_of(init(&["Bash", "WebFetch", "Write"], &["claude", "Plan"]));
+        let same = before_of(init(&["Bash", "WebFetch", "Write"], &["claude", "Plan"]));
+        let without = before_of(init(&["Bash", "Write"], &["claude", "Plan", "web-fetch"]));
+        assert_eq!(with, same);
+        assert_ne!(with["program_tools"], without["program_tools"]);
+        assert_ne!(with["program_agents"], without["program_agents"]);
+        assert_eq!(with["program"], "2.1.327");
+        let reordered = before_of(init(&["WebFetch", "Bash", "Write"], &["claude", "Plan"]));
+        assert_ne!(
+            with["program_tools"], reordered["program_tools"],
+            "the order is part of the prompt"
+        );
+        // A first line that names no tools says none: the parts are left out, not made of an empty list.
+        let bare = before_of(serde_json::json!({
+            "type": "system", "subtype": "init", "claude_code_version": "2.1.327",
+        }));
+        assert!(!bare.contains_key("program_tools") && !bare.contains_key("program_agents"));
     }
 
     // What a work spent on forks counts against its budget as a keep-warm ping's spend does: a round that took a dollar

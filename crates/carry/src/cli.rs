@@ -525,6 +525,12 @@ pub struct Stream {
     pub tools: Vec<(String, String, String)>,
     /// The program's version, where its first line told it.
     pub program: Option<String>,
+    /// The names of the tools the program says, in its first line, it gave the model, in the order it gave them; none
+    /// where the line did not say.
+    pub program_tools: Option<Vec<String>>,
+    /// The names of the agents the program says, in its first line, it gave the model, in the order it gave them;
+    /// none where the line did not say.
+    pub program_agents: Option<Vec<String>>,
     /// What the latest rate limit event that said anything of the usage of the account the program runs under said.
     usage: Option<Said>,
     /// How many rate limit events said anything of the usage.
@@ -563,6 +569,13 @@ impl Calls {
         }
         self.last = Some(whole);
     }
+}
+
+/// The names an array of the program's first line holds, in order; none where it is not an array of names.
+fn names(list: &Value) -> Option<Vec<String>> {
+    (list.as_array()?.iter())
+        .map(|name| name.as_str().map(str::to_string))
+        .collect()
 }
 
 /// How much of what a tool was used on is kept to say what the agent was doing, in characters.
@@ -615,6 +628,8 @@ impl Stream {
             Some("assistant") if v["parent_tool_use_id"].is_null() => self.used(&v),
             Some("system") if v["subtype"] == "init" => {
                 self.program = v["claude_code_version"].as_str().map(str::to_string);
+                self.program_tools = names(&v["tools"]);
+                self.program_agents = names(&v["agents"]);
             }
             _ => {}
         }
@@ -1125,10 +1140,27 @@ mod tests {
             (4, 27_199 + 36_149, 8_950 + 140)
         );
         assert_eq!(stream.program.as_deref(), Some("2.1.323"));
+        // Its first line names the tools it gave the model, in order, and no agents.
+        let given: Vec<&str> = (stream.program_tools.iter().flatten()).map(String::as_str).collect();
+        assert_eq!(given, ["Bash", "Read", STRUCTURED_OUTPUT]);
+        assert_eq!(stream.program_agents, None);
         let tools: Vec<&str> = stream.tools.iter().map(|(_, tool, _)| tool.as_str()).collect();
         assert_eq!(tools, ["Bash", STRUCTURED_OUTPUT]);
         // The result says the cache writes apart from the fresh tokens and the reads, the thinking and the turns.
         assert_eq!(stream.printed(), Some((4, 63_348, 9_090, Some(153), 3)));
+    }
+
+    // A list of the first line that is not a list of names is no list: it says nothing, not a shorter list.
+    #[test]
+    fn a_list_of_the_first_line_that_holds_other_than_names_says_none() {
+        assert_eq!(
+            names(&json!(["Bash", "Read"])),
+            Some(vec!["Bash".to_string(), "Read".to_string()])
+        );
+        assert_eq!(names(&json!([])), Some(Vec::new()));
+        assert_eq!(names(&json!(["Bash", 7])), None);
+        assert_eq!(names(&json!("Bash")), None);
+        assert_eq!(names(&Value::Null), None);
     }
 
     #[test]
