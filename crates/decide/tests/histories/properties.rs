@@ -605,8 +605,8 @@ pub fn finished(v: &mut Verdict, reading: &Reading, run: RunId) {
 }
 
 /// After every step (property consumed-only-by-what-a-return-dealt-with, and entered-only-for-what-is-new): of every
-/// cell and every block that runs it, what the walk shows the cell consumed and whether the block is new to it are what
-/// the histories' own reading gives, from the returns that were taken alone.
+/// cell and every block that runs it, what the walk shows the cell consumed and which versions of the block are new to
+/// it are what the histories' own reading gives, from the returns that were taken alone.
 pub fn consumption(v: &mut Verdict, flow: &Flow, reading: &Reading) {
     let now = Seq(u64::MAX);
     let shown = view(flow, reading.records);
@@ -614,13 +614,15 @@ pub fn consumption(v: &mut Verdict, flow: &Flow, reading: &Reading) {
         for input in &seen.runs_on {
             v.count(CONSUMED_CHECKED);
             let consumed = reading.consumed(&cell.id, &input.block, now);
-            let new = !reading.new_to(&cell.id, &input.block, now).is_empty();
-            if input.consumed != consumed || input.new != new {
+            let new: Vec<Seq> = (reading.new_to(&cell.id, &input.block, now).iter())
+                .map(|x| x.at)
+                .collect();
+            if input.consumed != consumed || input.new_versions != new {
                 v.fail(
                     CONSUMED,
                     format!(
-                        "{} shows {} consumed at {:?} and new {}; the returns taken give {consumed:?} and {new}",
-                        cell.id, input.block, input.consumed, input.new
+                        "{} shows {} consumed at {:?} and new at {:?}; the returns taken give {consumed:?} and {new:?}",
+                        cell.id, input.block, input.consumed, input.new_versions
                     ),
                 );
             }

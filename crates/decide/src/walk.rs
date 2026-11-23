@@ -997,7 +997,7 @@ impl<'a> Walk<'a> {
 
     /// The versions of the block that are new to the cell: later than the one it consumed, changing the block's
     /// meaning, and not written by a run of the cell itself (design document `data-and-context`, 6 and 10).
-    fn new_to(&self, cell: &CellId, block: &BlockId) -> (Option<Seq>, Vec<&Version<'a>>) {
+    pub(crate) fn new_to(&self, cell: &CellId, block: &BlockId) -> (Option<Seq>, Vec<&Version<'a>>) {
         let was = self.consumed(cell, block);
         let own = |v: &Version<'a>| (v.by.and_then(|run| self.runs.get(&run))).is_some_and(|r| &r.started.cell == cell);
         let new = (self.versions(block).iter())

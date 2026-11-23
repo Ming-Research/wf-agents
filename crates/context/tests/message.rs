@@ -13,12 +13,19 @@ use engine::{Ask, Came, Event, Fill, Why};
 use support::{Sim, carry, changed};
 
 /// What ran a round, as it is told last: each datum it watches that is new to it, with the version the cell last
-/// consumed where it consumed one, and the latest (design document `data-and-context`, 11).
-fn ran_by(new: &[(&str, Option<u64>, u64)]) -> String {
+/// consumed where it consumed one, and each version new to it that changed its meaning (design document
+/// `data-and-context`, 11).
+fn ran_by(new: &[(&str, Option<u64>, &[u64])]) -> String {
     let each: String = (new.iter())
-        .map(|(datum, last, latest)| match last {
-            Some(last) => format!("\n- `{datum}`, new since version {last}, now version {latest}"),
-            None => format!("\n- `{datum}`, version {latest}"),
+        .map(|(datum, last, changed)| {
+            let since = last.map_or(String::new(), |last| format!(", new since version {last}"));
+            let numbers: Vec<String> = changed.iter().map(u64::to_string).collect();
+            let changed = match changed.len() {
+                0 => String::new(),
+                1 => format!(", version {} changed its meaning", numbers[0]),
+                _ => format!(", versions {} changed their meaning", numbers.join(", ")),
+            };
+            format!("\n- `{datum}`{since}{changed}")
         })
         .collect();
     format!("## Why you are run\n{each}\n\nName in `dealt_with` each of these you have dealt with.")
@@ -74,7 +81,7 @@ fn a_first_round_is_sent_its_heading_each_datum_written_whole_what_it_returns_it
         "## `request`, version 1, written by the owner\n\nGreet the user.".to_string(),
         outputs.clone(),
         "Write the plan for the request.".to_string(),
-        ran_by(&[("request", None, 1)]),
+        ran_by(&[("request", None, &[1])]),
     ]);
     assert_eq!(entered.text, expected);
     assert_eq!(
@@ -106,7 +113,7 @@ fn a_cell_entered_in_the_session_that_handed_in_what_it_is_given_is_sent_a_line_
         format!("## `plan`, version {plan}, written on the line `engineer`, in this session already"),
         outputs.clone(),
         "Build what the plan says.".to_string(),
-        ran_by(&[("plan", None, plan)]),
+        ran_by(&[("plan", None, &[plan])]),
     ]);
     assert_eq!(entered.text, expected);
     assert_eq!(
@@ -138,7 +145,7 @@ fn a_cell_of_another_line_is_sent_whole_what_its_session_lacks() {
         ),
         outputs.clone(),
         "Review the code.".to_string(),
-        ran_by(&[("code", None, code)]),
+        ran_by(&[("code", None, &[code])]),
     ]);
     assert_eq!(entered.text, expected);
     let (code, plan) = (sim.version("code"), sim.version("plan"));
@@ -156,7 +163,7 @@ fn a_cell_entered_again_is_sent_what_is_new_and_its_task_by_its_held_line() {
         "# Plan".to_string(),
         format!("## `opinions`, version {opinions}, written on the line `reviewer`\n\nName the error."),
         "As given before in this session.".to_string(),
-        ran_by(&[("opinions", None, opinions)]),
+        ran_by(&[("opinions", None, &[opinions])]),
     ]);
     assert_eq!(entered.text, expected);
     assert_eq!(entered.fills, [whole("opinions", sim.version("opinions"))]);
@@ -177,7 +184,7 @@ fn a_datum_the_session_holds_that_is_new_to_the_cell_is_sent_its_held_line() {
             "## `plan`, version {plan}, written on the line `engineer`, in this session already; last worked from {first}"
         ),
         "As given before in this session.".to_string(),
-        ran_by(&[("plan", Some(first), plan)]),
+        ran_by(&[("plan", Some(first), &[plan])]),
     ]);
     assert_eq!(entered.text, expected);
     assert_eq!(entered.fills, []);
@@ -203,7 +210,7 @@ fn a_datum_s_second_version_is_told_as_version_2_whatever_was_written_between_it
     let held = "## `plan`, version 2, written on the line `engineer`, in this session already; last worked from 1";
     assert!(text.contains(held), "{text}");
     assert!(
-        text.contains("\n- `plan`, new since version 1, now version 2"),
+        text.contains("\n- `plan`, new since version 1, version 2 changed its meaning"),
         "{text}"
     );
 }
@@ -960,4 +967,44 @@ fn a_judge_s_point_the_owner_ruled_on_is_held_as_no_change_to_its_maker() {
     };
     let entered = sim.enter(&round, sim.begins(&round));
     assert_eq!(entered.situation.data["talk"], Stands::Holds, "{}", entered.text);
+}
+
+// The line of a datum new to the cell says each version that changed its meaning, never only the latest: of several
+// that come in at once, the one that changed it is not the last (decision why-you-are-run-tells-each-new-datum). The
+// plan worked from the request's first version; the request then takes a second that matters and two that do not.
+#[test]
+fn of_several_versions_in_at_once_the_line_names_the_one_that_changed_the_meaning_and_not_the_latest() {
+    let mut sim = Sim::new();
+    sim.writes("request", "Greet the user.");
+    carry(&mut sim, &[("plan", "Greet by name.", None)]);
+    sim.writes("request", "Greet the user by name.");
+    sim.writes_unchanged("request", "Greet the user by their name.");
+    sim.writes_unchanged("request", "Greet the user by their first name.");
+    let round = sim.round().expect("the plan is entered again");
+    let entered = sim.enter(&round, false);
+    assert_eq!(sim.number("request"), 4);
+    let line = ran_by(&[("request", Some(1), &[2])]);
+    assert!(entered.text.ends_with(&format!("{line}\n")), "{}", entered.text);
+    let new = &entered.run.new["request"];
+    assert_eq!((new.last, new.changed.clone()), (Some(1), vec![2]));
+}
+
+// A datum the cell never consumed says no `since`, and names each version that changed its meaning, in order: the first,
+// the third and the fifth here, the second and the fourth changing nothing.
+#[test]
+fn a_datum_the_cell_never_consumed_names_each_version_that_changed_its_meaning_and_no_since() {
+    let mut sim = Sim::new();
+    sim.writes("request", "Greet the user.");
+    sim.writes_unchanged("request", "Greet the user, please.");
+    sim.writes("request", "Greet the user by name.");
+    sim.writes_unchanged("request", "Greet the user by name, please.");
+    sim.writes("request", "Greet the user by first name.");
+    let round = sim.round().expect("the plan is entered");
+    let entered = sim.enter(&round, false);
+    let line = ran_by(&[("request", None, &[1, 3, 5])]);
+    assert!(entered.text.ends_with(&format!("{line}\n")), "{}", entered.text);
+    assert!(
+        line.contains("\n- `request`, versions 1, 3, 5 changed their meaning\n"),
+        "{line}"
+    );
 }

@@ -265,6 +265,17 @@ impl Sim {
         });
     }
 
+    /// A person writes the block, saying the change does not matter.
+    pub fn writes_unchanged(&mut self, block: &str, content: &str) {
+        self.take(Event::Wrote {
+            block: block.into(),
+            by: Outsider::Person,
+            content: content.to_string(),
+            matters: false,
+            value: None,
+        });
+    }
+
     /// The round under way, where there is one.
     pub fn round(&self) -> Option<Given> {
         pending(&self.flow, &self.work)

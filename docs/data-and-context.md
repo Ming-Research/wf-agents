@@ -61,8 +61,9 @@ the owner's pauses, when a work is at its end.
     need not be the one before the latest.
 
 11. The engine tells each round which of the data it watches are new, and for each of them the version the cell last
-    consumed and the latest. What the cell does when a datum it watches is new is said with that datum in the cell's
-    definition, and the cell's task says how the agent brings its outputs up to date for it.
+    consumed and each version new to it that changed the meaning, as the walk reads them, never only the latest. What
+    the cell does when a datum it watches is new is said with that datum in the cell's definition, and the cell's task
+    says how the agent brings its outputs up to date for it.
 
 12. Data that a cell watches or reads as one, such as the blocks of the plan, may be named together as a group. A new
     version of any of them is new to a cell that watches the group, and the round deals with the group as one, by its

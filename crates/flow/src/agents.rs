@@ -1107,12 +1107,14 @@ pub struct MessagePart {
     pub between: Option<String>,
     /// What is sent in its place where the session holds it already.
     pub held: Option<String>,
-    /// Of what is new to the cell: what a datum's line says of its versions where the cell consumed one before,
-    /// `{last}` that version's place and `{latest}` the latest's (design document `data-and-context`, 11).
+    /// Of what is new to the cell: what a datum's line says where the cell consumed a version before, `{last}` that
+    /// version's place (design document `data-and-context`, 11).
     pub since: Option<String>,
-    /// Of what is new to the cell: what a datum's line says of its version where the cell consumed none,
-    /// `{latest}` the latest's place.
-    pub first: Option<String>,
+    /// Of what is new to the cell: what a datum's line says of the one version that changed its meaning, `{changed}`
+    /// its place; none is said where none did.
+    pub changed_one: Option<String>,
+    /// And of several, `{changed}` their places, joined by `between`.
+    pub changed_many: Option<String>,
     /// Of what is new to the cell: what a datum's line says the cell does, `{do}` its words.
     #[serde(rename = "do")]
     pub does: Option<String>,

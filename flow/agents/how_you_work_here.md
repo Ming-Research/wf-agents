@@ -24,8 +24,8 @@ session.
 
 Next, the first time the cell is entered in this session, come the blocks it writes and its task. When the cell is
 entered again, the task's heading says where the task is. "Why you are run" comes last. It lists each block the cell
-watches that is new to it, with the version the cell last worked from, the latest version, and what to do for that
-block.
+watches that is new to it, with the version it last consumed, the versions that changed its meaning, and what to do
+for that block.
 
 ## What you do
 

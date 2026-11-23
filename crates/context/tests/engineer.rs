@@ -835,14 +835,16 @@ fn the_plan_changed_by_the_owner_s_words(sim: &mut Sim, words: &str, plan: &str)
 // since, by the owner's words to the research, and the review fails again with A' and C. The points the review
 // wrote before the ruling are new to no cell from then on, in the walk, in the points a round is told and in what the
 // context manager tells a round is new to it alike (5, 11): the research, which writes the plan and answers in the
-// dialogue, owes a word for A' and C alone, and is told the dialogue is new to it since the points the owner ruled on.
+// dialogue, owes a word for A' and C alone, and is told that the version holding them is the one that changed the
+// dialogue's meaning.
 // The research answers, the review fails a third time with D, the owner rules again, and the review fails a fourth time
 // with E on a plan changed since: the second ruling marks the points before it, D among them, and neither E nor the
-// research's answer, and the research is told the dialogue is new since D.
+// research's answer, and the research is told that E is the one version that changed the dialogue's meaning and is new
+// to it, since the version it last consumed.
 //
 // Every check is made, and each that fails is said, in one run. A round told the dialogue is new since the version its
-// cell last consumed or wrote, none at first and its own answer later, would be told the points the owner ruled on, A
-// and B and then D, as new to it, which 39 says they are to no cell.
+// cell last consumed or wrote, or told only the latest version, would be told the points the owner ruled on, A and B
+// and then D, as new to it, which 39 says they are to no cell, or would name the research's own answer.
 #[test]
 fn points_the_owner_ruled_on_are_new_to_no_cell_in_the_walk_in_the_points_told_and_in_the_context_alike() {
     let (mut sim, review) = until("P1");
@@ -879,8 +881,9 @@ fn points_the_owner_ruled_on_are_new_to_no_cell_in_the_walk_in_the_points_told_a
         ],
     );
     let a_and_c = Seq(sim.version("plan_review"));
-    // What the walk, the round and the context manager each take as new to the research, which runs next.
-    let check = |sim: &Sim, failures: &mut Vec<String>, ruled: &[Seq], unruled: &[Seq], since: Seq| {
+    // What the walk, the round and the context manager each take as new to the research, which runs next: `new` is the
+    // one version of the dialogue that is.
+    let check = |sim: &Sim, failures: &mut Vec<String>, ruled: &[Seq], unruled: &[Seq], new: Seq| {
         let round = sim.round().expect("a round is given");
         assert_eq!(round.cell.as_str(), "R1", "the research takes the review's points");
         let versions = decide::ruled_versions(&sim.flow.flow, &sim.work.records);
@@ -896,20 +899,44 @@ fn points_the_owner_ruled_on_are_new_to_no_cell_in_the_walk_in_the_points_told_a
         if told.points != [dialogue.clone()] {
             failures.push(format!("the round: told points in {:?}", told.points));
         }
-        let entered = sim.enter(&round, sim.begins(&round));
-        // Told by their numbers among the dialogue's versions.
-        let new = entered.run.new.get("plan_review").map(|n| (n.last, n.latest));
-        let since = sim.number_at("plan_review", since);
-        let expected = (Some(since), sim.number("plan_review"));
-        if new != Some(expected) {
+        // What the walk shows of the research's input, and the histories' own reading of the returns taken alone.
+        let research = CellId::from("R1");
+        let shown = decide::view(&sim.flow.flow, &sim.work.records);
+        let input = (shown.cells.iter())
+            .find(|c| c.cell == research)
+            .and_then(|c| c.runs_on.iter().find(|i| i.block == dialogue))
+            .expect("the dialogue runs the research");
+        if input.new_versions != [new] {
             failures.push(format!(
-                "the context: the research is told plan_review is new as {new:?} (last, latest), where the points \
-                 before version {since} are new to no cell: expected {expected:?}"
+                "the walk: the versions new to the research are {:?}, expected {new:?}",
+                input.new_versions
+            ));
+        }
+        let reading = decide::Reading::new(&sim.flow.flow, &sim.work.records);
+        let consumed = reading.consumed(&research, &dialogue, Seq(u64::MAX));
+        if input.consumed != consumed {
+            failures.push(format!(
+                "the walk: the research consumed {:?}, the returns taken give {consumed:?}",
+                input.consumed
+            ));
+        }
+        let entered = sim.enter(&round, sim.begins(&round));
+        // Told by their numbers among the dialogue's versions: the version the research consumed, and the one point
+        // that changed the meaning, none of the points the owner ruled on, nor the research's own answer.
+        let told_new = entered.run.new.get("plan_review").map(|n| (n.last, n.changed.clone()));
+        let expected = (
+            consumed.map(|at| sim.number_at("plan_review", at)),
+            vec![sim.number_at("plan_review", new)],
+        );
+        if told_new != Some(expected.clone()) {
+            failures.push(format!(
+                "the context: the research is told plan_review is new as {told_new:?} (last consumed, changed), where \
+                 the points the owner ruled on are new to no cell: expected {expected:?}"
             ));
         }
         round
     };
-    let round = check(&sim, &mut failures, &[a_and_b], &[a_and_c], a_and_b);
+    let round = check(&sim, &mut failures, &[a_and_b], &[a_and_c], a_and_c);
     // The research answers A' and C.
     let entered = sim.enter(&round, sim.begins(&round));
     sim.tries(&round, 1, entered.fills);
@@ -954,8 +981,50 @@ fn points_the_owner_ruled_on_are_new_to_no_cell_in_the_walk_in_the_points_told_a
         ],
     );
     let e = Seq(sim.version("plan_review"));
-    check(&sim, &mut failures, &[a_and_b, a_and_c, d], &[answer, e], d);
+    check(&sim, &mut failures, &[a_and_b, a_and_c, d], &[answer, e], e);
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+// A group the cell watches is told by its versions among the group's, each place that wrote any of its blocks being
+// one (design document `data-and-context`, 11, 12): the review never consumed the plan, whose three blocks the research
+// wrote in one return, and is told version 1 changed its meaning; the review fails the plan, the research answers and
+// changes the plan's `plan_agent` alone, and the review is told that it is new since version 1 and that version 2
+// changed its meaning, whatever the dialogue and the other blocks of the plan say.
+#[test]
+fn a_group_is_told_by_its_versions_among_the_groups_with_the_one_that_changed_the_meaning() {
+    let (mut sim, review) = until("P1");
+    let entered = sim.enter(&review, sim.begins(&review));
+    assert!(
+        entered.text.contains("\n- `plan`, version 1 changed its meaning: "),
+        "{}",
+        entered.text
+    );
+    tried(&mut sim, &review);
+    sim.hands_in(
+        &review,
+        &[("plan_ok", "", Some("no")), ("plan_review", "A: the name.", None)],
+    );
+    next(
+        &mut sim,
+        "R1",
+        &[
+            ("deep_needed", "", Some("no")),
+            ("plan_review", "A: done.", None),
+            ("plan_agent", "Add the first name to the greeting.", None),
+        ],
+    );
+    let again = sim.round().expect("the review is entered again");
+    assert_eq!(again.cell.as_str(), "P1");
+    let entered = sim.enter(&again, sim.begins(&again));
+    assert!(
+        entered
+            .text
+            .contains("\n- `plan`, new since version 1, version 2 changed its meaning: "),
+        "{}",
+        entered.text
+    );
+    let new = &entered.run.new["plan"];
+    assert_eq!((new.last, new.changed.clone()), (Some(1), vec![2]));
 }
 
 // The research hands the work to the deep research with what it found and nothing else (decision

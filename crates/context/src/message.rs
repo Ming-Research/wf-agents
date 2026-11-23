@@ -108,7 +108,7 @@ pub struct Run {
     /// Each datum of the cell's context that has a version, by its name.
     pub data: BTreeMap<BlockId, Datum>,
     /// Of each datum or group the cell watches that is new to it, by its name, the version the cell last consumed and
-    /// the latest (design document `data-and-context`, 11).
+    /// the versions that changed its meaning (design document `data-and-context`, 11).
     pub new: BTreeMap<String, NewVersions>,
     /// The calls whose results the round is given, in the order they were made.
     pub results: Vec<Result>,
@@ -137,12 +137,12 @@ pub struct Datum {
 
 /// The versions a round is told of a datum or group new to it, by their numbers: of a group, among the versions of the
 /// group, each place that wrote any of its blocks being one.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NewVersions {
     /// The version the cell last consumed; none where it consumed none.
     pub last: Option<u64>,
-    /// The latest version.
-    pub latest: u64,
+    /// Each version new to the cell, which changed the meaning, the earliest first.
+    pub changed: Vec<u64>,
 }
 
 /// A version of a datum.
@@ -894,9 +894,9 @@ impl Build<'_> {
     }
 
     /// The line of a datum or group the cell watches, new to it: its `each`, with its versions, the one the cell last
-    /// consumed, where it consumed one, and the latest (design document `data-and-context`, 11), and what the cell
-    /// does where it says. The page is shown the versions as one place left open, which a run fills with the words of
-    /// either.
+    /// consumed, where it consumed one, and each that changed its meaning, where one did (design document
+    /// `data-and-context`, 11), and what the cell does where it says. The page is shown the versions as one place left
+    /// open, which a run fills with the words of either.
     fn watched(&self, part: &MessagePart, watched: &flow::Watched) -> Vec<Piece> {
         let each = with_slots(part.each.as_deref().unwrap_or_default());
         let words = |text: &Option<String>| text.as_deref().unwrap_or_default().to_string();
@@ -905,15 +905,22 @@ impl Build<'_> {
                 name: "versions".to_string(),
             }],
             Some(run) => match run.new.get(&watched.name) {
-                Some(NewVersions {
-                    last: Some(last),
-                    latest,
-                }) => fill(
-                    &words(&part.since),
-                    &[("last", &last.to_string()), ("latest", &latest.to_string())],
-                ),
-                Some(NewVersions { last: None, latest }) => {
-                    fill(&words(&part.first), &[("latest", &latest.to_string())])
+                Some(new) => {
+                    let mut pieces = match new.last {
+                        Some(last) => fill(&words(&part.since), &[("last", &last.to_string())]),
+                        None => Vec::new(),
+                    };
+                    let numbers: Vec<String> = new.changed.iter().map(u64::to_string).collect();
+                    let changed = match new.changed.len() {
+                        0 => None,
+                        1 => Some(&part.changed_one),
+                        _ => Some(&part.changed_many),
+                    };
+                    if let Some(changed) = changed {
+                        let numbers = numbers.join(&words(&part.between));
+                        pieces.extend(fill(&words(changed), &[("changed", &numbers)]));
+                    }
+                    join(pieces)
                 }
                 None => Vec::new(),
             },
