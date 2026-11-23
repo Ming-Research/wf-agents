@@ -157,10 +157,10 @@ reports (`wf-agents wait`):
   Where the item joins several problems, parts 1, 3 and 4 are said once, and each problem is one numbered line between
   them: what is wrong, with its case. The whole background, references included, aims at about 300 characters as
   `wf-agents show` counts them. This is a guide, not a hard limit; a story far longer belongs to an item that is too
-  big (section 6). Sentences
-  are short, and each has a subject that acts. Every name, such as a file, a test, a cell or a command, is said in
-  plain words where it first appears, and an item by its number and its title. Never how to do it, which the work's
-  research finds. It names the owner as the owner, never as "you".
+  big (section 6). Sentences are short, and each has a subject that acts. Every name, such as a file, a test, a cell or
+  a command, is said in plain words where it first appears, and an item by its number and its title. How to do it is
+  the work's research's to find; the background gives only, under its reference, the first conclusions the owner and
+  the architect reached on it, marked "初步结论，仅供参考". It names the owner as the owner, never as "you".
   The acceptance is the work's plan's, not the background's. The background is written before the work begins; once it
   has begun, the background changes only where what the item asks changes, never for its wording, since a change runs
   the work's cells again.
