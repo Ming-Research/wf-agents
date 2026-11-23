@@ -623,6 +623,7 @@ impl Service {
                             items: false,
                             copies: false,
                             accounts: true,
+                            observations: false,
                         });
                     }
                     Err(failed) => {
