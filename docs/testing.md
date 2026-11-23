@@ -8,10 +8,10 @@ of each part.
 
 ## The layers of the suite
 
-1. A test guards: it runs in CI at every change, the whole suite at every pull request and every push to main, and
-   fails on a fault of its kind from then on. What no test of the suite judges is judged otherwise: a cell's words on
-   real works (10), the page by the owner (16 to 21), what rounds cost in trials (22 to 32). A look guards nothing
-   until what it found is a test.
+1. A test guards: it runs in CI at every change, the whole suite at the check before each merge and on each pull
+   request that is not a work's, and fails on a fault of its kind from then on. What no test of the suite judges is
+   judged otherwise: a cell's words on real works (10), the page by the owner (16 to 21), what rounds cost in trials
+   (22 to 32). A look guards nothing until what it found is a test.
 
 2. A fault, wherever it is found (by a review, in a trial, by the owner on the page), is first written as a test that
    fails on it, at the layer below that catches its kind, and only then fixed. Where that layer checks properties, it
