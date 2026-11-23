@@ -241,12 +241,12 @@ fn both_reviews_of_the_plan_run_on_a_plan_the_research_wrote() {
 /// given it as it is given `plan_owner`.
 fn with_tree_edits() -> Compiled {
     let mut source = engineer_source();
-    let group = r#"plan = ["plan_owner", "plan_agent", "acceptance", "plan_files"]"#;
+    let group = r#"plan = ["plan_owner", "plan_agent", "acceptance"]"#;
     assert!(
         source.flow.contains(group),
         "the plan's group is not as this test knows it"
     );
-    let with = r#"plan = ["plan_owner", "plan_agent", "acceptance", "plan_files", "tree_edits"]"#;
+    let with = r#"plan = ["plan_owner", "plan_agent", "acceptance", "tree_edits"]"#;
     source.flow = source.flow.replace(group, with);
     let what = "Each entry the plan adds, changes or deletes in the design tree, as it will read.";
     let block = format!("what = \"{what}\"\n");
