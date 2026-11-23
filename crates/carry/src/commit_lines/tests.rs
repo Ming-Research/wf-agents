@@ -107,6 +107,39 @@ fn a_commit_that_already_ends_in_a_trailer_gets_the_lines_in_the_same_block_and_
     );
 }
 
+// A commit leads back to one item: where its message already ends with the lines of another work, because it was taken
+// from that work's branch or the agent copied them, they are replaced and not added to, so that `--grep='^Item: 20$'`
+// does not find a commit of this work. Cherry-pick runs the hook, as `commit` does.
+#[test]
+fn a_commit_taken_from_another_work_or_written_with_its_lines_ends_with_this_works_lines_alone() {
+    let (repo, given) = hooked(WHOSE);
+    let dir = &repo.project.repo;
+    let other = environment(
+        &repo.data,
+        &words(),
+        Whose {
+            item: ItemNumber(20),
+            work: WorkNumber(3),
+        },
+    );
+    run(dir, &["checkout", "-q", "-b", "other"]);
+    staged(dir, "a.txt");
+    run_with(dir, &["commit", "-q", "-m", "From another", "-m", "Why."], &other);
+    assert_eq!(message(dir), "From another\n\nWhy.\n\nItem: 20\nWork: W3");
+    run(dir, &["checkout", "-q", "main"]);
+    run_with(dir, &["cherry-pick", "other"], &given);
+    assert_eq!(message(dir), "From another\n\nWhy.\n\nItem: 36\nWork: W12");
+
+    staged(dir, "b.txt");
+    let said = "Co-Authored-By: Claude <noreply@anthropic.com>\nItem: 20\nWork: W3";
+    run_with(dir, &["commit", "-q", "-m", "Copied", "-m", "Why.", "-m", said], &given);
+    let ends = "Co-Authored-By: Claude <noreply@anthropic.com>\nItem: 36\nWork: W12";
+    assert_eq!(message(dir), format!("Copied\n\nWhy.\n\n{ends}"));
+    run_with(dir, &["commit", "-q", "--amend", "--no-edit"], &given);
+    assert_eq!(message(dir), format!("Copied\n\nWhy.\n\n{ends}"));
+    assert_eq!(run(dir, &["log", "--grep=^Item: 20$", "--format=%s", "main"]), "");
+}
+
 // Without the lines in its environment the hook does nothing, so that a commit made by hand, with the hook's directory
 // still configured, is not given lines that name nothing.
 #[test]

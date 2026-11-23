@@ -20,12 +20,13 @@ const ITEM_LINE: &str = "WF_ITEM_LINE";
 /// The variable that gives the hook the line that names the work.
 const WORK_LINE: &str = "WF_WORK_LINE";
 
-/// What the hook is: it gives the message the two lines its variables hold, once, and nothing where it is given none.
+/// What the hook is: it gives the message the two lines its variables hold, once, in place of any lines of that kind it
+/// has already (a commit taken from another work ends with that work's), and nothing where it is given none.
 const SCRIPT: &str = "#!/bin/sh\n\
 # Written by the engine at its start, for the git of the agents' rounds: it ends each commit message with the\n\
 # lines that name its item and its work.\n\
 [ -n \"$WF_ITEM_LINE\" ] && [ -n \"$WF_WORK_LINE\" ] || exit 0\n\
-exec git interpret-trailers --in-place --if-exists addIfDifferent \\\n\
+exec git interpret-trailers --in-place --if-exists replace \\\n\
   --trailer \"$WF_ITEM_LINE\" --trailer \"$WF_WORK_LINE\" \"$1\"\n";
 
 /// The item and the work whose commits these are, by the numbers the two lines name.
