@@ -5,9 +5,9 @@
 //
 // The page is to stay quick with several hundred works, each change of any of them read again. So the interface's
 // changes come on the page's one stream (changes.ts); a part reads again at most once at a time, and once more after
-// a read where changes came while it was under way; and the items, which the bar and the list of works both show, are
-// read once for both, each item that did not change kept as the very object it was, so that what draws it is not drawn
-// again.
+// a read where changes came while it was under way; and the items, which the bar, the list of works and the console
+// all show, are read once for all of them, each item that did not change kept as the very object it was, so that what
+// draws it is not drawn again.
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
@@ -288,6 +288,10 @@ export function useReading<T>(load: () => Promise<T>): { value: T | null; failed
   return { ...state, read };
 }
 
+/// Where the items are read from, and what says when to read them again. A source of the works page is one; the
+/// console's source names the one it reads its items from (console/source.ts).
+export type ItemsFeed = Pick<Source, 'loadItems' | 'changes'>;
+
 /// The items as read for every part that shows them, and the parts to tell when they are read again.
 interface ItemsStore {
   state: { value: Items | null; failed: string | null };
@@ -296,19 +300,19 @@ interface ItemsStore {
   stop: (() => void) | null;
 }
 
-const itemsStores = new WeakMap<Source, ItemsStore>();
+const itemsStores = new WeakMap<ItemsFeed, ItemsStore>();
 
-function itemsStore(source: Source): ItemsStore {
-  let store = itemsStores.get(source);
+function itemsStore(feed: ItemsFeed): ItemsStore {
+  let store = itemsStores.get(feed);
   if (store === undefined) {
     const made: ItemsStore = {
       state: { value: null, failed: null },
       shown: new Set(),
-      reads: oneAtATime(() => readItems(source, made)),
+      reads: oneAtATime(() => readItems(feed, made)),
       stop: null,
     };
     store = made;
-    itemsStores.set(source, store);
+    itemsStores.set(feed, store);
   }
   return store;
 }
@@ -334,12 +338,12 @@ export function keptSame(before: Items, now: Items): Items {
 
 /// Reads the items for every part that shows them, and tells each what came of it. The store's reads run it at most
 /// once at a time.
-function readItems(source: Source, store: ItemsStore): Promise<void> {
+function readItems(feed: ItemsFeed, store: ItemsStore): Promise<void> {
   const set = (state: ItemsStore['state']) => {
     store.state = state;
     [...store.shown].forEach((tell) => tell());
   };
-  return source.loadItems().then(
+  return feed.loadItems().then(
     (fresh) => {
       const before = store.state.value;
       set({ value: before === null ? fresh : keptSame(before, fresh), failed: null });
@@ -348,17 +352,21 @@ function readItems(source: Source, store: ItemsStore): Promise<void> {
   );
 }
 
-/// The items, read once for every part of the page that shows them, as the list of works and the bar both do: at
-/// once, again each time an item or a work changed and each time the stream of changes opens again, and on `read`.
-/// A read that fails keeps what was shown and says why.
+/// The items of the page's source, read once for every part of the page that shows them ([`useItemsOf`]).
 export function useItems(): { value: Items | null; failed: string | null; read: () => void } {
-  const source = useSource();
-  const store = itemsStore(source);
+  return useItemsOf(useSource());
+}
+
+/// The items `feed` gives, read once for every part of the page that reads them from it: at once, again each time an
+/// item or a work changed and each time the stream of changes opens again, and on `read`. A read that fails keeps
+/// what was shown and says why.
+export function useItemsOf(feed: ItemsFeed): { value: Items | null; failed: string | null; read: () => void } {
+  const store = itemsStore(feed);
   const subscribe = useCallback(
     (tell: () => void) => {
       store.shown.add(tell);
       if (store.shown.size === 1) {
-        store.stop = source.changes(
+        store.stop = feed.changes(
           (changed) => {
             if (changed.items || changed.works.length > 0) store.reads.ask();
           },
@@ -374,7 +382,7 @@ export function useItems(): { value: Items | null; failed: string | null; read: 
         }
       };
     },
-    [source, store],
+    [feed, store],
   );
   const state = useSyncExternalStore(subscribe, () => store.state);
   const read = useCallback(() => store.reads.ask(), [store]);

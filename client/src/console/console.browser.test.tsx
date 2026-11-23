@@ -24,11 +24,12 @@ import { userEvent } from 'vitest/browser';
 import { DEFAULT_ACCENT, pickAccent, PRESETS, tones } from '../accent';
 import { apart, lchOf } from '../colour';
 import { MARKS } from '../marks';
-import type { Items, Now } from '../works-api';
+import { useBarItems } from '../Engine';
+import type { Changed, Items, Now } from '../works-api';
+import { FIXTURES, type Source as PageSource, SourceContext } from '../works/source';
 import { fixtureSource } from './fixtures';
 import { FIND_SAYS } from './find';
 import { CONSOLE_MARKS } from './help';
-import type { Heard } from './source';
 import { ConsolePage } from './index';
 import type { Shown, ShownWork } from './items';
 import { DOT_AT, FLASH_MS, FOLD_MS, KEEP, NODE_W, PACE, PITCH, ROW, RUN, SnapScene, themed, UNFOLD_MS } from './snap';
@@ -402,6 +403,53 @@ describe('the tree in columns', () => {
     scene.step();
     RUN.far = wide;
     expect(scene.stats.wayBuilds).toBe(builds + 2);
+  });
+
+  it('blurs a layer of glow only in a frame in which it draws something', () => {
+    scene.show([card(1, [{ ...card(2), begun: true, work: running(2) }])]);
+    settle(scene);
+    /// How many layers each frame blurs over a whole run of the light and the dark after it.
+    const run = () =>
+      Array.from({ length: Math.ceil((RUN.beat + RUN.dark) / 16) }, () => {
+        scene.step(16);
+        return scene.stats.blurs;
+      });
+    // While the light runs, the glow it lights is blurred; in the dark, with nothing pointed at or selected, nothing is.
+    const free = run();
+    expect(Math.max(...free)).toBeGreaterThan(0);
+    expect(free.filter((b) => b === 0).length).toBeGreaterThanOrEqual(Math.floor(RUN.dark / 16) - 1);
+    // The soft light of the item selected is blurred in every frame, the dark's too, until the item is let go.
+    scene.select(2);
+    expect(Math.min(...run())).toBeGreaterThan(0);
+    scene.select(null);
+    expect(run().filter((b) => b === 0).length).toBeGreaterThanOrEqual(Math.floor(RUN.dark / 16) - 1);
+  });
+
+  it('draws no frame while the page is hidden, nor while its view is, and draws again once both show', async () => {
+    scene.show([card(1, [{ ...card(2), begun: true, work: running(2) }])]);
+    await drew();
+    const page = (state: DocumentVisibilityState) => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+      document.dispatchEvent(new Event('visibilitychange'));
+    };
+    try {
+      page('hidden');
+      const frames = scene.stats.frames;
+      await drew();
+      await drew();
+      expect(scene.stats.frames).toBe(frames);
+      // The page shown again while the view is hidden draws nothing either.
+      scene.setShown(false);
+      page('visible');
+      await drew();
+      await drew();
+      expect(scene.stats.frames).toBe(frames);
+      scene.setShown(true);
+      await expect.poll(() => scene.stats.frames).toBeGreaterThan(frames);
+    } finally {
+      Reflect.deleteProperty(document, 'visibilityState');
+      document.dispatchEvent(new Event('visibilitychange'));
+    }
   });
 
   it("draws each item on the map in the colour of its card's state: running, in a call, for the owner, halted, paused, not begun, done or cancelled", () => {
@@ -845,6 +893,8 @@ describe('a scene destroyed', () => {
   it('listens to nothing once destroyed', async () => {
     const add = vi.spyOn(window, 'addEventListener');
     const remove = vi.spyOn(window, 'removeEventListener');
+    const docAdd = vi.spyOn(document, 'addEventListener');
+    const docRemove = vi.spyOn(document, 'removeEventListener');
     const mediaAdd = vi.spyOn(MediaQueryList.prototype, 'addEventListener');
     const mediaRemove = vi.spyOn(MediaQueryList.prototype, 'removeEventListener');
     const sized = vi.spyOn(ResizeObserver.prototype, 'disconnect');
@@ -861,6 +911,10 @@ describe('a scene destroyed', () => {
       calls.filter(([type, fn]) => !gone.some(([t, f]) => t === type && f === fn)).map(([type]) => type);
     expect(add.mock.calls.length).toBeGreaterThan(0);
     expect(left(add.mock.calls, remove.mock.calls)).toEqual([]);
+    // On the document it listens for the page being hidden and shown, and no more once destroyed.
+    const visibility = (calls: unknown[][]) => calls.filter(([type]) => type === 'visibilitychange');
+    expect(visibility(docAdd.mock.calls)).toHaveLength(1);
+    expect(left(visibility(docAdd.mock.calls), docRemove.mock.calls)).toEqual([]);
     expect(mediaAdd.mock.calls.length).toBeGreaterThan(0);
     expect(left(mediaAdd.mock.calls, mediaRemove.mock.calls)).toEqual([]);
     expect(sized).toHaveBeenCalled();
@@ -1272,7 +1326,7 @@ describe('the console page', () => {
   it('frames a question that holds the work at nothing yet in orange, as its count on the card, and one that holds it in red', async () => {
     const scene = await drawn();
     // Item 1 waits for the answer to stale-runs; stale-limit, asked as well, holds it at nothing yet.
-    const items = await fixtureSource().loadItems();
+    const items = await fixtureSource().items.loadItems();
     const one = items.items.find((i) => i.number === 1);
     expect([one?.work.waits?.map((w) => w.key), one?.work.ahead]).toEqual([['answer-stale-runs'], 1]);
     scene.select(1);
@@ -1374,7 +1428,7 @@ describe('the console page, as things happen', () => {
     const answers: Array<() => void> = [];
     let asked = 0;
     let answered = 0;
-    const stream: { on: ((heard: Heard) => void) | null } = { on: null };
+    const stream: { opened: (() => void) | null } = { opened: null };
     const container = document.createElement('div');
     container.style.cssText = 'position: fixed; inset: 0; display: flex';
     document.body.append(container);
@@ -1384,21 +1438,25 @@ describe('the console page, as things happen', () => {
       <ConsolePage
         source={{
           ...source,
-          loadItems: () => {
-            asked += 1;
-            return new Promise<Items>((answer) => answers.push(() => answer(source.loadItems()))).finally(() => {
-              answered += 1;
-            });
-          },
-          changes: (on) => {
-            stream.on = on;
-            return () => undefined;
+          items: {
+            loadItems: () => {
+              asked += 1;
+              return new Promise<Items>((answer) => answers.push(() => answer(source.items.loadItems()))).finally(
+                () => {
+                  answered += 1;
+                },
+              );
+            },
+            changes: (_, opened) => {
+              stream.opened = opened;
+              return () => undefined;
+            },
           },
         }}
       />,
     );
     await expect.poll(() => asked).toBe(1);
-    for (let i = 0; i < 3; i += 1) stream.on?.('everything');
+    for (let i = 0; i < 3; i += 1) stream.opened?.();
     expect(asked).toBe(1);
     answers.shift()?.();
     await expect.poll(() => asked).toBe(2);
@@ -1409,7 +1467,53 @@ describe('the console page, as things happen', () => {
     root.unmount();
     container.remove();
   });
+
+  it("reads the items once for the whole page at each change, the console sharing the bar's read", async () => {
+    const made = fixtureSource();
+    let reads = 0;
+    const told = new Set<(c: Changed) => void>();
+    // The page's source, whose items the bar reads, and which the console names as what it reads its items from.
+    const page: PageSource = {
+      ...FIXTURES,
+      loadItems: () => {
+        reads += 1;
+        return made.items.loadItems();
+      },
+      changes: (onChanged) => {
+        told.add(onChanged);
+        return () => told.delete(onChanged);
+      },
+    };
+    const container = document.createElement('div');
+    container.style.cssText = 'position: fixed; inset: 0; display: flex';
+    document.body.append(container);
+    delete (window as { consoleScene?: SnapScene }).consoleScene;
+    const root = createRoot(container);
+    root.render(
+      <SourceContext.Provider value={page}>
+        <BarCount />
+        <ConsolePage source={{ ...made, items: page }} />
+      </SourceContext.Provider>,
+    );
+    try {
+      await expect.poll(() => (window as { consoleScene?: SnapScene }).consoleScene?.stats.items ?? 0).toBeGreaterThan(0);
+      await expect.poll(() => container.querySelector('.bar-count')?.textContent ?? '0').not.toBe('0');
+      expect(reads).toBe(1);
+      // A change of a work: the store reads at once, for both.
+      for (const on of told) on({ works: [1], items: false, copies: false, accounts: false, observations: false });
+      expect(reads).toBe(2);
+    } finally {
+      root.unmount();
+      container.remove();
+    }
+  });
 });
+
+/// How many items the bar read, as its count of what waits reads them.
+function BarCount() {
+  const { items } = useBarItems();
+  return <span className="bar-count">{items?.items.length ?? 0}</span>;
+}
 
 describe('the console page, when a work cannot be read', () => {
   it('says so in the panel, and reads it again when the stream opens again', async () => {
