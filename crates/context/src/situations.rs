@@ -52,9 +52,9 @@
 //!
 //! A datum's text is the builder's from its kind and from how the session stands with it alone, so a product of every
 //! datum's own states repeats the same texts: it is counted ([`combinations`]), and the situations hold every state of
-//! each datum: the data of what ran the cell and the rest each stand alike where they can, in every pair of states,
-//! and each datum that stands in a state of its own goes through its states as the situations go on; a datum that
-//! cannot stand as its class does is unwritten where it may be, else lacking. Besides, on a later entry run by the
+//! each datum: the data of what ran the cell and the rest each stand alike where they can, each state of either in
+//! some situation, and each datum that stands in a state of its own goes through its states as the situations go on; a
+//! datum that cannot stand as its class does is unwritten where it may be, else lacking. Besides, on a later entry run by the
 //! first datum or group the cell watches, with the data of what ran it held as last worked from and the rest held: the
 //! result of a call of each kind the engine gives a round and why a return was sent back, which come after a return that
 //! handed in nothing, each come of taking main in where the cell takes it, new to the session, and an entry after a
@@ -195,8 +195,10 @@ pub fn situations(flow: &Compiled, words: &Agents, cell: &CellSpec, compared: &B
             new_states.push(Stands::Holds);
             let news = states(&[Class::Fired, Class::Grouped], new_states);
             let rests = states(&[Class::Rest], reach.rest(entry, true, true));
-            let pairs: Vec<(Option<Stands>, Option<Stands>)> = (news.iter())
-                .flat_map(|n| rests.iter().map(move |r| (*n, *r)))
+            // Each state of what ran the cell and each state of the rest is written once, the shorter list going round
+            // again beside the longer: the texts of a datum do not depend on how another stands.
+            let pairs: Vec<(Option<Stands>, Option<Stands>)> = (0..news.len().max(rests.len()))
+                .map(|i| (news[i % news.len()], rests[i % rests.len()]))
                 .collect();
             // A datum that stands in a state of its own goes through them as the situations go on, so that each is
             // written with the cell: as many situations as the datum with most states needs.

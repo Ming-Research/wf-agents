@@ -20,12 +20,24 @@ fn situations(out: &Path, cell: &str) -> Output {
         .expect("the command runs")
 }
 
-/// The text of the file of the situation of this name, under the cell's directory.
-fn file(dir: &Path, name: &str) -> String {
-    let found = (fs::read_dir(dir).expect("the cell's directory is read"))
+/// The text of the file of the first situation, by name, in the cell's directory that begins and ends its name as given.
+fn file_like(dir: &Path, begins: &str, ends: &str) -> String {
+    let mut files: Vec<PathBuf> = (fs::read_dir(dir).expect("the cell's directory is read"))
         .map(|entry| entry.expect("an entry").path())
-        .find(|path| path.to_string_lossy().ends_with(&format!("-{name}.md")));
-    fs::read_to_string(found.unwrap_or_else(|| panic!("no situation {name}"))).expect("the file is read")
+        .collect();
+    files.sort();
+    for path in files {
+        let text = fs::read_to_string(&path).expect("the file is read");
+        let name = text
+            .lines()
+            .next()
+            .and_then(|l| l.strip_prefix("situation = \""))
+            .and_then(|l| l.strip_suffix('"'));
+        if name.is_some_and(|n| n.starts_with(begins) && n.ends_with(ends)) {
+            return text;
+        }
+    }
+    panic!("no situation begins {begins} and ends {ends}");
 }
 
 /// The part of a message under the heading of this datum, to the next heading of its level.
@@ -51,8 +63,8 @@ fn each_situation_of_a_cell_is_written_with_its_system_prompt_its_message_and_th
     let written = fs::read_dir(&dir).expect("the cell's directory is read").count();
     let said = String::from_utf8_lossy(&ran.stdout);
     assert!(said.starts_with(&format!("R2: {written} situations, in ")), "{said}");
-    let text = file(&dir, "later-plan-ran_holds_last-rest_lacks");
-    assert!(text.starts_with("situation = \"later-plan-ran_holds_last-rest_lacks\"\n"));
+    let text = file_like(&dir, "later-plan-", "-rest_lacks");
+    assert!(text.starts_with("situation = \"later-plan-"));
     for part in ["system prompt", "message", "return form"] {
         assert!(text.contains(&format!("\n===== {part} =====\n\n")), "{part}");
     }
@@ -66,9 +78,11 @@ fn a_datum_given_latest_the_session_lacks_is_sent_whole_and_one_it_holds_new_its
     let out = tempfile::tempdir().expect("a directory");
     assert!(situations(out.path(), "R2").status.success());
     let dir = out.path().join("R2");
-    let lacks = datum(&file(&dir, "later-plan-ran_holds_last-rest_lacks"), "background");
-    let holds_latest = datum(&file(&dir, "later-plan-ran_holds_last-rest_holds_latest"), "background");
-    let holds = datum(&file(&dir, "later-plan-ran_holds_last-rest_holds"), "background");
+    // The text of a datum depends on how the session stands with it alone, so any situation of the entry with the datum
+    // in the state serves.
+    let lacks = datum(&file_like(&dir, "later-plan-", "-rest_lacks"), "background");
+    let holds_latest = datum(&file_like(&dir, "later-plan-", "-rest_holds_latest"), "background");
+    let holds = datum(&file_like(&dir, "later-plan-", "-rest_holds"), "background");
     assert!(lacks.ends_with("{content}"), "{lacks}");
     assert!(
         !holds_latest.is_empty() && !holds_latest.contains("{content}"),
