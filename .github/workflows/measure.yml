@@ -1,6 +1,6 @@
 name: measure
 
-# The project's measure workflow (`ci.measure` of flow/project.toml): what an agent's `run_tests` waits for when it names
+# The project's measure workflow (`ci.measure` of wf-agents.toml): what an agent's `run_tests` waits for when it names
 # measurements. It times each measurement named in three checkouts within one run: the code the work's change began from
 # (`base`), a second checkout of the same commit (`twin`, the control: its time over the base's is this run's own noise)
 # and the code measured (`candidate`, the commit the engine gives). A pair is one timing of each of the three, in an
@@ -48,7 +48,7 @@ permissions:
 jobs:
   measure:
     runs-on: [self-hosted, 14900k]
-    # Equal to ci.measure.too_long (flow/project.toml); the wait for the lock counts in it.
+    # Equal to ci.measure.too_long (wf-agents.toml); the wait for the lock counts in it.
     timeout-minutes: 30
     env:
       # How many pairs of timings of each measurement.

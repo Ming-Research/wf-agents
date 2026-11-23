@@ -18,7 +18,7 @@ describe('the language of code', () => {
   it("is found by the end of a file's name, in any case, and none for a name with no end the page knows", () => {
     expect(grammarOf('crates/web/src/lib.rs')).toBe(Prism.languages.rust);
     expect(grammarOf('client/src/App.TSX')).toBe(Prism.languages.tsx);
-    expect(grammarOf('flow/project.toml')).toBe(Prism.languages.toml);
+    expect(grammarOf('wf-agents.toml')).toBe(Prism.languages.toml);
     expect(grammarOf('Makefile')).toBeNull();
     expect(grammarOf('notes.unknown')).toBeNull();
     expect(grammarOf('a.dir/README')).toBeNull();

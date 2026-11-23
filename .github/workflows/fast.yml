@@ -1,6 +1,6 @@
 name: fast
 
-# The project's fast workflow (`ci.fast` of flow/project.toml): what an agent's `run_tests` waits for while the code is
+# The project's fast workflow (`ci.fast` of wf-agents.toml): what an agent's `run_tests` waits for while the code is
 # being written, when it names tests or checks. It runs only when the engine asks, by hand, on the commit it gives, and
 # runs only what it is asked for: it compiles and runs the tests named, and runs the lint only when it is named, as
 # while what the full CI's lint found is being fixed. Every other check, the whole set of tests among them, is the

@@ -64,7 +64,7 @@ async fn a_line_that_writes_and_one_that_only_reads_are_each_given_what_they_may
     assert!(after(review, "--allowedTools").is_empty());
     assert!(told(review, "You only read it"));
     assert!(!told(review, "Make your changes there"));
-    // Every line's system prompt holds the project's files `project.toml` names, each headed by its path, the engine's
+    // Every line's system prompt holds the project's files its declaration names, each headed by its path, the engine's
     // words, and how a cell returns, with each field's words and the owner's language beside its name.
     for call in [plan, review] {
         for (path, text) in crate::PROJECT_FILES {

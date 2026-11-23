@@ -105,13 +105,13 @@ no_commit = "Nothing was run: the check runs on your worktree as it is, so no co
 no_measure = "Nothing was run: the check runs the project's tests alone, so no measurement can be named."
 
 # What fills `{measure}` in the words: `declared`, where the project declares a measure workflow (`[ci.measure]` of
-# flow/project.toml), and `none` where it declares none or its host is the local repository, whose words say nothing of it.
+# wf-agents.toml), and `none` where it declares none or its host is the local repository, whose words say nothing of it.
 [places.measure]
 declared = "\n  Add `\"measure\": [...]` to time measurements: name them as `project.measure_names` says. Each is timed in one run, on the commit your change began from and on `commit`, and every timing comes back in seconds."
 none = ""
 
 # What fills `{named_checks}`, the checks an agent may name, as the project declares its fast workflow (`[ci.fast]` of
-# flow/project.toml): `named`, `{checks}` the checks it runs by name, each between backticks and joined by commas;
+# its declaration): `named`, `{checks}` the checks it runs by name, each between backticks and joined by commas;
 # `none_named`, where it runs none by name; `whole`, where the project declares no workflows, so that nothing is run.
 [places.named_checks]
 named = "{checks}"
