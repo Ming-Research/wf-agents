@@ -11,6 +11,7 @@ use std::path::PathBuf;
 mod tree;
 
 fn main() {
+    println!("cargo::rerun-if-env-changed=WF_CHECKOUT");
     println!("cargo::rerun-if-changed=../../flow");
     println!("cargo::rerun-if-env-changed=WF_BUILD_COMMIT");
     let Some(manifest) = std::env::var_os("CARGO_MANIFEST_DIR").map(PathBuf::from) else {

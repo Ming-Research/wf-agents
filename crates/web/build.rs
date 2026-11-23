@@ -22,6 +22,7 @@ fn main() {
     };
     let client = manifest.join("../../client");
     let dist = client.join("dist");
+    println!("cargo::rerun-if-env-changed=WF_CHECKOUT");
     println!("cargo::rerun-if-changed=../../client/dist");
     if !dist.join("index.html").is_file() {
         panic!(

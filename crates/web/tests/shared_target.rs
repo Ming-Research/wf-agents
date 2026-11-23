@@ -11,6 +11,8 @@ use std::process::{Command, Output};
 const BUILD: &str = include_str!("../build.rs");
 const STAMP_RS: &str = include_str!("../build_support/stamp.rs");
 const TREE_RS: &str = include_str!("../build_support/tree.rs");
+/// The configuration that gives each checkout's build the path of the checkout, which the script watches.
+const CARGO_CONFIG: &str = include_str!("../../../.cargo/config.toml");
 
 /// The build script this crate had before the page's stamp, which fixed the checkout's path when it was compiled and
 /// handed cargo an absolute path to watch.
@@ -85,12 +87,14 @@ fn checkout(base: &Path, name: &str, page: &str, build: &str, stamped: bool) -> 
     for dir in [
         package.join("src"),
         package.join("build_support"),
+        root.join(".cargo"),
         root.join("client/src"),
         root.join("client/dist"),
     ] {
         std::fs::create_dir_all(dir).unwrap();
     }
     let put = |path: PathBuf, text: &str| std::fs::write(path, text).unwrap();
+    put(root.join(".cargo/config.toml"), CARGO_CONFIG);
     put(
         root.join("Cargo.toml"),
         "[workspace]\nmembers = [\"crates/*\"]\nresolver = \"3\"\n",
