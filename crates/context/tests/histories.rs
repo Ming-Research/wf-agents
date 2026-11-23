@@ -1527,7 +1527,7 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
 fn by_cell(lines: &BTreeSet<String>) -> String {
     let mut cells: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
     for line in lines {
-        let (cell, rest) = line.split_once(": ").unwrap_or(("", line));
+        let (cell, rest) = line.split_once(": ").unwrap_or(("", line.as_str()));
         cells.entry(cell).or_default().push(rest);
     }
     (cells.iter())
