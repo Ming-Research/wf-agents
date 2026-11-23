@@ -552,7 +552,7 @@ CREATE TABLE test_names (
 
 -- A run of the project's CI that the host read, and how it came to the work: `asking` is what asked for it (`call/<call>`
 -- of `run_tests`, or `run/<run>/round/<round>` of the check before the merge), `source` is `fast` (the fast workflow),
--- `full` (the full workflows) or `no_times` (a host that runs the project's check command and gives no time of any
+-- `full` (the full workflows) or `command` (a host's run of the project's check command, which has no job and no
 -- test), and `commit_id` is the commit it ran on. The same asking of the same source on the same commit is kept once.
 CREATE TABLE timed (
     work INTEGER NOT NULL REFERENCES works (number),

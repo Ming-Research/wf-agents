@@ -170,7 +170,7 @@ fn a_host_that_gives_no_time_is_said_so_and_a_call_that_read_none_says_none_read
     assert_eq!(versions(&h, work), ["None read."]);
     let none = Reading {
         asking: "call/2".to_string(),
-        source: work::Source::NoTimes,
+        source: work::Source::Command,
         commit: String::new(),
         jobs: Vec::new(),
         tests: Vec::new(),

@@ -717,7 +717,7 @@ mod tests {
             readings,
             [work::Reading {
                 asking: "call/7".to_string(),
-                source: work::Source::NoTimes,
+                source: work::Source::Command,
                 commit: String::new(),
                 jobs: Vec::new(),
                 tests: Vec::new(),

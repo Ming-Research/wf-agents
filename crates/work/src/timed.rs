@@ -6,15 +6,16 @@
 use decide::Seq;
 use serde::{Deserialize, Serialize};
 
-/// Which run of the project's CI a record is of.
+/// Which kind of run of the project's CI a record is of.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Source {
     /// A run of the fast workflow, which a call of `run_tests` asked for: it runs only the tests and checks it names.
     Fast,
     /// A run of the full workflows, which a round of the check before the merge asked for.
     Full,
-    /// A host that runs the project's check command and reads no JUnit: it gives no time of any test, and says so.
-    NoTimes,
+    /// A host's run of the project's check command, which reads no JUnit: it has no job and no test, and says so by
+    /// being the record of the run.
+    Command,
 }
 
 impl Source {
@@ -23,13 +24,13 @@ impl Source {
         match self {
             Source::Fast => "fast",
             Source::Full => "full",
-            Source::NoTimes => "no_times",
+            Source::Command => "command",
         }
     }
 
     /// The source a name the store keeps names; none for any other.
     pub fn named(name: &str) -> Option<Source> {
-        [Source::Fast, Source::Full, Source::NoTimes]
+        [Source::Fast, Source::Full, Source::Command]
             .into_iter()
             .find(|s| s.as_str() == name)
     }

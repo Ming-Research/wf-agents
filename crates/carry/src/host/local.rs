@@ -144,7 +144,7 @@ impl Host for Local {
         // The command reads no JUnit: this host gives no time of any test, which the work's records say.
         stop.timed(work::Reading {
             asking: asking.name(),
-            source: work::Source::NoTimes,
+            source: work::Source::Command,
             commit: String::new(),
             jobs: Vec::new(),
             tests: Vec::new(),

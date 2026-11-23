@@ -399,7 +399,7 @@ pub fn facts(work: &Work, history: &[Merge], samples: usize) -> Facts {
         }
     }
     if readings.is_empty() {
-        let none = work.timed.iter().any(|t| t.reading.source == Source::NoTimes);
+        let none = work.timed.iter().any(|t| t.reading.source == Source::Command);
         return if none { Facts::NoTimes } else { Facts::NoneRead };
     }
     let compared = samples > 0 && history.len() >= samples;
@@ -720,7 +720,7 @@ mod tests {
     fn a_host_that_gives_no_time_and_a_work_with_no_reading_are_said_apart() {
         let mut work = Work::default();
         assert_eq!(facts(&work, &[], 19), Facts::NoneRead);
-        work.timed.push(reading(Source::NoTimes, &[]));
+        work.timed.push(reading(Source::Command, &[]));
         assert_eq!(facts(&work, &[], 19), Facts::NoTimes);
     }
 
