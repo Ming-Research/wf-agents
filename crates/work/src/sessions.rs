@@ -257,6 +257,28 @@ mod tests {
     }
 
     #[test]
+    fn a_session_recorded_after_a_round_began_is_not_the_rounds_even_when_its_first_try_follows() {
+        // Round 2 begins at 3 in session 0, as its carrier decides it from the work as it was kept then; a new session
+        // is recorded at 5, as the carrier takes main in, and the round's first try is recorded at 6, after it.
+        let mut w = work(&[(1, 10), (3, 10), (8, 10)], &[(5, Why::Changed { context: Some(7) })]);
+        w.records.returned[1].at = Seq(7);
+        w.ran.push(ran(6, RunId(1), 2));
+        assert_eq!(of(&w, 2), (0, false), "the round goes on in the session it began in");
+        assert_eq!(
+            of(&w, 3),
+            (1, true),
+            "the round that begins after the new session begins it"
+        );
+        let mut kept = work(&[(1, 10), (3, 10)], &[]);
+        kept.records.returned.truncate(1);
+        assert_eq!(
+            of(&kept, 2),
+            of(&w, 2),
+            "what the carrier decided from the work as kept as the round began is what the records say"
+        );
+    }
+
+    #[test]
     fn a_session_the_program_lost_is_begun_again_under_its_id() {
         let w = work(&[(1, 10), (3, 10), (6, 10)], &[(4, Why::Lost)]);
         assert_eq!(

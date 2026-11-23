@@ -50,10 +50,19 @@ const CODE: &str = "fn greet() {\n    say(\"hello\");\n}\n\nfn say(what: &str) {
 
 /// The work as far as the review's first round: the plan, the build and the review each entered once.
 fn reviewed() -> Sim {
+    reviewed_then(None)
+}
+
+/// The work as far as the review's first round, as [`reviewed`] has it, the line beginning a new session as the review's
+/// round ends, before the plan's round begins again.
+fn reviewed_then(anew: Option<&str>) -> Sim {
     let mut sim = Sim::new();
     sim.writes("request", "Greet the user.");
     carry(&mut sim, &[("plan", "Greet by name.", None)]);
     carry(&mut sim, &[("code", CODE, None)]);
+    if let Some(line) = anew {
+        sim.anew_before_the_next_round(line, Why::Owner);
+    }
     carry(
         &mut sim,
         &[("opinions", "Name the error.", None), ("verdict", "no", Some("no"))],
@@ -290,8 +299,7 @@ fn what_changed_since_the_version_the_session_holds_is_sent_as_a_change_that_reb
 
 #[test]
 fn a_session_reopened_is_filled_from_the_top_and_holds_no_return() {
-    let mut sim = reviewed();
-    sim.anew("engineer", Why::Owner);
+    let mut sim = reviewed_then(Some("engineer"));
     let round = sim.round().expect("the plan is entered again");
     let entered = sim.enter(&round, false);
     let blocks: Vec<&str> = (entered.fills.iter())
@@ -570,8 +578,8 @@ fn the_tree_changed_since_the_session_read_it_is_sent_as_the_files_the_carrier_s
 fn a_round_whose_session_lacks_the_latest_of_what_its_cell_writes_is_given_it_after_its_data() {
     let mut sim = reviewed();
     carry(&mut sim, &[("plan", "Greet by name, and say why.", None)]);
+    sim.anew_before_the_next_round("reviewer", Why::Owner);
     carry(&mut sim, &[("code", CODE, None)]);
-    sim.anew("reviewer", Why::Owner);
     let round = sim.round().expect("the review is entered again");
     assert_eq!(sim.cell(&round).id.as_str(), "review");
     let entered = sim.enter(&round, false);
@@ -612,11 +620,11 @@ fn a_datum_given_last_and_latest_whose_session_holds_its_latest_and_not_the_vers
     let first = sim.version("code");
     carry(&mut sim, &[("plan", "Greet by name, and say why.", None)]);
     let changed = CODE.replace("print(what)", "print(what, \"!\")");
-    carry(&mut sim, &[("code", &changed, None)]);
     // The reviewer's line begins a new session, which the review's next round fills with the latest code; its return
     // is sent back, and the round after it runs in that session, which holds the latest and not the version the
     // review last worked from.
-    sim.anew("reviewer", Why::Owner);
+    sim.anew_before_the_next_round("reviewer", Why::Owner);
+    carry(&mut sim, &[("code", &changed, None)]);
     carry(&mut sim, &[("opinions", "Name it.", None)]);
     let round = sim.round().expect("the review's round after it was sent back");
     let entered = sim.enter(&round, false);
