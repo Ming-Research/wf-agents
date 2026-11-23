@@ -136,7 +136,7 @@ impl Usages {
 
 #[cfg(test)]
 mod tests {
-    use store::{AccountAct, AccountRecord};
+    use store::{AccountAct, AccountRecord, AccountTaker};
 
     use super::*;
 
@@ -147,6 +147,8 @@ mod tests {
                     name: name.to_string(),
                     what: AccountAct::Added,
                     at: Time(0),
+                    taker: AccountTaker::Owner,
+                    left_resets: None,
                 })
                 .collect(),
         )

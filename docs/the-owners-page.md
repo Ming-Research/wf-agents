@@ -122,7 +122,9 @@ and those of its look.
     constitution only its path is written, since its words are the project's own. The owner governs the whole
     configuration in one place and must see at a glance which is which. The accounts the agents run under stand with
     what the page changes, though they are the engine's own state and no key of the file: they change at once, where
-    the rest of what the page changes is saved. A page of its own for the levels alone was turned down.
+    the rest of what the page changes is saved. So does the switch that lets the engine move to another account at a usage limit,
+    above the accounts, with the engine's latest moves listed below them; it acts when pressed, as the accounts do. A
+    page of its own for the levels alone was turned down.
 
 28. In a form written as a whole by one saving, nothing takes effect before it is saved, so what can be on or off
     there is a box to tick and not a switch that acts when pressed; and a list the owner edits row by row is a table.
