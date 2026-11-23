@@ -346,3 +346,130 @@ async fn a_look_that_cannot_be_made_says_why() {
     .await;
     assert!(matches!(&looked, Err(why) if why.contains("merge-base")), "{looked:?}");
 }
+
+/// The format of the tree this repository's own declaration gives.
+fn kinds_of_this_repository() -> TreeFormat {
+    TreeFormat {
+        kinds: vec![
+            flow::agents::EntryKind {
+                kind: "principle".to_string(),
+                dir: "principles/".to_string(),
+            },
+            flow::agents::EntryKind {
+                kind: "decision".to_string(),
+                dir: "decisions/".to_string(),
+            },
+        ],
+        heading: "### {kind} {name}".to_string(),
+        reference: "{kind} {name}".to_string(),
+    }
+}
+
+/// The words the tests give the entries in.
+fn words() -> Entries {
+    Entries {
+        file: "In `{path}`:".to_string(),
+        gone: "{reference} is gone.".to_string(),
+    }
+}
+
+/// Writes the files of a tree of two kinds, a concept's file beside its subdirectory's, and gives the commit.
+fn a_tree(dir: &Path) -> String {
+    write(
+        dir,
+        "design/decisions/flow.md",
+        "# Flow\n\nWhat the flow covers.\n\n### decision b-two\nTwo.\n- rejected: an agent proposed three.\n\n\n\
+         ### decision a-one\nOne.\n",
+    );
+    write(dir, "design/decisions/flow/engineer.md", "### decision c-three\nThree.\n");
+    write(dir, "design/principles/general.md", "# General\n\n### principle p-one\nA rule.\nWhy: a reason.\n")
+}
+
+// What is given in place of the names: each named once, whole to the line before the next heading less its blank
+// lines, the principles before the decisions as the kinds are ordered, a concept's file before its subdirectory's, and
+// in a file in the file's order, whatever the order of the names, their blank lines and the white space around them.
+#[tokio::test]
+async fn each_entry_named_is_given_whole_once_under_its_file_in_the_order_of_the_kinds_and_then_of_the_paths() {
+    let (_repo, place) = started().await;
+    let commit = a_tree(&place.dir);
+    let names = "decision c-three\n  decision a-one  \n\nprinciple p-one\ndecision b-two\ndecision a-one\n";
+    let given = entries(&place.dir, "design/", &kinds_of_this_repository(), Some(&commit), names, &words()).await;
+    let expected = "In `design/principles/general.md`:\n\n### principle p-one\nA rule.\nWhy: a reason.\n\n\
+                    In `design/decisions/flow.md`:\n\n### decision b-two\nTwo.\n- rejected: an agent proposed three.\n\n\
+                    ### decision a-one\nOne.\n\n\
+                    In `design/decisions/flow/engineer.md`:\n\n### decision c-three\nThree.";
+    assert_eq!(given.as_deref(), Ok(expected));
+}
+
+// The entries are read at the commit given, not at the branch's head: of two commits, each gives its own text, and an
+// entry the later one removes is given in the words for a name the tree does not hold, after the entries, as a line
+// that is no reference is, and as every line is where the tree has no version.
+#[tokio::test]
+async fn each_entry_is_given_as_the_commit_given_has_it_and_a_name_it_does_not_hold_in_the_words_for_that() {
+    let (_repo, place) = started().await;
+    let first = a_tree(&place.dir);
+    let later = write(&place.dir, "design/decisions/flow.md", "# Flow\n\n### decision b-two\nTwo, changed.\n");
+    let format = kinds_of_this_repository();
+    let names = "decision a-one\ndecision b-two\nnot a reference\n";
+    let at = |commit: Option<String>| {
+        let (dir, format) = (place.dir.clone(), format.clone());
+        async move { entries(&dir, "design/", &format, commit.as_deref(), names, &words()).await }
+    };
+    let before = "In `design/decisions/flow.md`:\n\n### decision b-two\nTwo.\n- rejected: an agent proposed three.\n\n\
+                  ### decision a-one\nOne.\n\nnot a reference is gone.";
+    assert_eq!(at(Some(first)).await.as_deref(), Ok(before));
+    let after = "In `design/decisions/flow.md`:\n\n### decision b-two\nTwo, changed.\n\ndecision a-one is gone.\n\n\
+                 not a reference is gone.";
+    assert_eq!(at(Some(later)).await.as_deref(), Ok(after));
+    let none = "decision a-one is gone.\n\ndecision b-two is gone.\n\nnot a reference is gone.";
+    assert_eq!(at(None).await.as_deref(), Ok(none));
+}
+
+// What a return that writes the names is sent back for: each line, trimmed and once, not written as a reference to an
+// entry, or naming one the tree lacks, of its kind; a blank line is none.
+#[tokio::test]
+async fn a_line_not_written_as_a_reference_or_naming_an_entry_the_tree_lacks_of_its_kind_is_unknown() {
+    let (_repo, place) = started().await;
+    let commit = a_tree(&place.dir);
+    let names = "decision a-one\ndecision no-such-entry\nprinciple a-one\nsee decision a-one\n\n decision a-one \n\
+                 decision no-such-entry\ndecision two words\n";
+    let unknown = unknown(&place.dir, "design/", &kinds_of_this_repository(), &commit, names).await;
+    let expected = ["decision no-such-entry", "principle a-one", "see decision a-one", "decision two words"];
+    assert_eq!(unknown, Ok(expected.map(str::to_string).to_vec()));
+}
+
+// Nothing of how an entry is found is the engine's own: a tree elsewhere, of one kind in a directory of its own, with
+// its own heading and way of referring, is checked and given by those, and an entry in this repository's form in it is
+// none.
+#[tokio::test]
+async fn a_tree_of_another_format_is_checked_and_given_by_its_own_kinds_heading_and_reference() {
+    let (_repo, place) = started().await;
+    write(&place.dir, "docs/tree/decisions/old.md", "### decision keep-it\nKept.\n");
+    let commit = write(&place.dir, "docs/tree/rules/a.md", "## rule: keep-it\nKeep it.\n## rule: drop-it\nDrop it.\n");
+    let format = TreeFormat {
+        kinds: vec![flow::agents::EntryKind {
+            kind: "rule".to_string(),
+            dir: "rules".to_string(),
+        }],
+        heading: "## {kind}: {name}".to_string(),
+        reference: "{kind} {name}".to_string(),
+    };
+    let names = "rule keep-it\ndecision keep-it\n";
+    let unknown = unknown(&place.dir, "docs/tree", &format, &commit, names).await;
+    assert_eq!(unknown, Ok(vec!["decision keep-it".to_string()]));
+    let given = entries(&place.dir, "docs/tree", &format, Some(&commit), names, &words()).await;
+    let expected = "In `docs/tree/rules/a.md`:\n\n## rule: keep-it\nKeep it.\n\ndecision keep-it is gone.";
+    assert_eq!(given.as_deref(), Ok(expected));
+}
+
+// A look at a commit the repository does not have says why, rather than take every name as unknown or as gone.
+#[tokio::test]
+async fn a_look_at_the_entries_that_cannot_be_made_says_why() {
+    let (_repo, place) = started().await;
+    let format = kinds_of_this_repository();
+    let missing = "0123456789abcdef0123456789abcdef01234567";
+    let unknown = unknown(&place.dir, "design/", &format, missing, "decision a-one").await;
+    assert!(unknown.is_err(), "{unknown:?}");
+    let given = entries(&place.dir, "design/", &format, Some(missing), "decision a-one", &words()).await;
+    assert!(given.is_err(), "{given:?}");
+}

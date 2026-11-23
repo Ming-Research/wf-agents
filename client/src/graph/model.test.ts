@@ -290,7 +290,7 @@ describe('the flowchart of the engineer flow', () => {
     expect(tags('M1')).toEqual(['head head', 'main main', 'asked asked']);
     // R2 asks nothing and is spoken to by no one: it watches only what cells write.
     expect(tags('R2')).toEqual([]);
-    expect(nodeOf(chart, outsideNode('R0', 'engineer_session'))?.cell).toBe('R0');
+    expect(tags('R0')).toEqual(['background people']);
   });
 
   it('needs no tie where the main path reaches every cell', () => {

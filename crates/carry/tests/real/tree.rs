@@ -1,6 +1,7 @@
 //! The design tree on the work's branch as a block of the work: a version where the start made the branch, where the
 //! branch took main in, and where a round of the work committed to the tree, which that round's run hands in; and a
-//! change handed in only with the owner's answers to the questions marked `tree` in the tree.
+//! change handed in only with the owner's answers to the questions marked `tree` in the tree; and a block whose lines
+//! name entries of the tree, checked as it is handed in and given as the entries it names.
 
 use decide::Writer;
 use decide::run::Unmet;
@@ -8,7 +9,7 @@ use service::Act;
 use store::WorkNumber;
 use work::Given;
 
-use crate::{Fake, On, Real, ended, git_in};
+use crate::{Fake, GREETING_ENTRY, GREETING_FILE, NO_SUCH_ENTRY, On, Real, ended, git_in};
 
 /// A check that fails the first time, moving main by a commit of a file of the design tree as it does, and passes after.
 const MOVES_DESIGN_ONCE: &str = "test -f ../moved || { touch ../moved; \
@@ -143,4 +144,43 @@ async fn a_change_handed_in_while_an_answer_marked_tree_is_not_in_the_design_tre
         .iter()
         .filter(|call| call.of("Build") && call.stdin.contains(sent_back));
     assert_eq!(told.count(), 1, "the build is told once why its return was sent back");
+}
+
+// The plan names entries of the design tree with a line that names none, and is sent back for that line alone; its
+// next return is taken. The review, on another line, reads the entries: it is given each named entry whole, under its
+// file, as the tree's latest version has it, the build having rewritten the entry since the plan named it.
+#[tokio::test]
+async fn a_line_naming_no_entry_is_sent_back_and_a_reader_is_given_each_entry_named_as_the_latest_tree_has_it() {
+    let fake = Fake {
+        names_entries: true,
+        ..Fake::default()
+    };
+    let mut real = Real::open(On::Entries, fake, None, "true");
+    let entry = format!("### {GREETING_ENTRY}\nGreet by name.\n- rejected: the owner proposed a plain hello; the owner rejected it, because it names no one.");
+    let file = format!("# Greeting\n\nHow the work greets.\n\n{entry}\n\n### decision greet-once\nGreet once.\n");
+    let path = real.repo.join(GREETING_FILE);
+    std::fs::create_dir_all(path.parent().expect("a directory")).unwrap();
+    std::fs::write(&path, file).unwrap();
+    git_in(&real.repo, &["add", GREETING_FILE]);
+    git_in(&real.repo, &["commit", "-q", "-m", "Decide the greeting"]);
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| ended(&real.decision(work))).await;
+    let kept = real.work(work);
+    let plan = real.run_of(work, "plan");
+    let unknown = Unmet::NotAnEntry {
+        line: NO_SUCH_ENTRY.to_string(),
+    };
+    assert_eq!(kept.given.get(&(plan, 2)), Some(&Given::SentBack(vec![unknown])));
+    assert_eq!(kept.given.get(&(plan, 3)), None, "taken at its second round");
+    let block = decide::BlockId::from("entries");
+    let versions = decide::versions(&kept.records).remove(&block).unwrap_or_default();
+    let names: Vec<&str> = (versions.iter()).map(|v| kept.contents[&(block.clone(), v.at)].as_str()).collect();
+    assert_eq!(names, [GREETING_ENTRY], "the work keeps the names as they were handed in");
+    let calls = real.calls();
+    let review = (calls.iter()).find(|c| c.of("Review")).expect("the review ran");
+    let given = format!("From `{GREETING_FILE}`:\n\n### {GREETING_ENTRY}\nGreet by the first name.");
+    assert!(review.stdin.contains(&given), "{given} is missing from:\n{}", review.stdin);
+    assert!(!review.stdin.contains("a plain hello"), "{}", review.stdin);
+    assert!(!review.stdin.contains("greet-once"), "an entry not named is not given:\n{}", review.stdin);
 }

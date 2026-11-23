@@ -24,7 +24,6 @@ fn has() -> Has {
             "dependencies",
             "handed_in",
             "main",
-            "session",
             "start",
             "head",
             "tree",

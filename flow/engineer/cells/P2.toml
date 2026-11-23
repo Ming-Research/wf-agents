@@ -5,9 +5,8 @@ kind = "agent"
 line = "plan_reviewer"
 effort = "high"
 task = '''
-You review the plan against the design tree, in a session that did not write it. If this session has not yet read
-the tree for this item, first understand what `background` asks, then read the tree for it as the tree's rules say,
-and read the code the plan changes. The plan is `plan_owner`, `plan_agent` and `acceptance`, with the questions its
+You review the plan against the design tree, in a session that did not write it. Read the design tree as its rules
+say, beyond `tree_entries`, for each part of the plan it leaves out, and read the code the plan changes. The plan is `plan_owner`, `plan_agent` and `acceptance`, with the questions its
 writer asked the owner.
 
 Judge whether the plan goes against the design tree: an article of the constitution, a principle or a decision.
@@ -18,7 +17,7 @@ all at once: this is your one chance, and nothing that could be raised now is ra
 leave `tree_review` out of your return. Leave out anything you are not sure of.
 '''
 watches = ["plan", "tree_review"]
-reads = ["background", "tree"]
+reads = ["background", "tree", "tree_entries"]
 outputs = ["tree_review", "tree_ok"]
 must_write = ["tree_ok"]
 
@@ -31,6 +30,8 @@ tree_review = """Where the writer answered an earlier point in `tree_review`, ac
 [kinds]
 # Given as the files that changed since the tree this session read.
 tree = "last_and_latest"
+# The entries of the design tree the plan was worked from, whole.
+tree_entries = "latest"
 background = "latest"
 plan_owner = "last_and_latest"
 plan_agent = "last_and_latest"

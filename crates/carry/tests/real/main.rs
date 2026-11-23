@@ -86,8 +86,6 @@ pub struct Fake {
     /// Whether every call compacts its session once: it runs the hook the command line was given for a compaction,
     /// keeping what the hook printed in `<n>.again`.
     pub compacts: bool,
-    /// Whether the plan, run again, hands in what it wrote before, saying it changes nothing of what it means.
-    pub plan_again_unchanged: bool,
     /// Whether its first call prints a stream in which it refused every attempt at the return, the last writing the
     /// plan's hand-ins as a string, gave up on the return, and exits with 1.
     pub refuses_first: bool,
@@ -126,7 +124,18 @@ pub struct Fake {
     /// into the design tree; and whether a round of the build told that its change holds nothing of that answer in the
     /// tree commits a file of the tree with its own.
     pub tree_question: bool,
+    /// Whether the plan names entries of the design tree in `entries` ([`On::Entries`]): with them a line that names
+    /// none, [`NO_SUCH_ENTRY`], until a round of it is told its return was sent back for that line; and whether the
+    /// build rewrites the entry the plan names, [`GREETING_ENTRY`], committing it with its file.
+    pub names_entries: bool,
 }
+
+/// The file of the design tree that holds the entry the fake's plan names, where it names entries.
+pub const GREETING_FILE: &str = "design/decisions/greeting.md";
+/// The entry of the design tree the fake's plan names, where it names entries, as a line names it.
+pub const GREETING_ENTRY: &str = "decision greet-by-name";
+/// A line the fake's plan writes among the entries it names, which names no entry of the design tree.
+pub const NO_SUCH_ENTRY: &str = "decision greet-with-a-song";
 
 /// How much of the account's week every call that says its usage says is used.
 pub const USED: f64 = 0.04;
@@ -148,7 +157,6 @@ impl Default for Fake {
             build_sleeps_once_committed: 0,
             context: None,
             compacts: false,
-            plan_again_unchanged: false,
             refuses_first: false,
             plan_edits_guide: false,
             design: false,
@@ -163,6 +171,7 @@ impl Default for Fake {
             build_loses_its_branch: false,
             says_usage: false,
             tree_question: false,
+            names_entries: false,
         }
     }
 }
@@ -229,11 +238,12 @@ pub enum On {
     Acts,
     /// The deliver flow, whose one cell delivers the item once the items it is made of have merged.
     Deliver,
-    /// The trial flow with a plan that loads the engineer's session (`loading` here).
-    Loading,
     /// The trial flow with the engineer's line changing only the project's tests, and the work's head, which what a
     /// run of the line changed is read from.
     Testing,
+    /// The trial flow with the design tree as a datum, and a block whose lines name entries of it (`entries`), which
+    /// the plan may write and the review reads.
+    Entries,
 }
 
 /// What the fake was given in one call.
@@ -331,10 +341,11 @@ pub fn beside() -> flow::agents::Agents {
 /// The flow, compiled with what the real carriers have, its build, where it has one, asking for `query`.
 fn compiled(on: On) -> Compiled {
     let dir = match on {
-        On::Trial | On::Testing => Path::new(env!("CARGO_MANIFEST_DIR")).join("../service/tests/trial/flow"),
+        On::Trial | On::Testing | On::Entries => {
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../service/tests/trial/flow")
+        }
         On::Acts => Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/flow"),
         On::Deliver => Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/deliver"),
-        On::Loading => Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/loading"),
     };
     let mut source = flow::read(&dir).expect("the flow is read");
     if let On::Testing = on {
@@ -345,6 +356,18 @@ fn compiled(on: On) -> Compiled {
             "\n[blocks.head]\noutside = \"{}\"\nshown = true\n",
             carry::head::HEAD
         ));
+    }
+    if let On::Entries = on {
+        source.flow.push_str(&format!(
+            "\n[blocks.tree]\noutside = \"{}\"\nshown = true\n\n[blocks.entries]\nnames_tree_entries = true\n",
+            carry::tree::TREE
+        ));
+        let plan = source.cells.get_mut("plan").expect("the trial flow has a plan");
+        let outputs = "outputs = [\"plan\"]";
+        assert!(plan.contains(outputs), "the plan writes the plan");
+        *plan = plan.replacen(outputs, "outputs = [\"plan\", \"entries\"]", 1);
+        let review = source.cells.get_mut("review").expect("the trial flow has a review");
+        *review = format!("reads = [\"entries\"]\n{review}");
     }
     if let Some(build) = source.cells.get_mut("build") {
         *build = format!("tools = [\"query\"]\n{build}");
@@ -405,7 +428,6 @@ fn compiled(on: On) -> Compiled {
     let has = Has {
         sources: names(&[
             driver::DEPENDENCIES,
-            driver::SESSION,
             carry::tree::TREE,
             carry::head::HEAD,
             flow::ANSWER,
@@ -475,7 +497,6 @@ first=$(printf '%s\n' "$text" | grep -m 1 -E '(^|"text":")# (Plan|Build|Review)$
 dealt=$(printf '%s\n' "$text" | sed -n '/^## Why you are run$/,$p' | sed -n 's/^- `\([^`]*\)`.*$/"\1"/p' | paste -sd, -)
 calls=''
 out=''
-unchanged=''
 protected=''
 # Commits the build's file: beside the project's tests, or among them where the round is told its return was sent back
 # for a file beside them, which it takes back.
@@ -534,10 +555,6 @@ case "$first" in
             printf '%s\n' '{{"type":"user","parent_tool_use_id":null,"message":{{"role":"user","content":[{{"type":"tool_result","tool_use_id":"toolu_1","content":"Structured output provided successfully"}}]}}}}'
             sleep '{wrote_sleeps}'
         fi
-        if [ '{unchanged}' = yes ] && [ -f "$log/planned" ]; then
-            unchanged='"plan"'
-        fi
-        touch "$log/planned"
         if [ '{edits_guide}' = yes ] && [ ! -f "$log/plan_guided" ]; then
             touch "$log/plan_guided"
             printf 'A line the work added.\n' >> '{guide}'
@@ -545,7 +562,12 @@ case "$first" in
             git -c user.name=Fake -c user.email=fake@example.com commit -q -m 'The plan changes the guide'
             protected='"protected_changes":{{"{guide}":"The plan needs the line."}},'
         fi
-        out='"plan":"Greet by name."' ;;
+        out='"plan":"Greet by name."'
+        if [ '{names_entries}' = yes ] && grep -q 'names no entry of the design tree' "$log/$n.stdin"; then
+            out="$out"',"entries":"{entry}"'
+        elif [ '{names_entries}' = yes ]; then
+            out="$out"',"entries":"{entry}\n{no_such_entry}"'
+        fi ;;
     Build)
         takes_back
         if [ '{committed_sleeps}' != 0 ] && [ ! -f "$log/committed" ]; then
@@ -594,6 +616,10 @@ case "$first" in
                 echo built > design/built.md
                 git add design/built.md
             fi
+            if [ '{names_entries}' = yes ]; then
+                printf '# Greeting\n\n### {entry}\nGreet by the first name.\n\n### decision greet-once\nGreet once.\n' > '{entry_file}'
+                git add '{entry_file}'
+            fi
             if [ '{moves}' = yes ] && [ ! -f "$log/moved" ]; then
                 touch "$log/moved"
                 r=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
@@ -631,7 +657,7 @@ esac
 if [ -n "$calls" ]; then
     structured="{{\"tools\":{{$calls}}}}"
 else
-    structured="{{\"outcome\":{{\"dealt_with\":[$dealt],\"meaning_unchanged\":[$unchanged],$protected\"outputs\":{{$out}}}}}}"
+    structured="{{\"outcome\":{{\"dealt_with\":[$dealt],\"meaning_unchanged\":[],$protected\"outputs\":{{$out}}}}}}"
 fi
 iterations='{iterations}'
 if [ '{says_usage}' = yes ]; then
@@ -657,7 +683,6 @@ fi
         committed_sleeps = fake.build_sleeps_once_committed,
         cost = fake.cost,
         compacts = yes(fake.compacts),
-        unchanged = yes(fake.plan_again_unchanged),
         refuses = yes(fake.refuses_first),
         edits_guide = yes(fake.plan_edits_guide),
         guide = PROJECT_FILES[0].0,
@@ -674,6 +699,10 @@ fi
         says_usage = yes(fake.says_usage),
         tree_question = yes(fake.tree_question),
         tree_mark = fake.tree_question,
+        names_entries = yes(fake.names_entries),
+        entry = GREETING_ENTRY,
+        no_such_entry = NO_SUCH_ENTRY,
+        entry_file = GREETING_FILE,
         used = USED,
         gave_up = GAVE_UP,
         name = NAMED,

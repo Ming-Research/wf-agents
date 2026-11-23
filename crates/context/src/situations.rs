@@ -10,8 +10,7 @@
 //! alike for both, the work's line, and what that cell's return handed in, where it writes any block.
 //!
 //! What it watches that ran it is each datum or group alone, those whose blocks one cell's return writes together, and
-//! all of them at once. What is written as a line's session begins anew runs no later entry; on a first entry, where
-//! everything written is new to the cell, every datum it watches that the work starts with runs it as well: what people
+//! all of them at once. On a first entry, where everything written is new to the cell, every datum it watches that the work starts with runs it as well: what people
 //! write that runs the flow's first agent's cell.
 //!
 //! A datum is certainly written when the cell runs where the work starts with it, or where the cells before it in the
@@ -105,8 +104,6 @@ struct Reach<'a> {
     flow: &'a Compiled,
     words: &'a Agents,
     cell: &'a CellSpec,
-    /// The source that writes a block as a line's session begins anew.
-    reopened: &'a str,
     /// The blocks whose versions the carrier compares itself.
     compared: &'a BTreeSet<BlockId>,
     /// What a round of the cell is given, in order ([`crate::message::given`]).
@@ -120,17 +117,15 @@ struct Reach<'a> {
 }
 
 /// Every situation an entry of the agent's cell can reach, as the module says, each once, in order: the first entry,
-/// the later and the reopened, each by the sets of what ran it, then the other things a round may be given. `reopened`
-/// is the source that writes a block as a line's session begins anew; `compared`, the blocks whose versions the carrier
-/// compares itself.
+/// the later and the reopened, each by the sets of what ran it, then the other things a round may be given. `compared`
+/// is the blocks whose versions the carrier compares itself.
 pub fn situations(
     flow: &Compiled,
     words: &Agents,
     cell: &CellSpec,
-    reopened: &str,
     compared: &BTreeSet<BlockId>,
 ) -> Vec<Named> {
-    let reach = Reach::of(flow, words, cell, reopened, compared);
+    let reach = Reach::of(flow, words, cell, compared);
     let mut out: Vec<Named> = Vec::new();
     let mut add = |named: Named| {
         if !out.iter().any(|o| o.situation == named.situation) {
@@ -188,10 +183,9 @@ pub fn combinations(
     flow: &Compiled,
     words: &Agents,
     cell: &CellSpec,
-    reopened: &str,
     compared: &BTreeSet<BlockId>,
 ) -> u128 {
-    let reach = Reach::of(flow, words, cell, reopened, compared);
+    let reach = Reach::of(flow, words, cell, compared);
     let mut count: u128 = 0;
     for entry in Entry::ALL {
         for ran in reach.ran(entry) {
@@ -238,7 +232,6 @@ impl<'a> Reach<'a> {
         flow: &'a Compiled,
         words: &'a Agents,
         cell: &'a CellSpec,
-        reopened: &'a str,
         compared: &'a BTreeSet<BlockId>,
     ) -> Reach<'a> {
         let place = flow.flow.place(&cell.id).unwrap_or(0);
@@ -251,7 +244,6 @@ impl<'a> Reach<'a> {
             flow,
             words,
             cell,
-            reopened,
             compared,
             given: crate::message::given(flow, words, cell),
             certain: BTreeSet::new(),
@@ -423,10 +415,6 @@ impl<'a> Reach<'a> {
     /// names them.
     fn ran(&self, entry: Entry) -> Vec<Ran<'a>> {
         let (flow, cell) = (self.flow, self.cell);
-        let reopens = |t: &Watched| {
-            let outside = |b: &BlockId| flow.blocks.get(b).and_then(|d| d.writers.outside.as_deref());
-            t.blocks.iter().any(|b| outside(b) == Some(self.reopened))
-        };
         let starts = |t: &Watched| t.blocks.iter().any(|b| self.starts.contains(b));
         let mut sets: Vec<Ran<'a>> = (cell.watches.iter())
             .map(|t| Ran {
@@ -471,12 +459,11 @@ impl<'a> Reach<'a> {
                     };
                 }
             }
-            let reopening = set.watched.iter().any(|t| reopens(t));
             // A datum or group none of whose blocks is written yet runs no first entry.
             let unwritten = |t: &&Watched| !t.blocks.iter().any(|b| self.early(b));
             let early = entry != Entry::First || !set.watched.iter().any(unwritten);
             let again = out.iter().any(|o| names(&o.watched) == names(&set.watched));
-            if (entry == Entry::Later && reopening) || !early || again {
+            if !early || again {
                 continue;
             }
             out.push(set);
