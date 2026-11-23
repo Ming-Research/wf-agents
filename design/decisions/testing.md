@@ -22,7 +22,7 @@ The full workflow runs only `scope`, `tree` and `check` where every changed file
 
 ### decision wf-agents-ci-keeps-the-pages-tests-in-a-job-of-their-own
 The full workflow runs the page's type-check, lint and build in the job `page` and its tests in the job `page tests`.
-- replaced: The page in one job was on main; the owner changed it, because the page job took 99 to 149 s and was the longest job of the run in 9 of 16 runs (data: `research/ci-job-split-measured.md`).
+- replaced: The page in one job was on main; the owner changed it, because the page job took 99 to 121 s and was the longest job in 3 of the last 8 runs of main, by 4 to 17 s over the next, and in 6 of 8 the day before (data: `research/ci-job-split-measured.md`).
 
 ### decision wf-agents-ci-bounds-each-test-and-job
 wf-agents' workflows stop and fail a test still running at the line the engine gives them from the history of the tests' times, and a job past its limit, which is 15 minutes for the Rust tests.
@@ -39,4 +39,3 @@ wf-agents' CI builds its tests with the dependencies fully optimized and its own
 wf-agents' CI runs its Rust tests in three jobs, each running a third of every binary's tests by nextest's count, not by any list kept by hand.
 - replaced: One machine running the groups of tests one after another was on main; the owner changed it, because CI took about 23 minutes, and slow CI makes the iterations endless.
 - rejected: an agent proposed four jobs, each first running its share of a hand-kept list of the long tests; the owner rejected it, because it was about ten seconds faster on two runs, and the list goes stale as the tests change.
-- rejected: an agent proposed dividing the Rust jobs by the time of their tests; the owner rejected it, because the longest test alone takes 101 s, and a job that holds it cannot take less (data: `research/ci-job-split-measured.md`).

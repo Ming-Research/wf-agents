@@ -240,7 +240,7 @@ jobs:
     needs: scope
     runs-on: [self-hosted, 14900k]
     # As for `page`.
-    if: ${{ needs.scope.outputs.tree_only != 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    if: ${{ needs.scope.outputs.tree_only != 'true' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'work-'))) }}
     timeout-minutes: 10
     defaults:
       run:
