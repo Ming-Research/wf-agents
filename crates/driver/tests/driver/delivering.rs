@@ -76,6 +76,11 @@ fn a_deliverable_waits_while_an_item_it_is_made_of_has_not_merged_and_is_deliver
     let (_, wd) = h.add(new_item("d", &[a, b], "deliver"));
     assert_eq!(h.let_on(wd), vec![]);
     assert_eq!(h.decision(wd), waits_to_be_delivered());
+    // The block says which items it waits for, each written as an item's number is: with a `#`.
+    let kept = h.d().work(wd).expect("the work is there");
+    let text = dependencies_text(kept.flow, kept.work).expect("the block says what it waits for");
+    assert_eq!(text, format!("The work waits for the items {a}, {b} to merge."));
+    assert_eq!(text, "The work waits for the items #1, #2 to merge.");
     h.let_on(wa);
     h.let_on(wb);
     // One of the two merges: the deliverable still waits.

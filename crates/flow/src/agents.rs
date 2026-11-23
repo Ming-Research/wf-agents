@@ -2,9 +2,11 @@
 //! settings and heavy commands (`project.toml`), and in `agents/` what a session begins with, what every agent is
 //! refused whatever its project, the rules for the agents, the engine's own words, the return and its fields, the
 //! tools, the message a cell is sent as it is entered (design document `data-and-context`, 14), and what the engine
-//! writes as it works: into the blocks its acts write, and in the commits it makes. Every word an agent is sent that is
-//! not a flow's is in these files; the code holds none of them, only how they are put together. A field a file does
-//! not know is refused, and what cannot be read is said with the path of its file.
+//! writes as it works: into the blocks its acts write, in the commits it makes, on the pull requests of the works, and
+//! as the result of a call it ends itself. Every word an agent is sent, the host is written, or the owner's cards say
+//! that is not a flow's is in these files; the code holds none of them, only how they are put together. A field a file
+//! does not know is refused, a text that is empty is refused, and what cannot be read is said with the path of its
+//! file.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -69,6 +71,16 @@ pub const TOOL_TEXTS: &[(&str, &[&str])] = &[(
 /// The file, in `agents/`, of the questions the engine itself asks the owner.
 pub const ASKS_FILE: &str = "asks.toml";
 
+/// The file, in `agents/`, of what the engine writes on a work's pull request where the project's host is GitHub.
+pub const PULL_REQUEST_FILE: &str = "pull_request.toml";
+
+/// The file, in `agents/`, of the result a call has where the engine ends it itself.
+pub const CALLS_FILE: &str = "calls.toml";
+
+/// The places in the engine's words that the engine fills with a number as it is written: an item's as `#n`, a work's
+/// as `Wn`. A text writes no `W` or `#` before one of them.
+pub const NUMBER_PLACES: &[&str] = &["work", "item", "items", "last"];
+
 /// The file, in `agents/`, of what the engine says to the owner of why a work waits on them, and why it paused a work
 /// as a round of it failed. It is read with each flow, which carries it ([`crate::Compiled::waits`]), so that the
 /// engine's deciding and showing read the words of the flow a work runs on.
@@ -126,6 +138,11 @@ pub struct PausedWords {
     pub flagged_again: String,
     /// Letting go of what an ended work held failed.
     pub let_go: String,
+    /// The round failed, for a cause no other of these says: `{why}` it.
+    pub failed: String,
+    /// The service has no model the level a round runs on names: `{model}`, `{level}`, `{work}` the work whose round
+    /// found it, `{why}` what the service said.
+    pub no_model: String,
 }
 
 /// Why a work waits on the owner, a sentence for each thing it waits for; a question is said by what it asks.
@@ -183,6 +200,52 @@ pub struct Agents {
     pub asks: Asks,
     /// What the engine says as it guards what rounds cost and keeps their sessions' caches: `agents/cost.toml`.
     pub cost: Cost,
+    /// What the engine writes on a work's pull request: [`PULL_REQUEST_FILE`].
+    pub pull_request: PullRequest,
+    /// The result a call has where the engine ends it itself: [`CALLS_FILE`].
+    pub calls: Calls,
+}
+
+/// [`PULL_REQUEST_FILE`]: what the engine writes on a work's pull request where the project's host is GitHub.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PullRequest {
+    /// What opens the body where the work wrote of itself: `{about}` that, in a block of plain text.
+    pub about: String,
+    /// The rest of the body: `{work}` the work's number.
+    pub body: String,
+    /// What follows, on a line of its own, what the work wrote of itself where it is cut.
+    pub cut: String,
+    /// The title of the commit the merge makes: `{name}` the name of the work's merge, `{number}` the pull request's
+    /// number on the host.
+    pub merged: String,
+    /// The comment it is closed with, where its work ended without merging.
+    pub closed: String,
+    /// The comment the pull request an item continued is closed with, once the work's own is open: `{url}` the address
+    /// of the work's own.
+    pub superseded: String,
+    pub withheld: Withheld,
+}
+
+/// What stands, in what is published, in place of each path of this machine.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Withheld {
+    pub data: String,
+    pub repository: String,
+    pub home: String,
+}
+
+/// [`CALLS_FILE`]: the result a call has where the engine ends it itself, kept as its result in the work's records.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Calls {
+    /// Of a call withdrawn as its run was abandoned, before it had its result.
+    pub withdrawn: String,
+    /// Of the engine's wait before a round that failed in passing is tried again, once its time has come.
+    pub waited: String,
+    /// What a call of a tool the engine does not have is answered: `{name}`, `{tools}`.
+    pub no_such_tool: String,
 }
 
 /// `agents/cost.toml`: what the engine says as it runs the agents' program, guards what its rounds cost and keeps their
@@ -209,6 +272,29 @@ pub struct ProgramWords {
     pub signal: String,
     /// It ran as the process of the engine that ran it ended, and what it printed until then holds no result.
     pub cut_off: String,
+    /// Its stream holds no result.
+    pub no_stream_result: String,
+    /// Its result cannot be read: `{why}` what the reading said.
+    pub unreadable_result: String,
+    /// Its result holds no structured return.
+    pub no_return: String,
+    /// Its result is an error of a kind it names: `{subtype}` that kind, `{said}` what it said.
+    pub error_kind: String,
+    /// Its result is an error that names no kind: `{said}` what it said.
+    pub error: String,
+    /// Why there is no return where its last attempt at one is no JSON: `{reason}` why there is none, as a sentence,
+    /// `{error}` what is wrong with the attempt, `{refused}` what `refused` makes of what the program said of it.
+    pub last_attempt: String,
+    /// Where the program said why it refused the attempt: `{said}` what it said.
+    pub refused: String,
+    /// The result is longer than is read of one: `{long}` its length in bytes, `{most}` what is read.
+    pub too_long: String,
+    /// The last lines of the stream are longer than is read: `{most}` what is read.
+    pub lines_too_long: String,
+    /// What the stream holds is no result: `{why}` what the reading said.
+    pub not_a_result: String,
+    /// The program said it failed and gave no reason.
+    pub no_reason: String,
 }
 
 /// What the engine's check of the outside of the agents' rounds found down, where it says it itself.
@@ -219,6 +305,8 @@ pub struct CheckWords {
     pub no_account: String,
     /// The network does not reach the agents' service.
     pub offline: String,
+    /// What the check asks the agents' service, which it answers: the whole request.
+    pub request: String,
 }
 
 /// What a keep-warm ping sends, and why one failed.
@@ -281,6 +369,8 @@ pub struct WorkWords {
     pub started: String,
     pub let_on: String,
     pub between: String,
+    /// That the round failed too, where the work is paused for its budget as well: `{why}` its cause.
+    pub failed: String,
 }
 
 impl Agents {
@@ -946,6 +1036,8 @@ pub struct Tool {
     pub places: BTreeMap<String, BTreeMap<String, String>>,
     /// What a round is told of a request of it that cannot be read as that shape: `{error}` what the reading said.
     pub unread: Option<String>,
+    /// What a round is told where the tool could not run its check at all, whatever the host: `{why}` what stopped it.
+    pub could_not_check: Option<String>,
     /// How much of a result of it a round is given.
     pub given: Option<ResultGiven>,
     /// What it says where the host is the local repository, in place of `words`.
@@ -1562,8 +1654,82 @@ pub fn read(root: &Path) -> Result<Agents, String> {
         acts: writes.acts,
         commits: writes.commits,
         asks: asks(&at.join(ASKS_FILE))?,
-        cost: file(&at.join("cost.toml"))?,
+        cost: cost(&at.join("cost.toml"))?,
+        pull_request: pull_request(&at.join(PULL_REQUEST_FILE))?,
+        calls: calls(&at.join(CALLS_FILE))?,
     })
+}
+
+/// The texts a file gives, each of which must say something: a file whose text is empty would have the engine say
+/// nothing where it speaks, which is refused (principle nothing-passes-for-normal).
+fn filled(path: &Path, texts: &[(&str, &str)]) -> Result<(), String> {
+    let empty: Vec<&str> = (texts.iter())
+        .filter(|(_, text)| text.trim().is_empty())
+        .map(|(key, _)| *key)
+        .collect();
+    match empty.is_empty() {
+        true => Ok(()),
+        false => Err(format!("{}: {} must not be empty", path.display(), empty.join(", "))),
+    }
+}
+
+/// What the engine says of the agents' program, its rounds' cost and their sessions' caches, read from its file.
+fn cost(path: &Path) -> Result<Cost, String> {
+    let cost: Cost = file(path)?;
+    let (program, check, work) = (&cost.program, &cost.check, &cost.work);
+    filled(
+        path,
+        &[
+            ("program.no_stream_result", &program.no_stream_result),
+            ("program.unreadable_result", &program.unreadable_result),
+            ("program.no_return", &program.no_return),
+            ("program.error_kind", &program.error_kind),
+            ("program.error", &program.error),
+            ("program.last_attempt", &program.last_attempt),
+            ("program.refused", &program.refused),
+            ("program.too_long", &program.too_long),
+            ("program.lines_too_long", &program.lines_too_long),
+            ("program.not_a_result", &program.not_a_result),
+            ("program.no_reason", &program.no_reason),
+            ("check.request", &check.request),
+            ("work.failed", &work.failed),
+        ],
+    )?;
+    Ok(cost)
+}
+
+/// What the engine writes on a work's pull request, read from its file.
+fn pull_request(path: &Path) -> Result<PullRequest, String> {
+    let words: PullRequest = file(path)?;
+    filled(
+        path,
+        &[
+            ("about", &words.about),
+            ("body", &words.body),
+            ("cut", &words.cut),
+            ("merged", &words.merged),
+            ("closed", &words.closed),
+            ("superseded", &words.superseded),
+            ("withheld.data", &words.withheld.data),
+            ("withheld.repository", &words.withheld.repository),
+            ("withheld.home", &words.withheld.home),
+        ],
+    )?;
+    Ok(words)
+}
+
+/// The result a call has where the engine ends it itself, read from its file.
+fn calls(path: &Path) -> Result<Calls, String> {
+    let words: Calls = file(path)?;
+    filled(
+        path,
+        &[
+            ("withdrawn", &words.withdrawn),
+            ("waited", &words.waited),
+            ("no_such_tool", &words.no_such_tool),
+        ],
+    )?;
+    Ok(words)
 }
 
 /// The questions the engine asks, read from their file, whose option that lets a change merge must be one of the

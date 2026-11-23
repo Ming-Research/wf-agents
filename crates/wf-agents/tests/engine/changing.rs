@@ -47,7 +47,7 @@ fn an_item_not_begun_is_retitled_made_to_wait_cancelled_and_reopened_saying_why_
     );
     let shown = engine.says(&["show", "2"]);
     assert!(
-        shown.contains("\nItem 2 was added as \"Say goodbye\" at level 1; changed since:\n"),
+        shown.contains("\nItem #2 was added as \"Say goodbye\" at level 1; changed since:\n"),
         "{shown}"
     );
     assert!(
@@ -61,7 +61,7 @@ fn an_item_not_begun_is_retitled_made_to_wait_cancelled_and_reopened_saying_why_
     // The item 2 depends on is cancelled all the same: 2 keeps its dependency on it, and no longer waits for it.
     assert_eq!(
         engine.says(&["cancel", "1", "--why", "No longer wanted."]),
-        "Work 1 is cancelled.\n"
+        "Work W1 is cancelled.\n"
     );
     let list = engine.says(&["list"]);
     assert!(
@@ -84,7 +84,7 @@ fn an_item_not_begun_is_retitled_made_to_wait_cancelled_and_reopened_saying_why_
     );
     assert_eq!(
         engine.says(&["cancel", "2", "--why", "Joined into item 1."]),
-        "Work 2 is cancelled.\n"
+        "Work W2 is cancelled.\n"
     );
     // A cancel is said among what happened to the item, with why.
     let shown = engine.until(&["show", "2"], |line| line.contains(": cancelled, because "));
@@ -108,7 +108,7 @@ fn an_item_not_begun_is_retitled_made_to_wait_cancelled_and_reopened_saying_why_
     // The item's history given alone, as `show` names it, holds everything that happened to it, in order.
     let history = engine.says(&["show", "2", "history", "--from", "1"]);
     assert!(
-        history.starts_with("Work 2, what happened to its item, 1 to "),
+        history.starts_with("Work W2, what happened to its item, 1 to "),
         "{history}"
     );
     assert!(
