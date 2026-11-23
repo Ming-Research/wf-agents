@@ -3,19 +3,19 @@
 use decide::{CallId, Decision, Outsider};
 use driver::{Failed, FirstWrite, NewItem};
 use engine::Refused;
-use service::{Act, GO_ON, Message, Refusal, Script};
+use service::{Act, GO_ON, Message, Refusal};
 use store::WorkNumber;
 use tokio::sync::oneshot;
 
-use crate::{Trial, trial_flow};
+use crate::Trial;
 
 #[tokio::test(start_paused = true)]
 async fn an_answer_to_a_tools_call_is_refused() {
     let mut trial = Trial::open();
     let (_, work) = trial.add("Greet the user", &[]);
     trial.act(work, Act::Resume).unwrap();
-    trial.step().await.unwrap();
-    trial.answer(work, "Yes, by name.");
+    trial.to_the_owners_call(work).await;
+    trial.let_go_on(work);
     trial
         .until(
             work,
@@ -23,13 +23,13 @@ async fn an_answer_to_a_tools_call_is_refused() {
         )
         .await;
     let answer = Act::Result {
-        call: CallId(5),
+        call: CallId(4),
         result: "It passed.".to_string(),
     };
-    assert_eq!(trial.act(work, answer), Err(Refusal::NotAPersonsCall(CallId(5))));
+    assert_eq!(trial.act(work, answer), Err(Refusal::NotAPersonsCall(CallId(4))));
     // The tool's own result is taken.
     trial.step().await.unwrap();
-    assert_eq!(trial.work(work).results[&CallId(5)], "Every check passed.");
+    assert_eq!(trial.work(work).results[&CallId(4)], "Every check passed.");
 }
 
 #[tokio::test(start_paused = true)]
@@ -76,34 +76,12 @@ async fn an_item_on_a_flow_there_is_none_of_is_refused() {
     );
 }
 
-/// A script whose plan hands in nothing three times over: each return is sent back, and the third reaches the flow's
-/// limit of two returns sent back, where the run's call at its limit waits for the owner.
-fn plan_that_hands_in_nothing() -> Script {
-    let rounds: String = (1..=3)
-        .map(|round| format!("[[flows.trial.rounds]]\ncell = \"plan\"\nround = {round}\nhands_in = []\n\n"))
-        .collect();
-    let script = Script::read(&format!("[took]\nms = 20\n\n{rounds}")).expect("the script reads");
-    assert_eq!(script.check(&[trial_flow()]), Vec::<String>::new());
-    script
-}
-
-/// The work of a trial whose plan reached its limit, and the owner's call at that limit.
+/// The work of a trial whose plan reached its limit of returns, and the owner's call at that limit.
 async fn at_its_limit() -> (Trial, store::WorkNumber, CallId) {
-    let mut trial = Trial::with(plan_that_hands_in_nothing());
+    let mut trial = Trial::open();
     let (_, work) = trial.add("Greet the user", &[]);
     trial.act(work, Act::Resume).unwrap();
-    let decision = trial
-        .until(work, |d| matches!(d, Decision::Wait { on, .. } if !on.is_empty()))
-        .await;
-    let Decision::Wait { on, .. } = decision else {
-        unreachable!("the work waits")
-    };
-    let call = (on.iter())
-        .find_map(|waited| match waited {
-            decide::Waited::Call { call, .. } => Some(*call),
-            _ => None,
-        })
-        .expect("the work waits for the owner's call at the limit");
+    let call = trial.to_the_owners_call(work).await;
     assert!(matches!(
         trial.work(work).calls.get(&call),
         Some(work::Call::AtLimit(_))
@@ -137,12 +115,16 @@ async fn only_a_run_at_its_limit_is_let_go_on_by_its_call() {
     let mut trial = Trial::open();
     let (_, work) = trial.add("Greet the user", &[]);
     trial.act(work, Act::Resume).unwrap();
-    trial.step().await.unwrap();
-    // The plan's question to the owner is a call too, but a person answers it.
-    let question = trial.owners_call(work).expect("the work waits for the owner's answer");
-    assert_eq!(
-        trial.act(work, Act::GoOn { call: question }),
-        Err(Refusal::NotAtItsLimit(question))
-    );
-    assert!(!trial.work(work).results.contains_key(&question));
+    trial.to_the_owners_call(work).await;
+    trial.let_go_on(work);
+    trial
+        .until(
+            work,
+            |d| matches!(d, Decision::Wait { at, .. } if at.as_str() == "build"),
+        )
+        .await;
+    // The build's call of the CI is a call too, but the tool's, and it is no run at a limit.
+    let ci = CallId(4);
+    assert_eq!(trial.act(work, Act::GoOn { call: ci }), Err(Refusal::NotAtItsLimit(ci)));
+    assert!(!trial.work(work).results.contains_key(&ci));
 }

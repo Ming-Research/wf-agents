@@ -11,8 +11,8 @@ async fn a_pause_lets_the_round_under_way_end_and_its_calls_be_made_and_holds_th
     let mut trial = Trial::open();
     let (_, work) = trial.add("Greet the user", &[]);
     trial.act(work, Act::Resume).unwrap();
-    trial.step().await.unwrap();
-    trial.answer(work, "Yes, by name.");
+    trial.to_the_owners_call(work).await;
+    trial.let_go_on(work);
     trial
         .until(
             work,
@@ -40,10 +40,10 @@ async fn a_paused_work_begins_no_run() {
     let mut trial = Trial::open();
     let (_, work) = trial.add("Greet the user", &[]);
     trial.act(work, Act::Resume).unwrap();
-    trial.step().await.unwrap();
-    trial.answer(work, "Yes, by name.");
+    trial.to_the_owners_call(work).await;
+    trial.let_go_on(work);
     trial.act(work, Act::Pause).unwrap();
-    // The plan, entered for the answer, has its round end and finishes; the build does not begin.
+    // The plan's run, let go on, has its round end and finishes; the build does not begin.
     trial.step().await.unwrap();
     assert_eq!(trial.finished(work), ["plan"]);
     assert!(matches!(trial.decision(work), Decision::Paused { .. }));

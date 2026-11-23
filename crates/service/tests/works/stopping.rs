@@ -50,7 +50,7 @@ async fn history(stops: &[usize]) -> (Work, usize) {
             break;
         }
         if trial.owners_call(work).is_some() {
-            trial.answer(work, "Yes, by name.");
+            trial.let_go_on(work);
         } else {
             assert!(trial.step().await.is_some(), "the work comes to its end");
         }
@@ -88,13 +88,10 @@ async fn started_again_with_a_work_going_on_it_gives_the_round_under_way_and_beg
     let rounds = trial.work(work).records.rounds.len();
     trial.restart();
     assert!(trial.held_by_its_start());
-    // The round under way at the stop is given again, and ends; the plan's question is asked and answered.
-    trial.until(work, |d| matches!(d, Decision::Wait { .. })).await;
-    trial.answer(work, "Yes, by name.");
-    // Nothing more begins: entering the plan again for the answer waits for the owner.
+    // The round under way at the stop is given again, and ends, sent back; the next round is held.
+    assert!(trial.step().await.is_some());
     assert!(trial.step().await.is_none());
     assert_eq!(trial.work(work).records.rounds.len(), rounds);
-    assert!(matches!(trial.decision(work), Decision::Paused { .. }));
     trial.everything(false);
     assert_eq!(trial.work(work).records.rounds.len(), rounds + 1);
     assert_eq!(trial.drive(work).await, Decision::Ended(End::Merged));

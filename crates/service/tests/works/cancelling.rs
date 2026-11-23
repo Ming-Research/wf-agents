@@ -28,11 +28,11 @@ async fn cancelling_in_a_round_stops_it() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn cancelling_at_a_question_withdraws_it() {
+async fn cancelling_at_the_owners_call_withdraws_it() {
     let mut trial = Trial::open();
     let (_, work) = trial.add("Greet the user", &[]);
     trial.act(work, Act::Resume).unwrap();
-    trial.step().await.unwrap();
+    trial.to_the_owners_call(work).await;
     trial.act(work, Act::Cancel { why: None }).unwrap();
     assert_eq!(trial.decision(work), Decision::Ended(End::Cancelled));
     assert_eq!(trial.work(work).results[&CallId(2)], WITHDRAWN);
@@ -49,8 +49,8 @@ async fn cancelling_at_a_tool_withdraws_it() {
     let mut trial = Trial::open();
     let (_, work) = trial.add("Greet the user", &[]);
     trial.act(work, Act::Resume).unwrap();
-    trial.step().await.unwrap();
-    trial.answer(work, "Yes, by name.");
+    trial.to_the_owners_call(work).await;
+    trial.let_go_on(work);
     trial
         .until(
             work,
@@ -60,7 +60,7 @@ async fn cancelling_at_a_tool_withdraws_it() {
     trial.act(work, Act::Cancel { why: None }).unwrap();
     assert_eq!(trial.decision(work), Decision::Ended(End::Cancelled));
     trial.step().await.unwrap();
-    assert_eq!(trial.work(work).results[&CallId(5)], WITHDRAWN);
+    assert_eq!(trial.work(work).results[&CallId(4)], WITHDRAWN);
     assert_eq!(
         trial.step().await,
         Some(Event::Released),

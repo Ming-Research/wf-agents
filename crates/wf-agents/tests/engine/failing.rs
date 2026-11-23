@@ -7,9 +7,11 @@ const WHY: &str = "The agent's program could not start";
 
 #[test]
 fn a_failed_round_and_the_engines_pause_are_said_with_the_reason() {
-    let asks = r#"asks = [{ question = "Should the greeting name the user?" }]"#;
-    assert!(SCRIPT.contains(asks));
-    let place = Place::new(&SCRIPT.replace(asks, &format!("fails = \"{WHY}\"")));
+    // The plan's first round fails in place of being sent back; the rounds after it are sent back, and no more than
+    // twice, so that its run never reaches its limit of returns.
+    let first = "cell = \"plan\"\nasks = []";
+    assert!(SCRIPT.contains(first));
+    let place = Place::new(&SCRIPT.replacen(first, &format!("cell = \"plan\"\nfails = \"{WHY}\""), 1));
     let engine = Engine::start(&place);
     engine.says(&[
         "add",

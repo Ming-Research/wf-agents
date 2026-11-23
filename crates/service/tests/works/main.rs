@@ -15,6 +15,7 @@ mod dependencies;
 mod failing;
 mod forking;
 mod going;
+mod moving_on;
 mod pausing;
 mod pinging;
 mod shared_wait;
@@ -171,18 +172,44 @@ impl Trial {
     /// in a wait. The owner has taken an account, which a session is kept warm only under.
     pub fn warm() -> Trial {
         let mut trial = Trial::opened(trial_script(), Some(Pings::default()), None);
-        for what in [store::AccountAct::Added, store::AccountAct::Taken] {
-            let (reply, mut answer) = oneshot::channel();
-            trial.take(Message::Account {
-                name: ACCOUNT.to_string(),
-                what,
-                reply,
-            });
-            (answer.try_recv())
-                .expect("the loop answers at once")
-                .expect("the account is taken");
-        }
+        trial.take_account(ACCOUNT);
         trial
+    }
+
+    /// The loop as [`Trial::warm`] has it, with this script, the outside of the agents' rounds checked by this.
+    pub fn warm_with(script: Script, outside: Arc<dyn service::Outside>) -> Trial {
+        let mut trial = Trial::opened(script, Some(Pings::default()), Some(outside));
+        trial.take_account(ACCOUNT);
+        trial
+    }
+
+    /// The owner adds an account of this name, and takes it as the one the agents run under.
+    fn take_account(&mut self, name: &str) {
+        for what in [store::AccountAct::Added, store::AccountAct::Taken] {
+            self.account(name, what);
+        }
+    }
+
+    /// The owner adds, removes or takes the account of this name.
+    pub fn account(&mut self, name: &str, what: store::AccountAct) {
+        let (reply, mut answer) = oneshot::channel();
+        self.take(Message::Account {
+            name: name.to_string(),
+            what,
+            reply,
+        });
+        (answer.try_recv())
+            .expect("the loop answers at once")
+            .expect("the account is done");
+    }
+
+    /// The owner lets the engine move to another account at a usage limit, or does not.
+    pub fn set_moving_on(&mut self, moving: bool) {
+        let (reply, mut answer) = oneshot::channel();
+        self.take(Message::SetMovingOn { moving, reply });
+        (answer.try_recv())
+            .expect("the loop answers at once")
+            .expect("the switch is set");
     }
 
     /// The loop with this script, on an empty store, its sessions kept warm where `pings` holds the pings in hand, and
@@ -366,17 +393,10 @@ impl Trial {
         answer.try_recv().expect("the loop answers at once")
     }
 
-    /// Answers the owner's call the work waits for.
-    pub fn answer(&mut self, work: WorkNumber, result: &str) {
+    /// Lets the run go on whose call at its limit the work waits for the owner on.
+    pub fn let_go_on(&mut self, work: WorkNumber) {
         let call = self.owners_call(work).expect("the work waits for the owner's call");
-        self.act(
-            work,
-            Act::Result {
-                call,
-                result: result.to_string(),
-            },
-        )
-        .expect("the answer is taken");
+        self.act(work, Act::GoOn { call }).expect("the run is let go on");
     }
 
     /// The owner's call the work waits for, where it waits for one.
@@ -393,7 +413,23 @@ impl Trial {
         }
     }
 
-    /// Takes the work to its end, answering the owner's questions as they come.
+    /// Takes what comes until the work waits for the owner's call, and gives it: the plan's run reaches its limit of
+    /// returns after its first three rounds.
+    pub async fn to_the_owners_call(&mut self, work: WorkNumber) -> CallId {
+        loop {
+            if let Some(call) = self.owners_call(work) {
+                return call;
+            }
+            if self.step().await.is_none() {
+                panic!(
+                    "nothing more comes, and work {} waits for no call of the owner's",
+                    work.0
+                );
+            }
+        }
+    }
+
+    /// Takes the work to its end, answering the owner's calls as they come.
     pub async fn drive(&mut self, work: WorkNumber) -> Decision {
         loop {
             let decision = self.decision(work);
@@ -401,7 +437,7 @@ impl Trial {
                 return decision;
             }
             if self.owners_call(work).is_some() {
-                self.answer(work, "Yes, by name.");
+                self.let_go_on(work);
                 continue;
             }
             if self.step().await.is_none() {

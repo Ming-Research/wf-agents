@@ -7,12 +7,13 @@ use store::Store;
 
 use crate::{START, get_json, greeted, pass, post, refused, running, running_scripted, trial_script};
 
-/// The trial item's line once its plan asked the owner its question, call 2, two and a half seconds in.
+/// The trial item's line once its plan's run reached its limit of returns and called the owner, call 2, five and a half
+/// seconds in.
 fn asked() -> Value {
     json!({
         "kind": "forAPerson",
         "of": { "work": 1, "item": 1, "title": "Greet the user" },
-        "since": START + 2500,
+        "since": START + 5500,
         "now": {
             "kind": "waits",
             "at": "plan",
@@ -20,22 +21,22 @@ fn asked() -> Value {
                 "kind": "call",
                 "call": 2,
                 "who": "owner",
-                "what": { "kind": "question", "who": "owner", "question": "Should the greeting name the user?" },
-                "made": START + 2500,
+                "what": { "kind": "atLimit", "limit": { "of": "returns", "sentBack": 2 } },
+                "made": START + 5500,
                 "at": null,
             }],
         },
         // What it waits on the owner for, as the engine's one list of it says.
         "waits": [{
-            "key": "call-2",
-            "why": "Should the greeting name the user?",
-            "ends": { "kind": "reply", "call": 2 },
+            "key": "limit",
+            "why": "The cell's run had 2 returns sent back, its limit.",
+            "ends": { "kind": "goOn", "call": 2 },
         }],
     })
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_question_for_the_owner_is_given_since_it_was_asked_and_not_again_from_the_mark_given_with_it() {
+async fn a_call_for_the_owner_is_given_since_it_was_made_and_not_again_from_the_mark_given_with_it() {
     let running = running();
     let router = &running.router;
     greeted(router).await;
@@ -59,7 +60,7 @@ async fn a_work_the_engine_paused_as_its_round_failed_is_given_with_the_reason_s
     let mut script = trial_script();
     let plan = script.flows.get_mut("trial").unwrap();
     let mut failing = plan.rounds[0].clone();
-    failing.run = 2;
+    failing.round = 4;
     failing.asks = None;
     failing.took = Default::default();
     failing.fails = Some("The agent's program could not start.".to_string());
@@ -71,12 +72,12 @@ async fn a_work_the_engine_paused_as_its_round_failed_is_given_with_the_reason_s
         .as_str()
         .unwrap()
         .to_string();
-    let answer = json!({ "kind": "result", "call": 2, "result": "Yes, by name." });
+    let answer = json!({ "kind": "goOn", "call": 2 });
     assert_eq!(
         post(router, "/api/v1/works/1/acts", &answer).await.0,
         StatusCode::NO_CONTENT
     );
-    // The plan's second run, entered for the answer at 3 seconds, has its round fail a second and a half later.
+    // The plan's fourth round, begun as the owner let its run go on at 6 seconds, fails a second and a half later.
     pass(2000).await;
     let answer = get_json(router, &format!("/api/v1/attention?since={mark}")).await;
     assert_eq!(
@@ -84,7 +85,7 @@ async fn a_work_the_engine_paused_as_its_round_failed_is_given_with_the_reason_s
         json!([{
             "kind": "forAPerson",
             "of": { "work": 1, "item": 1, "title": "Greet the user" },
-            "since": START + 4500,
+            "since": START + 7500,
             "now": { "kind": "paused", "at": "plan", "by": "engine", "why": "The agent's program could not start." },
             "waits": [{
                 "key": "pause",
@@ -117,8 +118,8 @@ async fn a_request_held_open_is_answered_as_soon_as_something_comes() {
     let held =
         tokio::spawn(async move { get_json(&router, &format!("/api/v1/attention?since={mark}&wait=600")).await });
     pass(1000).await;
-    assert!(!held.is_finished(), "answered while the plan's round was under way");
-    pass(1000).await;
+    assert!(!held.is_finished(), "answered while the plan's rounds were under way");
+    pass(4000).await;
     let answer = held.await.unwrap();
     assert_eq!(answer["lines"], json!([asked()]));
 }
@@ -128,7 +129,7 @@ async fn a_request_held_open_with_no_mark_gives_a_work_that_ended_while_it_was_h
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(dir.path().join("store.sqlite")).unwrap();
     let mut script = trial_script();
-    // The plan asks nothing, so that nothing of the work is for a person before it merges.
+    // The plan's first round hands in the plan, so that nothing of the work is for a person before it merges.
     script.flows.get_mut("trial").unwrap().rounds[0].asks = None;
     let running = running_scripted(Box::new(store), dir, script);
     let router = running.router.clone();

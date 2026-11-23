@@ -19,13 +19,13 @@ use tokio::sync::oneshot;
 use crate::Trial;
 use crate::failing::failing_as;
 
-/// The trial work with the plan's second round failing for this kind of cause, let on, the owner answering the plan's
-/// question, the failure taken: the wait stands.
+/// The trial work with the plan's round after the owner's word failing for this kind of cause, let on, the owner
+/// letting the plan's run go on, the failure taken: the wait stands.
 async fn waiting(trial: &mut Trial) -> store::WorkNumber {
     let (_, work) = trial.add("Greet the user", &[]);
     trial.act(work, Act::Resume).unwrap();
-    trial.step().await.unwrap();
-    trial.answer(work, "Yes, by name.");
+    trial.to_the_owners_call(work).await;
+    trial.let_go_on(work);
     trial.step().await.unwrap();
     assert!(trial.service.driver().outage().is_some(), "the wait stands");
     work
@@ -79,7 +79,7 @@ async fn two_works_held_by_the_wait_both_go_on_by_the_loops_timer_whatever_comes
         while !ended(&trial) {
             for work in [held, busy] {
                 if trial.owners_call(work).is_some() {
-                    trial.answer(work, "Yes, by name.");
+                    trial.let_go_on(work);
                 }
             }
             assert!(trial.step().await.is_some(), "{failure}: nothing more comes");

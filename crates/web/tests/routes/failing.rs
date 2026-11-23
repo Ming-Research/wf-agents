@@ -17,7 +17,7 @@ async fn a_failed_round_and_the_engines_pause_are_given_with_the_reason() {
     let mut script = trial_script();
     let plan = script.flows.get_mut("trial").unwrap();
     let mut failing = plan.rounds[0].clone();
-    failing.run = 2;
+    failing.round = 4;
     failing.asks = None;
     failing.took = Default::default();
     failing.fails = Some(WHY.to_string());
@@ -25,33 +25,33 @@ async fn a_failed_round_and_the_engines_pause_are_given_with_the_reason() {
     let running = running_scripted(Box::new(store), dir, script);
     let router = &running.router;
     greeted(router).await;
-    let answer = json!({ "kind": "result", "call": 2, "result": "Yes, by name." });
+    let answer = json!({ "kind": "goOn", "call": 2 });
     assert_eq!(
         post(router, "/api/v1/works/1/acts", &answer).await,
         (StatusCode::NO_CONTENT, Value::Null)
     );
-    // The plan's second run, entered for the answer at 3 seconds, has its round fail a second and a half later.
+    // The plan's fourth round, begun as the owner let its run go on at 6 seconds, fails a second and a half later.
     pass(2000).await;
-    let failed_at = START + 4500;
+    let failed_at = START + 7500;
     let page = get_json(router, "/api/v1/works/1").await;
     let paused = json!({ "kind": "paused", "at": "plan", "by": "engine", "why": WHY });
     assert_eq!(page["summary"]["now"], paused);
     assert_eq!(page["summary"]["paused"], "engine");
     assert_eq!(
         page["summary"]["cells"][0],
-        json!({ "cell": "plan", "state": "failed", "finished": 1, "record": 1, "open": 3 })
+        json!({ "cell": "plan", "state": "failed", "finished": 0, "record": null, "open": 1 })
     );
     let steps = page["steps"].as_array().unwrap();
-    let run = steps.iter().find(|s| s["kind"] == "run" && s["run"] == 3).unwrap();
+    let run = steps.iter().find(|s| s["kind"] == "run" && s["run"] == 1).unwrap();
     assert_eq!(run["end"], Value::Null);
     let rounds = run["rounds"].as_array().unwrap();
-    assert_eq!(rounds.len(), 1);
+    assert_eq!(rounds.len(), 4);
     assert_eq!(
-        rounds[0]["back"],
+        rounds[3]["back"],
         json!({ "kind": "failed", "why": WHY, "failure": "other", "resets": null })
     );
-    assert_eq!(rounds[0]["ended"], failed_at);
-    assert_eq!(rounds[0]["spent"]["rounds"], 1);
+    assert_eq!(rounds[3]["ended"], failed_at);
+    assert_eq!(rounds[3]["spent"]["rounds"], 1);
     let pause = steps.iter().rev().find(|s| s["kind"] == "paused").unwrap();
     assert_eq!(pause["by"], "engine");
     assert_eq!(pause["why"], WHY);
@@ -61,22 +61,21 @@ async fn a_failed_round_and_the_engines_pause_are_given_with_the_reason() {
     assert_eq!(items["items"][0]["work"]["now"], paused);
     // The round's own page has nothing handed in.
     assert_eq!(
-        get_json(router, "/api/v1/works/1/runs/3/rounds/1").await["handed"],
+        get_json(router, "/api/v1/works/1/runs/1/rounds/4").await["handed"],
         json!([])
     );
 
-    // Let on, the plan's next round is given the answer again, and hands in the plan.
+    // Let on, the plan's next round is given what the one that failed was given, and hands in the plan.
     assert_eq!(
         post(router, "/api/v1/works/1/acts", &json!({ "kind": "resume" })).await,
         (StatusCode::NO_CONTENT, Value::Null)
     );
     let page = get_json(router, "/api/v1/works/1").await;
     assert_eq!(page["summary"]["now"]["kind"], "round");
-    assert_eq!(page["summary"]["now"]["round"], 2);
+    assert_eq!(page["summary"]["now"]["round"], 5);
     assert_eq!(page["summary"]["cells"][0]["state"], "running");
     pass(1600).await;
-    let round = get_json(router, "/api/v1/works/1/runs/3/rounds/2").await;
-    assert_eq!(round["results"][0]["result"], "Yes, by name.");
+    let round = get_json(router, "/api/v1/works/1/runs/1/rounds/5").await;
     assert_eq!(round["handed"][0]["block"], "plan");
 }
 
@@ -88,7 +87,7 @@ async fn a_wait_every_work_shares_is_given_once_for_all_and_as_what_each_work_it
     let mut script = trial_script();
     let plan = script.flows.get_mut("trial").unwrap();
     let mut failing = plan.rounds[0].clone();
-    failing.run = 2;
+    failing.round = 4;
     failing.asks = None;
     failing.took = Default::default();
     failing.fails = Some("You've hit your limit".to_string());
@@ -98,7 +97,7 @@ async fn a_wait_every_work_shares_is_given_once_for_all_and_as_what_each_work_it
     let running = running_scripted(Box::new(store), dir, script);
     let router = &running.router;
     greeted(router).await;
-    let answer = json!({ "kind": "result", "call": 2, "result": "Yes, by name." });
+    let answer = json!({ "kind": "goOn", "call": 2 });
     post(router, "/api/v1/works/1/acts", &answer).await;
     pass(2000).await;
     let outage = json!({
@@ -106,12 +105,13 @@ async fn a_wait_every_work_shares_is_given_once_for_all_and_as_what_each_work_it
         "failure": "usageLimit",
         "why": "You've hit your limit",
         "work": 1,
-        "run": 3,
-        "round": 1,
-        "since": START + 4500,
+        "run": 1,
+        "round": 4,
+        "since": START + 7500,
         "checked": null,
         "until": { "kind": "checked", "at": resets },
         "holds": true,
+        "mayMove": false,
     });
     let items = get_json(router, "/api/v1/items").await;
     assert_eq!(items["outage"], outage);
@@ -126,7 +126,7 @@ async fn a_wait_every_work_shares_is_given_once_for_all_and_as_what_each_work_it
     assert_eq!(page["summary"]["paused"], Value::Null);
     // Past the reset the engine's check finds the outside well, and the wait no longer holds, though it stands until a
     // round that began after it comes back: the pages are not told it holds "until" a time gone by.
-    pass(3_600_000 - 2000 + 100).await;
+    pass(3_600_000 - 5000 + 100).await;
     let items = get_json(router, "/api/v1/items").await;
     assert!(
         items["outage"].is_null() || items["outage"]["holds"] == false,
@@ -146,7 +146,7 @@ async fn a_command_line_that_cannot_run_is_what_each_work_waits_on_the_owner_for
     let mut script = trial_script();
     let plan = script.flows.get_mut("trial").unwrap();
     let mut failing = plan.rounds[0].clone();
-    failing.run = 2;
+    failing.round = 4;
     failing.asks = None;
     failing.took = Default::default();
     failing.fails = Some("no account is in use".to_string());
@@ -155,7 +155,7 @@ async fn a_command_line_that_cannot_run_is_what_each_work_waits_on_the_owner_for
     let running = running_scripted(Box::new(store), dir, script);
     let router = &running.router;
     greeted(router).await;
-    let answer = json!({ "kind": "result", "call": 2, "result": "Yes, by name." });
+    let answer = json!({ "kind": "goOn", "call": 2 });
     post(router, "/api/v1/works/1/acts", &answer).await;
     // Within the half minute before the engine's first check of the outside, the wait holds.
     pass(5000).await;

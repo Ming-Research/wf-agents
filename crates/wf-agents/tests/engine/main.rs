@@ -23,8 +23,9 @@ pub fn trial() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../service/tests/trial/flow")
 }
 
-/// A script for the trial flow whose rounds and tools take a few milliseconds: the plan asks the owner, the build
-/// asks for the CI, and the review is content at once.
+/// A script for the trial flow whose rounds and tools take a few milliseconds: the plan's first three rounds are sent
+/// back, so that its run reaches its limit of returns and waits for the owner, the build asks for the CI, and the review
+/// is content at once.
 pub const SCRIPT: &str = r#"
 [took]
 ms = 20
@@ -35,7 +36,17 @@ ms = 20
 
 [[flows.trial.rounds]]
 cell = "plan"
-asks = [{ question = "Should the greeting name the user?" }]
+asks = []
+
+[[flows.trial.rounds]]
+cell = "plan"
+round = 2
+asks = []
+
+[[flows.trial.rounds]]
+cell = "plan"
+round = 3
+asks = []
 
 [[flows.trial.rounds]]
 cell = "build"

@@ -141,14 +141,14 @@ fn started_again_on_a_work_going_on_the_engine_holds_everything_until_the_owner_
         plain(&engine.says(&["list"])),
         format!(
             "{held}; 0 of 2 slots taken.\n#1 (project script) \"Greet the user\" at level 1, W1 on trial: waits at plan for the owner to \
-             answer call 2: \"Should the greeting name the user?\"\n"
+             answer call 2: its run reached its limit, 2 returns having been sent back\n"
         )
     );
     // `wait` says first that the engine waits for the owner.
     let said = engine.says(&["wait", "--for", "0"]);
     assert!(said.starts_with(&format!("{held}, for ")), "{said}");
     // The answer is taken, and the plan's next round waits for the owner to let everything on.
-    engine.says(&["result", "1", "2", "Yes."]);
+    engine.says(&["let-go", "1", "--call", "2"]);
     engine.until(&["list"], |line| {
         plain_line(line).ends_with("held back at plan by the pause of everything")
     });

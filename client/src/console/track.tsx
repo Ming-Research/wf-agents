@@ -1,7 +1,6 @@
 // Where a work's time went, as the item window draws it: one block for each stretch of a model or of the tools, and one
 // for each stretch no round ran between them in the colour of what the work waited for, from the work's first round to
-// its last, on a muted ground. Brought over from the page on `old-main` (`client/src/charts.tsx`, `TimeTrack` and
-// `barSpans`); the stretches waited through are the engine's (`Summary.bar`).
+// its last, on a muted ground. The stretches waited through are the engine's (`Summary.bar`).
 
 import type { WorkPage } from '../works-api';
 import { STATE } from '../works/words';
