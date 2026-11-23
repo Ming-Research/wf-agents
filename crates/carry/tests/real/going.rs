@@ -47,7 +47,8 @@ async fn a_work_goes_to_its_merge_with_the_command_line() {
     let spent: Vec<Spent> = kept.spent.values().copied().collect();
     let plan_spent = Spent {
         usd_micros: 10_000,
-        input_tokens: 15,
+        uncached_tokens: 15,
+        cache_written_tokens: Some(5),
         cached_tokens: 100,
         output_tokens: 20,
         ..Default::default()
