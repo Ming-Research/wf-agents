@@ -1904,11 +1904,12 @@ mod tests {
         assert_eq!(again.cost(), stream.cost());
     }
 
-    // A fork whose program ended after its first message's result: that message costs what its result says, and only the
-    // calls after it are priced. The second message's first call, as the real stream's, comes to $0.002099.
+    // A fork whose program ended after its first message's result: that message costs what its result says, here $0.50
+    // where its calls would be priced at $0.002614, and only the calls after it are priced. The second message's first
+    // call, as the real stream's, comes to $0.002099.
     #[test]
     fn a_fork_cut_off_after_its_first_message_uses_the_exact_first_part_and_prices_the_rest() {
-        let mut lines = real_message();
+        let mut lines = with_cost(0.5, 0.5);
         let second = second_message();
         let end = second
             .iter()
@@ -1917,9 +1918,9 @@ mod tests {
         lines.extend(second.into_iter().take(end + 1));
         let stream = feed(&lines);
         assert_eq!(stream.results(), 1);
-        assert_eq!(stream.cost(), (2614 + 2099, true));
+        assert_eq!(stream.cost(), (500_000 + 2099, true));
         let no = stream.read().expect_err("no result for the question");
-        assert_eq!(no.spent.map(|s| s.usd_micros), Some(2614 + 2099));
+        assert_eq!(no.spent.map(|s| s.usd_micros), Some(500_000 + 2099));
     }
 
     #[test]
