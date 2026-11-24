@@ -25,7 +25,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use decide::{BlockId, CallId, InputView, Records, RunId, Seq, VersionView, Writer};
+use decide::{BlockId, CallId, InputView, Records, RunId, Seq, VersionView, View, Writer};
 use flow::agents::{Agents, Part};
 use flow::{CellSpec, Compiled, InputKind, Listed};
 use work::sessions::{began_at, number_at, of_line, of_round, start};
@@ -167,6 +167,9 @@ fn entered(
     // What each datum fills, by its name.
     let mut filling: BTreeMap<&BlockId, Vec<Fill>> = BTreeMap::new();
     let data = message::given(flow, words, cell);
+    // What the walk reads of the records, once for the entry: it is the same for each datum.
+    let seen = decide::view(&flow.flow, &records);
+    let written = decide::versions(&records);
     for given in &data {
         let block = &given.block;
         let all = versions.get(block).map_or(&[][..], Vec::as_slice);
@@ -182,7 +185,7 @@ fn entered(
                 by: by(flow, &records, block, v),
             })
         };
-        let last = last_worked_from(flow, &records, cell, block, all);
+        let last = last_worked_from(flow, &records, cell, block, all, &seen, &written);
         let holds = |at: Seq| held.versions.get(block).is_some_and(|h| h.contains(&at));
         let new = all
             .iter()
@@ -274,7 +277,6 @@ fn entered(
     let ran_by = decide::told(&flow.flow, &records, run)
         .map(|t| t.ran_by)
         .unwrap_or_default();
-    let seen = decide::view(&flow.flow, &records);
     let inputs: Vec<&InputView> = (seen.cells.iter())
         .find(|c| c.cell == cell.id)
         .map_or_else(Vec::new, |c| c.runs_on.iter().collect());
@@ -538,21 +540,25 @@ fn by(flow: &Compiled, records: &Records, block: &BlockId, version: &VersionView
 /// filled with the latest; or the latest a run of the cell wrote, where that is later, a cell's own version being no
 /// change to it; or the latest of the block's `versions` the owner ruled on, where that is later, as the walk reads
 /// them: a point the owner ruled on is new to no cell (39), so what came before it is no change to the cell.
+///
+/// `seen` is what the walk reads of the records ([`decide::view`]) and `written` the versions of each block they hold
+/// ([`decide::versions`]), both read once for the entry that asks for each datum.
 fn last_worked_from(
     flow: &Compiled,
     records: &Records,
     cell: &CellSpec,
     block: &BlockId,
     versions: &[VersionView],
+    seen: &View,
+    written: &BTreeMap<BlockId, Vec<VersionView>>,
 ) -> Option<Seq> {
     let finished = (records.finished.iter()).filter(|f| of_cell(records, f.run, cell));
     let runs_it = (flow.flow.place(&cell.id)).is_some_and(|p| flow.flow.cells()[p].runs_on.contains(block));
     if runs_it {
         // The walk's own reading, which a cause records alike.
-        let view = decide::view(&flow.flow, records);
-        let of = view.cells.into_iter().find(|c| c.cell == cell.id);
+        let of = seen.cells.iter().find(|c| c.cell == cell.id);
         return of
-            .and_then(|c| c.runs_on.into_iter().find(|i| &i.block == block))
+            .and_then(|c| c.runs_on.iter().find(|i| &i.block == block))
             .and_then(|i| i.worked);
     }
     let wrote = (finished.clone())
@@ -561,7 +567,7 @@ fn last_worked_from(
         .max();
     let last = finished.max_by_key(|f| f.at);
     let round = last.and_then(|f| (records.rounds.iter()).filter(|r| r.run == f.run).map(|r| r.at).max());
-    let all = decide::versions(records).remove(block).unwrap_or_default();
+    let all = written.get(block).map_or(&[][..], Vec::as_slice);
     let given = round.and_then(|round| all.iter().map(|v| v.at).filter(|at| *at < round).max());
     let ruled = (versions.iter()).filter(|v| v.ruled).map(|v| v.at).max();
     given.max(wrote).max(ruled)
