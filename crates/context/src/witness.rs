@@ -224,6 +224,10 @@ pub struct Found {
     pub entries: BTreeMap<Entry, usize>,
     /// How many rounds it carried out of each cell.
     pub cells: BTreeMap<String, usize>,
+    /// Why histories it tried were dropped, by the words of the engine's or the search's refusal, and how many; and how
+    /// many it made that reached a state already kept.
+    pub dropped: BTreeMap<String, usize>,
+    pub repeated: usize,
     /// How many lines it had found after each thousand rounds, by the rounds it had carried out.
     pub curve: Vec<(usize, usize)>,
     /// Why it ended: the rounds were spent, no new line came for the stated rounds, or there was nothing left to try.
@@ -541,7 +545,10 @@ impl Node {
     /// Carries the round under way out as the carrier does, entering it in its session as it stands, or in one that
     /// holds nothing where it begins its session or is lost, and making what it returns.
     fn carry(&mut self, how: &Carry, full: bool, sights: &mut Vec<Sight>) -> Result<(), String> {
-        let round = self.sim.round().ok_or_else(|| "no round is under way".to_string())?;
+        // Where no round is under way, there is nothing to carry out.
+        let Some(round) = self.sim.round() else {
+            return Ok(());
+        };
         // A cell of the engine's own is sent nothing: it hands in what it writes.
         if self.sim.cell(&round).line.is_none() {
             let came = self.came(&round, how);
@@ -551,14 +558,15 @@ impl Node {
         let line = self.sim.line(&round);
         let begins = self.sim.begins(&round);
         let entry = timed("entry", || self.entry(&round, begins));
-        let going_on = timed("enter", || self.sim.enter(&round, false));
+        let going_on = (!begins).then(|| timed("enter", || self.sim.enter(&round, false)));
         let lost = !begins && how.fate == Fate::Lost;
         let anew = (begins || lost).then(|| timed("enter", || self.sim.enter(&round, true)));
         // The round is sent what its first try fills: the session as it stands, or one that holds nothing where it
         // begins its session; and, where its session is lost, a second try in one that holds nothing.
-        let first = match (&anew, begins) {
-            (Some(anew), true) => anew,
-            _ => &going_on,
+        let first = match (&anew, &going_on) {
+            (Some(anew), None) => anew,
+            (_, Some(going_on)) => going_on,
+            (None, None) => return Err("a round that begins its session is entered in none".to_string()),
         };
         let mut sight = |entered: &Entered| {
             sights.push(Sight {
@@ -575,7 +583,7 @@ impl Node {
         }
         match (&anew, lost) {
             (Some(anew), true) => {
-                self.sim.tries(&round, 1, going_on.fills.clone());
+                self.sim.tries(&round, 1, first.fills.clone());
                 self.sim.anew(&line, Why::Lost);
                 self.sim.tries(&round, 2, anew.fills.clone());
             }
@@ -968,7 +976,10 @@ impl Search<'_> {
         }));
         match done {
             Ok(Ok(())) => Some((node, sights)),
-            Ok(Err(_)) => None,
+            Ok(Err(why)) => {
+                *self.found.dropped.entry(why.chars().take(70).collect()).or_default() += 1;
+                None
+            }
             Err(panic) => {
                 let said = (panic.downcast_ref::<String>().cloned())
                     .or_else(|| panic.downcast_ref::<&str>().map(|s| s.to_string()))
@@ -1024,6 +1035,7 @@ impl Search<'_> {
     fn keep(&mut self, node: &Node) {
         let key = node.key();
         if !self.keys.insert(key.clone()) {
+            self.found.repeated += 1;
             return;
         }
         self.born += 1;
@@ -1061,7 +1073,7 @@ impl Search<'_> {
             Some("the rounds were spent")
         } else if self.since >= self.bounds.plateau {
             Some("no new line came for the stated rounds")
-        } else if self.tried >= self.bounds.rounds * 4 {
+        } else if self.tried >= self.bounds.rounds * 10 {
             Some("the histories tried were spent")
         } else {
             None
@@ -1107,7 +1119,7 @@ impl Search<'_> {
         self.archive[at].turns += 1;
         let node = self.archive[at].node.clone();
         let mut rng = Rng::new(SEED ^ key_number(&self.archive[at].key) ^ turn as u64);
-        let before = timed("befores", || befores(&node, &self.writes));
+        let at_start = timed("befores", || befores(&node, &self.writes));
         let how = match node.sim.round() {
             Some(round) => {
                 let cell = node.sim.cell(&round).clone();
@@ -1126,6 +1138,14 @@ impl Search<'_> {
                 _ => &node,
             };
             let (optional, line, has_round) = facts(from);
+            // What may happen before a round is what may happen to the state the history has come to.
+            let own;
+            let before: &[Action] = if std::ptr::eq(from, &node) {
+                &at_start
+            } else {
+                own = timed("befores", || befores(from, &self.writes));
+                &own
+            };
             let actions = match place {
                 0 if !how.is_empty() => vec![Action::Carry(how[(born + turn) % how.len()])],
                 1 if !before.is_empty() => vec![

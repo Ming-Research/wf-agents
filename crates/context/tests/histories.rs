@@ -1750,7 +1750,8 @@ fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() 
 fn what_the_search_did(found: &witness::Found, spent: &[(&str, std::time::Duration)]) -> String {
     format!(
         "the search carried out {} rounds, kept {} states and found {} lines, and ended because {}; entries met: {:?}; \
-         rounds of each cell: {:?}; lines found by rounds: {:?}; its time went to: {:?}",
+         rounds of each cell: {:?}; lines found by rounds: {:?}; histories dropped, by why: {:?}; {} reached a state \
+         already kept; its time went to: {:?}",
         found.rounds,
         found.kept,
         found.lines.len(),
@@ -1758,6 +1759,8 @@ fn what_the_search_did(found: &witness::Found, spent: &[(&str, std::time::Durati
         found.entries,
         found.cells,
         found.curve,
+        found.dropped,
+        found.repeated,
         spent
     )
 }
@@ -2076,14 +2079,6 @@ fn directed_tests(reached: &mut Reached, passed: &History, deep: &History) -> Ve
     log
 }
 
-/// What bounds the search the engineer's flow is tried with.
-const BOUNDS: witness::Bounds = witness::Bounds {
-    rounds: 6_000,
-    plateau: 2_000,
-    archive: 400,
-    draws: 8,
-};
-
 /// How many histories of the engineer's flow the test runs apart from the search, how many steps each takes, and how
 /// many of the first steps of each only carry what the work gives with everything handed in, so that the history goes
 /// into the flow.
@@ -2128,7 +2123,7 @@ fn the_engineers_histories() -> Reached {
 fn every_situation_written_for_the_engineers_flow_is_a_round_of_a_work_and_covers_what_the_histories_stood_in() {
     let begun = std::time::Instant::now();
     let sim = support::engineer_sim();
-    let found = witness::search(&sim.flow, &sim.words, &sim.compared, None, &BOUNDS);
+    let found = witness::search(&sim.flow, &sim.words, &sim.compared, None, &witness::BOUNDS);
     let spent = witness::spent();
     eprintln!(
         "the search: {:?}, {} rounds, {} states kept, {} lines found",
