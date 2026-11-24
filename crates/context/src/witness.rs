@@ -274,6 +274,10 @@ const SEED: u64 = 0x5EED_0F5E_A2C4;
 /// How many things a draw does before a round is carried out, at most.
 const BEFORE: usize = 2;
 
+/// How many of the ways a round returns a state is gone on from tries each time it is chosen, in turn, before the
+/// draws.
+const CARRIES: usize = 3;
+
 /// How many steps the work is let on by itself after what happened to it, at most: the engine's own calls, and a cell
 /// at its limit.
 const GO_ON: usize = 40;
@@ -1207,18 +1211,22 @@ impl Search<'_> {
             if self.done() {
                 return;
             }
-            let onward = place >= 2 && rng.chance(60);
+            let onward = place >= CARRIES + 1 && rng.chance(60);
             let from = match (&cursor, onward) {
                 (Some(cursor), true) => cursor,
                 _ => &node,
             };
             let (line, has_round) = facts(from);
             let actions = match place {
-                0 if !how.is_empty() => vec![Action::Carry(how[(born + turn) % how.len()])],
-                1 => match timed("befores", || systematic_before(&node, &self.statics, born + turn)) {
-                    Some(before) => vec![before, Action::Carry(Carry::PLAIN)],
-                    None => continue,
-                },
+                place if place < CARRIES && !how.is_empty() => {
+                    vec![Action::Carry(how[(born + turn * CARRIES + place) % how.len()])]
+                }
+                place if place == CARRIES => {
+                    match timed("befores", || systematic_before(&node, &self.statics, born + turn)) {
+                        Some(before) => vec![before, Action::Carry(Carry::PLAIN)],
+                        None => continue,
+                    }
+                }
                 _ if has_round && rng.chance(25) => vec![Action::Carry(forward(&mut rng))],
                 _ => {
                     let mut actions = Vec::new();
