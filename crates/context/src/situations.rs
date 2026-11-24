@@ -973,9 +973,9 @@ impl<'a> Reach<'a> {
                     let (holds, after_hand_in) = self.after(other);
                     let id = other.id.as_str().to_lowercase();
                     add(holds.clone(), after_hand_in, Some(format!("after_{id}")));
-                    // A cell before this one in the order that must write a block hands in at least that with the return
-                    // that ends its run, and one that is not ended has something new again and is run before this one. A
-                    // cell after it may have had its run stopped, which hands nothing in, and this one run then.
+                    // A cell before this one in the order that must write a block hands in at least that with the
+                    // return that ends its run, and one not ended has something new again and is run before this one.
+                    // A cell after it may have had its run stopped, which hands nothing in, and this one run then.
                     let earlier = self.before.iter().any(|b| b.id == other.id);
                     let hands_nothing = !earlier || other.must_write.is_empty();
                     if hands_nothing {
