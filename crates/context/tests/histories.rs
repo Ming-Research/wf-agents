@@ -303,6 +303,14 @@ struct History {
     partial: u64,
     /// How often, in a hundred, a return asks for a tool, so that its run goes on to a round after the first.
     calls: u64,
+    /// Whether the datum the run is steered at is handed in, mostly, as changing nothing in meaning.
+    unmatter_datum: bool,
+    /// Whether the returns hand in, beside what their cell must, only the blocks near the target, so that the cells
+    /// that watch the rest are not run.
+    focus: bool,
+    /// Whether the first steps, which only carry the work's rounds, hand in everything and let every choice pass, so
+    /// that the work goes as far into the flow as it can.
+    forward: bool,
     /// The cells whose returns deal with nothing, so that a cell that runs until a run of it has dealt with something is
     /// run again.
     nothing_dealt: BTreeSet<String>,
@@ -326,7 +334,57 @@ enum Forced {
     Fail,
 }
 
+/// How a history's returns are drawn, which a run of the search sets and the first steps of a work that goes forward
+/// set aside.
+struct Mode {
+    writes: u64,
+    asks: u64,
+    calls: u64,
+    partial: u64,
+    unmatters: u64,
+    passes: Option<u64>,
+    focus: bool,
+    unmatter_datum: bool,
+    prefer: BTreeMap<String, u64>,
+    nothing_dealt: BTreeSet<String>,
+}
+
+impl Mode {
+    /// Every block handed in, every choice passing, no tool asked for, no question asked, nothing handed in as changing
+    /// nothing in meaning, and nothing steered.
+    fn forward() -> Mode {
+        Mode {
+            writes: 100,
+            asks: 0,
+            calls: 0,
+            partial: 0,
+            unmatters: 0,
+            passes: Some(100),
+            focus: false,
+            unmatter_datum: false,
+            prefer: BTreeMap::new(),
+            nothing_dealt: BTreeSet::new(),
+        }
+    }
+}
+
 impl History {
+    /// Sets the mode and gives the one it replaces.
+    fn swap_mode(&mut self, mode: Mode) -> Mode {
+        Mode {
+            writes: std::mem::replace(&mut self.writes, mode.writes),
+            asks: std::mem::replace(&mut self.asks, mode.asks),
+            calls: std::mem::replace(&mut self.calls, mode.calls),
+            partial: std::mem::replace(&mut self.partial, mode.partial),
+            unmatters: std::mem::replace(&mut self.unmatters, mode.unmatters),
+            passes: std::mem::replace(&mut self.scene.passes, mode.passes),
+            focus: std::mem::replace(&mut self.focus, mode.focus),
+            unmatter_datum: std::mem::replace(&mut self.unmatter_datum, mode.unmatter_datum),
+            prefer: std::mem::replace(&mut self.prefer, mode.prefer),
+            nothing_dealt: std::mem::replace(&mut self.nothing_dealt, mode.nothing_dealt),
+        }
+    }
+
     fn new(seed: u64) -> History {
         let mut sim = Sim::of(support::limited(), support::words());
         sim.takes_main = true;
@@ -351,6 +409,9 @@ impl History {
             unmatters: 0,
             partial: 0,
             calls: 15,
+            unmatter_datum: false,
+            focus: false,
+            forward: false,
             nothing_dealt: BTreeSet::new(),
             prefer: BTreeMap::new(),
             force: BTreeMap::new(),
@@ -414,16 +475,30 @@ impl History {
         matches!(decide(&self.sim.flow.flow, &self.sim.work.records), Decision::Ended(_))
     }
 
+    /// One of the first steps, which only carry what the work gives and let it go on. Says whether the work gave any.
+    fn quiet_step(&mut self, reached: &mut Reached) -> bool {
+        if let Some(round) = self.sim.round() {
+            self.carry(&round, reached);
+            return true;
+        }
+        if let Some(call) = self.sim.calls().first() {
+            self.sim.done(*call, "the rows");
+            return true;
+        }
+        self.lets_go()
+    }
+
     fn step(&mut self, reached: &mut Reached) {
         if self.quiet > 0 {
             self.quiet -= 1;
-            if let Some(round) = self.sim.round() {
-                return self.carry(&round, reached);
+            // The work goes forward: every block its cells write is handed in, every choice passes, no tool is asked for
+            // and nobody asks a question, as a work that goes well does.
+            let kept = self.forward.then(|| self.swap_mode(Mode::forward()));
+            let acted = self.quiet_step(reached);
+            if let Some(kept) = kept {
+                self.swap_mode(kept);
             }
-            if let Some(call) = self.sim.calls().first() {
-                return self.sim.done(*call, "the rows");
-            }
-            if self.lets_go() {
+            if acted {
                 return;
             }
         }
@@ -881,7 +956,11 @@ impl History {
             }
             let must = cell.must_write.contains(&block);
             let percent = self.prefer.get(block.as_str()).copied().unwrap_or(self.writes);
-            if (must && !leaves_out) || (!must && !only_must && (all || self.rng.chance(percent))) {
+            let near = !self.focus || {
+                let named = (self.target.as_ref()).is_none_or(|t| t.near.iter().any(|n| n == block.as_str()));
+                named || self.rng.chance(8)
+            };
+            if (must && !leaves_out) || (!must && !only_must && near && (all || self.rng.chance(percent))) {
                 let passes = self.scene.passing.contains(&block.as_str())
                     && self.scene.passes.is_some_and(|percent| self.rng.chance(percent));
                 let value = self.sim.flow.blocks[&block].values.clone().map(|v| match passes {
@@ -956,13 +1035,24 @@ impl History {
         came
     }
 
-    /// Whether a block a return hands in changes its meaning: a block that is no choice is handed in as changing nothing
-    /// in meaning as often as the history says, a first version included, which says nothing and is new to no cell.
+    /// Whether a block a return hands in changes its meaning: a block that is no choice, written before, is handed in
+    /// as changing nothing in meaning as often as the history says, and the datum the run is steered at, where the history
+    /// says so, as often as not, a first version included, which says nothing and is new to no cell.
     fn matters(&mut self, block: &BlockId, value: Option<&str>) -> bool {
-        if self.unmatters == 0 || value.is_some() {
+        if value.is_some() {
             return true;
         }
-        !self.rng.chance(self.unmatters)
+        let sought = self.target.as_ref().and_then(|t| t.datum.as_deref()) == Some(block.as_str());
+        if self.unmatter_datum && sought {
+            return !self.rng.chance(80);
+        }
+        if self.unmatters == 0 {
+            return true;
+        }
+        let written = decide::versions(&self.sim.work.records)
+            .get(block)
+            .is_some_and(|versions| !versions.is_empty());
+        !(written && self.rng.chance(self.unmatters))
     }
 
     /// A question of the cell's own in one return of twelve, where its cell takes the owner's answers: it waits for the
@@ -1642,6 +1732,10 @@ struct Target {
     /// Whether the cell runs only until a run of it has dealt with something: its condition names a datum the engine's
     /// source writes once a run that dealt with something has finished.
     one_shot: bool,
+    /// The blocks a return hands in, beside what its cell must, where the run is focused: the datum, what runs the writers
+    /// of it and what the owner's ruling is written in, and each block the cell watches by itself, not as one of a group,
+    /// which is what runs the cell without running the cells before it that watch the group.
+    near: Vec<String>,
 }
 
 impl Target {
@@ -1677,6 +1771,13 @@ impl Target {
                 blocks.extend(watched.blocks.iter().map(|b| b.as_str().to_string()));
             }
         }
+        let mut near: Vec<String> = blocks.clone();
+        if let Some(spec) = sim.flow.cells.iter().find(|c| c.id.as_str() == cell) {
+            let grouped: Vec<&str> = (spec.watches.iter().filter(|t| t.is_group()))
+                .flat_map(|t| t.blocks.iter().map(|b| b.as_str()))
+                .collect();
+            near.retain(|b| !grouped.contains(&b.as_str()) || datum == Some(b.as_str()));
+        }
         let state = datum.and_then(|_| rest.split(' ').nth(1)).map(str::to_string);
         let runs_on = (sim.flow.flow.cells().iter())
             .find(|c| c.id.as_str() == cell)
@@ -1706,6 +1807,7 @@ impl Target {
             blocks,
             runs_on,
             one_shot,
+            near,
         }
     }
 
@@ -1856,6 +1958,9 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
         history.unmatters = [0, 20, 50][rng.below(3)];
         history.partial = [0, 25, 60][rng.below(3)];
         history.calls = [15, 40, 70][rng.below(3)];
+        history.forward = rng.chance(75);
+        history.focus = rng.chance(35);
+        history.unmatter_datum = rng.chance(50);
         history.nothing_dealt.clear();
         if target.one_shot && rng.chance(85) {
             history.nothing_dealt.insert(target.cell.clone());

@@ -286,7 +286,7 @@ pub fn combinations(flow: &Compiled, words: &Agents, cell: &CellSpec, compared: 
                         .map(|b| {
                             let new = reach.allowed(entry, b, &Class::Fired).len() as u128;
                             let all = reach.allowed(entry, b, &Class::Rest).len() as u128;
-                            if is_new(b) { new } else { all - new }
+                            if is_new(b) { new } else { all.saturating_sub(new) }
                         })
                         .product::<u128>();
                 }
@@ -569,6 +569,19 @@ impl<'a> Reach<'a> {
         if self.written_within_the_line(block) {
             states.retain(|s| *s != Stands::HoldsLast);
         }
+        // A datum that runs the cell and did not run it this time has no version new to the cell: the walk records each
+        // block with one as a cause of the run, and, once the run began, only people and the outside write. So, unless
+        // they write it, it is never held as one the cell has not worked from yet, and where it is a choice, whose
+        // first version always changes its meaning, never held as one it has worked from none of.
+        if *class == Class::Rest && self.runs_the_cell(block) {
+            let declared = self.flow.blocks.get(block);
+            if !declared.is_some_and(|d| d.writers.people || d.writers.outside.is_some()) {
+                states.retain(|s| *s != Stands::HoldsLatest);
+                if declared.is_some_and(|d| d.values.is_some()) {
+                    states.retain(|s| *s != Stands::HoldsNew);
+                }
+            }
+        }
         // The last cell worked from nothing, so that the session holds what it was sent in an earlier round of its run,
         // never as the version it last worked from.
         if self.last && entry == Entry::Later {
@@ -578,6 +591,12 @@ impl<'a> Reach<'a> {
             }
         }
         states
+    }
+
+    /// Whether the datum, alone or as one of a group, runs the cell.
+    fn runs_the_cell(&self, block: &BlockId) -> bool {
+        let place = self.flow.flow.place(&self.cell.id).unwrap_or(0);
+        self.flow.flow.cells()[place].runs_on.contains(block)
     }
 
     /// Whether a cell of this cell's line before it watches the datum by itself and applies whatever the work holds.
