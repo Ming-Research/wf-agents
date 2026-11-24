@@ -10,7 +10,8 @@ import { waitingCount } from '../works/waiting';
 import { waitCount, waitCounted } from '../works/words';
 import { fixtureCopies, fixtureItems, fixtureWork } from '../works/fixtures';
 import { type Source, SourceContext } from '../works/source';
-import { type SystemSource, SystemSourceContext } from './api';
+import type { Spent } from '../works-api';
+import { FIXTURES, type ProjectSpent, type SystemSource, SystemSourceContext } from './api';
 import { fixtureAccounts, fixtureSettings, fixtureSystem, fixtureUnderWay } from './fixtures';
 import { STANDING_WORDS, standingOf } from './standing';
 import { SystemView } from './SystemView';
@@ -120,6 +121,26 @@ const CALLS = ['Context', 'Added', 'Per call', 'Cost'];
 
 const texts = (root: ParentNode, selector: string) => [...root.querySelectorAll(selector)].map((e) => e.textContent?.trim() ?? '');
 
+/// The table under a heading of the view.
+function tableUnder(root: ParentNode, heading: string): HTMLElement {
+  const head = [...root.querySelectorAll('h4')].find((h) => h.textContent === heading);
+  const table = head?.nextElementSibling;
+  if (table?.tagName !== 'TABLE') throw new Error(`no table under ${heading}`);
+  return table as HTMLElement;
+}
+
+/// What was spent: these millionths of a dollar, rounds and milliseconds under way, and nothing else.
+const spending = (usdMicros: number, rounds: number, workingMs: number): Spent => ({
+  usdMicros,
+  inputTokens: 0,
+  cacheWrittenTokens: 0,
+  unsplitTokens: 0,
+  cachedTokens: 0,
+  outputTokens: 0,
+  workingMs,
+  rounds,
+});
+
 /// A part of the view by its label.
 function part(root: ParentNode, label: string): HTMLElement {
   const found = [...root.querySelectorAll('section.panel-part')].find(
@@ -224,8 +245,9 @@ describe('the System view', () => {
       /^Stopping since [^:]+:\d\d: no round begins, and the engine ends once the rounds under way have ended, expected in about 12m 0s$/,
     );
     const under = now.querySelectorAll('table')[0];
-    expect(texts(under, 'thead th')).toEqual(['Work', 'Item', 'Cell', 'Since', 'To go', ...CALLS]);
-    const rests = texts(under, 'tbody td:nth-child(5)');
+    expect(texts(under, 'thead th')).toEqual(['Work', 'Item', 'Project', 'Cell', 'Since', 'To go', ...CALLS]);
+    expect(texts(under, 'thead th.num')).toEqual(CALLS);
+    const rests = texts(under, 'tbody td:nth-child(6)');
     expect(rests[0]).toBe('about 12m 0s');
     expect(rests.slice(1)).toEqual(running.slice(1).map(() => 'longer than any before'));
   });
@@ -236,7 +258,7 @@ describe('the System view', () => {
     await settle();
     const now = part(container, 'Now');
     expect(texts(now, 'dd')[0]).toBe('Every work goes on');
-    expect(texts(now.querySelectorAll('table')[0], 'thead th')).toEqual(['Work', 'Item', 'Cell', 'Since', ...CALLS]);
+    expect(texts(now.querySelectorAll('table')[0], 'thead th')).toEqual(['Work', 'Item', 'Project', 'Cell', 'Since', ...CALLS]);
   });
 
   it('counts what waits for the owner by the one count, the things that wait, as the bar says it', async () => {
@@ -447,30 +469,30 @@ describe('the System view', () => {
     await settle();
     // Past: each figure beside its line, in the colour of a warning.
     const past = rowOf(container, 500);
-    expect(texts(past, 'td').slice(4)).toEqual(['182k', '96k of 60k', '8.0k of 5.0k', '$1.24 of $0.90']);
+    expect(texts(past, 'td').slice(5)).toEqual(['182k', '96k of 60k', '8.0k of 5.0k', '$1.24 of $0.90']);
     expect(past.querySelectorAll('.warn-text')).toHaveLength(3);
-    const added = past.querySelectorAll('td')[5].querySelector('span') as HTMLElement;
+    const added = past.querySelectorAll('td')[6].querySelector('span') as HTMLElement;
     expect(added.getAttribute('title')).toContain("The tokens the round's context has grown by since it began.");
     expect(added.getAttribute('title')).toContain(
       'stops a round only where its growth over the round and its growth for each call',
     );
     expect(added.getAttribute('title')).toContain('Its line is 60k, which 12 rounds of its cell give; it is past it.');
-    const cost = past.querySelectorAll('td')[7].querySelector('span') as HTMLElement;
+    const cost = past.querySelectorAll('td')[8].querySelector('span') as HTMLElement;
     expect(cost.getAttribute('title')).toContain("12 agents' rounds of its flow give");
     // Within: the line beside each, in no colour.
     const within = rowOf(container, 501);
-    expect(texts(within, 'td').slice(4)).toEqual(['64k', '21k of 60k', '3.0k of 5.0k', '$0.31 of $0.90']);
+    expect(texts(within, 'td').slice(5)).toEqual(['64k', '21k of 60k', '3.0k of 5.0k', '$0.31 of $0.90']);
     expect(within.querySelectorAll('.warn-text')).toHaveLength(0);
-    expect(within.querySelectorAll('td')[5].querySelector('span')?.getAttribute('title')).toContain('it is within it.');
+    expect(within.querySelectorAll('td')[6].querySelector('span')?.getAttribute('title')).toContain('it is within it.');
     // No line yet: the figure alone, and the title says why.
     const alone = rowOf(container, 502);
-    expect(texts(alone, 'td').slice(4)).toEqual(['12k', '4.0k', '2.0k', '$0.05']);
+    expect(texts(alone, 'td').slice(5)).toEqual(['12k', '4.0k', '2.0k', '$0.05']);
     expect(alone.querySelectorAll('.warn-text')).toHaveLength(0);
-    expect(alone.querySelectorAll('td')[5].querySelector('span')?.getAttribute('title')).toContain('No line yet');
+    expect(alone.querySelectorAll('td')[6].querySelector('span')?.getAttribute('title')).toContain('No line yet');
     // No call told yet, as of an engine's act, which makes none: said so, not left empty or shown as nought.
     const none = rowOf(container, 503);
-    expect(texts(none, 'td').slice(4)).toEqual(['none yet', 'none yet', 'none yet', 'none yet']);
-    expect(none.querySelectorAll('td')[4].querySelector('.muted')?.getAttribute('title')).toContain(
+    expect(texts(none, 'td').slice(5)).toEqual(['none yet', 'none yet', 'none yet', 'none yet']);
+    expect(none.querySelectorAll('td')[5].querySelector('.muted')?.getAttribute('title')).toContain(
       'Told once the round has made a call',
     );
   });
@@ -538,5 +560,113 @@ describe('the System view', () => {
     await settle();
     const empty = tileOf(none.container);
     expect(empty.querySelector('.tile-value')?.textContent).toBe('none');
+  });
+
+  it("shows what each project spent before the cells and the models, the costliest first as given, each project's share of the totals, which count every project", async () => {
+    const s = sources();
+    const byProject: ProjectSpent[] = [
+      { project: 'wf-agents', spent: spending(3_000_000, 12, 3_600_000) },
+      { project: 'Whitefoot', spent: spending(1_000_000, 5, 600_000) },
+      { project: null, spent: spending(500_000, 2, 90_000) },
+    ];
+    s.system.loadSystem = async (weeks) => ({ ...fixtureSystem(weeks), spent: spending(4_500_000, 19, 4_290_000), byProject });
+    const { container } = draw(<SystemView period="week" />, s);
+    await settle();
+    const spent = part(container, 'Spent');
+    expect(texts(spent, 'h4')).toEqual(['By project', 'By cell', 'By model', 'The costliest works']);
+    const table = tableUnder(spent, 'By project');
+    expect(texts(table, 'thead th')).toEqual(['Project', 'Rounds', 'Under way', 'Cost', 'Share']);
+    expect(texts(table, 'thead th.num')).toEqual(['Rounds', 'Under way', 'Cost', 'Share']);
+    const rows = [...table.querySelectorAll('tbody tr')].map((r) => texts(r, 'td'));
+    expect(rows).toEqual([
+      ['wf-agents', '12', '1h 0m', '$3.00', '67%'],
+      ['Whitefoot', '5', '10m 0s', '$1.00', '22%'],
+      ['none', '2', '1m 30s', '$0.50', '11%'],
+    ]);
+    // A project by its name in the monospace, whole on the pointer's tip; the items of none muted, saying why.
+    const names = [...table.querySelectorAll('tbody td:first-child > span')];
+    expect(names[0].classList.contains('mono')).toBe(true);
+    expect(names[0].getAttribute('title')).toBe('wf-agents');
+    expect(names[2].classList.contains('muted')).toBe(true);
+    expect(names[2].getAttribute('title')).toBe('Items added before items had projects belong to none');
+    // The totals at the top are over every project.
+    const cost = [...spent.querySelectorAll('.tile')].find((t) => t.querySelector('.label')?.textContent === 'Cost');
+    expect(cost?.querySelector('.tile-value')?.textContent).toBe('$4.50');
+  });
+
+  it('shows the one project as all of what was spent, and no table by project where nothing was spent', async () => {
+    const s = sources();
+    const one = spending(2_000_000, 7, 60_000);
+    s.system.loadSystem = async (weeks) => ({ ...fixtureSystem(weeks), spent: one, byProject: [{ project: 'wf-agents', spent: one }] });
+    const { container } = draw(<SystemView period="week" />, s);
+    await settle();
+    const rows = [...tableUnder(part(container, 'Spent'), 'By project').querySelectorAll('tbody tr')];
+    expect(rows.map((r) => texts(r, 'td'))).toEqual([['wf-agents', '7', '1m 0s', '$2.00', '100%']]);
+    s.system.loadSystem = async (weeks) => ({ ...fixtureSystem(weeks), spent: spending(0, 0, 0), byProject: [], byWork: [] });
+    const none = draw(<SystemView period="4w" />, s);
+    await settle();
+    expect(texts(part(none.container, 'Spent'), 'h4')).not.toContain('By project');
+  });
+
+  it("names the project of each round's item among the rounds under way, and none, muted, for an item of none", async () => {
+    const s = sources();
+    const items = fixtureItems();
+    const base = items.items.find((i) => i.work.now.kind === 'round') as Item;
+    expect(base.project).not.toBeNull();
+    const clones = [
+      { ...base, number: 1600, project: 'Whitefoot', work: { ...base.work, number: 600 } },
+      { ...base, number: 1601, project: null, work: { ...base.work, number: 601 } },
+    ];
+    s.works.loadItems = async () => ({ ...items, items: [...items.items, ...clones] });
+    const { container } = draw(<SystemView period="week" />, s);
+    await settle();
+    const under = part(container, 'Now').querySelectorAll('table')[0];
+    expect(texts(under, 'thead th')).toEqual(['Work', 'Item', 'Project', 'Cell', 'Since', ...CALLS]);
+    expect(texts(under, 'thead th.num')).toEqual(CALLS);
+    const project = (work: number) => rowOf(container, work).querySelectorAll('td')[2].querySelector('span') as HTMLElement;
+    expect([base.work.number, 600, 601].map((w) => project(w).textContent)).toEqual([base.project, 'Whitefoot', 'none']);
+    expect(project(600).classList.contains('mono')).toBe(true);
+    expect(project(601).classList.contains('muted')).toBe(true);
+    expect(project(601).getAttribute('title')).toBe('Items added before items had projects belong to none');
+  });
+
+  it('spends, in the fixtures, over as many projects as the address asks for, else three and the items of none, adding up to what was spent', async () => {
+    const added = (list: ProjectSpent[]) =>
+      list.reduce(
+        (sum, p) => ({
+          usdMicros: sum.usdMicros + p.spent.usdMicros,
+          inputTokens: sum.inputTokens + p.spent.inputTokens,
+          cacheWrittenTokens: sum.cacheWrittenTokens + p.spent.cacheWrittenTokens,
+          unsplitTokens: sum.unsplitTokens + p.spent.unsplitTokens,
+          cachedTokens: sum.cachedTokens + p.spent.cachedTokens,
+          outputTokens: sum.outputTokens + p.spent.outputTokens,
+          workingMs: sum.workingMs + p.spent.workingMs,
+          rounds: sum.rounds + p.spent.rounds,
+        }),
+        spending(0, 0, 0),
+      );
+    const where = window.location.href;
+    try {
+      for (const [address, named, none] of [
+        ['/?fixtures', 3, 1],
+        ['/?fixtures&projects=1', 1, 0],
+        ['/?fixtures&projects=12', 12, 0],
+      ] as const) {
+        window.history.replaceState(null, '', address);
+        const system = await FIXTURES.loadSystem([Date.now()]);
+        const projects = system.byProject.map((p) => p.project);
+        expect(projects.filter((p) => p !== null), address).toHaveLength(named);
+        expect(new Set(projects).size, address).toBe(projects.length);
+        expect(projects.filter((p) => p === null), address).toHaveLength(none);
+        expect(added(system.byProject), address).toEqual(system.spent);
+        const costs = system.byProject.map((p) => p.spent.usdMicros);
+        expect(costs, address).toEqual([...costs].sort((a, b) => b - a));
+      }
+    } finally {
+      window.history.replaceState(null, '', where);
+    }
+    // The project of the works' fixtures' round under way is among the fixtures' projects, as one alone.
+    const running = fixtureItems().items.find((i) => i.work.now.kind === 'round');
+    expect(fixtureSystem([Date.now()], 1).byProject.map((p) => p.project)).toEqual([running?.project]);
   });
 });

@@ -17,12 +17,12 @@
 //   accounts changed as each look ends.
 //
 // The pages reach them through a context, which a test sets to its own source, and which the page's address with
-// `?fixtures` sets to the fixtures (fixtures.ts).
+// `?fixtures` sets to the fixtures (fixtures.ts), with `&projects=N` naming N projects.
 
 import { createContext, useContext } from 'react';
 
 import { read } from '../api';
-import { usesFixtures } from '../mock-data';
+import { projectsAsked, usesFixtures } from '../mock-data';
 import type { Against, Failure, Judged, Line, Refusal, Spent } from '../works-api';
 
 export interface Week {
@@ -37,6 +37,14 @@ export interface Week {
   added: number;
   sentBack: number;
   failed: number;
+}
+
+/// What the works of one project's items spent: the project by the name the installation's settings give it, none for
+/// the items added before items had projects.
+export interface ProjectSpent {
+  project: string | null;
+  /// What their rounds, keep-warm pings and forks that ended in the span took: `rounds` counts the rounds alone.
+  spent: Spent;
 }
 
 export interface CellSpent {
@@ -117,6 +125,8 @@ export interface System {
   /// none.
   pinged?: Spent;
   weeks: Week[];
+  /// By the project of the item whose work it was: the projects together spent what the span did.
+  byProject: ProjectSpent[];
   byCell: CellSpent[];
   byModel: ModelSpent[];
   byWork: WorkSpent[];
@@ -394,9 +404,11 @@ export const INTERFACE: SystemSource = {
   look: () => send<Looking>('/api/v1/settings/accounts/look', {}),
 };
 
-/// The fixtures, loaded only when asked for. What the owner changes is only logged.
+/// The fixtures, loaded only when asked for, naming as many projects as the page's address asks for. What the owner
+/// changes is only logged.
 export const FIXTURES: SystemSource = {
-  loadSystem: async (weeks) => (await import('./fixtures')).fixtureSystem(weeks),
+  loadSystem: async (weeks) =>
+    (await import('./fixtures')).fixtureSystem(weeks, projectsAsked(window.location.search)),
   loadUnderWay: async () => (await import('./fixtures')).fixtureUnderWay(),
   loadSettings: async () => (await import('./fixtures')).fixtureSettings(),
   saveSettings: async (change) => {
