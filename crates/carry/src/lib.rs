@@ -40,6 +40,7 @@ mod branch;
 pub mod catch_up;
 mod changed;
 pub mod cli;
+pub mod commit_lines;
 mod cost;
 pub mod failure;
 pub mod git;
@@ -157,6 +158,8 @@ fn carry_keeping(
     });
     let profile = account::profile(&data);
     std::fs::create_dir_all(&profile).map_err(|e| format!("{}: {e}", profile.display()))?;
+    // The hook that ends the agents' commits with the item and the work, which each round's git is given.
+    commit_lines::install(&data)?;
     // The program reads its own settings file there with every command: one that gives it a credential of no
     // account's, or names a permission mode it would ignore, keeps the engine from starting (decisions
     // the-programs-directory-is-the-engines and permissions-are-rules-not-a-mode).
@@ -165,7 +168,7 @@ fn carry_keeping(
         return Err(faults.join("; "));
     }
     let tag = git::tag(&installation);
-    let query = querying(&settings, &beside, &data)?;
+    let query = querying(&beside, &data);
     let (mut acts, mut tools, mut watches, mut of) = (BTreeMap::new(), BTreeMap::new(), Vec::new(), BTreeMap::new());
     // The network reaches a project's host on GitHub, one look for every such project, and no network a local one.
     let mut host_look: Option<Arc<dyn service::Network>> = None;
@@ -268,18 +271,17 @@ fn carry_keeping(
     Ok((carriers, watches))
 }
 
-/// The tool `query` as these settings and the files beside the flows say; or why the settings cannot open it.
-fn querying(settings: &Settings, beside: &flow::agents::Agents, data: &Path) -> Result<Querying, String> {
-    let tool = beside.tools.get(QUERY);
-    Querying::new(&settings.query, tool, data, store::SCHEMA).map_err(|why| format!("query.open: {why}"))
+/// The tool `query` as the files beside the flows say, on the store in `data`: always open, held to the bounds every
+/// installation has ([`tools::Limits::FIXED`]).
+fn querying(beside: &flow::agents::Agents, data: &Path) -> Querying {
+    Querying::new(tools::Limits::FIXED, beside.tools.get(QUERY), data, store::SCHEMA)
 }
 
 /// What fills `{store}` in the words of the tool `query`, which the line's system prompt holds: the store as the
-/// comments of its schema describe it where the settings open it to the agents, and the file's words that it is not
-/// open where they do not; or why the settings cannot open it. It is made outside the tools, which the loop holds as
-/// one trait object, so that the prompt, made from the same settings and files, can be given it.
-pub fn store(settings: &Settings, beside: &flow::agents::Agents) -> Result<String, String> {
-    querying(settings, beside, Path::new("")).map(|query| query.store())
+/// comments of its schema describe it. It is made outside the tools, which the loop holds as one trait object, so that
+/// the prompt, made from the same files, can be given it.
+pub fn store(beside: &flow::agents::Agents) -> String {
+    querying(beside, Path::new("")).store()
 }
 
 /// The acts, with their words and what their check holds to the owner's yes, the tools and the watch of main, on one
@@ -308,7 +310,7 @@ fn on<H: Host>(
         None => acts,
     };
     let watch = acts.watch(WATCH);
-    let tools = Tools::new(host, project.clone(), data.to_path_buf(), tag.to_string(), said).querying(query);
+    let tools = Tools::new(host, project.clone(), data.to_path_buf(), tag.to_string(), query, said);
     (Arc::new(acts), Arc::new(tools), watch, main)
 }
 

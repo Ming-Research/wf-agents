@@ -38,8 +38,8 @@ pub mod spoken;
 
 pub use event::{Came, Effect, Event, Gate, Hold, Refused};
 pub use handle::{
-    at_rest, handle, handle_ended, handle_held, handle_in, handle_then, handle_with, letting_go, letting_go_after,
-    pending, pending_after,
+    at_rest, carried, handle, handle_ended, handle_held, handle_in, handle_then, handle_with, letting_go,
+    letting_go_after, pending, pending_after,
 };
 pub use held::held;
 pub use work::{

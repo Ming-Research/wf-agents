@@ -81,8 +81,7 @@ async fn all_time_gives_the_merge_and_what_was_spent_on_each_cell_and_model() {
     let (week, before) = (START - DAY, START - 8 * DAY);
     let weeks = get_json(router, &format!("/api/v1/system?weeks={week},{before}")).await;
     assert_eq!(weeks["from"], before, "the span begins with its earliest week");
-    let nothing =
-        json!({ "usdMicros": 0, "inputTokens": 0, "cachedTokens": 0, "outputTokens": 0, "workingMs": 0, "rounds": 0 });
+    let nothing = json!({ "usdMicros": 0, "inputTokens": 0, "cacheWrittenTokens": 0, "unsplitTokens": 0, "cachedTokens": 0, "outputTokens": 0, "workingMs": 0, "rounds": 0 });
     assert_eq!(
         weeks["weeks"],
         json!([
@@ -134,7 +133,7 @@ async fn a_round_that_failed_is_given_with_its_cause() {
     let running = running_scripted(Box::new(store), dir, script);
     let router = &running.router;
     greeted(router).await;
-    let answer = json!({ "kind": "result", "call": 2, "result": "Yes, by name." });
+    let answer = json!({ "kind": "goOn", "call": 2 });
     assert_eq!(
         post(router, "/api/v1/works/1/acts", &answer).await.0,
         StatusCode::NO_CONTENT
@@ -192,6 +191,8 @@ fn planned(driver: &mut driver::Driver, at: u64, ms: u64, usd: u64) -> store::Wo
             content: "Please.".to_string(),
             value: None,
         }],
+        why: None,
+        waits_for: Vec::new(),
     };
     let (_, work, _) = driver.add(work::Time(at), new).unwrap();
     happened(driver, at, work, engine::Event::Resumed);
@@ -343,7 +344,7 @@ fn what_a_work_spent_on_a_fork_is_counted_in_the_system_view_in_its_total_its_we
     let run = driver.work(work).unwrap().work.records.rounds[0].run;
     let spent = engine::Spent {
         usd_micros: 7_000,
-        input_tokens: 10,
+        uncached_tokens: 10,
         cached_tokens: 20,
         output_tokens: 3,
         ..engine::Spent::default()
@@ -419,6 +420,8 @@ fn asking(driver: &mut driver::Driver, at: u64) -> (store::WorkNumber, decide::C
             content: "Please.".to_string(),
             value: None,
         }],
+        why: None,
+        waits_for: Vec::new(),
     };
     let (_, work, _) = driver.add(work::Time(at), new).unwrap();
     happened(driver, at, work, engine::Event::Resumed);
@@ -576,6 +579,8 @@ fn a_stop_is_given_with_the_rests_of_what_is_under_way_and_holds_a_work_that_wou
             content: "Please.".to_string(),
             value: None,
         }],
+        why: None,
+        waits_for: Vec::new(),
     };
     let (_, held, _) = driver.add(work::Time(START + 55 * S), new).unwrap();
     let todos = driver

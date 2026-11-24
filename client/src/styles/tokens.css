@@ -35,6 +35,11 @@
   --corner: 3px;
   --hairline: 1px;
   --focus: 2px;
+  /* The soft light round what the owner was brought to or chose, as a stop or a section of the Step: how far out it
+     blurs, how far it spreads and how strong it is. Each rule that draws it gives its own colour. */
+  --glow-blur: 9px;
+  --glow-spread: 4px;
+  --glow-strength: 45%;
   --hover-time: 100ms;
   /* The beat of a running cell's mark, and how faint it goes at its faintest, wherever it is drawn: the works page's
      marks and the console's cards, whose canvas reads them. */

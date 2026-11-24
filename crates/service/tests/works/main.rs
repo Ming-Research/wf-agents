@@ -57,6 +57,8 @@ pub fn new_item(title: &str, depends_on: &[u64]) -> NewItem {
             content: format!("{title}, please."),
             value: None,
         }],
+        why: None,
+        waits_for: Vec::new(),
     }
 }
 
@@ -418,17 +420,10 @@ impl Trial {
         answer.try_recv().expect("the loop answers at once")
     }
 
-    /// Answers the owner's call the work waits for.
-    pub fn answer(&mut self, work: WorkNumber, result: &str) {
+    /// Lets the run go on whose call at its limit the work waits for the owner on.
+    pub fn let_go_on(&mut self, work: WorkNumber) {
         let call = self.owners_call(work).expect("the work waits for the owner's call");
-        self.act(
-            work,
-            Act::Result {
-                call,
-                result: result.to_string(),
-            },
-        )
-        .expect("the answer is taken");
+        self.act(work, Act::GoOn { call }).expect("the run is let go on");
     }
 
     /// The owner's call the work waits for, where it waits for one.
@@ -469,7 +464,7 @@ impl Trial {
                 return decision;
             }
             if self.owners_call(work).is_some() {
-                self.answer(work, "Yes, by name.");
+                self.let_go_on(work);
                 continue;
             }
             if self.step().await.is_none() {

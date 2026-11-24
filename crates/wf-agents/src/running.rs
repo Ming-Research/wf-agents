@@ -19,6 +19,8 @@ use flow::{Compiled, Has, Source};
 use service::{Carriers, Levels, Projects, Script, Scripted, Service, SystemClock};
 use store::Store;
 
+use crate::carried;
+
 /// The file in the data directory whose lock says that an engine runs on it.
 const HELD: &str = "engine.lock";
 
@@ -29,6 +31,15 @@ const HELD: &str = "engine.lock";
 /// source that nothing has written yet stays unwritten, and a cell that reads one starts from no version of it.
 fn has(dir: &Path) -> Has {
     crate::has(dir)
+}
+
+/// The flows the engine runs.
+pub enum Flows {
+    /// The flows in these directories, the first being the one the flow page shows.
+    Directories(Vec<PathBuf>),
+    /// These flows of the ones the program carries, by name, the first being the one the flow page shows: the engine
+    /// takes the files they are carried in out into the data directory as it starts.
+    Program(Vec<String>),
 }
 
 /// What carries the works out.
@@ -52,7 +63,28 @@ pub fn works_page(address: SocketAddr) -> String {
     format!("http://{address}/#/works")
 }
 
-pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
+/// Runs the engine on the data directory. `new` says that the directory is to get a store of its own: a directory that
+/// holds a store is run in as it is, and one that holds none is run in only with it, so that a directory that is no data
+/// directory is never made into one by being named. That is asked before anything is made in the directory, the hold
+/// and the program's flows included.
+pub fn run(data: &Path, flows: &Flows, with: With, port: u16, new: bool) -> ExitCode {
+    if let Some(why) = directory_refusal(data, new) {
+        eprintln!("{why}");
+        return ExitCode::FAILURE;
+    }
+    // The program's own flows are taken out only once the data directory is held, so that a second engine that is
+    // refused changes nothing of the files the first runs on.
+    let (mut held, dirs) = match flows {
+        Flows::Directories(dirs) => (None, dirs.clone()),
+        Flows::Program(names) => match take_program_flows(data, carried::FLOWS, names) {
+            Ok((held, dirs)) => (Some(held), dirs),
+            Err(why) => {
+                eprintln!("{why}");
+                return ExitCode::FAILURE;
+            }
+        },
+    };
+    let dirs = &dirs[..];
     // The flow page shows the first flow given.
     let Some(shown) = dirs.first() else {
         eprintln!("no flow is given: the engine runs on at least one");
@@ -65,16 +97,19 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
     };
     // The one project of a script's items, named before what carries the works out is read.
     let scripted = script_projects(&with);
-    let Some((flows, with)) = read(data, dirs, &with) else {
+    let Some((flows, with)) = read(dirs, &with) else {
         return ExitCode::FAILURE;
     };
     // Held until the process ends.
-    let _held = match hold(data) {
-        Ok(held) => held,
-        Err(why) => {
-            eprintln!("{why}");
-            return ExitCode::FAILURE;
-        }
+    let _held = match held.take() {
+        Some(held) => held,
+        None => match hold(data) {
+            Ok(held) => held,
+            Err(why) => {
+                eprintln!("{why}");
+                return ExitCode::FAILURE;
+            }
+        },
     };
     let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
         Ok(runtime) => runtime,
@@ -220,6 +255,7 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
             None => router,
         };
         println!("The owner's pages are at {}", works_page(address));
+        println!("wf-agents {}", crate::VERSION);
         let held = web::works::Engine::of(service.driver()).paused.map(|paused| paused.by);
         if held == Some(web::works::Pauser::Engine) {
             println!(
@@ -401,6 +437,14 @@ fn script_levels() -> Levels {
     Levels::one("1", "The one level of an engine whose agents follow a script")
 }
 
+/// Holds the data directory, and only then takes the program's flows out into it: the files a running engine reads are
+/// never changed by one that is refused. Gives the hold and the directory of each flow named.
+fn take_program_flows(data: &Path, files: &[(&str, &[u8])], names: &[String]) -> Result<(File, Vec<PathBuf>), String> {
+    let held = hold(data)?;
+    let dirs = carried::take(data, files, names)?;
+    Ok((held, dirs))
+}
+
 /// Holds the data directory for as long as the process runs: an exclusive lock of the system's on a file in it, taken
 /// without waiting (`flock` where the system is Unix). The system lets go of it when the file is closed, which it is
 /// when the process ends however it ends, killed or failed as much as stopped; a file made to say an engine runs, and
@@ -420,18 +464,35 @@ pub(crate) fn hold(data: &Path) -> Result<File, String> {
     }
 }
 
+/// Why the directory cannot be run in, where it cannot: it is no directory, it holds a store and `--new` asks for one,
+/// or it holds none and `--new` is not given. Nothing is made in it either way.
+fn directory_refusal(data: &Path, new: bool) -> Option<String> {
+    if !data.is_dir() {
+        return Some(format!(
+            "{}: no such directory: the data directory is made before the engine runs in it",
+            data.display()
+        ));
+    }
+    let store = data.join(store::FILE);
+    match (store.exists(), new) {
+        (true, true) => Some(format!(
+            "{}: the data directory holds a store already: start the engine without --new",
+            data.display()
+        )),
+        (false, false) => Some(format!(
+            "{}: the directory holds no store, and no engine makes one in a directory it was not told is new: start the \
+             engine with --new to make the data directory's store here",
+            data.display()
+        )),
+        _ => None,
+    }
+}
+
 /// The flows compiled and what carries the works out, checked against them; or none, having said everything wrong
 /// with them. A script is checked only against flows that all compiled, so that it is not told of a flow missing for
 /// that.
-fn read(data: &Path, dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>, Read)> {
+fn read(dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>, Read)> {
     let mut wrong = false;
-    if !data.is_dir() {
-        eprintln!(
-            "{}: no such directory: the data directory is made before the engine runs in it",
-            data.display()
-        );
-        wrong = true;
-    }
     let mut flows = Vec::new();
     let mut compiled_all = true;
     for dir in dirs {
@@ -472,7 +533,7 @@ fn read(data: &Path, dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>, Re
                     eprintln!("{fault}");
                     wrong = true;
                 }
-                for line in start.held.into_iter().chain(start.warned) {
+                for line in start.held {
                     eprintln!("{line}");
                 }
                 Some(Read::Settings(Box::new(settings), Box::new(beside)))
@@ -498,16 +559,13 @@ struct Start {
     /// What keeps a project's works from being carried out, each said with the project's key: the project is held, its
     /// works are paused with the reason, and the other projects go on.
     held: Vec<String>,
-    /// What the owner is told of a project that is carried, each said with the project's key: where what its
-    /// declaration would do is not done, as an agent that writes updating no lock file where it names no lock command.
-    warned: Vec<String>,
 }
 
 /// What keeps the real carriers from carrying out the flows, every fault at once: what the acts need of a flow and of
-/// their words beside the flows; what every agent is refused whatever its project, beside the flows
-/// ([`carry::permissions::faults`]), the same for every project and said once; what the texts sent to the agents name
-/// and hold where it is the flows', the same for every project; and two projects in one repository, each said with the
-/// projects' keys. Of each project, what is wrong with its declaration on its main, with the files it names, its heavy
+/// their words beside the flows; what every agent is refused whatever its project, beside the flows, and the program
+/// the installation names ([`carry::permissions::faults`]), the same for every project and said once; what the texts
+/// sent to the agents name and hold where it is the flows', the same for every project; and two projects in one
+/// repository, each said with the projects' keys. Of each project, what is wrong with its declaration on its main, with the files it names, its heavy
 /// commands and the commands its host needs of it, is no fault of the engine's but holds that project alone
 /// ([`carry::projects::declared`]): each held project is listed with why.
 fn start(settings: &carry::Settings, beside: &flow::agents::Agents, flows: &[Compiled]) -> Start {
@@ -516,7 +574,7 @@ fn start(settings: &carry::Settings, beside: &flow::agents::Agents, flows: &[Com
         .collect();
     let words = carry::word_faults(&beside.acts.check).into_iter();
     faults.extend(words.map(|fault| format!("{}/{fault}", beside.root.display())));
-    faults.extend(carry::permissions::faults(beside));
+    faults.extend(carry::permissions::faults(beside, &settings.agents.command));
     let (declared, wrong) = carry::projects::declared(settings, beside, flows);
     faults.extend(wrong);
     let held = (declared.iter())
@@ -528,19 +586,7 @@ fn start(settings: &carry::Settings, beside: &flow::agents::Agents, flows: &[Com
             ))
         })
         .collect();
-    let warned = (declared.iter())
-        .filter_map(|(name, declared)| {
-            let declared = declared.as_ref().ok()?;
-            declared.declaration.heavy.locks.is_empty().then(|| {
-                format!(
-                    "projects.{name}: {} [heavy] locks names no command that updates a lock file, so an agent that \
-                     writes may update none.",
-                    flow::agents::DECLARATION
-                )
-            })
-        })
-        .collect();
-    Start { faults, held, warned }
+    Start { faults, held }
 }
 
 /// What is written beside the flows, read from the directory that holds them, with the form of return of each line of
@@ -601,6 +647,32 @@ fn read_script(script: &Path, flows: &[Compiled], compiled_all: bool, wrong: &mu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_second_engine_leaves_the_flows_of_the_first_as_they_are() {
+        let data = tempfile::tempdir().unwrap();
+        let flows = data.path().join("flows");
+        std::fs::create_dir_all(flows.join("alpha")).unwrap();
+        std::fs::write(flows.join("alpha/kept.toml"), "kept").unwrap();
+        let files: [(&str, &[u8]); 1] = [("alpha/flow.toml", b"new")];
+        let names = ["alpha".to_string()];
+        let first = hold(data.path()).unwrap();
+        let said = take_program_flows(data.path(), &files, &names).unwrap_err();
+        assert!(said.contains("an engine already runs on this data directory"), "{said}");
+        assert!(
+            flows.join("alpha/kept.toml").exists(),
+            "a start that was refused took the flows out all the same"
+        );
+        assert_eq!(std::fs::read_to_string(flows.join("alpha/kept.toml")).unwrap(), "kept");
+        assert!(!flows.join("alpha/flow.toml").exists());
+        assert!(!data.path().join("flows.new").exists());
+        // Once the first has gone, the same call takes the files out in place of the old.
+        drop(first);
+        let (_held, dirs) = take_program_flows(data.path(), &files, &names).unwrap();
+        assert_eq!(dirs, [flows.join("alpha")]);
+        assert_eq!(std::fs::read_to_string(flows.join("alpha/flow.toml")).unwrap(), "new");
+        assert!(!flows.join("alpha/kept.toml").exists());
+    }
 
     #[test]
     fn the_server_of_the_pages_runs_while_the_loop_holds_its_thread() {
@@ -735,12 +807,11 @@ mod tests {
     }
 
     // A project whose declaration cannot be used is held, and every one is said at once with its project's key and why,
-    // whatever else is wrong: the declaration main does not hold, one that names no heavy commands, lock commands
-    // that fall under what every agent is refused or that would allow a heavy command whole, variables it names for the
-    // agents' command line that the engine, the settings or the agents' program own, and time limits of its workflows
-    // that are no times. None of it keeps the engine
-    // from starting, and the project that is fine is not held. Two projects that name one repository are a fault of the
-    // engine's, which their declarations do not cause, and keep it from starting.
+    // whatever else is wrong: the declaration main does not hold, one that names no heavy commands, variables it names
+    // for the agents' command line that the engine, the settings or the agents' program own, and time limits of its
+    // workflows that are no times. None of it keeps the engine from starting, and the project that is fine is not held.
+    // Two projects that name one repository are a fault of the engine's, which their declarations do not cause, and
+    // keep it from starting.
     #[test]
     fn a_project_whose_declaration_cannot_be_used_is_held_and_each_is_said_with_its_key_and_why() {
         let dir = tempfile::tempdir().expect("a directory");
@@ -749,14 +820,8 @@ mod tests {
         let (unheavy, _) = good
             .split_once("\n[heavy]\n")
             .expect("the declaration names its heavy commands");
-        let locks = good.replace(
-            "locks = [\"cargo update\"",
-            "locks = [\"git push\", \"cargo\", \"cargo update\"",
-        );
-        assert_ne!(locks, good, "the lock commands are written as the test expects");
         with_project(&mut settings, dir.path(), "other", None, false);
         with_project(&mut settings, dir.path(), "lacking", Some(unheavy), false);
-        with_project(&mut settings, dir.path(), "locks", Some(&locks), false);
         // The same declaration naming, for the agents' command line, a variable the engine owns, one the agents' program
         // reads itself and one the settings keep of the engine's environment.
         settings.agents.env = vec!["LANGUAGE".to_string()];
@@ -775,7 +840,7 @@ mod tests {
         let beside = beside(&[flows().join("engineer")], &[]).expect("the files beside the flows");
         let started = start(&settings, &beside, &[engineer()]);
         assert_eq!(started.faults, Vec::<String>::new(), "no fault of the engine's");
-        assert_eq!(started.held.len(), 5, "{:?}", started.held);
+        assert_eq!(started.held.len(), 4, "{:?}", started.held);
         let held = |name: &str| {
             (started.held.iter())
                 .find(|line| line.starts_with(&format!("projects.{name}: held")))
@@ -791,15 +856,6 @@ mod tests {
                 && held("lacking").contains("missing field `heavy`"),
             "{:?}",
             started.held
-        );
-        let locks = held("locks");
-        assert!(
-            locks.contains(
-                "wf-agents.toml [heavy] locks: \"git push\" falls under \"git push\", which every agent is refused \
-                 (flow/agents/refused.toml)"
-            ) && locks
-                .contains("wf-agents.toml [heavy] locks: \"cargo\" would allow all of the heavy command \"cargo\""),
-            "{locks}"
         );
         let unsafe_line = held("unsafe");
         for fault in [
@@ -827,7 +883,7 @@ mod tests {
             "{:?}",
             started.faults
         );
-        assert_eq!(started.held.len(), 5, "{:?}", started.held);
+        assert_eq!(started.held.len(), 4, "{:?}", started.held);
     }
 
     // The engine starts with its one project held, as with any: the held project's reason is the only thing said.
@@ -889,24 +945,9 @@ mod tests {
         let fast_limit = |limit: &str| good.replacen("too_long = \"2h\"", &format!("too_long = \"{limit}\""), 1);
         with_project(&mut settings, dir.path(), "short", Some(&fast_limit("5m")), true);
         with_project(&mut settings, dir.path(), "exact", Some(&fast_limit("10m")), true);
-        // A project that names no lock command is carried, and the owner is told that its agents may update no lock file.
-        let no_locks = good.replace(
-            "locks = [\"cargo update\", \"cargo add\", \"npm install --package-lock-only --ignore-scripts\"]",
-            "locks = []",
-        );
-        assert_ne!(no_locks, good, "the lock commands are written as the test expects");
-        with_project(&mut settings, dir.path(), "nolocks", Some(&no_locks), false);
         let beside = beside(&[flows().join("engineer")], &[]).expect("the files beside the flows");
         let started = start(&settings, &beside, &[engineer()]);
         assert_eq!(started.faults, Vec::<String>::new());
-        assert_eq!(
-            started.warned,
-            [
-                "projects.nolocks: wf-agents.toml [heavy] locks names no command that updates a lock file, so an agent \
-                 that writes may update none."
-            ],
-            "only a project that is carried and names none is warned of"
-        );
         let names: Vec<&str> = started
             .held
             .iter()
@@ -970,6 +1011,17 @@ mod tests {
             (started.faults, started.held),
             (Vec::<String>::new(), Vec::<String>::new())
         );
+        // The program the installation names is refused as an entry is, so that one holding a `*` would refuse more than
+        // it names: the start is kept from going on, and says the setting.
+        let mut starred = settings.clone();
+        starred.agents.command = "co*dex".to_string();
+        let started = start(&starred, &beside, &compiled);
+        assert_eq!(started.faults.len(), 1, "{:?}", started.faults);
+        assert!(
+            started.faults[0].starts_with("agents.command: "),
+            "{:?}",
+            started.faults
+        );
         beside.session.heading = "# `{path}` {where}\n\n{text}".to_string();
         let mut lines: Vec<&str> = compiled[0].cells.iter().filter_map(|c| c.line.as_deref()).collect();
         lines.sort();
@@ -1009,7 +1061,7 @@ mod tests {
         assert_eq!((install.read)(sample), Ok(install.running.clone()));
         assert_eq!(install.running["agents"]["slots"], 2);
         assert_eq!(
-            install.running["history"]["samples"], 19,
+            install.running["agents"]["subagents"]["most"], 3,
             "a key left out at its default"
         );
         let misspelt = sample.replace("slots = 2", "slots = 2\nslot = 3");

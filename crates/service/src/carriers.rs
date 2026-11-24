@@ -121,6 +121,14 @@ pub trait Rounds: Send + Sync {
         Box::pin(async { Ok(None) })
     }
 
+    /// The pull requests open on the host of this project's repository, as the carrier that keeps the repository asks
+    /// the host; none, as by default, where the host has no pull requests, as the local repository; or why the host
+    /// could not say. It is called off the loop.
+    fn open_pulls(&self, project: &str) -> Pin<Box<dyn Future<Output = PullsSaid> + Send + '_>> {
+        let _ = project;
+        Box::pin(async { Ok(None) })
+    }
+
     /// When a line begins a new session, for rounds carried out in sessions: what they run on, and whether a new session
     /// of a line would begin with another system prompt or form of return than its session began with. None, as by
     /// default, for rounds carried out in no session, whose lines the loop begins no session for itself.
@@ -418,7 +426,8 @@ pub struct Returned {
     pub duration_ms: Option<u64>,
     /// The models it was answered by, by name.
     pub models: Vec<String>,
-    /// The tokens it wrote to the prompt cache, which the records count among those not read from it.
+    /// The tokens it wrote to the prompt cache, as the program printed them: a try's own, where a round's are in what
+    /// it took.
     pub cache_creation_input_tokens: Option<u64>,
 }
 
@@ -508,6 +517,22 @@ pub struct Pull {
     pub number: u64,
     pub url: String,
 }
+
+/// A pull request open on the host of a project's repository, as a person lists it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpenPull {
+    pub number: u64,
+    pub title: String,
+    pub url: String,
+    /// Whether it is a draft, which is not yet for anyone to review or merge.
+    pub draft: bool,
+    /// When the host last updated it, in milliseconds since 1970.
+    pub updated: u64,
+}
+
+/// What the host of a project's repository says of its open pull requests: them, none where the host has no pull
+/// requests, as the local repository, or why it could not say.
+pub type PullsSaid = Result<Option<Vec<OpenPull>>, String>;
 
 /// Each file a work changed, as [`Diffstat`] counts them, in the order of their paths; the commit where its branch left
 /// main and its latest head they are between; and whether what its worktree holds was counted, the worktree being
@@ -815,6 +840,12 @@ impl Carriers {
     pub async fn diff(&self, of: OfWork, path: String) -> Result<Option<Diff>, String> {
         self.acts.diff(of, path).await
     }
+
+    /// The pull requests open on the host of this project's repository, as the carrier of the engine's acts asks the
+    /// host.
+    pub async fn open_pulls(&self, project: &str) -> PullsSaid {
+        self.acts.open_pulls(project).await
+    }
 }
 
 /// A round of a run, to give or to stop.
@@ -931,6 +962,7 @@ impl RoundReply {
         let paused = Event::Paused {
             by: Pauser::Engine,
             why: Some(why),
+            waits_for: Vec::new(),
         };
         // Where the loop has ended, the process is stopping: the round is handed out again when it starts again.
         let _ = self.to.send(Message::Happened {
@@ -953,6 +985,7 @@ impl RoundReply {
         let paused = Event::Paused {
             by: Pauser::Engine,
             why: Some(pause),
+            waits_for: Vec::new(),
         };
         // Where the loop has ended, the process is stopping: the round is handed out again when it starts again.
         let _ = self.to.send(Message::Happened {

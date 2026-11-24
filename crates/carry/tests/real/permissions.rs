@@ -35,7 +35,49 @@ async fn a_line_that_writes_and_one_that_only_reads_are_each_given_what_they_may
     let (plan, review) = (&calls[0], &calls[2]);
     assert!(plan.of("Plan") && review.of("Review"));
 
-    // The engineer's line writes: it may update a lock file, and is refused the heavy commands and pushing.
+    // Every round is given what the flows' words say agents may do, turned into the program's own flags, with the
+    // engine's own temporary directory written without a trailing slash, and the arguments that isolate the program
+    // from the owner's tools and settings: the settings hold no argument. Each is what the installation's arguments gave
+    // before they were the engine's. Every round is refused the agents' program the installation names, which here is
+    // the fake program's path and no other name. Reference: the installation's former arguments.
+    let temp = std::env::temp_dir();
+    let temp = temp.to_string_lossy();
+    let temp = temp.trim_end_matches('/');
+    let program = format!("Bash({} *)", real.settings.agents.command);
+    for call in &calls {
+        assert_eq!(
+            after(call, "--tools"),
+            ["Bash,Read,Grep,Glob,Edit,Write,WebSearch,WebFetch,Agent"],
+            "{:?}",
+            call.args
+        );
+        assert_eq!(
+            after(call, "--allowedTools"),
+            [
+                "Bash".to_string(),
+                "Grep".to_string(),
+                "Glob".to_string(),
+                "Edit(./**)".to_string(),
+                format!("Edit(/{temp}/**)"),
+                "WebSearch".to_string(),
+                "WebFetch".to_string(),
+            ]
+        );
+        assert_eq!(after(call, "--add-dir"), [temp]);
+        assert_eq!(after(call, "--setting-sources"), ["user"]);
+        assert_eq!(call.args.iter().filter(|a| *a == "--setting-sources").count(), 1);
+        for flag in ["--strict-mcp-config", "--disable-slash-commands"] {
+            assert!(call.args.iter().any(|a| a == flag), "{flag}");
+        }
+        let refused = after(call, "--disallowedTools");
+        assert!(refused.contains(&program.as_str()), "{program}: {refused:?}");
+        assert!(
+            !refused.contains(&"Bash(claude *)"),
+            "no program is assumed: {refused:?}"
+        );
+    }
+
+    // The engineer's line writes: it is refused the heavy commands and pushing.
     let refused = after(plan, "--disallowedTools");
     for rule in ["Bash(rustc *)", "Bash(npx *)", "Bash(vitest *)", "Bash(git push *)"] {
         assert!(refused.contains(&rule), "{rule}: {refused:?}");
@@ -44,9 +86,11 @@ async fn a_line_that_writes_and_one_that_only_reads_are_each_given_what_they_may
         !refused.contains(&"Edit") && !refused.contains(&"Bash(git commit *)"),
         "{refused:?}"
     );
-    assert!(after(plan, "--allowedTools").contains(&"Bash(cargo update *)"));
     assert!(told(plan, "Make your changes there and commit them there."));
-    assert!(told(plan, "`cargo update`"));
+    assert!(
+        !told(plan, "To update a lock file"),
+        "no lock command is given any line"
+    );
     assert!(!told(plan, "{your_line}"), "the line's words are put in");
 
     // The reviewer's line only reads: it is refused what edits a file or changes the repository as well.
@@ -61,7 +105,9 @@ async fn a_line_that_writes_and_one_that_only_reads_are_each_given_what_they_may
     ] {
         assert!(refused.contains(&rule), "{rule}: {refused:?}");
     }
-    assert!(after(review, "--allowedTools").is_empty());
+    // What the words let agents do is the same for every line; a line that only reads is refused more.
+    assert_eq!(after(review, "--allowedTools"), after(plan, "--allowedTools"));
+    assert_eq!(after(review, "--tools"), after(plan, "--tools"));
     assert!(told(review, "You only read it"));
     assert!(!told(review, "Make your changes there"));
     // Every line's system prompt holds the project's files its declaration names, each headed by its path, the engine's

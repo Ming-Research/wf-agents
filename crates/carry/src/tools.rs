@@ -28,7 +28,7 @@ use crate::held::{Held, Stop};
 use crate::host::{Asking, Branch, Host, Named};
 use crate::settings::Project;
 
-pub use query::{QUERY, Querying};
+pub use query::{Limits, QUERY, Querying};
 
 /// The name of the tool that runs the work's tests and checks.
 pub const RUN_TESTS: &str = "run_tests";
@@ -94,8 +94,8 @@ impl Said {
 
 impl<H: Host> Tools<H> {
     /// The tools on this host in this project, with this data directory, which is an absolute path, the
-    /// installation's tag, and what they say in the words beside the flows.
-    pub fn new(host: H, project: Project, data: PathBuf, tag: String, said: Said) -> Self {
+    /// installation's tag, the tool `query` and what they say in the words beside the flows.
+    pub fn new(host: H, project: Project, data: PathBuf, tag: String, query: Querying, said: Said) -> Self {
         Tools {
             inner: Arc::new(Inner {
                 host,
@@ -104,17 +104,9 @@ impl<H: Host> Tools<H> {
                 tag,
                 said,
                 held: Held::new(),
-                query: Querying::closed(),
+                query,
             }),
         }
-    }
-
-    /// The tools with the tool `query` as this says it is.
-    pub fn querying(mut self, query: Querying) -> Self {
-        Arc::get_mut(&mut self.inner)
-            .expect("the tools are not shared yet")
-            .query = query;
-        self
     }
 }
 
@@ -152,6 +144,7 @@ impl<H: Host> ToolsTrait for Tools<H> {
                 let name = crate::acts::name(&call.flow, &call.kept, call.work, &inner.project.commits);
                 let branch = Branch {
                     work: call.work,
+                    item: call.item.number,
                     title: &name,
                     about: &about,
                     place: &place,
@@ -464,6 +457,7 @@ mod tests {
         let place = repo.place(WORK);
         let branch = Branch {
             work: WORK,
+            item: store::ItemNumber(36),
             title: "Greet the user",
             about: "",
             place: &place,
@@ -755,6 +749,7 @@ mod tests {
         let place = repo.place(WORK);
         let branch = Branch {
             work: WORK,
+            item: store::ItemNumber(36),
             title: "Greet the user",
             about: "",
             place: &place,
@@ -816,7 +811,14 @@ mod tests {
             .await
             .unwrap();
         let host = Fake::new("unused").runs("The tests passed.");
-        let tools = Tools::new(host, repo.project.clone(), repo.data.clone(), TAG.to_string(), said());
+        let tools = Tools::new(
+            host,
+            repo.project.clone(),
+            repo.data.clone(),
+            TAG.to_string(),
+            Querying::new(Limits::FIXED, None, &repo.data, ""),
+            said(),
+        );
         let call = run_tests_call();
         let (to, mut said) = tokio::sync::mpsc::unbounded_channel();
         tools.call(call, CallReply::new(WORK, CallId(2), to));
@@ -836,6 +838,7 @@ mod tests {
         let place = repo.place(WORK);
         let branch = Branch {
             work: WORK,
+            item: store::ItemNumber(36),
             title: "Greet the user",
             about: "",
             place: &place,
@@ -886,6 +889,7 @@ mod tests {
             repo.project.clone(),
             repo.data.clone(),
             TAG.to_string(),
+            Querying::new(Limits::FIXED, None, &repo.data, ""),
             said(),
         );
         let call = run_tests_call();

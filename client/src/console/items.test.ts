@@ -25,7 +25,16 @@ function work(item: number, now: Now, states: CellNow['state'][] = ['notYet', 'n
       record: null,
       open: states[i] === 'running' || states[i] === 'resting' ? 1 : null,
     })),
-    spent: { usdMicros: 1_500_000, inputTokens: 0, cachedTokens: 0, outputTokens: 0, workingMs: 0, rounds: 3 },
+    spent: {
+      usdMicros: 1_500_000,
+      inputTokens: 0,
+      cacheWrittenTokens: 0,
+      unsplitTokens: 0,
+      cachedTokens: 0,
+      outputTokens: 0,
+      workingMs: 0,
+      rounds: 3,
+    },
     last: null,
   };
 }

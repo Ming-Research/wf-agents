@@ -316,6 +316,8 @@ impl S {
                 content: "Greet the user.".to_string(),
                 value: None,
             }],
+            why: None,
+            waits_for: Vec::new(),
         };
         let (_, before, _) = driver.add(Time(START), earlier).unwrap();
         let todos = driver.happened(Time(START), before, Event::Resumed).unwrap();
@@ -367,6 +369,8 @@ impl S {
                 content: "Greet the user.".to_string(),
                 value: None,
             }],
+            why: None,
+            waits_for: Vec::new(),
         };
         let (_, work, _) = driver.add(Time(START), new).unwrap();
         driver.happened(Time(START), work, Event::Resumed).unwrap();
@@ -402,6 +406,8 @@ impl S {
                 content: "Greet the user.".to_string(),
                 value: None,
             }],
+            why: None,
+            waits_for: Vec::new(),
         };
         self.clock += 1000;
         let (_, work, _) = self.driver.add(Time(self.clock), new).expect("the work is added");
@@ -441,7 +447,7 @@ impl S {
         // The round's one try began on the model, under the account, as its carrier says.
         self.began();
         let spent = Spent {
-            input_tokens: 10,
+            uncached_tokens: 10,
             context_tokens: Some(context),
             usd_micros: self.usd,
             compactions: self.compactions,
@@ -632,7 +638,7 @@ fn a_flagged_round_of_a_store_kept_before_sessions_were_recorded_has_its_line_be
     assert_eq!(cell, "review");
     s.began();
     let spent = Spent {
-        input_tokens: 10,
+        uncached_tokens: 10,
         context_tokens: Some(100),
         ..Default::default()
     };
@@ -684,7 +690,7 @@ fn a_round_under_way_as_a_store_kept_before_sessions_were_recorded_opens_goes_on
     let (review, _) = s.round();
     s.began();
     let spent = Spent {
-        input_tokens: 10,
+        uncached_tokens: 10,
         context_tokens: Some(100),
         ..Default::default()
     };
@@ -864,7 +870,7 @@ fn a_flagged_round_whose_line_began_a_new_session_as_it_took_main_in_is_tried_ag
     });
     s.began();
     let spent = Spent {
-        input_tokens: 10,
+        uncached_tokens: 10,
         context_tokens: Some(100),
         ..Default::default()
     };
@@ -1180,6 +1186,8 @@ fn a_model_the_service_does_not_have_pauses_every_work_whose_rounds_run_on_it() 
                 content: "Greet the user.".to_string(),
                 value: None,
             }],
+            why: None,
+            waits_for: Vec::new(),
         };
         let (_, work, _) = s.driver.add(Time(s.clock), new).expect("added");
         s.driver.happened(Time(s.clock), work, Event::Resumed).expect("let on");
@@ -1837,6 +1845,7 @@ fn a_session_is_pinged_while_the_owners_pause_holds_everything_or_the_work_alone
             s.on(Event::Paused {
                 by: Pauser::Owner,
                 why: None,
+                waits_for: Vec::new(),
             });
         }
         let todos = s.driver.tick(Time(at), None, None).unwrap();
@@ -1871,6 +1880,7 @@ fn no_session_of_a_work_the_engine_paused_for_spending_more_than_it_may_is_pinge
     s.on(Event::Paused {
         by: Pauser::Engine,
         why: Some("it spent $1.20 of the $1.00 a work may spend".to_string()),
+        waits_for: Vec::new(),
     });
     let todos = s.driver.tick(Time(at), None, None).unwrap();
     assert!(pings(&s, &todos).is_empty(), "a ping of a work past its budget");
@@ -1898,6 +1908,7 @@ fn a_session_of_a_work_the_engine_paused_within_what_a_letting_on_allowed_is_pin
     s.on(Event::Paused {
         by: Pauser::Engine,
         why: Some("it spent $1.20 of the $1.00 a work may spend".to_string()),
+        waits_for: Vec::new(),
     });
     s.on(Event::Resumed);
     // Paused by the engine again, for a round of it that failed, it is under the $1.50 it may now spend: its session
@@ -1905,6 +1916,7 @@ fn a_session_of_a_work_the_engine_paused_within_what_a_letting_on_allowed_is_pin
     s.on(Event::Paused {
         by: Pauser::Engine,
         why: Some("a round of it failed".to_string()),
+        waits_for: Vec::new(),
     });
     let todos = s.driver.tick(Time(at), None, None).unwrap();
     assert_eq!(pings(&s, &todos), [("engineer".to_string(), 0)]);
@@ -1929,6 +1941,7 @@ fn no_session_is_pinged_at_all_where_the_owner_switched_keeping_them_warm_off() 
             "the work" => s.on(Event::Paused {
                 by: Pauser::Owner,
                 why: None,
+                waits_for: Vec::new(),
             }),
             _ => {}
         }
@@ -2002,6 +2015,7 @@ fn no_ping_of_a_line_the_work_passed_for_good_while_its_pause_holds_it_at_anothe
     s.on(Event::Paused {
         by: Pauser::Owner,
         why: None,
+        waits_for: Vec::new(),
     });
     s.hands_in(100, true);
     let shown = s.driver.view(s.work).expect("the work is shown").decision;

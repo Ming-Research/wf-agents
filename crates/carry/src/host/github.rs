@@ -615,7 +615,8 @@ impl<A: Api> Host for GitHub<A> {
             &[("name", &self.title(branch)), ("number", &number)],
         );
         let method = &self.config.merge_method;
-        let commit = match self.api.merge(open.number, checked, method, &title).await {
+        let message = self.message(branch, &now, checked).await?;
+        let commit = match self.api.merge(open.number, checked, method, &title, &message).await {
             Ok(commit) => commit,
             // GitHub's own word that main moved as it was to merge.
             Err(failed) if failed.why.contains(BASE_MODIFIED) => {
@@ -762,6 +763,21 @@ impl<A: Api> Host for GitHub<A> {
         (self.project.github.as_ref()).map(|github| github.pull_at(number))
     }
 
+    async fn open_pulls(&self) -> Result<Option<Vec<service::OpenPull>>, String> {
+        let open = self.api.open_pulls().await?;
+        Ok(Some(
+            open.into_iter()
+                .map(|pull| service::OpenPull {
+                    number: pull.number,
+                    title: pull.title,
+                    url: pull.url,
+                    draft: pull.draft,
+                    updated: pull.updated,
+                })
+                .collect(),
+        ))
+    }
+
     async fn reopen(&self, branch: &Branch<'_>) -> Result<(), String> {
         let pulls = self.api.pulls(&branch.place.branch).await?;
         if pulls.iter().any(|p| p.state == State::Open) {
@@ -887,6 +903,20 @@ impl<A: Api> GitHub<A> {
         let mut cut: String = title.chars().take(TITLE - 1).collect();
         cut.push('…');
         cut
+    }
+
+    /// The message under the title of the work's merge: what the work's own commits say, made [`neutral`] as what the
+    /// work writes is, and the lines that name its item and its work ([`crate::commit_lines::squashed`]); given, for the
+    /// repository's settings not to choose it, which would leave the lines out.
+    async fn message(&self, branch: &Branch<'_>, main: &str, checked: &str) -> Result<String, String> {
+        let messages = git::work_messages(&self.project.repo, main, checked).await?;
+        let tidy = |text: &str| neutral(text, &self.config.withheld, &self.config.words.cut);
+        Ok(crate::commit_lines::squashed(
+            &self.project.commits,
+            branch.whose(),
+            &messages,
+            &tidy,
+        ))
     }
 
     /// What the pull request of the work says of itself: what the work wrote of itself, as a block of plain text made

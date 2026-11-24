@@ -254,6 +254,7 @@ impl Hub {
 fn branch(place: &Place) -> Branch<'_> {
     Branch {
         work: WORK,
+        item: store::ItemNumber(36),
         title: "Greet the user",
         about: "Greets the user by name.",
         place,
@@ -614,6 +615,45 @@ async fn a_skipped_job_fails_nothing_and_every_job_of_a_passing_check_is_given_w
     );
 }
 
+// A run of the full workflow on a change of only the design tree: `scope`, `tree` and `check` ran, the jobs of the code
+// did not, and the one file of results is the job `tree`'s, a suite of its name with no test in it. The commit passes,
+// and every job is told, those that did not run as such. Well under a second alone, a repository on disk and GitHub in
+// memory; no other test reads a run whose results hold no test.
+#[tokio::test]
+async fn a_run_of_only_the_design_tree_passes_with_the_jobs_of_the_code_told_as_not_run() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    let skipped = [
+        "page",
+        "page tests",
+        "lint",
+        "test 1 of 3",
+        "test 2 of 3",
+        "test 3 of 3",
+    ];
+    let jobs: Vec<Check> = [passed("scope"), passed("tree")]
+        .into_iter()
+        .chain(skipped.iter().map(|name| check(name, Outcome::Skipped)))
+        .chain([passed("check")])
+        .collect();
+    let tree = r#"<testsuites><testsuite name="tree"/></testsuites>"#;
+    let results = vec![("tree.xml".to_string(), tree.as_bytes().to_vec())];
+    hub.github().fast(&head, jobs, Some(("test-results", results)));
+    let verdict = hub.verdict(&head).await.unwrap().unwrap();
+    assert_eq!(verdict.failed, None);
+    let did_not_run = skipped.map(|name| format!("\n  - {name}: did not run https://github.example/checks/{name}"));
+    assert_eq!(
+        verdict.notes,
+        [format!(
+            "The jobs of the full workflows, each with how it ended and its wall time:\n  \
+             - scope: passed in 60 s https://github.example/checks/scope\n  \
+             - tree: passed in 60 s https://github.example/checks/tree{}\n  \
+             - check: passed in 60 s https://github.example/checks/check",
+            did_not_run.concat()
+        )]
+    );
+}
+
 #[tokio::test]
 async fn a_run_that_uploads_no_junit_holds_the_work_and_a_job_that_ended_without_judging_does_too() {
     let hub = Hub::new();
@@ -734,6 +774,33 @@ async fn a_pull_request_closed_on_github_fails_the_round() {
     assert_eq!(hub.opened(), 1, "no second pull request is opened");
 }
 
+// What the host says of its open pull requests is the open ones of the repository, whatever their branch, as a person
+// lists them: one closed is gone from it, and a list GitHub refuses is an `Err` with its words, never none.
+#[tokio::test]
+async fn the_open_pull_requests_are_the_open_ones_and_a_list_github_refuses_is_said_and_not_taken_for_none() {
+    let hub = Hub::new();
+    assert_eq!(hub.host.open_pulls().await, Ok(Some(Vec::new())));
+    let head = hub.committed().await;
+    hub.green(&head);
+    hub.verdict(&head).await.unwrap().unwrap();
+    let kept = hub.github().pull_requests();
+    assert_eq!(
+        hub.host.open_pulls().await,
+        Ok(Some(vec![service::OpenPull {
+            number: 1,
+            title: "Greet the user".to_string(),
+            url: "https://github.example/pull/1".to_string(),
+            draft: kept[0].draft,
+            updated: kept[0].updated,
+        }]))
+    );
+    hub.github().close(1);
+    assert_eq!(hub.host.open_pulls().await, Ok(Some(Vec::new())));
+    hub.github().refuse_listing("HTTP 403: API rate limit exceeded");
+    let refused = hub.host.open_pulls().await.expect_err("GitHub refuses the list");
+    assert!(refused.contains("API rate limit exceeded"), "{refused}");
+}
+
 #[tokio::test]
 async fn a_stopped_wait_gives_nothing() {
     let hub = Hub::new();
@@ -788,17 +855,59 @@ async fn the_merge_merges_the_pull_request_only_at_the_commit_the_check_passed_a
     );
     assert_eq!(hub.merge(&later).await, Ok(merged));
     assert_eq!(
+        run(&hub.github().bare, &["log", "-1", "--format=%B", "main"]),
+        "Greet the user (#1)\n\n* Write farewell.txt\n\n* Write later.txt\n\nItem: 36\nWork: W1",
+        "the squash names the item and the work"
+    );
+    assert_eq!(
         merges(&hub),
         [Asked::Merge {
             number: 1,
             head: later,
             method: "squash".to_string(),
             title: "Greet the user (#1)".to_string(),
+            message: "* Write farewell.txt\n\n* Write later.txt\n\nItem: 36\nWork: W1".to_string(),
         }]
     );
     assert!(
         !hub.github().asked().iter().any(|a| matches!(a, Asked::Delete(_))),
         "no branch is deleted unless the settings say so"
+    );
+}
+
+// The settings of the repository choose what GitHub writes under a squash's title where it is given none, and it would
+// leave the lines out: the engine writes the message, from the work's own commits, made fit to publish as the pull
+// request's body is, with the co-authors once at its end where GitHub reads them.
+#[tokio::test]
+async fn the_squash_message_is_the_commits_bodies_made_neutral_with_the_co_authors_and_the_lines_at_its_end() {
+    let hub = Hub::new();
+    let first = hub.committed().await;
+    let dir = hub.place().dir;
+    run(
+        &dir,
+        &[
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "Say why",
+            "-m",
+            "Fixes #12 for @bob.\n\nCo-Authored-By: Ada <ada@example.org>\n\nItem: 36\nWork: W1",
+        ],
+    );
+    let checked = run(&dir, &["rev-parse", "HEAD"]);
+    assert_ne!(checked, first);
+    hub.green(&checked);
+    hub.verdict(&checked).await.unwrap().unwrap();
+    hub.merge(&checked).await.expect("it merges");
+    let said = run(&hub.github().bare, &["log", "-1", "--format=%B", "main"]);
+    let unseen = '\u{200B}';
+    assert_eq!(
+        said,
+        format!(
+            "Greet the user (#1)\n\n* Write farewell.txt\n\n* Say why\n\nF{unseen}ixes #{unseen}12 for @{unseen}bob.\n\n\
+             Co-authored-by: Ada <ada@example.org>\nItem: 36\nWork: W1"
+        )
     );
 }
 

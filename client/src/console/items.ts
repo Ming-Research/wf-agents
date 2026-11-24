@@ -10,7 +10,7 @@
 // It reads the items as `works-api.ts` gives them. The interface does not say which of an item's dependents is its
 // main one: the first of them by number is.
 
-import type { CellNow, Item, Items, Now, Pauser, Summary, Wait } from '../works-api';
+import type { CellNow, Held, Item, Items, Now, Pauser, Summary, Wait } from '../works-api';
 import { mocksShown } from '../mock-data';
 import { aheadOf, waitsOf } from '../works/waiting';
 import { stateOf } from '../works/words';
@@ -41,10 +41,12 @@ export type ShownWork = {
   sentBack: number;
   usdMicros: number;
   last: number | null;
-  /// The level its rounds run at, none where the engine gives none; and how many levels above it the line of the cell
-  /// it stands at runs that cell, none counted as nought.
+  /// The level its rounds run at, none where the engine gives none; how many levels above it the cell it stands at
+  /// really runs, none counted as nought; the level that cell runs at; and what held it below what its line asks.
   level: string | null;
   raise: number;
+  cellLevel: string | null;
+  held: Held | null;
   /// The lines it added and removed, none where it changed none (`linesOf`).
   lines: Lines | null;
 };
@@ -246,6 +248,8 @@ export function shownTree(
               last: w.last,
               level: w.level ?? null,
               raise: w.raise ?? 0,
+              cellLevel: w.cellLevel ?? null,
+              held: w.held ?? null,
               lines: linesOf(w),
             }
           : null,

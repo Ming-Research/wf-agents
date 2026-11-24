@@ -694,6 +694,12 @@ textarea:disabled {
   margin-bottom: var(--space-12);
 }
 
+/* The section the owner was brought to, as by a link to a round: in the soft light a stop chosen stands in
+   (`.cw-stop-chosen`), in the accent. */
+.cw-fold-chosen {
+  box-shadow: 0 0 var(--glow-blur) var(--glow-spread) color-mix(in srgb, var(--accent) var(--glow-strength), transparent);
+}
+
 .cw-fold-head {
   display: flex;
   align-items: center;

@@ -22,7 +22,7 @@ fn a_new_file_is_made_with_the_schema_its_version_and_a_write_ahead_log() {
     assert_eq!(store.works(), Ok(vec![]));
     let tables: BTreeSet<String> = dump(&db.path).into_keys().collect();
     assert_eq!(tables, schema_tables());
-    assert_eq!(tables.len(), 61);
+    assert_eq!(tables.len(), 62);
     let file = Connection::open(&db.path).expect("the database opens");
     let version: u32 = (file.query_row("SELECT version FROM schema_version", [], |row| row.get(0))).expect("a version");
     assert_eq!(version, SCHEMA_VERSION);
@@ -135,6 +135,7 @@ fn kept_before() -> Work {
     d.on(Event::Paused {
         by: Pauser::Owner,
         why: None,
+        waits_for: Vec::new(),
     });
     d.wrote("request", Outsider::Person, None);
     d.on(Event::Resumed);
@@ -150,6 +151,13 @@ fn kept_before() -> Work {
         finished.dealt_with = None;
     }
     d.work
+}
+
+/// A work as a file made before version 32 of the schema holds it: its pauses wait for no item, which no table kept.
+pub(crate) fn before_pauses_waited_for_items(work: &mut Work) {
+    for pause in &mut work.records.pauses {
+        pause.waits_for.clear();
+    }
 }
 
 /// The work as a file made with this earlier version of the schema holds it, and a file of this version that holds
@@ -197,9 +205,17 @@ fn kept_in_works(version: u32, works: &[&Work]) -> (Db, Db) {
             let names: Vec<String> = (query.query_map([], |row| row.get(1)).expect("its columns"))
                 .collect::<Result<_, _>>()
                 .expect("its columns");
-            let names = names.join(", ");
+            // The tokens sent and not read from the cache were named `input_tokens` in the tables of a round's, a ping's
+            // and a fork's spend before version 31.
+            let from: Vec<&str> = (names.iter())
+                .map(|name| match (table.as_str(), name.as_str()) {
+                    ("spent" | "pinged" | "forked", "input_tokens") => "uncached_tokens",
+                    _ => name.as_str(),
+                })
+                .collect();
+            let (names, from) = (names.join(", "), from.join(", "));
             file.execute(
-                &format!("INSERT INTO main.{table} ({names}) SELECT {names} FROM new.{table}"),
+                &format!("INSERT INTO main.{table} ({names}) SELECT {from} FROM new.{table}"),
                 [],
             )
             .expect("the rows are copied");
@@ -249,6 +265,7 @@ fn a_file_of_version_9_is_migrated_and_its_runs_read_as_dealing_with_everything_
     work.records.questions.clear();
     work.records.answers.clear();
     work.pulls.clear();
+    before_pauses_waited_for_items(&mut work);
     // Nor how long the tests and jobs of a run of the CI took, which version 30 keeps.
     work.timed.clear();
     // Its tries recorded the directory of the program's settings as their account, which version 21 keeps apart.
@@ -309,19 +326,21 @@ fn a_file_of_version_10_is_migrated_with_the_observations_of_the_returns_its_run
         columns(&new.path),
         "the migrated file has other tables than a new one"
     );
-    // Its observations are kept as a file of this version keeps them as the runs finish: those of the returns taken,
-    // numbered in the order the runs finished, and unread.
+    // Its observations are kept as the file of that version kept them: those of the returns taken, numbered in the
+    // order the runs finished, and unread. A file of this version keeps the sent-back return's too, as its runs
+    // finish; the past is read as it ran, and the migration does not change it.
     let migrated = super::observations::kept(&old.path);
+    assert_eq!(super::observations::kept(&new.path).len(), 4);
     // The item was kept before items had projects, so its observations are of no project and reported by none, which
     // the new file's, of an item of a project, are not.
-    let without_projects: Vec<store::Observation> = (super::observations::kept(&new.path).into_iter())
-        .map(|o| store::Observation {
-            project: None,
-            reported_by: None,
-            ..o
-        })
-        .collect();
-    assert_eq!(migrated, without_projects);
+    assert!(
+        migrated.iter().all(|o| o.project.is_none() && o.reported_by.is_none()),
+        "a migrated observation names a project"
+    );
+    assert!(
+        (super::observations::kept(&new.path).iter()).all(|o| o.project.as_deref() == Some("one")),
+        "an observation of the new file lacks the project of its item"
+    );
     let said: Vec<(u64, &str, &str)> = (migrated.iter())
         .map(|o| {
             (
@@ -447,9 +466,11 @@ fn a_migrated_file_has_sound_foreign_keys_and_takes_the_reading_and_the_changes_
 
 /// A work as one kept at version 17 holds it, in which a version is empty where `empty` says so and holds words
 /// otherwise, and the same with `inverse` the other way round: the same places, blocks and writers, the two works
-/// differing only in which version holds nothing. A request a person wrote, the owner's main written by the outside
-/// as one that does not matter and said to a cell, a choice the outside wrote with an empty content, and a run's
-/// writes, one of them changing nothing in meaning and one with a value.
+/// differing only in which version holds nothing. A request a person wrote, and the opinions a person wrote beside it
+/// with words in both works, which run the writer where the request, holding nothing and written before any, says
+/// nothing and runs no cell; the owner's main written by the outside as one that does not matter and said to a cell, a
+/// choice the outside wrote with an empty content, and a run's writes, one of them changing nothing in meaning and one
+/// with a value.
 fn kept_at_17(inverse: bool) -> Work {
     // Whether the version of the pattern's `empty` holds nothing in this work.
     let nothing = |empty: bool| empty != inverse;
@@ -459,6 +480,13 @@ fn kept_at_17(inverse: bool) -> Work {
         block: "request".into(),
         by: Outsider::Person,
         content: content(true),
+        matters: true,
+        value: None,
+    });
+    d.on(Event::Wrote {
+        block: "opinions".into(),
+        by: Outsider::Person,
+        content: "words".to_string(),
         matters: true,
         value: None,
     });
@@ -517,8 +545,8 @@ fn a_file_of_version_17_is_migrated_and_each_of_its_writes_reads_as_holding_what
             .chain(w.records.finished[0].writes.iter().map(|w| w.empty))
             .collect()
     };
-    assert_eq!(of(&kept), [true, false, false, false, true, false]);
-    assert_eq!(of(&other), [false, true, false, true, false, false]);
+    assert_eq!(of(&kept), [true, false, false, false, false, true, false]);
+    assert_eq!(of(&other), [false, false, true, false, true, false, false]);
     let (old, new) = kept_in_works(17, &[&kept, &other]);
     let store = old.open();
     assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
@@ -599,6 +627,7 @@ fn a_file_of_version_20_is_migrated_keeping_every_row_it_holds_its_tries_directo
     let mut d = Driver::new();
     history(&mut d);
     let mut work = d.work;
+    before_pauses_waited_for_items(&mut work);
     // A file of version 20 kept no times of the runs of the CI, which version 30 keeps.
     work.timed.clear();
     for ran in &mut work.ran {
@@ -617,11 +646,41 @@ fn a_file_of_version_20_is_migrated_keeping_every_row_it_holds_its_tries_directo
     let store = old.open();
     assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
     let after = dump(&old.path);
+    let spends = ["spent", "pinged", "forked"];
     for (table, rows) in &before {
-        if table == "schema_version" || table == "ran" || table == "items" {
+        if table == "schema_version" || table == "ran" || table == "items" || spends.contains(&table.as_str()) {
             continue;
         }
         assert_eq!(after.get(table), Some(rows), "the rows of {table}");
+    }
+    // What a round, a ping and a fork took is carried whole, and none of it says how many tokens it wrote to the cache:
+    // the column a later version added after the tokens not read from the cache holds none. A round says it only
+    // where a try kept of it adds up to its own tokens, and none of this file's does.
+    let file = Connection::open(&old.path).expect("the database opens");
+    let adding_up: i64 = file
+        .query_row(
+            "SELECT count(*) FROM spent s JOIN measured m ON m.work = s.work AND m.run = s.run AND m.round = s.round \
+             WHERE m.input_tokens + m.cache_written_tokens = s.uncached_tokens",
+            [],
+            |row| row.get(0),
+        )
+        .expect("the rounds are counted");
+    assert_eq!(
+        adding_up, 0,
+        "no round of the file has a try whose tokens add up to its own"
+    );
+    assert!(!before["spent"].is_empty(), "the work has rounds that took something");
+    // The file has no table of forks yet, which a later version makes empty.
+    for (table, written) in [("spent", 5), ("pinged", 6), ("forked", 6)] {
+        let mut told_apart: Vec<Vec<String>> = (before.get(table).into_iter().flatten())
+            .map(|row| {
+                let mut row = row.clone();
+                row.insert(written, "Null".to_string());
+                row
+            })
+            .collect();
+        told_apart.sort();
+        assert_eq!(after[table], told_apart, "the rows of {table}");
     }
     // Each item's row is carried whole, and continues nothing: the column a later version added to it holds none.
     assert!(!before["items"].is_empty(), "the work has an item");

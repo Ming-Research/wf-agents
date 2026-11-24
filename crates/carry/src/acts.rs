@@ -27,7 +27,9 @@ use std::time::{Duration, Instant};
 use decide::{BlockId, End, Finished, RunId};
 use engine::Came;
 use flow::Compiled;
-use service::{Along, Changes, Diff, OfWork, Pull, Release, ReleaseReply, Round, RoundReply, Rounds, Seen, Teller};
+use service::{
+    Along, Changes, Diff, OfWork, OpenPull, Pull, Release, ReleaseReply, Round, RoundReply, Rounds, Seen, Teller,
+};
 use store::{ItemNumber, WorkNumber};
 use tokio::sync::{Mutex, Notify};
 use work::{Handed, Question, Said, Spent, Work};
@@ -294,6 +296,11 @@ impl<H: Host> Rounds for Acts<H> {
         Box::pin(self.inner.seen(of))
     }
 
+    // The acts keep one project's repository, whatever name the loop asks by.
+    fn open_pulls(&self, _: &str) -> Pin<Box<dyn Future<Output = Result<Option<Vec<OpenPull>>, String>> + Send + '_>> {
+        Box::pin(self.inner.host.open_pulls())
+    }
+
     fn changes(&self, of: OfWork) -> Pin<Box<dyn Future<Output = Result<Option<Changes>, String>> + Send + '_>> {
         Box::pin(async move {
             let inner = &self.inner;
@@ -334,6 +341,7 @@ impl<H: Host> Inner<H> {
         let name = name(&round.flow, &round.kept, round.work, &project.commits);
         let branch = Branch {
             work: round.work,
+            item: round.item.number,
             title: &name,
             about: &about,
             place: &place,
@@ -344,7 +352,7 @@ impl<H: Host> Inner<H> {
             tree: project.tree.clone(),
             main: self.host.kept_main(),
         };
-        let looking = || Looking::of(&round.flow, &round.kept, read_with.clone());
+        let looking = || Looking::of(&round.flow, &round.kept, read_with.clone(), Some(round.run));
         match act {
             "start" => {
                 let started = start(project, &self.host, &branch, &self.repository).await?;
@@ -525,6 +533,7 @@ impl<H: Host> Inner<H> {
         let name = name(&release.flow, &release.kept, release.work, &self.project.commits);
         let branch = Branch {
             work: release.work,
+            item: release.item.number,
             title: &name,
             about: "",
             place: &place,
@@ -878,8 +887,7 @@ pub(crate) async fn check(
         }
         // An answer that takes the recommended option to a question that does not wait runs no cell, so one given after
         // the change was handed in is found only here. The check has no return that says anything beside its work.
-        let said = Said::default();
-        let unwritten = crate::tree::unwritten(project, place, &main, &project.tree, gate.work, &said).await?;
+        let unwritten = crate::tree::unwritten(project, place, &main, &project.tree, gate.work, &[]).await?;
         if !unwritten.is_empty() {
             let questions = unwritten.join("\n");
             let slots = [("main", project.main.as_str()), ("questions", questions.as_str())];
@@ -897,7 +905,7 @@ pub(crate) async fn check(
         if let Some(head) = unreviewed(gate) {
             return Err(Failed::passing(fill(&words.found.unreviewed, &[("head", head)])));
         }
-        let (commit, took_in) = git::take_in(&dir, &main, project).await?;
+        let (commit, took_in) = git::take_in(&dir, &main, project, branch.whose()).await?;
         let tree = |of: &str| format!("{of}^{{tree}}");
         let ours = git::git(&project.repo, &["rev-parse", &tree(&commit)]).await?;
         let theirs = git::git(&project.repo, &["rev-parse", &tree(&main)]).await?;
@@ -1454,6 +1462,7 @@ mod tests {
     fn branch(place: &git::Place) -> Branch<'_> {
         Branch {
             work: WORK,
+            item: store::ItemNumber(36),
             title: "Greet the user",
             about: "",
             place,

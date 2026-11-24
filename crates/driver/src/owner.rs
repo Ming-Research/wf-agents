@@ -446,6 +446,7 @@ mod tests {
                 engine: Vec::new(),
                 waits_for: None,
                 read: Vec::new(),
+                protected: Default::default(),
             },
         );
         for (i, (name, waits)) in asked.iter().enumerate() {
@@ -491,6 +492,7 @@ mod tests {
             at: Seq(30),
             by,
             why: why.map(str::to_string),
+            waits_for: Vec::new(),
         });
     }
 

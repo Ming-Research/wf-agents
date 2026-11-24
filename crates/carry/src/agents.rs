@@ -80,8 +80,11 @@
 //! nothing is taken in again for the run. The branch's data, its design tree and the work's head, are read after that,
 //! in the round that took main in, and after the round's program ended, where they may have changed
 //! ([`branch`](crate::branch)): what is read as main is taken in is the outside's, put into the round; what is read as
-//! the round ends is what it committed, handed in with its return, where its line may change the work, and the
-//! outside's where it only reads.
+//! the round ends is what it committed, handed in with its return, where its line may change the work and the return
+//! does the cell's work (a round that asks for calls hands in none of it, and its commit is read by the round that ends
+//! the cell's work), and the outside's where it only reads, but while a cell that may change the work waits for the
+//! results of calls no read takes the head or the design tree, whichever round or act reads, but the one that ends that
+//! cell's work.
 //!
 //! Each round runs on the model of its item's level, or of a level above it where its cell's line says so, at the
 //! effort its cell sets, under the account it was handed out with (`Settings::ran_on`); a round whose item's level the
@@ -125,6 +128,7 @@ use work::{Back, Fill, Measures, RanOn, Spent, Why, Work};
 
 use crate::catch_up::{self, CaughtUp};
 use crate::cli::{self, Begin, Calls, Compacted, InSession, Words};
+use crate::commit_lines::{self, Whose};
 use crate::guard::{Crossing, Guard};
 use crate::held::{Failing, Held, Stop};
 use crate::permissions::{self, Permissions};
@@ -511,13 +515,8 @@ impl Rounds for Agents {
 impl Inner {
     /// What the program is let run for a round of the cell, of the project.
     fn permissions(&self, of: &Of, cell: &flow::CellSpec) -> Permissions {
-        let refused = permissions::refused_commands(&of.beside, &of.declaration);
-        Permissions::of(
-            cell.reads_only,
-            &self.settings.agents.args,
-            &refused,
-            &of.declaration.heavy,
-        )
+        let refused = permissions::refused_commands(&of.beside, &of.declaration, &self.settings.agents.command);
+        Permissions::of(cell.reads_only, &of.beside.allowed.may, &std::env::temp_dir(), &refused)
     }
 
     /// Whether the line of the cell, in the work, for the item, would begin a new session of it with another system
@@ -622,7 +621,7 @@ impl Inner {
             tree: of.project.tree.clone(),
             main: of.main.clone(),
         };
-        let mut looking = branch::Looking::of(flow, work, read_with.clone());
+        let mut looking = branch::Looking::of(flow, work, read_with.clone(), Some(round.run));
         if main.is_some() && round.number == 1 {
             looking.tell(&place, teller, true).await;
         }
@@ -748,6 +747,14 @@ impl Inner {
                         (session, begin),
                         &token,
                         false,
+                        &commit_lines::environment(
+                            &self.data,
+                            &of.project.commits,
+                            Whose {
+                                item: round.item.number,
+                                work: round.work,
+                            },
+                        ),
                     );
                     // The stream is kept as it comes, so that what the agent is doing can be read while it does it; and
                     // the run guard judges each call as the stream tells it, halting the program at a signal past its
@@ -846,11 +853,14 @@ impl Inner {
                 ran
             }
         };
-        // What the round committed is handed in with its return, where its line may change the work; a change found at
-        // the end of a round that only reads is none of its own, and the outside's. A round that fails hands in
+        // What the round committed is handed in with its return, where its line may change the work and the return asks
+        // for no call: the run decides that as it takes the return ([`decide::run::next`]), the head being read here
+        // whatever the return asks for, since the check of a line that changes only tests reads it. A change found
+        // at the end of a round that only reads is none of its own, and the outside's. A round that fails hands in
         // nothing: what it committed is read at the end of the round that takes it up. The version of the work's head
         // the run began on is the latest the records keep, what an earlier round of the run committed being handed in
-        // by none.
+        // by none. While another cell that may change the work waits for the results of its calls, the branch is read
+        // by none of the round's ends: what it holds is that cell's, handed in by the run entered for its results.
         let began = looking.head().map(str::to_string);
         let committed = if round.cell.reads_only {
             looking.tell(&place, teller, false).await;
@@ -922,19 +932,39 @@ impl Inner {
             Ok(reading) => {
                 let mut came = reading.came;
                 came.read = committed;
-                let looked = self.protected(round, &place, of, reading.protected.as_ref()).await;
+                // What the returns of the run sent back before this one, which it completes, said and was not told was
+                // wrong, which the look at the protected paths and the tree check hold what it says to as well as what
+                // it says itself (`decide::run::carried`). A return that asks for calls completes nothing.
+                let carried = if came.asks.is_empty() {
+                    engine::carried(flow, work, round.run)
+                } else {
+                    Default::default()
+                };
+                let mut said_why = reading.protected.clone();
+                if let Some(said) = said_why.as_mut() {
+                    for (path, why) in &carried.protected {
+                        said.entry(path.clone()).or_insert_with(|| why.clone());
+                    }
+                }
+                let looked = self.protected(round, &place, of, said_why.as_ref()).await;
                 came.engine.extend(looked.asks);
                 let unexplained = looked.unexplained.into_iter().map(|path| Unmet::Unexplained { path });
                 came.found.extend(unexplained);
                 // A return that writes a block handed in only with the owner's answers in the design tree is held to
                 // each question marked `tree` that has an answer, while the work's change leaves the tree as main has
-                // it. A look that cannot be made fails the round, as the look at the tests does, rather than take the
-                // change as holding them.
-                let with_the_tree =
-                    (came.writes.iter()).any(|h| (flow.blocks.get(&h.block)).is_some_and(|b| b.answers_in_the_tree));
+                // it; so is one completed by a return before it that wrote it. A look that cannot be made fails the
+                // round, as the look at the tests does, rather than take the change as holding them.
+                let tree_block =
+                    |block: &decide::BlockId| flow.blocks.get(block).is_some_and(|b| b.answers_in_the_tree);
+                let with_the_tree = (came.writes.iter()).any(|h| tree_block(&h.block))
+                    || (carried.writes.iter()).any(|w| tree_block(&w.block));
                 if with_the_tree {
                     let (project, tree) = (&of.project, of.project.tree.as_str());
-                    match crate::tree::unwritten(project, &place, &of.main, tree, &round.kept, &came.said).await {
+                    let rewritten: Vec<String> = (came.said.questions.iter())
+                        .map(|q| q.name().to_string())
+                        .chain(carried.questions.iter().map(|q| q.name.clone()))
+                        .collect();
+                    match crate::tree::unwritten(project, &place, &of.main, tree, &round.kept, &rewritten).await {
                         Ok(names) => (came.found).extend(names.into_iter().map(|name| Unmet::TreeUnchanged { name })),
                         Err(why) => {
                             return Ok(Carried::Failed(
@@ -1059,8 +1089,10 @@ impl Inner {
     /// The program's command line for a round on what it runs on, with its line's system prompt, of a line with these
     /// permissions, given the form of return of its flow, in the session, begun or gone on in, in the worktree, which
     /// the program compacts at the installation's `sessions.compact_at`, given the program's directory and the token of
-    /// the account it runs under and the variables its project's declaration names; where `refusing` says so, with every use of a tool refused but the return's
-    /// ([`cli::refusing`]), as a keep-warm ping runs.
+    /// the account it runs under and the variables its project's declaration names; where `refusing` says so, with every
+    /// use of a tool refused but the return's ([`cli::refusing`]), as a keep-warm ping runs; and with `lines` added to
+    /// its environment, which give its git the hook that ends each commit with the item and the work
+    /// ([`commit_lines::environment`]).
     #[allow(clippy::too_many_arguments)]
     fn command(
         &self,
@@ -1075,22 +1107,12 @@ impl Inner {
         (session, begin): (Uuid, Begin),
         token: &Token,
         refusing: bool,
+        lines: &[(String, String)],
     ) -> Command {
         let agents = &self.settings.agents;
         let mut command = crate::programs::command(&agents.command);
         let compact = self.settings.sessions.compact_at;
-        let args = cli::arguments(
-            agents,
-            on,
-            system,
-            form,
-            permissions,
-            compacted,
-            words,
-            compact,
-            session,
-            begin,
-        );
+        let args = cli::arguments(on, system, form, permissions, compacted, words, compact, session, begin);
         let args = if refusing { cli::refusing(args) } else { args };
         let profile = account::profile(&self.data);
         command
@@ -1104,6 +1126,7 @@ impl Inner {
                 token,
             ))
             .current_dir(dir);
+        command.envs(lines.iter().cloned());
         command
     }
 
@@ -1123,7 +1146,11 @@ impl Inner {
         if round.number != 1 {
             return Ok(None);
         }
-        let caught = catch_up::take_in(&of.project, place, &of.main, round.run).await;
+        let whose = Whose {
+            item: round.item.number,
+            work: round.work,
+        };
+        let caught = catch_up::take_in(&of.project, place, &of.main, round.run, whose).await;
         // The round is told only that main was not taken in; why is for whoever runs the engine.
         if let catch_up::Outcome::Failed { why } = &caught.outcome {
             eprintln!("main could not be taken into the branch of {}: {why}", round.work);
@@ -1560,6 +1587,7 @@ impl Inner {
             (session, Begin::Resume),
             &token,
             true,
+            &[],
         );
         let message = cli::stdin(&said.message);
         // The ping is given what is left of the cache's life after it was due.
@@ -1605,7 +1633,7 @@ impl Inner {
             compactions: marks,
             ..spent
         };
-        let spent_any = spent.input_tokens + spent.cached_tokens + spent.output_tokens > 0;
+        let spent_any = spent.uncached_tokens + spent.cached_tokens + spent.output_tokens > 0;
         if status.success() || spent_any {
             return Ok(spent);
         }
@@ -1663,7 +1691,7 @@ impl Inner {
             std::fs::read_to_string(&at)
                 .map_err(|e| NoLine::System(format!("{}: {e}", at.file_name().unwrap_or_default().to_string_lossy())))
         };
-        let refused = permissions::refused_commands(&of.beside, &of.declaration);
+        let refused = permissions::refused_commands(&of.beside, &of.declaration, &self.settings.agents.command);
         Ok(SessionLine {
             session,
             run: last.run,
@@ -1671,7 +1699,7 @@ impl Inner {
             on: last.on.clone(),
             system: began(system::Begun::System)?,
             form: began(system::Begun::Form)?,
-            permissions: Permissions::of(reads_only, &self.settings.agents.args, &refused, &of.declaration.heavy),
+            permissions: Permissions::of(reads_only, &of.beside.allowed.may, &std::env::temp_dir(), &refused),
         })
     }
 
@@ -1893,7 +1921,6 @@ impl Inner {
         write(&at("message.md"), fork.question.as_bytes()).await?;
         let agents = &self.settings.agents;
         let round = cli::arguments(
-            agents,
             &made.on,
             &made.system,
             &made.form,
@@ -2543,6 +2570,7 @@ mod tests {
             at: Seq(at),
             by,
             why: None,
+            waits_for: Vec::new(),
         }
     }
 
@@ -2980,7 +3008,7 @@ mod tests {
         assert_eq!(said, [first.clone(), fork.question.clone()]);
         assert_eq!(
             (
-                forked.spent.input_tokens,
+                forked.spent.uncached_tokens,
                 forked.spent.cached_tokens,
                 forked.spent.output_tokens
             ),
@@ -3114,7 +3142,7 @@ mod tests {
         );
         let spent = failed.spent.expect("what its call cost");
         assert_eq!(
-            (spent.input_tokens, spent.cached_tokens, spent.output_tokens),
+            (spent.uncached_tokens, spent.cached_tokens, spent.output_tokens),
             (100, 9000, 10)
         );
         assert!(spent.usd_micros > 0);
@@ -3149,7 +3177,8 @@ mod tests {
             failed.spent,
             Some(Spent {
                 usd_micros: 400_000,
-                input_tokens: 120,
+                uncached_tokens: 120,
+                cache_written_tokens: Some(0),
                 cached_tokens: 18_100,
                 output_tokens: 30,
                 context_tokens: None,
@@ -3608,7 +3637,8 @@ mod tests {
             run: RunId(7),
             round: 1,
             usd_micros: 6_000_000,
-            input_tokens: 0,
+            uncached_tokens: 0,
+            cache_written_tokens: None,
             cached_tokens: 0,
             output_tokens: 0,
         });
@@ -3648,7 +3678,8 @@ mod tests {
                     run: RunId(7),
                     round: 1,
                     usd_micros: 3_000_000,
-                    input_tokens: 0,
+                    uncached_tokens: 0,
+                    cache_written_tokens: None,
                     cached_tokens: 0,
                     output_tokens: 0,
                 });
@@ -3720,7 +3751,7 @@ mod tests {
         });
         let spent = Spent {
             usd_micros: 10_000,
-            input_tokens: 100,
+            uncached_tokens: 100,
             ..Spent::default()
         };
         work.spent.insert((RunId(6), 1), spent);

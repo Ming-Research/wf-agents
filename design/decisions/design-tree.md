@@ -119,8 +119,9 @@ The README sets a limit on an entry only where its form or the check enforces it
 - replaced: Rules and limits in the README's prose, such as no identifier from the code and a reason resting on judgment saying so, was on main; the owner changed it, because a limit in the README is of no use unless a machine checks it, since agents copy the entries that are there.
 
 ### decision the-check-is-a-python-script-beside-the-tree
-`design/lint.py`, a Python script beside the tree, checks the forms of its files by pattern; CI's lint job runs it, and it can be run by hand with no arguments from any directory.
+`design/lint.py`, a Python script beside the tree, checks the forms of its files by pattern; the full CI's `tree` job and the fast CI's lint run it, and it can be run by hand from any directory.
 - rejected: an agent proposed the checker as a Rust crate sharing one parser with the engine and the page; the owner rejected it, because Python needs no compiling and no toolchain, and runs at once for so small a check.
+- replaced: The full CI's lint job running it was on main; the owner changed it, because a change of only the tree should run only the checks of the tree, and the lint job compiles Rust.
 - replaced: The tree's forms kept only by its README and the reviews, with no check, was on main; the owner changed it, because a limit holds only under a mechanical check, and CI costs a lot, so an agent checks the tree before CI does.
 
 ### decision the-tree-is-written-in-english

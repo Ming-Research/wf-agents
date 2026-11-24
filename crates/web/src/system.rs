@@ -156,7 +156,7 @@ pub fn rest_of_rounds(under_way: &[UnderWay]) -> Rest {
 #[serde(rename_all = "camelCase")]
 pub struct TestTimes {
     pub project: Option<String>,
-    /// How many merged checks the project has: a judgment needs the installation's `history.samples` of them, and the
+    /// How many merged checks the project has: a judgment needs [`driver::history::HISTORY_SAMPLES`] of them, and the
     /// growth of the CI twice as many.
     pub checks: usize,
     /// The tests that took longer than their own history says in the latest merged check and in the one before.
@@ -578,10 +578,10 @@ impl System {
                     week.added += 1;
                 }
             }
-            let beside = crate::works::spent_beside_rounds(kept.work, &within);
+            let beside = crate::works::spent_beside_rounds(kept.work, &within)?;
             system.pinged = system.pinged.with(beside.pinged);
             system.spent = system.spent.with(beside.all().as_no_round());
-            for (at, kind, one) in crate::works::beside_rounds(kept.work, &within) {
+            for (at, kind, one) in crate::works::beside_rounds(kept.work, &within)? {
                 if let Some(week) = week_of(&mut counted, at) {
                     if kind == work::BesideKind::Ping {
                         week.pinged = week.pinged.with(one);
@@ -777,7 +777,7 @@ impl System {
                         item,
                         at,
                         from: runs.iter().flat_map(|run| &run.rounds).map(|round| round.began).min(),
-                        spent: spent_in_all(&runs, kept.work),
+                        spent: spent_in_all(&runs, kept.work)?,
                     });
                     if let Some(week) = week_of(&mut counted, at) {
                         week.merged += 1;
@@ -827,9 +827,9 @@ impl System {
 
 /// What a work took in all, whenever it was: what its runs' rounds took, and its calls beside its rounds, its keep-warm
 /// pings and its forks, counted in no round.
-fn spent_in_all(runs: &[Run], work: &work::Work) -> Spent {
-    (runs.iter().fold(Spent::default(), |sum, run| sum.with(run.spent)))
-        .with(crate::works::spent_beside_rounds(work, &|_| true).all().as_no_round())
+fn spent_in_all(runs: &[Run], work: &work::Work) -> Result<Spent, Broken> {
+    Ok((runs.iter().fold(Spent::default(), |sum, run| sum.with(run.spent)))
+        .with(crate::works::spent_beside_rounds(work, &|_| true)?.all().as_no_round()))
 }
 
 /// The week a time falls in, where the span is cut into weeks: the latest that begins at it or before.
@@ -941,7 +941,8 @@ mod tests {
             session: 0,
             spent: work::Spent {
                 usd_micros: 20_000,
-                input_tokens: 5,
+                uncached_tokens: 5,
+                cache_written_tokens: Some(2),
                 ..Default::default()
             },
             failed: None,
@@ -951,14 +952,21 @@ mod tests {
             run: RunId(1),
             round: 1,
             usd_micros: 300_000,
-            input_tokens: 120,
+            uncached_tokens: 120,
+            cache_written_tokens: Some(100),
             cached_tokens: 18_100,
             output_tokens: 30,
         });
-        let spent = spent_in_all(&[], &work);
+        let spent = spent_in_all(&[], &work).expect("the records are sound");
         assert_eq!(
-            (spent.usd_micros, spent.input_tokens, spent.cached_tokens, spent.rounds),
-            (320_000, 125, 18_100, 0)
+            (
+                spent.usd_micros,
+                spent.input_tokens,
+                spent.cache_written_tokens,
+                spent.cached_tokens,
+                spent.rounds
+            ),
+            (320_000, 23, 102, 18_100, 0)
         );
     }
 }

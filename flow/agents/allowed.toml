@@ -1,0 +1,10 @@
+# What every agent may do, whatever its project, in words that name no program, tool or path: the engine's adapter for
+# the agents' program turns each word into that program's own arguments for every round. What the agents are refused is
+# `refused.toml` and the project's heavy commands, which take away from what `shell` lets them run.
+#
+# - `shell`: run shell commands in the worktree.
+# - `files`: find, read and edit files in the worktree.
+# - `temp_files`: read and edit files in the temporary directory the engine hands the program.
+# - `web`: search the web and fetch pages.
+# - `subagents`: start subagents.
+may = ["shell", "files", "temp_files", "web", "subagents"]

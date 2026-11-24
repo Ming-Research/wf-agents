@@ -119,6 +119,8 @@ async fn a_start_refused_and_given_again_after_the_item_is_corrected_is_given_th
         continues: branch("gone"),
         flow: "placing".to_string(),
         writes: Vec::<FirstWrite>::new(),
+        why: None,
+        waits_for: Vec::new(),
     };
     let (number, work) = add_to(&mut service, item);
 

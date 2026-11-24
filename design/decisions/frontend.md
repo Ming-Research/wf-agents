@@ -48,8 +48,9 @@ One set of marks shows how a run ended or how it stands now, filled for a run th
 - replaced: Two different strips, one on the console's card and one in the window, where the window's neither blinked nor marked a stop red, was on main; the owner changed it, because the same kind of thing is drawn from the same parts.
 
 ### decision a-level-looks-as-the-level-it-runs-at
-A card, under its number, and the item's window write a cell's level as `L2`, or `L2+1` where its line raises it, in the look of the level it runs at: muted, text, accent, accent in bold.
+A card, under its number, and the item's window write the level a cell really runs at as `L2`, or `L2+1` where it runs above its item's, in the look of that level: muted, text, accent, accent in bold.
 - replaced: The name of the cell the work stood at, under the card's number, was on main; the owner changed it, because that place is for the level, and the strip already marks where the work stands.
+- replaced: The item's level plus the line's `levels_above` as `L3+1`, in the look of the level it asks, even where `agents.highest_level` held the cell lower, was on main; the owner changed it, because the page wrote a level the cell never ran at.
 - rejected: an agent proposed a small grey number after the cell's name, and the words level 2 and cell level 3 in the window; the owner rejected it, because the place of the cell's name is for the level, which must plainly show both the base level and the current one.
 - rejected: an agent proposed three looks, with the third level in the accent and bold; the owner rejected it, because a level that its line raises past the third is higher still, and only that level takes the bold look.
 - rejected: the owner proposed a separate hue for each level; the owner rejected it, because red, yellow, the accent and green each already mean a state.
@@ -114,6 +115,10 @@ The page shows no number by which the engine tracks a run, a round, a call or a 
 - rejected: an agent proposed keeping a run's number only in the hover on its cell's name; the owner rejected it, because a number put on the page must serve a purpose, and this one served none.
 - replaced: A run's number and the engine's counters of sessions, calls, tries and rounds on the Step, the usage and the System view was on main; the owner changed it, because they told him nothing and served no purpose.
 - replaced: An event's number in the record, written after an at sign, to name a moment of a work was on main; the owner changed it, because that number could not be read, but a time can.
+
+### decision the-usage-tells-four-kinds-of-tokens-apart
+A work's usage (Usage tab, round panel, System view) tells tokens sent fresh, written to the cache, read from it and given back; those a record does not tell fresh from written stand apart.
+- replaced: Tokens told as sent, read from the cache and given back, the sent counting those written to the cache with those sent fresh, was on main; the owner changed it, because a write to the cache costs more than a send fresh, an hour's twice as much, and he could not see where the money went.
 
 ### decision the-browser-tells-the-owner-what-waits
 While the page is open, a browser notification tells the owner of each work that starts waiting for him, naming its cell and why; a click opens the console at that wait's card.

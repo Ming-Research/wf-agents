@@ -73,7 +73,17 @@ fn what_the_engine_says_to_every_agent_is_read_from_its_files_beside_the_flows()
         "Work in the engine as these words say.\n"
     );
     assert_eq!(read.your_line.reads_only, "You only read.");
-    assert_eq!(read.your_line.locks, " Lock with {commands}.");
+    assert_eq!(read.refused.commands, ["git push", agents::PROGRAM_SLOT]);
+    assert_eq!(
+        read.allowed.may,
+        [
+            agents::Ability::Shell,
+            agents::Ability::Files,
+            agents::Ability::TempFiles,
+            agents::Ability::Web,
+            agents::Ability::Subagents
+        ]
+    );
     assert_eq!(read.your_line.tests_only, " Tests only: {paths}.");
     assert_eq!(read.your_line.protected_read, " Read protected: {paths}.");
 
@@ -200,24 +210,18 @@ fn a_project_declares_its_files_settings_protection_and_heavy_commands_in_its_ow
     assert_eq!(declaration.project["research"], "research/");
     assert_eq!(declaration.protected.paths, ["AGENTS.md", "flow/"]);
     assert_eq!(declaration.heavy.commands, ["cargo", "npm"]);
-    assert!(declaration.heavy.locks.is_empty() && declaration.heavy.locks_except.is_empty());
     assert!(declaration.local.is_none() && declaration.pull_request.is_none() && declaration.ci.is_none());
 }
 
-// What the installation held of a project is the project's now: the lock commands, the command that checks it where
-// its repository is the host, and how its pull requests are merged where GitHub is.
+// What the installation held of a project is the project's now: the command that checks it where its repository is the
+// host, and how its pull requests are merged where GitHub is.
 #[test]
 fn what_the_installation_once_held_of_a_project_is_read_from_its_declaration() {
-    let text = declaration_text().replace(
-        "commands = [\"cargo\", \"npm\"]",
-        "commands = [\"cargo\", \"npm\"]\nlocks = [\"cargo update\"]\nlocks_except = [\"cargo update *--git*\"]",
-    );
+    let text = declaration_text();
     let declaration = declared(&format!(
         "{text}\n[local]\ncheck = \"./test.sh\"\n\n[pull_request]\nmerge_method = \"rebase\"\ndelete_branch = true\n"
     ))
     .unwrap();
-    assert_eq!(declaration.heavy.locks, ["cargo update"]);
-    assert_eq!(declaration.heavy.locks_except, ["cargo update *--git*"]);
     assert_eq!(declaration.local.expect("the check").check, "./test.sh");
     let pull = declaration.pull_request.expect("how it merges");
     assert_eq!((pull.merge_method.as_str(), pull.delete_branch), ("rebase", true));
@@ -290,6 +294,44 @@ fn what_fills_a_place_is_not_filled_again_and_what_opens_no_place_is_kept() {
     );
 }
 
+// What every agent may do is a closed list of words that name no program: a word it does not know, a word twice, a
+// key it does not know, and a refused entry with a slot other than the agents' program are each refused, said with the
+// path of the file. Reference: the file's own vocabulary (`Ability`). Milliseconds.
+#[test]
+fn what_agents_may_do_and_are_refused_is_read_from_words_and_one_slot_and_nothing_else() {
+    let wrong = |file: &str, from: &str, to: &str| {
+        let dir = copy("allowed");
+        let path = dir.join("agents").join(file);
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(text.contains(from), "{file} has no {from:?}");
+        fs::write(&path, text.replacen(from, to, 1)).unwrap();
+        let refused = agents::read(&dir).unwrap_err();
+        fs::remove_dir_all(&dir).unwrap();
+        (path.display().to_string(), refused)
+    };
+    for (file, from, to, said) in [
+        ("allowed.toml", "\"web\"", "\"claude\"", "claude"),
+        ("allowed.toml", "\"web\"", "\"files\"", "`may` names files twice"),
+        ("allowed.toml", "may = ", "colour = \"red\"\nmay = ", "colour"),
+        (
+            "refused.toml",
+            "\"{agents.command}\"",
+            "\"{agents.cmd}\"",
+            "the only slot is {agents.command}",
+        ),
+        (
+            "refused.toml",
+            "\"{agents.command}\"",
+            "\"{agents.command} {x}\"",
+            "the only slot is {agents.command}",
+        ),
+    ] {
+        let (path, refused) = wrong(file, from, to);
+        assert!(refused.contains(&path), "{refused}");
+        assert!(refused.contains(said), "{refused}");
+    }
+}
+
 #[test]
 fn a_field_a_file_does_not_know_is_refused_with_the_path_of_its_file() {
     let dir = copy("unknown");
@@ -300,6 +342,92 @@ fn a_field_a_file_does_not_know_is_refused_with_the_path_of_its_file() {
     fs::remove_dir_all(&dir).unwrap();
     assert!(refused.contains(&query.display().to_string()), "{refused}");
     assert!(refused.contains("colour"), "{refused}");
+}
+
+// Every commit of a work ends with these two lines, so that `git log --grep='^Item: 36$'` finds a work's commits: the
+// item's number alone, which the host would link as a pull request's with a `#`, and the work's as it is written
+// everywhere.
+#[test]
+fn the_lines_every_commit_ends_with_name_their_numbers_after_a_blank_line() {
+    let commits = agents::read(&beside()).unwrap().commits;
+    assert_eq!(
+        commits.lines("36", "W12"),
+        ("Item: 36".to_string(), "Work: W12".to_string())
+    );
+    assert_eq!(
+        commits.ending("Merge main at abc into the work's branch\n", "36", "W12"),
+        "Merge main at abc into the work's branch\n\nItem: 36\nWork: W12"
+    );
+    // Either line of any item or work is one of the lines, by what the caller says a number is; a line that only looks
+    // like one is not.
+    let digits = |number: &str| !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit());
+    let written = |number: &str| number.strip_prefix('W').is_some_and(digits);
+    for line in ["Item: 20", "Work: W3", "Item: 36", "Work: W12"] {
+        assert!(commits.is_one_of_the_lines(line, digits, written), "{line}");
+    }
+    for line in [
+        "Item: ",
+        "Item: x",
+        "Item: #20",
+        "Item: 20 and more",
+        "Work: 3",
+        "Work: W",
+        "Work: W3 and more",
+        "Items: 20",
+        "item: 20",
+    ] {
+        assert!(!commits.is_one_of_the_lines(line, digits, written), "{line}");
+    }
+    // A line is of the work's kind only where what stands in its place is a work's number: an item's line with a work's
+    // number, or a work's with an item's, is neither.
+    assert!(!commits.is_one_of_the_lines("Item: W3", digits, written));
+    assert!(!commits.is_one_of_the_lines("Work: 3", digits, written));
+}
+
+// A line with no place for its number would end every commit with a line that names nothing.
+#[test]
+fn a_line_every_commit_ends_with_that_names_no_number_is_refused_with_the_path_of_its_file() {
+    for (key, line, place, wanted) in [
+        ("item_line", "Item: {item_number}", "Item: none", "{item_number}"),
+        ("work_line", "Work: {work}", "Work: {item_number}", "{work}"),
+    ] {
+        let dir = copy(key);
+        let file = dir.join("agents/commits.toml");
+        let text = fs::read_to_string(&file).unwrap();
+        assert!(text.contains(line), "{key}");
+        fs::write(&file, text.replace(line, place)).unwrap();
+        let refused = agents::read(&dir).unwrap_err();
+        let alone = agents::writes(&dir).unwrap_err();
+        fs::remove_dir_all(&dir).unwrap();
+        for said in [refused, alone] {
+            assert!(said.contains(&file.display().to_string()), "{said}");
+            assert!(said.contains(&format!("{key} does not name {wanted}")), "{said}");
+        }
+    }
+}
+
+// A line that names its number but runs over two lines would make the trailer block of every commit hold a stray line.
+#[test]
+fn a_line_every_commit_ends_with_that_runs_over_two_lines_is_refused_with_the_path_of_its_file() {
+    for (key, line, place) in [
+        (
+            "item_line",
+            "Item: {item_number}",
+            "Item: {item_number}\\nSee {item_number}",
+        ),
+        ("work_line", "Work: {work}", "Work: {work}\\nSee {work}"),
+    ] {
+        let dir = copy(key);
+        let file = dir.join("agents/commits.toml");
+        let text = fs::read_to_string(&file).unwrap();
+        assert!(text.contains(line), "{key}");
+        fs::write(&file, text.replace(line, place)).unwrap();
+        let refused = agents::read(&dir).unwrap_err();
+        fs::remove_dir_all(&dir).unwrap();
+        assert!(refused.contains(&file.display().to_string()), "{refused}");
+        assert!(refused.contains(&format!("{key} is not one line")), "{refused}");
+        assert!(!refused.contains("does not name"), "{refused}");
+    }
 }
 
 // A declaration names the variables its toolchain reads, none where it needs none, as it names its heavy commands: one
@@ -882,35 +1010,25 @@ fn a_time_whose_seconds_do_not_fit_is_refused_and_one_that_just_fits_is_read() {
     assert!(refused.contains("ci.fast.too_long"), "{refused}");
 }
 
-// A declaration whose lock commands are misspelled, or are not a list, is refused, where a declaration that leaves them
-// out names none: a misspelled key taken for none would leave an agent that writes unable to update a lock file with no
-// word of why, and a merge method or branch deletion of the wrong spelling or type would be taken for another. Reference:
-// the declaration's own table of keys (`Heavy`, `Merging`), and TOML's types. Milliseconds.
+// A declaration that names lock commands is refused, as no declaration has them since agents are allowed every shell
+// command and a refusal beats an allow; and so is a merge method or branch deletion of the wrong spelling or type, which
+// would be taken for another. Reference: the declaration's own table of keys (`Heavy`, `Merging`), and TOML's types.
+// Milliseconds.
 #[test]
-fn a_misspelled_or_mistyped_lock_merge_or_deletion_setting_is_refused_not_taken_for_none() {
+fn a_lock_command_or_a_misspelled_or_mistyped_merge_or_deletion_setting_is_refused_not_taken_for_none() {
     let text = declaration_text();
     let heavy = "commands = [\"cargo\", \"npm\"]";
     let pull = "\n[pull_request]\n";
     for (what, wrong, said) in [
         (
-            "misspelled locks",
-            text.replace(heavy, &format!("{heavy}\nlock = [\"cargo update\"]")),
-            "unknown field `lock`",
+            "lock commands",
+            text.replace(heavy, &format!("{heavy}\nlocks = [\"cargo update\"]")),
+            "unknown field `locks`",
         ),
         (
-            "misspelled locks_except",
-            text.replace(heavy, &format!("{heavy}\nlock_except = [\"cargo update *\"]")),
-            "unknown field `lock_except`",
-        ),
-        (
-            "locks a string",
-            text.replace(heavy, &format!("{heavy}\nlocks = \"cargo update\"")),
-            "invalid type",
-        ),
-        (
-            "locks_except a string",
-            text.replace(heavy, &format!("{heavy}\nlocks_except = \"cargo update *\"")),
-            "invalid type",
+            "uses of lock commands refused",
+            text.replace(heavy, &format!("{heavy}\nlocks_except = [\"cargo update *\"]")),
+            "unknown field `locks_except`",
         ),
         (
             "merge method of another case",

@@ -154,12 +154,14 @@ fn an_item_whose_work_cannot_be_kept_is_not_added() {
             at: Seq(1),
             by: Pauser::Owner,
             why: None,
+            waits_for: Vec::new(),
         },
         Pause {
             paused: false,
             at: Seq(1),
             by: Pauser::Owner,
             why: None,
+            waits_for: Vec::new(),
         },
     ];
     assert!(matches!(
@@ -184,6 +186,29 @@ fn an_item_number_is_written_with_a_hash_and_a_work_number_with_a_w() {
     assert_eq!(ItemNumber(79).to_string(), "#79");
     assert_eq!(WorkNumber(43).to_string(), "W43");
     assert_eq!(format!("{} of {}", WorkNumber(1), ItemNumber(2)), "W1 of #2");
+}
+
+// A work's number is read back as it is written, and no other text is one.
+#[test]
+fn a_work_number_is_read_back_as_it_is_written_and_no_other_text_is_one() {
+    for number in [WorkNumber(1), WorkNumber(43), WorkNumber(u64::MAX)] {
+        assert_eq!(WorkNumber::from_written(&number.to_string()), Some(number));
+    }
+    for other in [
+        "",
+        "W",
+        "43",
+        "#43",
+        "w43",
+        "W+43",
+        "W-1",
+        "W4 3",
+        "W43 ",
+        "WW43",
+        "W18446744073709551616",
+    ] {
+        assert_eq!(WorkNumber::from_written(other), None, "{other:?}");
+    }
 }
 
 #[test]

@@ -39,7 +39,9 @@ fn answer(dealt_with: &[&str], writes: Vec<Write>, read: &[&str], questions: Vec
             waits: false,
             questions,
             read: read.iter().map(|&b| b.into()).collect(),
+            protected: Default::default(),
         }),
+        sent_back: Vec::new(),
     }
 }
 
@@ -48,6 +50,7 @@ fn asking(name: &str, withdrawn: bool) -> Asking {
     Asking {
         name: name.to_string(),
         withdrawn,
+        waits: false,
     }
 }
 

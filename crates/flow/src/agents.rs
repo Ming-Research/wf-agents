@@ -44,6 +44,13 @@ pub const INSTALLATION_FILE: &str = "installation.toml";
 /// The file, in `agents/`, of what every agent is refused whatever its project.
 pub const REFUSED_FILE: &str = "refused.toml";
 
+/// The slot in an entry of [`REFUSED_FILE`] that stands for the agents' program the installation names
+/// (`agents.command`): the only slot the file may hold, filled where the refusals are made.
+pub const PROGRAM_SLOT: &str = "{agents.command}";
+
+/// The file, in `agents/`, of what every agent may do, in words that name no program.
+pub const ALLOWED_FILE: &str = "allowed.toml";
+
 /// The file, in `agents/`, of what the place `{your_line}` in the engine's words says: what the line may do in the
 /// worktree.
 pub const YOUR_LINE_FILE: &str = "your_line.toml";
@@ -53,13 +60,11 @@ pub const YOUR_LINE_FILE: &str = "your_line.toml";
 pub const TOOL_TEXTS: &[(&str, &[&str])] = &[(
     "query",
     &[
-        "closed",
         "unreadable",
         "error",
         "timeout",
         "unavailable",
         "row_too_long",
-        "hides_nothing",
         "store_table",
         "store_column",
         "store_column_commented",
@@ -178,6 +183,8 @@ pub struct Agents {
     pub installation: Installation,
     /// What every agent is refused whatever its project: [`REFUSED_FILE`].
     pub refused: Commands,
+    /// What every agent may do, in words that name no program: [`ALLOWED_FILE`].
+    pub allowed: Allowed,
     /// The sets of rules for the agents, by name, as `agents/rules/rules.toml` names them, each with its text.
     pub rules: BTreeMap<String, RuleSet>,
     pub returns: Return,
@@ -408,9 +415,8 @@ pub struct Declaration {
     /// The paths the project protects; none where it protects none.
     #[serde(default)]
     pub protected: Protected,
-    /// The project's heavy commands, which no agent runs, and the commands that update its lock files, which an agent
-    /// that writes may run. A declaration names the heavy commands, none where its project has none, so that one that
-    /// leaves them out is refused rather than taken to refuse nothing.
+    /// The project's heavy commands, which no agent runs. A declaration names them, none where its project has none,
+    /// so that one that leaves them out is refused rather than taken to refuse nothing.
     pub heavy: Heavy,
     /// The variables, by name, that every agent's command line of the project's works is given after the engine's own:
     /// what the project's toolchain reads, so that a command an agent may run reaches no further than its worktree. A
@@ -442,19 +448,12 @@ pub struct Merging {
     pub delete_branch: bool,
 }
 
-/// `[heavy]` of the declaration: the project's heavy commands, and the commands that update its lock files.
+/// `[heavy]` of the declaration: the project's heavy commands.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Heavy {
     /// The heavy commands, each a command with the start of its arguments: no agent runs them.
     pub commands: Vec<String>,
-    /// Commands that update a lock file and build, run and install nothing, each a command with the start of its
-    /// arguments: the agents of a line that writes may run them, though a heavy command covers them.
-    #[serde(default)]
-    pub locks: Vec<String>,
-    /// Uses of the lock commands refused all the same, each a command whose arguments may hold `*` for any text.
-    #[serde(default)]
-    pub locks_except: Vec<String>,
 }
 
 impl Declaration {
@@ -618,11 +617,50 @@ pub struct Protected {
 }
 
 /// Commands, each a command with the start of its arguments: what every agent is refused whatever its project
-/// ([`REFUSED_FILE`]).
+/// ([`REFUSED_FILE`]). An entry may be [`PROGRAM_SLOT`], the agents' program the installation names.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Commands {
     pub commands: Vec<String>,
+}
+
+/// [`ALLOWED_FILE`]: what every agent may do, whatever its project, in words that name no program, tool or path; the
+/// engine's adapter for the agents' program turns each word into that program's own arguments. A word the file does
+/// not know is refused when it is read.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Allowed {
+    /// The words, each once.
+    pub may: Vec<Ability>,
+}
+
+/// One thing an agent may do, as a word of [`ALLOWED_FILE`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Ability {
+    /// Run shell commands in the worktree, beyond what is refused.
+    Shell,
+    /// Find, read and edit files in the worktree.
+    Files,
+    /// Read and edit files in the temporary directory the engine hands the program.
+    TempFiles,
+    /// Search the web and fetch pages.
+    Web,
+    /// Start subagents.
+    Subagents,
+}
+
+impl Ability {
+    /// The word of [`ALLOWED_FILE`] that names it.
+    pub fn word(self) -> &'static str {
+        match self {
+            Ability::Shell => "shell",
+            Ability::Files => "files",
+            Ability::TempFiles => "temp_files",
+            Ability::Web => "web",
+            Ability::Subagents => "subagents",
+        }
+    }
 }
 
 /// `[tests]` of the declaration.
@@ -888,8 +926,7 @@ impl OfTheReturn {
 }
 
 /// [`YOUR_LINE_FILE`]: what the place `{your_line}` in the engine's words says the line may do in the worktree, as its
-/// file says whether it only reads or changes only the project's tests, and as the installation lets it update a lock
-/// file.
+/// file says whether it only reads or changes only the project's tests.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct YourLine {
@@ -897,12 +934,9 @@ pub struct YourLine {
     pub reads_only: String,
     /// Of a line that writes.
     pub writes: String,
-    /// Of a line that writes and may update a lock file, after `writes`: `{commands}` the commands it may update one
-    /// with, each between backticks, joined by commas, and the last by `or`.
-    pub locks: String,
     pub or: String,
-    /// Of a line that changes only the project's tests, after `writes`, in place of `locks`: `{paths}` the paths of the
-    /// project's tests, each between backticks, joined by commas, and the last by `or`.
+    /// Of a line that changes only the project's tests, after `writes`: `{paths}` the paths of the project's tests,
+    /// each between backticks, joined by commas, and the last by `or`.
     pub tests_only: String,
     /// Of a line that writes, where the project protects paths, after the rest: `{paths}` those paths, each between
     /// backticks, joined by commas, and the last by `and`.
@@ -1076,6 +1110,9 @@ pub struct SentBack {
     pub between: String,
     /// What follows the list.
     pub again: String,
+    /// What follows the list where the return it is for stands for nothing of what the next gives: it asked for calls,
+    /// or it could not be read, so the next gives it whole.
+    pub again_whole: String,
     /// The words of each thing that can be wrong with a return.
     pub faults: SentBackFaults,
     /// Why what came back could not be read as a return, which [`SentBackFaults::unreadable`] says in its `{why}`.
@@ -1546,6 +1583,69 @@ pub struct Commits {
     pub merge: String,
     /// The name of a work's merge, where the work has written none.
     pub unnamed: String,
+    /// The line that names the item, which every commit of a work ends with: `{item_number}` its number alone.
+    pub item_line: String,
+    /// The line that names the work, which every commit of a work ends with: `{work}` its number as it is written.
+    pub work_line: String,
+}
+
+/// The place in `item_line` that the engine fills with the item's number alone: no other text of the engine's writes an
+/// item's number without its `#`, so no place of [`NUMBER_PLACES`] is it.
+const ITEM_NUMBER: &str = "{item_number}";
+
+/// The place in `work_line` that the engine fills with the work's number as it is written.
+const WORK_NUMBER: &str = "{work}";
+
+impl Commits {
+    /// The line that names the item and the line that names the work, given the numbers as the engine writes each: the
+    /// item's alone and the work's as everywhere.
+    pub fn lines(&self, item: &str, work: &str) -> (String, String) {
+        (
+            fill(&self.item_line, &[("item_number", item)]),
+            fill(&self.work_line, &[("work", work)]),
+        )
+    }
+
+    /// The message with the two lines at its end, set apart from it by a blank line: what every commit the engine makes
+    /// ends with, as the hook gives the agents' commits the same.
+    pub fn ending(&self, message: &str, item: &str, work: &str) -> String {
+        let (item_line, work_line) = self.lines(item, work);
+        format!("{}\n\n{item_line}\n{work_line}", message.trim_end())
+    }
+
+    /// Whether the line is the line that names an item or the line that names a work, of any item or any work: a
+    /// commit copied from another work ends with the lines of that one. What stands in the place of the number is the
+    /// number of an item where `item` says so, and of a work where `work` says so: how each is written is not the
+    /// words' to say.
+    pub fn is_one_of_the_lines(&self, line: &str, item: impl Fn(&str) -> bool, work: impl Fn(&str) -> bool) -> bool {
+        let is = |form: &String, place: &str, number: &dyn Fn(&str) -> bool| {
+            let Some((before, after)) = form.split_once(place) else {
+                return false;
+            };
+            (line.strip_prefix(before))
+                .and_then(|rest| rest.strip_suffix(after))
+                .is_some_and(number)
+        };
+        is(&self.item_line, ITEM_NUMBER, &item) || is(&self.work_line, WORK_NUMBER, &work)
+    }
+
+    /// What is wrong with the two lines, as one sentence for each: each must name its number, or every commit would
+    /// end with a line that names nothing, and be one line, or the trailer block would hold a stray line.
+    fn faults(&self) -> Vec<String> {
+        let mut faults = Vec::new();
+        for (key, line, place) in [
+            ("item_line", &self.item_line, ITEM_NUMBER),
+            ("work_line", &self.work_line, WORK_NUMBER),
+        ] {
+            if !line.contains(place) {
+                faults.push(format!("{key} does not name {place}"));
+            }
+            if line.contains('\n') {
+                faults.push(format!("{key} is not one line"));
+            }
+        }
+        faults
+    }
 }
 
 /// What the engine's acts write into the blocks their cells write: `agents/acts/<act>.toml`.
@@ -1802,7 +1902,8 @@ pub fn read(root: &Path) -> Result<Agents, String> {
         words,
         your_line: file(&at.join(YOUR_LINE_FILE))?,
         installation: file(&at.join(INSTALLATION_FILE))?,
-        refused: file(&at.join(REFUSED_FILE))?,
+        refused: refused(&at.join(REFUSED_FILE))?,
+        allowed: allowed(&at.join(ALLOWED_FILE))?,
         rules,
         returns,
         sent_back: file(&at.join("return").join("sent_back.toml"))?,
@@ -1892,6 +1993,32 @@ fn calls(path: &Path) -> Result<Calls, String> {
     Ok(words)
 }
 
+/// What every agent is refused, read from its file, whose entries hold no slot but [`PROGRAM_SLOT`]: any other `{...}`
+/// would be given to the program as it is.
+fn refused(path: &Path) -> Result<Commands, String> {
+    let refused: Commands = file(path)?;
+    for entry in &refused.commands {
+        let rest = entry.replace(PROGRAM_SLOT, "");
+        if rest.contains(['{', '}']) {
+            let what = format!("{entry:?} holds a slot; the only slot is {PROGRAM_SLOT}");
+            return Err(format!("{}: {what}", path.display()));
+        }
+    }
+    Ok(refused)
+}
+
+/// What every agent may do, read from its file, each word once.
+fn allowed(path: &Path) -> Result<Allowed, String> {
+    let allowed: Allowed = file(path)?;
+    for (i, ability) in allowed.may.iter().enumerate() {
+        if allowed.may[..i].contains(ability) {
+            let what = format!("`may` names {} twice", ability.word());
+            return Err(format!("{}: {what}", path.display()));
+        }
+    }
+    Ok(allowed)
+}
+
 /// The questions the engine asks, read from their file, whose option that lets a change merge must be one of the
 /// question's options.
 fn asks(path: &Path) -> Result<Asks, String> {
@@ -1913,8 +2040,18 @@ pub fn writes(root: &Path) -> Result<Writes, String> {
     let at = root.join(AGENTS_DIR);
     Ok(Writes {
         acts: acts(root)?,
-        commits: file(&at.join(COMMITS_FILE))?,
+        commits: commits(&at.join(COMMITS_FILE))?,
     })
+}
+
+/// `agents/commits.toml`, read, and refused where a line it gives names no number.
+fn commits(path: &Path) -> Result<Commits, String> {
+    let commits: Commits = file(path)?;
+    let faults = commits.faults();
+    if !faults.is_empty() {
+        return Err(format!("{}: {}", path.display(), faults.join("; ")));
+    }
+    Ok(commits)
 }
 
 /// The acts' words alone, read from the directory that holds the flows, as [`read`] reads them.

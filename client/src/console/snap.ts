@@ -60,7 +60,7 @@ import {
 } from 'pixi.js';
 
 import { accentNow, onAccent, turning } from '../accent';
-import { LINES_LOOKS, levelLook, levelWords } from '../marks';
+import { LINES_LOOKS, levelLook, levelPointed, levelWords } from '../marks';
 import { CELL_LOOKS, MARK, pulsing } from '../works/state-marks';
 import type { CellNow, CellState } from '../works-api';
 import { NO_LEVEL, STATE, itemName, linesAdded, linesRemoved, stateOf, stoppedAt } from '../works/words';
@@ -580,6 +580,10 @@ const SETTLED = 1e-3;
 /// work has spent, when something last happened to it, and where its time went, which change with every round.
 const undrawn = (key: string, value: unknown) =>
   key === 'usdMicros' || key === 'last' || key === 'bar' ? undefined : value;
+
+/// Where the level stands on a card, in the card's own coordinates, and what pointing at it says: kept by the card's
+/// view, which the cache of cards keeps with it.
+const LEVEL_SAID = new WeakMap<Container, { x: number; y: number; width: number; height: number; said: string }>();
 
 /// A card as it was made, kept for the next tree that draws one the same ([`show`]): what it draws, its view, the room
 /// of its strip, and what its making set: its age, the pulse of its running cells, its strip, its look and the number
@@ -1991,6 +1995,14 @@ export class SnapScene {
     });
     level.position.set(x, row2 - level.height / 2);
     view.addChild(level);
+    // What pointing at it says, as the item's window says it (`levelPointed`), by where it stands on the card.
+    LEVEL_SAID.set(view, {
+      x: level.x,
+      y: level.y,
+      width: level.width,
+      height: level.height,
+      said: levelPointed(w.level, w.raise, w.held, w.cellLevel),
+    });
     // The second row: the work's strip, as the works page draws it, from under the title, so that the number stands
     // alone in a column at the card's left, or from past the level where it is wider than that column; ending short of
     // the lines the work changed. It is drawn once every card is made, at the one size of the tree's marks ([`show`]).
@@ -2858,6 +2870,17 @@ export class SnapScene {
     return this.beside(t, x, y, 0, NODE_W);
   }
 
+  /// What pointing at the level on the card of item `k` says, where the pointer is over it; else nothing.
+  private levelSaid(k: number): string {
+    const p = this.pointer;
+    const view = k < 0 ? undefined : this.views[k];
+    const box = view === undefined ? undefined : LEVEL_SAID.get(view);
+    if (p === null || view === undefined || box === undefined) return '';
+    const x = (p.x - view.x) / view.scale.x;
+    const y = (p.y - view.y) / view.scale.y;
+    return x >= box.x && x <= box.x + box.width && y >= box.y && y <= box.y + box.height ? box.said : '';
+  }
+
   /// The item folded whose dot is under the pointer, by its index in the tree, or none: the room past its card's right
   /// edge as far as [`FOLD_REACH`], as high as the card, where its funnel would be.
   private dotPointed(t: Tree, x: (d: number) => number, y: (d: number, rank: number) => number): number {
@@ -3160,11 +3183,14 @@ export class SnapScene {
         this.funnel(...funnelled.shape, this.foldLight);
         this.foldLight.fill(PALETTE.hoverRibbon);
       }
-      const said = fold == null ? '' : foldWords(fold);
+      // What a click on the fold does, else what the level under the pointer is: a level cannot be pressed, so only a
+      // fold's words turn the pointer to a hand.
+      const foldWordsSaid = fold == null ? '' : foldWords(fold);
+      const said = foldWordsSaid !== '' ? foldWordsSaid : this.levelSaid(this.under);
       if (said !== this.foldSaid) {
         this.foldSaid = said;
         this.app.canvas.title = said;
-        this.app.canvas.style.cursor = said === '' ? '' : 'pointer';
+        this.app.canvas.style.cursor = foldWordsSaid === '' ? '' : 'pointer';
       }
       this.drawnList = drawn;
       this.nowShown = nowShown;

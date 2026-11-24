@@ -1,7 +1,7 @@
 # A project's declaration, `wf-agents.toml` at the root of its repository, read from its main branch as the engine starts:
 # each project an installation names has its own. It holds what is the project's: its design tree; its files, which the
 # agents of its works are given as they are in the work's checkout; its settings, which the words sent to the agents
-# name as `project.<name>`; its tests and workflows; its heavy commands and the commands that update its lock files; and
+# name as `project.<name>`; its tests and workflows; its heavy commands; and
 # how its host checks and merges. This one is the declaration of the project whose repository holds the flows. A path
 # is from the root of the project's checkout.
 
@@ -99,29 +99,6 @@ paths = ["AGENTS.md", "design/constitution.md", "design/principles/", "flow/", "
 # refuse-as-little-as-must-be). What every agent is refused whatever its project is `flow/agents/refused.toml`.
 [heavy]
 commands = ["cargo", "rustc", "rustup", "npm", "npx", "node --test", "tsc", "vitest", "hyperfine"]
-# Commands that update the project's lock files and build, run and install nothing, which an agent that writes may run
-# though a heavy command covers them: `cargo update` and `cargo add` resolve the dependencies and write Cargo.lock
-# without compiling; `npm install --package-lock-only --ignore-scripts` writes package-lock.json and leaves
-# node_modules alone and runs none of the package's scripts.
-locks = ["cargo update", "cargo add", "npm install --package-lock-only --ignore-scripts"]
-# The uses of those that are refused all the same: npm's options that would undo `--package-lock-only` or
-# `--ignore-scripts` or install elsewhere, as a later npm option overrides an earlier one: a negated option, which npm
-# reads in any case; any option given a value after `=`; a flag turned off by a separate `false`; and `-g`, `--global`,
-# `--location`, `--prefix` and `-C`, written out or shortened, and the short ones with two dashes.
-locks_except = [
-  "npm install *-no-*",
-  "npm install *-NO-*",
-  "npm install *-No-*",
-  "npm install *-nO-*",
-  "npm install *=*",
-  "npm install * false*",
-  "npm install * -g*",
-  "npm install *--g*",
-  "npm install *--loc*",
-  "npm install *--pref*",
-  "npm install * -C*",
-  "npm install *--C*",
-]
 
 # The variables every agent's command line of the project's works is given beside the engine's own, by name: what the
 # project's toolchain reads, so that a command an agent may run reaches no further than its worktree. Rustup installs no

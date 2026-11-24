@@ -16,8 +16,8 @@ language = "Chinese" # as the owner asked
 [agents]
 command = "claude"
 slots = 2
-args = [
-  "--allowedTools", "Edit(./**)",
+env = [
+  "HTTPS_PROXY",
 ]
 subagents = { most = 3 }
 
@@ -40,7 +40,10 @@ const RUNNING: usize = 2;
 /// The keys the stand-in reading knows, by table.
 const KNOWN: [(&str, &[&str]); 4] = [
     ("owner", &["language"]),
-    ("agents", &["command", "slots", "args", "subagents", "levels"]),
+    (
+        "agents",
+        &["command", "slots", "env", "subagents", "levels", "highest_level"],
+    ),
     ("items", &["default_level", "highest_level", "title_max"]),
     ("sessions", &["compact_at"]),
 ];
@@ -67,6 +70,12 @@ fn read(text: &str) -> Result<JsonValue, String> {
         json["sessions"] = serde_json::json!({ "compact_at": 500000 });
     }
     json["agents"]["work_budget_usd"] = serde_json::json!(5.0);
+    // The engine's settings hold the highest levels left out as none, which its serialization writes as null.
+    for table in ["agents", "items"] {
+        if let Some(keys) = json.get_mut(table).and_then(JsonValue::as_object_mut) {
+            keys.entry("highest_level").or_insert(JsonValue::Null);
+        }
+    }
     Ok(json)
 }
 
@@ -168,8 +177,8 @@ fn the_file_is_shown_as_it_writes_the_settings_in_its_order() {
     assert_eq!(language.running, None, "the engine runs with the value written");
     assert_eq!(language.change, Some(Change::Name));
     assert_eq!(
-        key(&page, "agents", "args").written.as_deref(),
-        Some("[\n  \"--allowedTools\", \"Edit(./**)\",\n]"),
+        key(&page, "agents", "env").written.as_deref(),
+        Some("[\n  \"HTTPS_PROXY\",\n]"),
         "a value as the file writes it, over lines"
     );
     assert_eq!(
@@ -242,6 +251,43 @@ fn a_change_is_written_with_the_files_comments_and_layout_kept() {
     assert_eq!(key(&page, "sessions", "compact_at").running.as_deref(), Some("500000"));
 }
 
+// The highest level one round may run at is listed as the highest level an item may be at is, though the file leaves it
+// out, and changed on the page: written into the file under [agents], with the engine's own value beside it until it
+// starts again.
+#[test]
+fn the_highest_level_one_round_may_run_at_is_changed_on_the_page_though_the_file_leaves_it_out() {
+    let dir = tempfile::tempdir().unwrap();
+    let install = install(dir.path(), FILE);
+    let page = shown(&install, RUNNING).map_err(|r| r.1).unwrap();
+    let left_out = key(&page, "agents", "highest_level");
+    assert_eq!(
+        (
+            left_out.written.as_deref(),
+            left_out.running.as_deref(),
+            &left_out.change
+        ),
+        (None, None, &Some(Change::Level)),
+        "left out, and the engine runs with none"
+    );
+    assert_eq!(key(&page, "items", "highest_level").change, Some(Change::Level));
+    let (saved, slots) = changed(
+        &install,
+        &set(&page.base, &[("agents.highest_level", serde_json::json!("2"))]),
+    )
+    .map_err(|r| r.1)
+    .unwrap();
+    assert_eq!((saved.said.as_str(), slots), ("agents.highest_level = \"2\"", None));
+    let text = std::fs::read_to_string(&install.file).unwrap();
+    assert!(text.contains("highest_level = \"2\"\n"), "{text}");
+    let page = shown(&install, RUNNING).map_err(|r| r.1).unwrap();
+    let row = key(&page, "agents", "highest_level");
+    assert_eq!(
+        (row.written.as_deref(), row.running.as_deref()),
+        (Some("\"2\""), Some("none")),
+        "until the engine starts again it runs with none"
+    );
+}
+
 // Only a change that sets the slots and is written gives the engine slots to take: one of other keys gives none, and
 // so does one that sets them to what the file already gives. The page shows beside the file's slots those the engine
 // holds, whatever it started with.
@@ -300,6 +346,10 @@ fn a_change_the_page_may_not_make_is_refused_and_nothing_is_written() {
         (
             vec![("items.highest_level", serde_json::json!("3"))],
             "items.highest_level is one of the levels: 1, 2",
+        ),
+        (
+            vec![("agents.highest_level", serde_json::json!("3"))],
+            "agents.highest_level is one of the levels: 1, 2",
         ),
     ] {
         let (status, said) = refusal(changed(&install, &set(&base, &sets)));

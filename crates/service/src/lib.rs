@@ -70,8 +70,9 @@ use work::{Ask, Call, RanOn, Time};
 
 pub use carriers::{
     Back, CallReply, Carriers, Changes, Diff, Diffstat, Doing, Doings, FileChanged, Fork, ForkFailed, Forked, Heard,
-    Hosting, KeptTokens, Mark, Network, OfWork, Outside, Ping, PingReply, Pull, Release, ReleaseReply, Returned, Round,
-    RoundReply, Rounds, Saying, Seen, Teller, Telling, Token, Tokens, Told, ToolCall, Tools, Try, YEAR_MS,
+    Hosting, KeptTokens, Mark, Network, OfWork, OpenPull, Outside, Ping, PingReply, Pull, PullsSaid, Release,
+    ReleaseReply, Returned, Round, RoundReply, Rounds, Saying, Seen, Teller, Telling, Token, Tokens, Told, ToolCall,
+    Tools, Try, YEAR_MS,
 };
 pub use clock::{Clock, SystemClock, TokioClock};
 pub use driver::{Along, Instead, Said, Under, Window};
@@ -85,6 +86,10 @@ pub use words::{no_one_words, record_fault_words, refused_words, store_fault_wor
 /// How many changes are kept for a listener that has not read them yet. One that falls further behind is told that
 /// everything may have changed.
 const CHANGES: usize = 256;
+
+/// The result the engine gives a run's call at its limit when the owner lets the run go on: the words the run's next
+/// round is told it had, which no person writes.
+pub const GO_ON: &str = "go on";
 
 /// The loop: the driver, and what carries out what it gives to be done.
 pub struct Service {
@@ -220,7 +225,16 @@ pub enum Act {
     LetGo {
         cell: CellId,
     },
-    Pause,
+    /// Lets the run that reached its limit go on, as the engine's own result of this call: [`GO_ON`].
+    GoOn {
+        call: CallId,
+    },
+    /// Pauses the work as the owner does, saying why where they will, and the items the pause waits for to merge or be
+    /// cancelled.
+    Pause {
+        why: Option<String>,
+        waits_for: Vec<ItemNumber>,
+    },
     Resume,
     /// Cancels the work's item, for this reason where one is given.
     Cancel {
@@ -296,6 +310,10 @@ pub enum Refusal {
     Failed(Failed),
     /// The call is a tool's: the tool gives its result, not a person.
     NotAPersonsCall(CallId),
+    /// The call is a run at its limit: the owner lets it go on, and gives it no words.
+    AtItsLimit(CallId),
+    /// The call is no run at its limit, which is all the owner lets go on.
+    NotAtItsLimit(CallId),
     /// The token of an account to be added was not kept, for this reason, in words: no account was added.
     NotKept(String),
     /// No token can be kept or given, for this reason, as what keeps the tokens says ([`Tokens::closed`]): no account
@@ -833,10 +851,27 @@ impl Service {
                 value,
             },
             Act::LetGo { cell } => Event::LetGo { cell },
-            Act::Pause => Event::Paused {
-                by: Pauser::Owner,
-                why: None,
-            },
+            Act::GoOn { call } => {
+                // A work there is none of is refused as the driver refuses every act on it.
+                let not_at_limit = (self.driver.work(work))
+                    .is_some_and(|kept| !matches!(kept.work.calls.get(&call), Some(Call::AtLimit(_))));
+                if not_at_limit {
+                    return Err(Refusal::NotAtItsLimit(call));
+                }
+                Event::Done {
+                    call,
+                    result: GO_ON.to_string(),
+                }
+            }
+            Act::Pause { why, waits_for } => {
+                let own = (self.driver.work(work)).map(|kept| kept.item.number);
+                let waits_for = (self.driver.pause_waits(own, waits_for)).map_err(Refusal::Failed)?;
+                Event::Paused {
+                    by: Pauser::Owner,
+                    why,
+                    waits_for,
+                }
+            }
             Act::Resume => Event::Resumed,
             Act::Cancel { why } => {
                 // A cancel is a change of the item, judged as every change is.
@@ -872,6 +907,12 @@ impl Service {
                 });
                 if by_engine {
                     return Err(Refusal::NotAPersonsCall(call));
+                }
+                // A run at its limit is let go on, which the engine writes the result of; words to its cell are said.
+                let at_limit = (self.driver.work(work))
+                    .is_some_and(|kept| matches!(kept.work.calls.get(&call), Some(Call::AtLimit(_))));
+                if at_limit {
+                    return Err(Refusal::AtItsLimit(call));
                 }
                 Event::Done { call, result }
             }
@@ -1591,6 +1632,25 @@ impl Handle {
         seen
     }
 
+    /// The pull requests open on the host of each of these projects' repositories, as the carrier of the engine's acts
+    /// asks each host off the loop, all at once, each project with what its host said: none where its host has no
+    /// pull requests, or why it could not say.
+    pub async fn open_pulls(&self, projects: Vec<String>) -> Vec<(String, PullsSaid)> {
+        let asked: Vec<_> = (projects.into_iter())
+            .map(|project| {
+                let carriers = self.carriers.clone();
+                let name = project.clone();
+                (project, tokio::spawn(async move { carriers.open_pulls(&name).await }))
+            })
+            .collect();
+        let mut said = Vec::with_capacity(asked.len());
+        for (project, asked) in asked {
+            let pulls = (asked.await).unwrap_or_else(|e| Err(format!("it could not be asked: {e}")));
+            said.push((project, pulls));
+        }
+        said
+    }
+
     /// Each file the work changed, as the carrier of the engine's acts works it out off the loop: none where there is
     /// no such work, and inside, none where nothing tells what it changed, or why it could not be worked out.
     pub async fn changes_of(&self, work: WorkNumber) -> Result<Option<Result<Option<Changes>, String>>, Refusal> {
@@ -1747,7 +1807,7 @@ mod tests {
     fn a_fork_that_ran_is_kept_whether_it_answered_or_failed_and_one_refused_before_it_ran_is_not() {
         let spent = work::Spent {
             usd_micros: 400_000,
-            input_tokens: 120,
+            uncached_tokens: 120,
             ..Default::default()
         };
         let forked = |left| Forked {

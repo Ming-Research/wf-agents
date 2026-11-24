@@ -145,7 +145,7 @@ impl Host for Local {
     }
 
     async fn merge(&self, branch: &Branch<'_>, checked: Option<&str>) -> Result<String, NotMerged> {
-        git::merge(&self.project, branch.place, branch.title, checked).await
+        git::merge(&self.project, branch.place, branch.title, branch.whose(), checked).await
     }
 
     fn kept_main(&self) -> String {
@@ -202,6 +202,10 @@ impl Host for Local {
     /// A local host holds nothing for a work but its branch, which the work keeps.
     async fn reopen(&self, _: &Branch<'_>) -> Result<(), String> {
         Ok(())
+    }
+
+    async fn open_pulls(&self) -> Result<Option<Vec<service::OpenPull>>, String> {
+        Ok(None)
     }
 
     /// The local repository has no pull requests: a work merges in its checkout.

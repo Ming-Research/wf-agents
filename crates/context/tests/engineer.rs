@@ -504,8 +504,11 @@ fn words_to_an_earlier_cell_tell_the_round_under_way_to_hand_in_what_it_has_and_
             versions,
         });
     }
-    // It hands in what it has, and nothing more is asked of it: the deep research is entered for its words next.
-    sim.hands_in(&implement, &[("code", "abc", None)]);
+    // It hands in what it has, dealing with none of what ran its round, as it was told to: its own words, which it
+    // does not answer, stay new to it, and nothing more is asked of it now. The deep research is entered for its words
+    // next.
+    let came = Came::works(vec![], vec![handed("code", "abc", None)]);
+    sim.returns(&implement, came, 0);
     let finished = (sim.work.records.finished.iter()).any(|f| f.run == implement.run);
     assert!(finished, "the implementation's hand-in is taken, not sent back");
     let rethought = sim.round().expect("a round is given");
@@ -955,6 +958,7 @@ fn points_the_owner_ruled_on_are_new_to_no_cell_in_the_walk_in_the_points_told_a
     sim.take(Event::Paused {
         by: Pauser::Owner,
         why: None,
+        waits_for: Vec::new(),
     });
     let points = [
         ("plan_ok", "", Some("no")),
@@ -1069,6 +1073,7 @@ fn points_the_owner_ruled_on_are_new_to_no_cell_in_the_walk_in_the_points_told_a
     sim.take(Event::Paused {
         by: Pauser::Owner,
         why: None,
+        waits_for: Vec::new(),
     });
     sim.hands_in(
         &review,
@@ -1247,11 +1252,50 @@ fn the_research_s_hand_over_holding_a_question_is_sent_back_saying_what_else_it_
     let entered = sim.enter(&again, sim.begins(&again));
     let said = "- `deep_needed` is `yes`, and a return with that value must hold none of `r1_questions`.";
     assert!(entered.text.contains(said), "{}", entered.text);
+    // The return did the cell's work, and the next completes it: what is listed alone is asked of it.
+    assert!(entered.text.contains(ONLY_WHAT_IS_LISTED), "{}", entered.text);
+    assert!(!entered.text.contains(WHOLE_AGAIN), "{}", entered.text);
     sim.tries(&again, 1, entered.fills);
     sim.returns(&again, Came::hands_in(hand_over()), 0);
     let deep = sim.round().expect("the deep research is given a round");
     assert_eq!(deep.cell.as_str(), "D1");
     assert!(!decide::applies(&sim.flow.flow, &sim.work.records, &CellId::from("R1")));
+}
+
+const ONLY_WHAT_IS_LISTED: &str =
+    "Return again with only what is listed here. What you returned before and is not listed stands.";
+const WHOLE_AGAIN: &str = "Return again, with everything this return should say in one return.";
+
+// A return that asks for calls stands alone: the run completes none with it and none with the one after it (decision
+// a-sent-back-return-is-completed-by-what-is-missing), so a return sent back that asked for a call, or that could not be
+// read, is told to be given whole again, and one that did the cell's work to give only what is listed.
+#[test]
+fn a_return_that_asked_for_calls_or_could_not_be_read_is_told_to_be_given_whole_again() {
+    let (mut sim, research) = until("R1");
+    tried(&mut sim, &research);
+    let asks = engine::Ask::Tool {
+        name: "query".to_string(),
+        input: "{}".to_string(),
+    };
+    let mut came = Came::asks(vec![asks]);
+    came.found = vec![decide::run::Unmet::NotATool {
+        name: "query".to_string(),
+    }];
+    sim.returns(&research, came, 0);
+    let again = sim.round().expect("the research is entered again");
+    assert_eq!((again.cell.as_str(), again.run, again.number), ("R1", research.run, 2));
+    let entered = sim.enter(&again, sim.begins(&again));
+    assert!(entered.text.contains(WHOLE_AGAIN), "{}", entered.text);
+    assert!(!entered.text.contains(ONLY_WHAT_IS_LISTED), "{}", entered.text);
+    sim.tries(&again, 1, entered.fills);
+    // What could not be read stands for nothing either, and a return that did the cell's work after it is told so
+    // again only where it is sent back.
+    sim.fails_as(&again, decide::run::Failure::Unread, true);
+    let third = sim.round().expect("the research is entered for the third time");
+    assert_eq!((third.cell.as_str(), third.number), ("R1", 3));
+    let entered = sim.enter(&third, sim.begins(&third));
+    assert!(entered.text.contains(WHOLE_AGAIN), "{}", entered.text);
+    assert!(!entered.text.contains(ONLY_WHAT_IS_LISTED), "{}", entered.text);
 }
 
 // The cell that takes charge from another watches that cell's questions (design document `data-and-context`, 28): the

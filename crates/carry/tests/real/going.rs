@@ -47,7 +47,8 @@ async fn a_work_goes_to_its_merge_with_the_command_line() {
     let spent: Vec<Spent> = kept.spent.values().copied().collect();
     let plan_spent = Spent {
         usd_micros: 10_000,
-        input_tokens: 15,
+        uncached_tokens: 15,
+        cache_written_tokens: Some(5),
         cached_tokens: 100,
         output_tokens: 20,
         ..Default::default()
@@ -66,6 +67,32 @@ async fn a_work_goes_to_its_merge_with_the_command_line() {
     let log = git_in(&real.repo, &["log", "main", "--format=%s"]);
     assert!(log.lines().any(|line| line == "Build the greeting"), "{log}");
     assert_eq!(log.lines().next(), Some("Work W1"), "{log}");
+
+    // Every commit of the work ends with the lines that name its item and its work: the build's, made by its git, from
+    // the hook the engine hands each round's, and the merge's, from the engine's words.
+    let ends = "\n\nItem: 1\nWork: W1";
+    let said = |subject: &str| {
+        git_in(
+            &real.repo,
+            &["log", "-1", "--format=%B", &format!("--grep=^{subject}$"), "main"],
+        )
+    };
+    assert_eq!(said("Build the greeting"), format!("Build the greeting{ends}"));
+    assert_eq!(said("Work W1"), format!("Work W1{ends}"));
+    let found = git_in(
+        &real.repo,
+        &[
+            "log",
+            "main",
+            "--grep=^Item: 1$",
+            "--grep=^Work: W1$",
+            "--all-match",
+            "--format=%s",
+        ],
+    );
+    for subject in ["Work W1", "Build the greeting"] {
+        assert!(found.lines().any(|line| line == subject), "{found}");
+    }
 }
 
 #[tokio::test]

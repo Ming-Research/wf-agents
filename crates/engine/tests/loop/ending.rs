@@ -79,6 +79,7 @@ fn a_work_paused_as_it_was_cancelled_lets_go_all_the_same() {
     w.on(Event::Paused {
         by: Pauser::Owner,
         why: None,
+        waits_for: Vec::new(),
     });
     w.on(Event::Cancelled { why: None });
     assert_eq!(w.returns(write, hands_in(&[("text", None)])), vec![CANCELLED]);

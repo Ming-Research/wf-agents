@@ -32,9 +32,9 @@ async fn a_work_goes_through_its_cells_round_the_objection_to_the_merge() {
             on: Some(Who::Owner)
         }]
     );
-    trial.answer(work, "Yes, by name.");
+    trial.let_go_on(work);
     let kept = trial.work(work);
-    assert_eq!(kept.results[&CallId(2)], "Yes, by name.");
+    assert_eq!(kept.results[&CallId(2)], service::GO_ON);
 
     // The build asks for the CI, which the tool answers.
     trial
