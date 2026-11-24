@@ -606,6 +606,46 @@ mod tests {
         );
     }
 
+    // A wait in which the agents' command line could not run is a wait on the owner from the time its first round failed
+    // so up to the time the next round of an agent began, whether it stands or is over: the work here would begin its
+    // round from 3000 to 6000, and the wait is said to have held from 2000 to 4500, after which nothing says what the
+    // work waited for. Fails where only the wait that stands is read, or one that is over is read as not holding.
+    #[test]
+    fn a_wait_in_which_the_command_line_could_not_run_is_a_wait_on_the_owner_while_it_lasted_and_nothing_after() {
+        let flow = flow();
+        let work = held_back(&flow);
+        let at = |waits: &[CannotRun]| {
+            with_kept(&flow, &work, |kept| {
+                stretches(kept, &[], &[], waits, Vec::new(), Time(9000))
+            })
+        };
+        let wait = |from: u64, until: Option<u64>| CannotRun {
+            from: Time(from),
+            until: until.map(Time),
+            why: "the agents' program could not run".to_string(),
+        };
+        let ran = [stretch(0, 1000, Went::Model), stretch(6000, 7000, Went::Model)];
+        let with = |waited: &[Stretch]| [&ran[..], waited].concat();
+        assert_eq!(
+            at(&[wait(2000, Some(4500))]),
+            with(&[stretch(1000, 4500, Went::Owner), stretch(4500, 6000, Went::Other)])
+        );
+        // Nothing says it held: the pause the engine made, then nothing.
+        assert_eq!(
+            at(&[]),
+            with(&[stretch(1000, 3000, Went::Owner), stretch(3000, 6000, Went::Other)])
+        );
+        // The wait that stands has no end.
+        assert_eq!(
+            at(&[wait(4000, None)]),
+            with(&[
+                stretch(1000, 3000, Went::Owner),
+                stretch(3000, 4000, Went::Other),
+                stretch(4000, 6000, Went::Owner)
+            ])
+        );
+    }
+
     /// A stretch of the work's time, in milliseconds.
     fn stretch(from: u64, until: u64, went: Went) -> Stretch {
         Stretch {
