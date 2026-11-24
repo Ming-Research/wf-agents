@@ -62,7 +62,8 @@ of each part.
    engine sent, and every line a round of the histories stood in, on the small flow of its tests and on the engineer's
    flow, is one a written situation stands in; a line the search leaves out is mended in the search for every flow.
    How long the tool takes on the engineer's flow is timed by the measurements `situations-build` and
-   `situations-search` of `measure/`, the tool's own time being the second less the first.
+   `situations-search` of `measure/`, the tool's own time being the second less the first; `situations-search-cell`
+   times one cell of it.
    The deciding code's own walk goes through it every way a work can go within a bound, or through many random
    histories, checking at each decision the properties that flow must keep, such as no merge on what is not settled
    and every work coming to rest. This layer is the one to catch a change of a definition (a cell, a block, a
