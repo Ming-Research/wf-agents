@@ -552,11 +552,16 @@ export function linksStrength(dim: number): number {
 }
 
 /// How strong each of the dashed `ways` is to be drawn, by the item whose link up it is: every one at full strength
-/// while nothing is `lit`; while something is, one whose two ends are both lit at full strength, and the others as dim
-/// as the links once the items are dimmed.
-export function wayAims(ways: Iterable<number>, parent: ArrayLike<number>, lit: Set<number>): Map<number, number> {
+/// while the tree is not `dimming`, as while nothing is `lit`; while it is, as while something is lit or the search is
+/// open, one whose two ends are both lit at full strength, and the others as dim as the links once the items are dimmed.
+export function wayAims(
+  ways: Iterable<number>,
+  parent: ArrayLike<number>,
+  lit: Set<number>,
+  dimming = lit.size > 0,
+): Map<number, number> {
   const aims = new Map<number, number>();
-  for (const i of ways) aims.set(i, lit.size === 0 || (lit.has(i) && lit.has(parent[i])) ? 1 : linksStrength(DIM));
+  for (const i of ways) aims.set(i, !dimming || (lit.has(i) && lit.has(parent[i])) ? 1 : linksStrength(DIM));
   return aims;
 }
 
@@ -1266,6 +1271,9 @@ export class SnapScene {
   private dim = 1;
   /// The items in focus: the one the pointer last rested on with what joins it, kept while the pointer moves on.
   private inFocus = new Set<number>();
+  /// While the console's search is open, the items it finds, by number: lit as the items in focus are, every other
+  /// item dimmed, all of them while it finds nothing; none while it is closed.
+  private found: number[] | null = null;
   /// The item the pointer was over at the last frame, and since when it has been over it (or over none).
   private hoverWas = -1;
   private hoverAt = 0;
@@ -2132,6 +2140,13 @@ export class SnapScene {
     return { x, y, size: m.a[i], drawn: [m.a[i] * x + m.bx[i], m.a[i] * y + m.by[i]] };
   }
 
+  /// How bright the card of item `id` is drawn, for the tests: fully, or dimmed while something else is lit, eased
+  /// between. None for an item the tree does not draw.
+  brightness(id: number): number | null {
+    const i = this.real.get(id);
+    return i === undefined ? null : this.views[i].alpha;
+  }
+
   /// The lit ways drawn at the last frame, each by the number of the item it runs into, from where it began to where
   /// it ended, with its curve and its turns into the cards, for the tests.
   litWays(): LitWay[] {
@@ -2983,6 +2998,13 @@ export class SnapScene {
     this.dirty.add(why);
   }
 
+  /// Lights the items numbered `ids`, which the console's search finds while it is open, and dims every other, as
+  /// the items in focus do; none, while the search is closed, lights and dims nothing.
+  find(ids: number[] | null): void {
+    this.mark('find');
+    this.found = ids;
+  }
+
   /// Selects the item numbered `id`, or none.
   select(id: number | null): void {
     this.mark('select');
@@ -3216,9 +3238,9 @@ export class SnapScene {
         easing = true;
       }
     }
-    // While the pointer or the selection lights something, every other item drawn is dimmed, more under the pointer
-    // than for the selection alone, so that the lit items and what joins them stand out; it comes and goes over a
-    // moment, so that a pointer passing over the tree does not make it flicker.
+    // While the pointer, the selection or the search lights something, every other item drawn is dimmed, more under
+    // the pointer than for the selection alone, so that the lit items and what joins them stand out; it comes and goes
+    // over a moment, so that a pointer passing over the tree does not make it flicker.
     // What the dimming goes by is not the pointer's every move: an item becomes the one in focus only once the
     // pointer has rested on it a moment, and the focus is let go only once the pointer has been off every item a
     // moment. So a pointer crossing many items changes nothing, and going from one item to the next fades one way
@@ -3231,12 +3253,17 @@ export class SnapScene {
     if (this.under >= 0 && rested > DWELL_ON) this.inFocus = chain;
     else if (this.under < 0 && rested > DWELL_OFF) this.inFocus = new Set();
     const focus = this.inFocus;
-    const aim = focus.size > 0 || chosen.size > 0 ? DIM : 1;
+    // While the search is open, every item is dimmed but those it finds, lit as the items in focus are.
+    const searching = this.found !== null;
+    const finding = new Set(
+      (this.found ?? []).flatMap((id) => (this.real.has(id) ? [this.real.get(id) as number] : [])),
+    );
+    const aim = focus.size > 0 || chosen.size > 0 || searching ? DIM : 1;
     this.dim = eased(this.dim, aim, step);
     if (this.dim !== aim) easing = true;
     for (const i of drawn) {
       const view = this.views[i];
-      const to = aim === 1 || focus.has(i) || chosen.has(i) ? 1 : DIM;
+      const to = aim === 1 || focus.has(i) || chosen.has(i) || finding.has(i) ? 1 : DIM;
       view.alpha = eased(view.alpha, to, step);
       if (view.alpha !== to) easing = true;
     }
@@ -3245,11 +3272,11 @@ export class SnapScene {
     // drawn once, however many running items it is on. While something is lit, the links on its way stand at full
     // strength and the others dim with the items they join; each eases to its strength as the items do, so that none
     // jumps as the light moves or goes out.
-    const shining = new Set([...focus, ...chosen]);
+    const shining = new Set([...focus, ...chosen, ...finding]);
     // Where a way's strength eases, or a dot's changes, what stands of the ways is built again at it. A root's dot is
     // as strong as the ways from it are lit; another's as the way into its item.
     let strengthened = false;
-    for (const [i, to] of wayAims(this.runWays, t.parent, shining)) {
+    for (const [i, to] of wayAims(this.runWays, t.parent, shining, aim !== 1)) {
       const had = this.runStrength.get(i);
       const now = eased(had ?? to, to, step);
       if (now !== had) strengthened = true;
@@ -3258,7 +3285,7 @@ export class SnapScene {
     const dotStrength = (k: number) =>
       t.parent[k] >= 0
         ? (this.runStrength.get(k) ?? 1)
-        : shining.size === 0 || shining.has(k)
+        : aim === 1 || shining.has(k)
           ? 1
           : linksStrength(this.dim);
     const dotsNow = this.litDots.map(dotStrength);
