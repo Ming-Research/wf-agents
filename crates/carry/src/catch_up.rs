@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use store::WorkNumber;
 
 use crate::agents::ROUNDS;
+use crate::commit_lines::Whose;
 use crate::git::{self, Place};
 use crate::settings::Project;
 
@@ -88,16 +89,16 @@ pub(crate) fn kept_at(data: &Path, work: WorkNumber, run: RunId) -> PathBuf {
 }
 
 /// The words a run's merge of main is made with, as the project's `commits` says.
-fn taking_in(project: &Project, main: &str, run: RunId) -> String {
+fn taking_in(project: &Project, main: &str, run: RunId, whose: Whose) -> String {
     let run = run.0.to_string();
     let slots = [("main", project.main.as_str()), ("head", main), ("run", &run)];
-    flow::agents::fill(&project.commits.run, &slots)
+    whose.ending(&project.commits, &flow::agents::fill(&project.commits.run, &slots))
 }
 
 /// Takes main's head, as the reference `main` holds it, into the work's branch in its worktree as the run starts, and
 /// says what came of it. Refused, as every act is, where the repository's configuration names a program git could run.
-pub(crate) async fn take_in(project: &Project, place: &Place, main: &str, run: RunId) -> CaughtUp {
-    let outcome = match tried(project, place, main, run).await {
+pub(crate) async fn take_in(project: &Project, place: &Place, main: &str, run: RunId, whose: Whose) -> CaughtUp {
+    let outcome = match tried(project, place, main, run, whose).await {
         Ok(outcome) => outcome,
         Err(why) => Outcome::Failed { why },
     };
@@ -107,7 +108,7 @@ pub(crate) async fn take_in(project: &Project, place: &Place, main: &str, run: R
     }
 }
 
-async fn tried(project: &Project, place: &Place, main: &str, run: RunId) -> Result<Outcome, String> {
+async fn tried(project: &Project, place: &Place, main: &str, run: RunId, whose: Whose) -> Result<Outcome, String> {
     let dir = git::worktree(place)?;
     git::configuration(project, place).await?;
     git::on_branch(place).await?;
@@ -118,7 +119,7 @@ async fn tried(project: &Project, place: &Place, main: &str, run: RunId) -> Resu
     if merging || !changes.is_empty() {
         return Ok(Outcome::Uncommitted { main, changes, merging });
     }
-    let message = taking_in(project, &main, run);
+    let message = taking_in(project, &main, run, whose);
     let head = git::git(repo, &["rev-parse", "--verify", &place.reference()]).await?;
     if git::said(repo, &["merge-base", "--is-ancestor", &main, &head])
         .await?
@@ -176,6 +177,12 @@ mod tests {
     }
 
     const WORK: WorkNumber = WorkNumber(1);
+
+    /// The item and the work whose commits these are.
+    const WHOSE: Whose = Whose {
+        item: store::ItemNumber(36),
+        work: WORK,
+    };
     const RUN: RunId = RunId(7);
 
     /// A started work whose last commit rewrote `greeting.txt`, with main then given a commit of `file`; gives the
@@ -193,7 +200,7 @@ mod tests {
     #[tokio::test]
     async fn main_that_merges_cleanly_is_taken_in_and_what_it_changed_is_what_the_merge_shows() {
         let (repo, place, main) = moved("other.txt").await;
-        let caught = take_in(&repo.project, &place, "refs/heads/main", RUN).await;
+        let caught = take_in(&repo.project, &place, "refs/heads/main", RUN, WHOSE).await;
         assert_eq!(caught.name, "main");
         let Outcome::TookIn { main: took, merge } = caught.outcome else {
             panic!("{caught:?}");
@@ -210,7 +217,7 @@ mod tests {
         let parents = run(&place.dir, &["rev-list", "--parents", "-n", "1", "HEAD"]);
         assert_eq!(parents.split(' ').nth(2), Some(main.as_str()), "it merges main's head");
         // Taken in again by a later run, main is held, and nothing more is merged.
-        let again = take_in(&repo.project, &place, "refs/heads/main", RunId(8)).await;
+        let again = take_in(&repo.project, &place, "refs/heads/main", RunId(8), WHOSE).await;
         assert_eq!(again.outcome, Outcome::Holds { main });
         assert_eq!(run(&place.dir, &["rev-parse", "HEAD"]), merge);
     }
@@ -222,7 +229,7 @@ mod tests {
             .await
             .unwrap();
         let main = commit(&repo.project.repo, "other.txt", "Good day.\n");
-        let caught = take_in(&repo.project, &started.place, "refs/heads/main", RUN).await;
+        let caught = take_in(&repo.project, &started.place, "refs/heads/main", RUN, WHOSE).await;
         let Outcome::TookIn { merge, .. } = caught.outcome else {
             panic!("{caught:?}");
         };
@@ -238,32 +245,33 @@ mod tests {
         let merge = git::merge_as(
             &place.dir,
             &main,
-            &taking_in(&repo.project, &main, RUN),
+            &taking_in(&repo.project, &main, RUN, WHOSE),
             &repo.project.commits,
         )
         .await
         .unwrap();
-        let caught = take_in(&repo.project, &place, "refs/heads/main", RUN).await;
+        let caught = take_in(&repo.project, &place, "refs/heads/main", RUN, WHOSE).await;
         let took = Outcome::TookIn {
             main: main.clone(),
             merge,
         };
         assert_eq!(caught.outcome, took);
         // Another run finds main held: the merge is not its own.
-        let later = take_in(&repo.project, &place, "refs/heads/main", RunId(8)).await;
+        let later = take_in(&repo.project, &place, "refs/heads/main", RunId(8), WHOSE).await;
         assert_eq!(later.outcome, Outcome::Holds { main });
     }
 
     #[tokio::test]
     async fn the_check_before_the_merge_takes_nothing_in_after_a_run_took_main_in() {
         let (repo, place, _) = moved("other.txt").await;
-        let caught = take_in(&repo.project, &place, "refs/heads/main", RUN).await;
+        let caught = take_in(&repo.project, &place, "refs/heads/main", RUN, WHOSE).await;
         let Outcome::TookIn { merge, .. } = caught.outcome else {
             panic!("{caught:?}");
         };
         let host = crate::host::Local::new(repo.project.clone(), repo.check.clone());
         let branch = crate::host::Branch {
             work: WORK,
+            item: store::ItemNumber(36),
             title: "Greet the user",
             about: "",
             place: &place,
@@ -311,7 +319,7 @@ mod tests {
     async fn a_file_git_does_not_track_holds_nothing_back_and_a_merge_under_way_is_said() {
         let (repo, place, _) = moved("other.txt").await;
         std::fs::write(place.dir.join("build.out"), "made\n").unwrap();
-        let caught = take_in(&repo.project, &place, "refs/heads/main", RUN).await;
+        let caught = take_in(&repo.project, &place, "refs/heads/main", RUN, WHOSE).await;
         assert!(matches!(caught.outcome, Outcome::TookIn { .. }), "{caught:?}");
         let (repo, place, main) = moved("greeting.txt").await;
         let merging = std::process::Command::new("git")
@@ -321,7 +329,7 @@ mod tests {
             .output()
             .expect("git runs");
         assert!(!merging.status.success(), "the merge meets the conflict");
-        let caught = take_in(&repo.project, &place, "refs/heads/main", RUN).await;
+        let caught = take_in(&repo.project, &place, "refs/heads/main", RUN, WHOSE).await;
         let Outcome::Uncommitted { merging, .. } = caught.outcome else {
             panic!("{caught:?}");
         };
@@ -332,7 +340,7 @@ mod tests {
     async fn main_in_conflict_is_given_as_its_files_and_the_branch_is_left_as_it_was() {
         let (repo, place, main) = moved("greeting.txt").await;
         let head = run(&place.dir, &["rev-parse", "HEAD"]);
-        let caught = take_in(&repo.project, &place, "refs/heads/main", RUN).await;
+        let caught = take_in(&repo.project, &place, "refs/heads/main", RUN, WHOSE).await;
         assert_eq!(
             caught.outcome,
             Outcome::Conflict {
@@ -353,7 +361,7 @@ mod tests {
         let (repo, place, main) = moved("other.txt").await;
         let head = run(&place.dir, &["rev-parse", "HEAD"]);
         std::fs::write(place.dir.join("greeting.txt"), "Hello, all.\n").unwrap();
-        let caught = take_in(&repo.project, &place, "refs/heads/main", RUN).await;
+        let caught = take_in(&repo.project, &place, "refs/heads/main", RUN, WHOSE).await;
         let Outcome::Uncommitted {
             main: at,
             changes,
@@ -377,14 +385,14 @@ mod tests {
             .unwrap();
         commit(&started.place.dir, "greeting.txt", "Hello, you.\n");
         let main = run(&repo.project.repo, &["rev-parse", "main"]);
-        let caught = take_in(&repo.project, &started.place, "refs/heads/main", RUN).await;
+        let caught = take_in(&repo.project, &started.place, "refs/heads/main", RUN, WHOSE).await;
         assert_eq!(caught.outcome, Outcome::Holds { main });
     }
 
     #[tokio::test]
     async fn a_work_with_no_worktree_could_not_take_main_in_and_says_why() {
         let repo = Repo::new("true");
-        let caught = take_in(&repo.project, &repo.place(WORK), "refs/heads/main", RUN).await;
+        let caught = take_in(&repo.project, &repo.place(WORK), "refs/heads/main", RUN, WHOSE).await;
         let Outcome::Failed { why } = caught.outcome else {
             panic!("{caught:?}");
         };

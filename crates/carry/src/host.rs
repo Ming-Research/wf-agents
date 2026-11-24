@@ -28,20 +28,24 @@ use std::sync::Arc;
 use decide::run::Failure;
 use decide::{CallId, RunId};
 use service::OpenPull;
-use store::{Continues, WorkNumber};
+use store::{Continues, ItemNumber, WorkNumber};
 use tokio::sync::Mutex;
 
+use crate::commit_lines::Whose;
 use crate::git::Place;
 use crate::held::Stop;
 
 pub use github::GitHub;
 pub use local::Local;
 
-/// The work's branch, as a host is given it: with the work, the name of its merge and what the work says of itself,
-/// which a host may show where it shows the branch. A host is given nothing of the work's item.
+/// The work's branch, as a host is given it: with the work, the number of its item, which the commits the host makes
+/// name, the name of its merge and what the work says of itself, which a host may show where it shows the branch. A host
+/// is given nothing else of the work's item.
 #[derive(Clone, Copy, Debug)]
 pub struct Branch<'a> {
     pub work: WorkNumber,
+    /// The item the work is done for, which its commits name beside the work.
+    pub item: ItemNumber,
     /// The name of the work's merge, which its pull request and the commit its merge makes take
     /// ([`crate::acts::name`]).
     pub title: &'a str,
@@ -52,6 +56,16 @@ pub struct Branch<'a> {
     /// What the work's item continues, where it continues something: the host closes the pull request that was open
     /// on it, once the work's own is open, saying the address of its own (`superseded` of `agents/pull_request.toml`).
     pub continues: Option<&'a Continues>,
+}
+
+impl Branch<'_> {
+    /// The item and the work the commits of the branch name.
+    pub fn whose(&self) -> Whose {
+        Whose {
+            item: self.item,
+            work: self.work,
+        }
+    }
 }
 
 /// What asks a host to run the project's checks, as the work's records name it: a call of `run_tests`, or a round of

@@ -27,7 +27,8 @@ pub struct ItemNumber(pub u64);
 pub struct WorkNumber(pub u64);
 
 /// An item's number as it is written wherever the engine writes one in words: `#79`. A number in an address, a branch's
-/// or a session's name, or an argument of the command line is the bare number.
+/// or a session's name, an argument of the command line or the line of a commit that names its item (`Item: 79`) is the
+/// bare number.
 impl std::fmt::Display for ItemNumber {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "#{}", self.0)
@@ -38,6 +39,18 @@ impl std::fmt::Display for ItemNumber {
 impl std::fmt::Display for WorkNumber {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "W{}", self.0)
+    }
+}
+
+impl WorkNumber {
+    /// The work a number written as [`Display`](std::fmt::Display) writes it, `W43`, numbers; none for any other text.
+    pub fn from_written(text: &str) -> Option<WorkNumber> {
+        let digits = text.strip_prefix('W')?;
+        // A sign is no part of a number, which `parse` would take.
+        if !digits.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        digits.parse().ok().map(WorkNumber)
     }
 }
 
