@@ -10,11 +10,13 @@
 //! flow: what it may write, ask and say it reads from the compiled flow and the engine's own rules of who writes what.
 //!
 //! The search keeps an archive of states of works, each at the entry of a round, one for each state of what the round
-//! is sent and of the choices the work holds, and goes on from each in turn: first each way a round returns, then each
-//! thing the owner or the outside may do before it, then draws of both, seeded and in a fixed order, so that the
-//! same flow gives the same finds. It ends where its rounds are spent or no new line has been found for a stated number
-//! of rounds. It finds only what it reaches; where it reaches less than a work can, a line is missing from what is
-//! written, and the search is made better in what it does for every flow, never in what it knows of one.
+//! is sent and of the choices the work holds, and goes on from the one gone on from least often with a rollout: a
+//! history of the work from that state, each step of it a return of the round under way after some of the things the
+//! owner or the outside may do before it, seeded and drawn in one of a few styles, so that what takes many things to
+//! come to is reached by what is done many times over. It ends where its rounds are spent or no new line has been found
+//! for a stated number of rounds. It finds only what it reaches; where it reaches less than a work can, a line is
+//! missing from what is written, and the search is made better in what it does for every flow, never in what it knows
+//! of one.
 //!
 //! The simulation here is the one the tests of the manager run works with, and the search's own set of actions is
 //! its own: the tests' histories choose theirs apart from it, so that they can show what the search leaves out.
@@ -207,7 +209,7 @@ pub struct Found {
 }
 
 /// What bounds a search: how many rounds it carries out in all, how many rounds in a row without a new line end it,
-/// how many states of works it keeps, and how many histories it makes from a state at each turn.
+/// how many states of works it keeps, and how many steps a rollout from a state takes at most.
 #[derive(Clone, Copy, Debug)]
 pub struct Bounds {
     pub rounds: usize,
@@ -217,13 +219,13 @@ pub struct Bounds {
 }
 
 /// The bounds of the command: how many rounds the search carries out at most, how many in a row without a new line end
-/// it (a quarter of them), how many states of works it keeps, and how many histories it makes from a state at each turn.
+/// it (a quarter of them), how many states of works it keeps, and how many steps a rollout from a state takes at most.
 /// What the engineer's flow needs of them and what they cost is what `measure/situations-search` times.
 pub const BOUNDS: Bounds = Bounds {
     rounds: 16_000,
     plateau: 4_000,
-    archive: 1_000,
-    draws: 8,
+    archive: 400,
+    draws: 24,
 };
 
 /// The seed of the draws.
@@ -951,8 +953,10 @@ impl Search<'_> {
         }
     }
 
-    /// Notes the lines the rounds a child carried out stood in, with the script of the child where one is new.
-    fn note(&mut self, node: &Node, sights: &[Sight]) {
+    /// Notes the lines the rounds a child carried out stood in, with the script of the child where one is new. Says
+    /// whether any was new.
+    fn note(&mut self, node: &Node, sights: &[Sight]) -> bool {
+        let mut found = false;
         let first = node.seen - sights.len();
         for (n, sight) in sights.iter().enumerate() {
             let Some(spec) = self.flow.cells.iter().find(|c| c.id == sight.cell) else {
@@ -985,7 +989,9 @@ impl Search<'_> {
                 nth: first + n,
             });
             self.since = 0;
+            found = true;
         }
+        found
     }
 
     /// Keeps the node where no state alike was kept. Where the archive is full, a state gone on from as often as any,
@@ -1014,15 +1020,6 @@ impl Search<'_> {
             self.archive[at] = kept;
         }
         self.found.kept += 1;
-    }
-
-    /// Does the actions on a copy of the node, notes what its rounds stood in, keeps the copy, and gives it.
-    fn try_out(&mut self, from: &Node, actions: &[Action]) -> Option<Node> {
-        self.tried += 1;
-        let (node, sights) = self.child(from, actions)?;
-        self.note(&node, &sights);
-        self.keep(&node);
-        Some(node)
     }
 
     /// Why the search ends, where it does.
@@ -1055,76 +1052,126 @@ impl Search<'_> {
         }
     }
 
-    /// Goes on from a kept state, a few histories each time it is gone on from: a return of the cell under way and a
-    /// thing that may happen before a round, each a different one for each state and each turn, so that the states
-    /// between them try each; then draws, some going forward only, every block handed in, so that a work goes deep into
-    /// its flow, and the others of a few things before a round and a return, some going on from what the draw before it
-    /// reached, so that what is reached takes more than one thing to come to.
+    /// Goes on from a kept state with a rollout: a history of the work from that state, a few steps of it, each step a
+    /// return of the round under way after some of the things that may happen before it, drawn in a style the rollout
+    /// is given, so that what is reached can take many things to come to. The first step is the one each state tries
+    /// a different one of, the states between them trying each return and each thing before a round. A state a step
+    /// reaches is kept where it stands in a line none did, and now and then besides.
     fn go_on(&mut self, at: usize) {
         let turn = self.archive[at].turns;
         let born = self.archive[at].born;
         self.archive[at].turns += 1;
-        let node = self.archive[at].node.clone();
         let mut rng = Rng::new(SEED ^ key_number(&self.archive[at].key) ^ turn as u64);
-        let before = befores(&node, &self.writes);
-        let how = match node.sim.round() {
-            Some(round) => {
-                let cell = node.sim.cell(&round).clone();
-                carries(&cell, outputs_of(&node.sim.flow, &cell).1.len())
-            }
-            None => Vec::new(),
-        };
-        let mut cursor: Option<Node> = None;
-        for place in 0..self.bounds.draws {
-            if self.done() {
+        let style = STYLES[rng.below(STYLES.len())];
+        let mut cur = self.archive[at].node.clone();
+        let mut failed = 0;
+        for step in 0..self.bounds.draws {
+            if self.done() || cur.seen >= MAX_DEPTH {
                 return;
             }
-            let onward = place >= 2 && rng.chance(60);
-            let from = match (&cursor, onward) {
-                (Some(cursor), true) => cursor,
-                _ => &node,
+            let under = under_way(&cur);
+            let forward = under.is_some() && step > 0 && rng.chance(style.forward);
+            let before = match forward {
+                true => Vec::new(),
+                false => befores(&cur, &self.writes),
             };
-            let (optional, line, has_round) = facts(from);
-            let actions = match place {
-                0 if !how.is_empty() => vec![Action::Carry(how[(born + turn) % how.len()])],
-                1 if !before.is_empty() => vec![
-                    before[(born + turn) % before.len()].clone(),
-                    Action::Carry(Carry::PLAIN),
-                ],
-                _ if has_round && rng.chance(25) => vec![Action::Carry(forward(&mut rng))],
-                _ => {
-                    let mut actions = Vec::new();
-                    for _ in 0..rng.below(BEFORE + 1) {
+            let mut actions = Vec::new();
+            if step == 0 {
+                let n = born + turn;
+                match &under {
+                    Some((cell, optional)) if n.is_multiple_of(2) => {
+                        let how = carries(cell, *optional);
+                        actions.push(Action::Carry(how[(n / 2) % how.len()]));
+                    }
+                    _ => {
                         if !before.is_empty() {
-                            actions.push(before[rng.below(before.len())].clone());
+                            actions.push(before[(n / 2) % before.len()].clone());
+                        }
+                        if under.is_some() {
+                            actions.push(Action::Carry(Carry::PLAIN));
                         }
                     }
-                    actions.push(Action::Carry(drawn(&mut rng, optional, line)));
-                    actions
                 }
-            };
-            if let Some(next) = self.try_out(from, &actions) {
-                cursor = Some(next);
+            } else {
+                // Where nothing is under way, something is done before the next round.
+                let forced = usize::from(under.is_none());
+                for place in 0..BEFORE.max(forced) {
+                    if !before.is_empty() && (place < forced || rng.chance(style.before)) {
+                        actions.push(before[rng.below(before.len())].clone());
+                    }
+                }
+                if let Some((cell, optional)) = &under {
+                    let how = match forward {
+                        true => forward_return(&mut rng),
+                        false => drawn(&mut rng, *optional, cell.line.is_some()),
+                    };
+                    actions.push(Action::Carry(how));
+                }
+            }
+            if actions.is_empty() {
+                return;
+            }
+            self.tried += 1;
+            match self.child(&cur, &actions) {
+                Some((next, sights)) => {
+                    failed = 0;
+                    let fresh = self.note(&next, &sights);
+                    if fresh || step % 3 == 2 {
+                        self.keep(&next);
+                    }
+                    cur = next;
+                }
+                None => {
+                    failed += 1;
+                    if failed >= 3 {
+                        return;
+                    }
+                }
             }
         }
     }
 }
 
-/// What the round under way of a state is like: how many blocks its cell may write beside those it must, whether its
-/// cell is an agent's, and whether there is one.
-fn facts(node: &Node) -> (usize, bool, bool) {
-    match node.sim.round() {
-        Some(round) => {
-            let cell = node.sim.cell(&round);
-            (outputs_of(&node.sim.flow, cell).1.len(), cell.line.is_some(), true)
-        }
-        None => (0, true, false),
-    }
+/// The cell of the round under way of a state, and how many blocks it may write beside those it must; none where no
+/// round is under way.
+fn under_way(node: &Node) -> Option<(CellSpec, usize)> {
+    let round = node.sim.round()?;
+    let cell = node.sim.cell(&round).clone();
+    let optional = outputs_of(&node.sim.flow, &cell).1.len();
+    Some((cell, optional))
 }
+
+/// How a rollout draws its steps: in a hundred steps, how many carry a return that hands in every block and nothing
+/// else, and how many things before a round each of the two places for one holds.
+#[derive(Clone, Copy)]
+struct Style {
+    forward: u64,
+    before: u64,
+}
+
+/// The styles a rollout is drawn in: going forward, mixed, and doing much beside the rounds.
+const STYLES: [Style; 3] = [
+    Style {
+        forward: 85,
+        before: 10,
+    },
+    Style {
+        forward: 40,
+        before: 40,
+    },
+    Style {
+        forward: 10,
+        before: 70,
+    },
+];
+
+/// How many rounds a history of a kept state may have carried out: a state deeper than this is not kept, and a rollout
+/// ends at it, so that what is kept stays small.
+const MAX_DEPTH: usize = 120;
 
 /// A return that hands in every block its cell may write, and deals with all that ran it, with a value for a choice
 /// drawn.
-fn forward(rng: &mut Rng) -> Carry {
+fn forward_return(rng: &mut Rng) -> Carry {
     Carry {
         hand: Hand::All,
         pick: if rng.chance(50) { Pick::First } else { Pick::Last },
