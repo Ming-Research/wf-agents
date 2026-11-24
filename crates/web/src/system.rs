@@ -4,6 +4,10 @@
 //! went past the lines of their history, and what is under way now against its own (crate `driver`, module `judged`).
 //! What else goes on now the view reads from the items and the engine, as the bar and the works do.
 //!
+//! `GET /api/v1/system/under-way` gives, apart from it and light to read, what the calls of each agent's round under way
+//! have come to so far against the lines the run guard judges the round by ([`Going`]): it changes with every call, which
+//! no record of a work holds, and the page reads it each time the engine's stream of changes says `going`.
+//!
 //! The span is the weeks the page gives, `weeks`: when each begins, in milliseconds since 1970, the earliest first. The
 //! page cuts them at Monday's midnight in the owner's time zone, which knows when its clocks change and the engine does
 //! not. The span begins with the first and lasts until now; with no week given, it is all time, not cut into weeks. A
@@ -85,7 +89,7 @@ pub struct System {
     #[serde(default)]
     pub past: Vec<Past>,
     /// The rounds and the calls of tools under way now, the oldest first, each with how long it has taken so far
-    /// against its line, and an agent's round with the other lines it is judged by as it runs.
+    /// against its line.
     #[serde(default)]
     pub under_way: Vec<UnderWay>,
     /// What the merged checks of each project say of how long its tests and jobs took: the tests that got slower, the
@@ -461,8 +465,7 @@ impl Past {
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum UnderWay {
     /// A round of a run of the cell, which began then: how long it has taken so far against its line, where enough
-    /// rounds tell one, for an agent's round the other lines it is judged by as it runs, and how much longer it is
-    /// expected to take.
+    /// rounds tell one, and how much longer it is expected to take.
     Round {
         work: u64,
         item: u64,
@@ -471,7 +474,6 @@ pub enum UnderWay {
         round: usize,
         began: u64,
         time: Option<Against>,
-        bounds: Option<Bounds>,
         #[serde(default)]
         rest: Option<Rest>,
     },
@@ -499,27 +501,61 @@ impl UnderWay {
     }
 }
 
-/// The lines an agent's round under way is judged by beside its time, each none where too few rounds tell it: the
-/// run guard stops the round where its context grows past both `added` and `rate`, and what it costs is read against
-/// `cost` once it ends.
+/// What the calls to the model of an agent's round under way have come to so far, each measure none before a call
+/// tells it: what `GET /api/v1/system/under-way` gives for each round. The lines are those the run guard judges the
+/// round by, as they were when it began.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Bounds {
-    /// The tokens its context grows by over the round.
-    pub added: Option<Line>,
-    /// The tokens its context grows by for each call after the first.
-    pub rate: Option<Line>,
-    /// What it costs, in millionths of a dollar, among the rounds on the model its try runs on.
-    pub cost: Option<Line>,
+pub struct Going {
+    pub work: u64,
+    pub run: u64,
+    pub round: usize,
+    /// The whole prompt of the latest call, in tokens.
+    pub context: Option<u64>,
+    /// The tokens the context has grown by over the round.
+    pub added: Option<Figure>,
+    /// The tokens the context has grown by for each call after the first, from the second call.
+    pub per_call: Option<Figure>,
+    /// What the calls cost so far, in millionths of a dollar, priced from the calls.
+    pub cost: Option<Figure>,
 }
 
-impl Bounds {
-    fn of(lines: &driver::history::Lines) -> Bounds {
-        Bounds {
-            added: lines.added.as_ref().map(Line::of),
-            rate: lines.rate.as_ref().map(Line::of),
-            cost: lines.cost.as_ref().map(Line::of),
+/// A measure of a round under way, with the line it is judged by where the history gives one, and whether it is past
+/// it, as the driver judges it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Figure {
+    pub value: u64,
+    pub line: Option<Line>,
+    pub past: bool,
+}
+
+impl Figure {
+    fn of(figure: &driver::Figure) -> Figure {
+        Figure {
+            value: figure.value.round() as u64,
+            line: figure.line.as_ref().map(Line::of),
+            past: figure.past(),
         }
+    }
+}
+
+impl Going {
+    /// What each agent's round under way has come to, by its work, run and round.
+    pub fn of(driver: &Driver) -> Vec<Going> {
+        let mut going: Vec<Going> = (driver.rounds_come_to().into_iter())
+            .map(|(work, run, round, going)| Going {
+                work: work.0,
+                run: run.0,
+                round,
+                context: going.context,
+                added: going.added.as_ref().map(Figure::of),
+                per_call: going.per_call.as_ref().map(Figure::of),
+                cost: going.cost.as_ref().map(Figure::of),
+            })
+            .collect();
+        going.sort_by_key(|g| (g.work, g.run, g.round));
+        going
     }
 }
 
@@ -694,7 +730,6 @@ impl System {
                             round: round.number,
                             began: round.began,
                             time: shown.time,
-                            bounds: of_round.and_then(|judged| judged.lines.as_ref()).map(Bounds::of),
                             rest: of_round.and_then(|judged| judged.rest).map(Rest::of),
                         }),
                         Some(ended) if within(ended) => {
@@ -868,6 +903,15 @@ fn models(kept: Kept<'_>) -> BTreeMap<(u64, usize), String> {
     (kept.work.ran.iter())
         .map(|ran| ((ran.run.0, ran.round), ran.on.model.clone()))
         .collect()
+}
+
+/// Answers `GET /api/v1/system/under-way`: what the calls of each agent's round under way have come to so far. Read from
+/// what the engine keeps in memory, so that a page reads it each time it is told it changed ([`service::Changed`]).
+pub(crate) async fn under_way(State(handle): State<Handle>) -> Response {
+    match handle.read(Going::of).await {
+        Ok(going) => Json(going).into_response(),
+        Err(refusal) => refused(&refusal),
+    }
 }
 
 /// Answers `GET /api/v1/system`.

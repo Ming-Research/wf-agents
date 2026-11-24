@@ -101,6 +101,13 @@ export function mergeAverages(merged: Merged[]): { took: number | null; usdMicro
   return { took, usdMicros: merged.reduce((sum, m) => sum + m.spent.usdMicros, 0) / merged.length };
 }
 
+/// What the span spent in all, the rounds that ended in it and the keep-warm pings, whatever they were for: the works that
+/// did not merge, the rounds sent back and the rounds that failed among them, for each work merged in it; none where
+/// none merged. What the merged works cost themselves is [`mergeAverages`]'s, over their whole lives.
+export function spentPerMerge(spent: Spent, merged: Merged[]): number | null {
+  return merged.length === 0 ? null : spent.usdMicros / merged.length;
+}
+
 /// What a list of things that took something took, together.
 export function summed(list: { spent: Spent | null }[]): Spent {
   const sum: Spent = {

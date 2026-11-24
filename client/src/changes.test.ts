@@ -60,6 +60,23 @@ describe('the stream of changes', () => {
     expect(streams).toHaveLength(1);
   });
 
+  // What the engine says of the calls of the rounds under way is `going`, which no change of a work's records says: it is
+  // heard as the engine says it, and left out of what does not say it.
+  it('tells that what the rounds under way have come to changed where the engine says so, and says nothing of it else', () => {
+    const { streams, heard } = opened();
+    streams[0].open();
+    streams[0].send(
+      JSON.stringify({ works: [], items: false, copies: false, accounts: false, observations: false, going: true }),
+    );
+    streams[0].send(
+      JSON.stringify({ works: [], items: false, copies: false, accounts: false, observations: false, going: false }),
+    );
+    expect(heard).toEqual([
+      { works: [], items: false, copies: false, accounts: false, observations: false, going: true },
+      { works: [], items: false, copies: false, accounts: false, observations: false },
+    ]);
+  });
+
   it('opens the stream again itself once the browser gave up on it, and reads everything then', () => {
     vi.useFakeTimers();
     const { streams, heard } = opened();

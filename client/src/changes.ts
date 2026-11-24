@@ -21,6 +21,7 @@ function changedOf(data: string): Heard {
       copies: c.copies ?? true,
       accounts: c.accounts ?? true,
       observations: c.observations ?? true,
+      ...(c.going === true ? { going: true } : {}),
     };
   } catch {
     return 'everything';

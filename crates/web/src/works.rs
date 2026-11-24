@@ -2055,7 +2055,9 @@ pub struct Added {
 
 /// Something happened: these works grew, an item was added where `items`, the copies of the database changed where
 /// `copies`, the accounts, their usage or their usage limits changed where `accounts`, and an observation was added or
-/// changed where `observations`.
+/// changed where `observations`. What an agent's round under way has come to so far changed where `going`: no work's
+/// records hold it, and a notice that holds it alone names no work and sets no other flag, so that the page's parts that
+/// read a work, the items or the engine have nothing to read for it; only `GET /api/v1/system/under-way` shows it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Changed {
@@ -2064,6 +2066,8 @@ pub struct Changed {
     pub copies: bool,
     pub accounts: bool,
     pub observations: bool,
+    #[serde(default)]
+    pub going: bool,
 }
 
 /// Why something asked of the interface was refused, in words.
@@ -3318,6 +3322,7 @@ impl Changed {
             copies: changed.copies,
             accounts: changed.accounts,
             observations: changed.observations,
+            going: changed.going,
         }
     }
 }

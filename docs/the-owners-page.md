@@ -65,26 +65,15 @@ and those of its look.
 12. The view of the system shows how the whole system stands, in parts: what goes on now, what was produced, what was
     spent, what was wasted, and how well it runs. The owner wants every side of it, not the spending alone.
 
-13. The rounds under way are listed, each with how large its context is, what it added and what it cost, beside the
-    bounds the engine judges it by as it runs, and the list is kept up to date while they run: whether a round needs a
-    look shows only against its own bounds (principle judged-by-own-history), which a card of sums cannot show.
-
-14. The view is all of the measures, each line of one watched by a monitor of its own, the simplest the mean and the
+13. The view is all of the measures, each line of one watched by a monitor of its own, the simplest the mean and the
     spread of seven days, and a spike raises a warning. There is no part for what is out of the ordinary: the watching
     is on the line itself, and a page where everything takes long to find is of no use.
 
-15. What each merged item cost is shown together with what the merged work itself cost: the two costs of one merge in
-    two parts read as one number that goes against itself.
-
-16. The lines of every chart of numbers take their colours in one order of hues (Article 8).
-
-17. The span of time the numbers of a view are for is chosen by one switch, the same in every view: the spans stand
-    side by side as links, the one in use marked, and it is kept in the address. A span is read against the ones
-    beside it.
+14. The lines of every chart of numbers take their colours in one order of hues (Article 8).
 
 ## The settings
 
-18. Each part of the settings shows first what the page can change and then what only the file can; of the project's
+15. Each part of the settings shows first what the page can change and then what only the file can; of the project's
     constitution only its path is written, since its words are the project's own. The owner governs the whole
     configuration in one place and must see at a glance which is which. The accounts the agents run under stand with
     what the page changes, though they are the engine's own state and no key of the file: they change at once, where
@@ -92,5 +81,5 @@ and those of its look.
     above the accounts, with the engine's latest moves listed below them; it acts when pressed, as the accounts do. A
     page of its own for the levels alone was turned down.
 
-19. In a form written as a whole by one saving, nothing takes effect before it is saved, so what can be on or off
+16. In a form written as a whole by one saving, nothing takes effect before it is saved, so what can be on or off
     there is a box to tick and not a switch that acts when pressed; and a list the owner edits row by row is a table.
