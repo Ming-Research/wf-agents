@@ -400,6 +400,11 @@ impl Agents {
 pub struct Declaration {
     /// The directory of the project's checkout that holds its design tree, from the root of the checkout.
     pub tree: String,
+    /// How an entry of the design tree is found and referred to, as a declaration written before the tree's format
+    /// became the flow's gave it, which an engine installed before that still reads. This engine does not use it: it is
+    /// refused where it differs from the flow's format, so that it cannot be a second one.
+    #[serde(default)]
+    pub tree_format: Option<TreeFormat>,
     /// The project's files, by the name a part of a session gives them.
     pub files: BTreeMap<String, ProjectFile>,
     /// The project's settings, which the words sent to the agents name as `project.<name>`.
@@ -471,11 +476,20 @@ impl Declaration {
         }
     }
 
-    /// What is wrong with the declaration whatever the project's host is, each in words with its key: a file the
-    /// session names that it does not have, a merge method the host does not take, a check that names no command, and a
-    /// workflow's time limit that is not a time.
+    /// What is wrong with the declaration whatever the project's host is, each in words with its key: a format of the
+    /// design tree that is not the flow's, a file the session names that it does not have, a merge method the host
+    /// does not take, a check that names no command, and a workflow's time limit that is not a time.
     pub fn faults(&self, beside: &Agents) -> Vec<String> {
         let mut faults = Vec::new();
+        if let Some(format) = &self.tree_format
+            && *format != beside.acts.tree.format
+        {
+            let tree = beside.root.join(AGENTS_DIR).join(TREE_FILE);
+            faults.push(format!(
+                "tree_format: is not the format of the design tree in [format] of {}, which is the same for every project",
+                tree.display()
+            ));
+        }
         for part in &beside.session.parts {
             if let Some(name) = part.file()
                 && !self.files.contains_key(name)

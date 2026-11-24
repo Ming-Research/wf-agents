@@ -602,15 +602,34 @@ fn a_format_of_the_tree_that_could_find_no_entry_is_refused_as_the_files_are_rea
     assert_eq!(format.referred("rule keep-it"), None, "no kind of the format");
 }
 
-// The tree's format is not the project's: a declaration that gives one is refused, as one that gives any field the
-// engine does not know, with where it was read.
+// The tree's format is the flow's, not the project's. A declaration written before that still gives one, which an
+// engine installed before reads: it is accepted where it is the flow's own format, so that it is no second one, and
+// refused, with where it was read, where it differs.
 #[test]
-fn a_declaration_that_gives_a_format_of_the_tree_is_refused_with_where_it_was_read() {
+fn a_declaration_that_gives_a_format_of_the_tree_is_accepted_where_it_is_the_flows_and_refused_where_it_differs() {
     let text = declaration_text();
-    let given = "\n[tree_format]\nkinds = []\nheading = \"\"\nreference = \"\"\n";
-    let refused = declared(&format!("{text}{given}")).expect_err("the format is the tree's rules', not the project's");
+    let same = "\n[tree_format]\nkinds = [{ kind = \"principle\", dir = \"principles/\" }, { kind = \"decision\", dir = \"decisions/\" }]\nheading = \"### {kind} {name}\"\nreference = \"{kind} {name}\"\n";
+    let flows = agents::read(&beside()).unwrap().acts.tree.format;
+    assert_eq!(
+        flows.heading, "### {kind} {name}",
+        "the format this test gives is the flow's"
+    );
+    declared(&format!("{text}{same}")).expect("a format that is the flow's is taken");
+    let other = same.replace("### {kind} {name}", "## {kind}: {name}");
+    let refused = declared(&format!("{text}{other}")).expect_err("a format that is not the flow's is refused");
     assert!(refused.starts_with("main:wf-agents.toml: "), "{refused}");
     assert!(refused.contains("tree_format"), "{refused}");
+}
+
+// This repository's own declaration, which still holds the items the installed engine reads, is read with the flow's
+// files and has no fault.
+#[test]
+fn the_declaration_of_this_repository_is_read_with_the_files_beside_its_flows() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let text = fs::read_to_string(root.join("wf-agents.toml")).unwrap();
+    let beside = agents::read(&root.join("flow")).expect("the real files beside the flows are read");
+    let read = Declaration::read(&text, "main:wf-agents.toml", &beside).expect("the declaration is read");
+    assert!(read.tree_format.is_some() && read.files.contains_key("tree_rules"));
 }
 
 #[test]

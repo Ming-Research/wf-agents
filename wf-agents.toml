@@ -10,6 +10,16 @@
 # flow's files).
 tree = "design/"
 
+# Transitional: how an entry is found and referred to, as the engine installed before the tree's format became the
+# flow's reads it from here. This engine does not use it and refuses one that differs from `agents/tree.toml`. It goes,
+# with `files.tree_rules` and `project.tree_check` below, `design/README.md`, `design/lint.py` and the measurement
+# `measure/design-lint`, in the change that follows the install of the build that carries the tree's rules and its
+# check, which puts the refusal of this table back.
+[tree_format]
+kinds = [{ kind = "principle", dir = "principles/" }, { kind = "decision", dir = "decisions/" }]
+heading = "### {kind} {name}"
+reference = "{kind} {name}"
+
 # The project's guide for its agents.
 [files.guide]
 path = "AGENTS.md"
@@ -18,6 +28,11 @@ path = "AGENTS.md"
 [files.constitution]
 path = "design/constitution.md"
 
+# Transitional, as `tree_format` above: the rules of the project's design tree, which the engine installed before the
+# flow gave them reads from here. This engine gives the rules from `agents/tree_rules.md` and names no such file.
+[files.tree_rules]
+path = "design/README.md"
+
 [project]
 # Where an agent keeps what it makes for research, committed.
 research = "research/"
@@ -25,6 +40,9 @@ research = "research/"
 measure_names = '''
 A measurement is named by its file in `measure/`: `design-lint` times `measure/design-lint`. A name holds letters, digits,
 `_` and `-`.'''
+# Transitional, as `tree_format` above: the command that checks the design tree's files, which the I1 task of the engine
+# installed before the engine ran the check names. This engine runs the check itself and names no such setting.
+tree_check = "python3 design/lint.py"
 # How an agent names a test to `run_tests`, by the name the project's test runners give it: one phrase, which the
 # tool's words follow the setting's name with.
 test_names = "a Rust test as nextest names it, such as `tests::a_row`, with no test binary; a page test as vitest lists it, its describes and its title joined by ` > `; a binary, module, file or describe alone names none"
