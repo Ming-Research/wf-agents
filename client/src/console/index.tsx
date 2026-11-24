@@ -78,7 +78,7 @@ function idle(then: () => void) {
 /// The order of the list of projects as the browser keeps it, or none.
 function keptOrder(): string[] {
   try {
-    const v: unknown = JSON.parse(read(CHOICE_KEYS.consoleProjects) ?? '[]');
+    const v: unknown = JSON.parse(read(CHOICE_KEYS.projectOrder) ?? '[]');
     return Array.isArray(v) ? v.filter((p): p is string => typeof p === 'string') : [];
   } catch {
     return [];
@@ -293,12 +293,17 @@ export function ConsolePage({
     // To try the drawing from the browser's console on the dev server, and for the tests: `consoleScene` is the scene
     // shown, and `consoleScene.show(consoleFake(2000))` draws a made-up tree in its place.
     if (import.meta.env.DEV) Object.assign(window, { consoleScene: s });
+    s.setDetail(overviewNow.current ? smallNow.current : 1);
     setMapWidth(s.mapWidth());
     s.select(s.selectedId());
     selectNamed();
   };
   // While the trees move: till then the maps stay away.
   const moving = useRef<number | null>(null);
+  // How small each tree stands while the overview is open, and the project of the tree just left, which stays seen as
+  // it was drawn while it goes, as the latest render has them.
+  const smallNow = useRef(1);
+  const leftNow = useRef<string | null>(null);
   // A tree not shown is also drawn once each time it changes, one at a time while the browser has nothing else to do,
   // so that as the overview opens every tree has its first frame drawn already.
   const stale = useRef(new Set<string>());
@@ -321,11 +326,20 @@ export function ConsolePage({
     };
     idle(next);
   };
-  // While the overview is closed, only the tree shown draws its frames. While it is open, no tree draws frames of its
-  // own: the page draws them in turn (below).
+  // While the overview is closed, only the tree shown draws its frames, as finely as the screen. While it is open, no
+  // tree draws frames of its own: the page draws them in turn (below). Every tree but the one filling the room, and the
+  // one going while it goes, is drawn as finely as it stands small in the overview, so that drawing it there costs no
+  // more than what of it is seen. The tree shown comes in from nothing whenever its detail changes, and is drawn by
+  // its next frame; another is drawn again while the browser has nothing else to do.
   const showScenes = () => {
-    for (const [name, s] of scenes.current)
-      s.setShown(activeNow.current && name === projectNow.current && !overviewNow.current);
+    const all = overviewNow.current;
+    for (const [name, s] of scenes.current) {
+      const shown = name === projectNow.current;
+      s.setShown(activeNow.current && shown && !all);
+      if (shown && !all) s.setDetail(1);
+      else if (name !== leftNow.current && s.setDetail(smallNow.current) && !shown) stale.current.add(name);
+    }
+    paintStale();
   };
   // The tree just left, by its place in the list, which stays seen while it goes; -1 for none.
   const [left, setLeft] = useState(-1);
@@ -377,6 +391,7 @@ export function ConsolePage({
     moving.current = window.setTimeout(() => {
       moving.current = null;
       setLeft(-1);
+      leftNow.current = null;
       setFade(null);
       ghosts.current?.replaceChildren();
       showScenes();
@@ -407,6 +422,7 @@ export function ConsolePage({
     const was = projectNow.current;
     if (!choose(name)) return;
     setLeft(was === null ? -1 : projects.indexOf(was));
+    leftNow.current = was;
     planeMoves();
   };
   const showProjectNow = useRef(showProject);
@@ -431,7 +447,7 @@ export function ConsolePage({
   const reorder = (names: string[]) => {
     orderNow.current = names;
     setOrder(names);
-    write(CHOICE_KEYS.consoleProjects, JSON.stringify(names));
+    write(CHOICE_KEYS.projectOrder, JSON.stringify(names));
   };
   // The item the address names, until the tree shows it and it is selected.
   const toSelect = useRef<number | undefined>(named);
@@ -524,6 +540,11 @@ export function ConsolePage({
       ? Math.min(1, (area.width - 2 * OVERVIEW_PAD) / wide, (area.height - 2 * OVERVIEW_PAD) / high)
       : 1;
   const origin = { x: (area.width - wide * small) / 2, y: (area.height - high * small) / 2 };
+  useEffect(() => {
+    smallNow.current = small;
+    showScenes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [small]);
   // While the overview is open, the page draws every tree, each as it stands at that moment, in turn: in each frame of
   // the browser's, for `OVERVIEW_DRAWS_MS` and at least one tree, going on in the next from where it stopped, so that
   // each shows how its project stands within a moment and drawing them all never holds up the page.
@@ -646,6 +667,7 @@ export function ConsolePage({
   useEffect(() => {
     activeNow.current = active;
     showScenes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
 
   useEffect(() => {

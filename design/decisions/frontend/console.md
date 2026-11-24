@@ -136,7 +136,8 @@ Space shows every project's tree at once, small in a grid as near square as fits
 - rejected: an agent proposed the tree shown shrinking into its place in the grid as the overview opens; the owner rejected it, because the motion looked strange, and wanted the trees to fade where they stand.
 
 ### decision the-overview-draws-every-tree-as-it-stands
-While Space shows every tree, the page draws each in turn, a few milliseconds a frame, so that each shows how its project stands within a moment.
+While Space shows every tree, the page draws each in turn, a few milliseconds a frame, as finely as it stands small, so that each shows how its project stands within a moment.
+- rejected: an agent proposed drawing every tree as finely as the screen, so that going to another tree draws it at once; the owner rejected it, because he chose the trees in the overview drawn more often over a quicker going to another tree.
 - rejected: an agent proposed a picture of each tree, drawn once and shown in the overview until its items changed; the owner rejected it, because the overview must show each project's real state with little delay.
 
 ### decision what-stands-over-the-tree-stands-still

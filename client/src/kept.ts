@@ -40,9 +40,10 @@ export const CHOICE_KEYS = {
   consoleShows: 'wf-agents.console-shows',
   /// Which items of the console's tree the owner folded, and which he unfolded.
   consoleFolds: 'wf-agents.console-folds',
-  /// The project whose tree the console shows, and the order of the console's list of projects.
+  /// The project whose tree the console shows.
   consoleProject: 'wf-agents.console-project',
-  consoleProjects: 'wf-agents.console-projects',
+  /// The order of the projects, as the owner drags them in the console's list: every list of projects keeps it.
+  projectOrder: 'wf-agents.project-order',
   /// The tab of the console's item window.
   consoleTab: 'wf-agents.console-window-tab',
   /// The tab of a work's item window, and whether that window is out.

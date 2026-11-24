@@ -1478,6 +1478,18 @@ export class SnapScene {
     return canvas;
   }
 
+  /// How finely the scene draws, as a part of the screen's own pixels: all of them while its tree fills the room, and
+  /// as few as the tree stands small on the screen while the console shows it so, as in its overview, so that a tree
+  /// costs no more to draw than what of it is seen. Says whether that changed: the canvas then stands empty until the
+  /// scene draws its next frame, or is drawn ([`paintOnce`], [`drawNow`]).
+  setDetail(part: number): boolean {
+    const resolution = window.devicePixelRatio * part;
+    const host = this.app.resizeTo;
+    if (!this.ready || this.app.renderer.resolution === resolution || !(host instanceof HTMLElement)) return false;
+    this.app.renderer.resize(host.clientWidth, host.clientHeight, resolution);
+    return true;
+  }
+
   /// Draws the frame of this moment, however long it is since the one before, without waiting for the browser to give
   /// one: the console draws its trees so, in turn, while its overview shows them all.
   drawNow(): void {

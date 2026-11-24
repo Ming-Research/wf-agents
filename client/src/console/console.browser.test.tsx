@@ -1629,7 +1629,7 @@ describe('the console page, with several projects', () => {
     item('Alder').dispatchEvent(new DragEvent('dragover', { dataTransfer: carried, bubbles: true, cancelable: true }));
     await expect.poll(names).toEqual(['Whitefoot', 'Alder', 'Birch', 'wf-agents']);
     item('Whitefoot').dispatchEvent(new DragEvent('dragend', { dataTransfer: carried, bubbles: true }));
-    expect(JSON.parse(localStorage.getItem('wf-agents.console-projects') ?? '[]')).toEqual([
+    expect(JSON.parse(localStorage.getItem('wf-agents.project-order') ?? '[]')).toEqual([
       'Whitefoot',
       'Alder',
       'Birch',
