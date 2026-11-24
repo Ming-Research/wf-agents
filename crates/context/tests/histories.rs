@@ -827,9 +827,9 @@ impl History {
     }
 
     /// Has the cell run: the owner says some words to it, or, where it has none of its own, one block it watches by itself is
-    /// written, by a person or the outside, or by the cell that writes it, run by the owner's words.
-    fn wake(&mut self, reached: &mut Reached, cell: &str) {
-        if self.say_to(cell) {
+    /// written, by a person or the outside, or by the cell that writes it, which is run in the same way, to a depth.
+    fn wake(&mut self, reached: &mut Reached, cell: &str, depth: u8) {
+        if self.say_to(cell) || depth >= 2 {
             return;
         }
         let Some(spec) = self.sim.flow.cells.iter().find(|c| c.id.as_str() == cell) else {
@@ -846,11 +846,9 @@ impl History {
             let writers = (self.sim.flow.blocks.get(&BlockId::from(block.as_str())))
                 .map(|d| d.writers.cells.clone())
                 .unwrap_or_default();
-            for writer in writers {
-                if spoken::words_of(&self.sim.flow, &writer).is_some() {
-                    Between::Writes(writer.as_str().to_string(), block).done(self, reached);
-                    return;
-                }
+            if let Some(writer) = writers.first() {
+                Between::Writes(writer.as_str().to_string(), block).done(self, reached, depth + 1);
+                return;
             }
         }
     }
@@ -2366,20 +2364,22 @@ enum Between {
 
 impl Between {
     /// What is done between two rounds, as it needs the work: says whether the work was brought to it.
-    fn done(&self, history: &mut History, reached: &mut Reached) -> bool {
+    fn done(&self, history: &mut History, reached: &mut Reached, depth: u8) -> bool {
         match self {
             Between::Put(block) => history.put(block),
             Between::Words(cell) => return history.say_to(cell),
             Between::Writes(cell, block) => {
                 history.says.insert(cell.clone(), vec![Say::all(&[block.as_str()])]);
-                if !history.say_to(cell) || !history.until_within(reached, cell, LADDER_STEPS) {
+                history.wake(reached, cell, depth);
+                if !history.until_within(reached, cell, LADDER_STEPS) {
                     return false;
                 }
                 history.carry_round(reached);
             }
             Between::Asks(cell) => {
                 history.says.insert(cell.clone(), vec![Say::all(&[]).asking()]);
-                if !history.say_to(cell) || !history.until_within(reached, cell, LADDER_STEPS) {
+                history.wake(reached, cell, depth);
+                if !history.until_within(reached, cell, LADDER_STEPS) {
                     return false;
                 }
                 history.carry_round(reached);
@@ -2395,72 +2395,85 @@ impl Between {
     }
 }
 
-/// How many steps a directed attempt waits for a round of a cell, and how many rounds the attempts at the lines still open
-/// may carry together.
+/// How many steps a directed attempt waits for a round of a cell, how many attempts are made at a line, and how many rounds
+/// the attempts at the lines still open may carry together.
 const LADDER_STEPS: usize = 30;
+const ATTEMPTS: usize = 150;
 const LADDER_ROUNDS: usize = 6000;
 
+/// One attempt of [`between_rounds`].
+struct Attempt {
+    /// The base the work begins from, by its place among them.
+    base: usize,
+    /// Whether the target's round asks for a tool, so that a round of its run goes on.
+    again: bool,
+    /// Where the datum is written: before the first round, between the two, or after the target's own run began.
+    position: u8,
+    /// Whether the line's session is begun anew first.
+    reopen: bool,
+    /// The cell of the line that runs first, by its place among the line's.
+    first: usize,
+    /// How the datum is written, by its place among the ways.
+    way: usize,
+    /// Whether the target is run by the owner's words or what it watches, or by the datum alone.
+    wake: bool,
+}
+
 /// Tries to bring the work to a round that stands in the state of a datum this line says, by what the owner and the outside
-/// do to the datum between two rounds of one line's session: from each base, the line's session is reopened or not, a cell
-/// of the line before the target's, or the target's, runs, and the datum is written before it, after it, or after the
-/// target's own run began, as the owner's words, a person's or the outside's hand, or the cell that writes it; and the
-/// target's round asks for a tool, or does not, so that a round of its run goes on in what the first was sent. A cell the
-/// owner cannot speak to is run by writing what it watches ([`History::wake`]). Every attempt carries its rounds through
-/// the history's own checks, so that all the lines they stand in are reached. The bases share the budget of rounds.
+/// do to the datum between two rounds of one line's session: from one of the bases, the line's session is reopened or not,
+/// a cell of the line runs, and the datum is written before it, after it, or after the target's own run began, as the
+/// owner's words, a person's or the outside's hand, or the cell that writes it; and the target's round asks for a tool, or
+/// does not, so that a round of its run goes on in what the first was sent. A cell the owner cannot speak to is run by
+/// writing what it watches ([`History::wake`]). The attempts are taken in an order that does not depend on where the
+/// work stands, as many as [`ATTEMPTS`] and as the budget of rounds lets. Every attempt carries its rounds through the
+/// history's own checks, so that all the lines they stand in are reached.
 fn between_rounds(bases: &[&History], line: &str, reached: &mut Reached, budget: usize) {
-    let share = budget / bases.len().max(1);
-    for base in bases {
-        let started = reached.rounds;
-        let target = Target::of(&base.sim, line);
-        let Some(datum) = target.datum.clone() else {
-            return;
-        };
-        let flow = &base.sim.flow;
-        let Some(own) = (flow.cells.iter().find(|c| c.id.as_str() == target.cell)).and_then(|c| c.line.clone()) else {
-            return;
-        };
-        let mates: Vec<String> = (flow.cells.iter())
-            .filter(|c| c.line.as_ref() == Some(&own))
-            .map(|c| c.id.as_str().to_string())
-            .collect();
-        let at = mates.iter().position(|m| *m == target.cell).unwrap_or(0);
-        let mut firsts = vec![target.cell.clone()];
-        if at > 0 {
-            firsts.push(mates[at - 1].clone());
-            firsts.push(mates[0].clone());
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let Some(first_base) = bases.first() else {
+        return;
+    };
+    let target = Target::of(&first_base.sim, line);
+    let Some(datum) = target.datum.clone() else {
+        return;
+    };
+    let flow = &first_base.sim.flow;
+    let Some(own) = (flow.cells.iter().find(|c| c.id.as_str() == target.cell)).and_then(|c| c.line.clone()) else {
+        return;
+    };
+    let mut firsts = vec![target.cell.clone()];
+    firsts.extend(
+        (flow.cells.iter())
+            .filter(|c| c.line.as_ref() == Some(&own) && c.id.as_str() != target.cell)
+            .map(|c| c.id.as_str().to_string()),
+    );
+    let mut ways: Vec<Between> = Vec::new();
+    if first_base.scene.writes.iter().any(|w| *w == datum) {
+        ways.push(Between::Put(datum.clone()));
+    }
+    for cell in &flow.cells {
+        if spoken::words_of(flow, &cell.id).is_some_and(|w| w.as_str() == datum) {
+            ways.push(Between::Words(cell.id.as_str().to_string()));
         }
-        firsts.dedup();
-        let mut ways: Vec<Between> = Vec::new();
-        if base.scene.writes.iter().any(|w| *w == datum) {
-            ways.push(Between::Put(datum.clone()));
+        if format!("{}_questions", cell.id.as_str().to_lowercase()) == datum {
+            ways.push(Between::Asks(cell.id.as_str().to_string()));
         }
-        for cell in &flow.cells {
-            if spoken::words_of(flow, &cell.id).is_some_and(|w| w.as_str() == datum) {
-                ways.push(Between::Words(cell.id.as_str().to_string()));
-            }
-            if format!("{}_questions", cell.id.as_str().to_lowercase()) == datum {
-                ways.push(Between::Asks(cell.id.as_str().to_string()));
-            }
+    }
+    if let Some(declared) = flow.blocks.get(&BlockId::from(datum.as_str())) {
+        for writer in &declared.writers.cells {
+            ways.push(Between::Writes(writer.as_str().to_string(), datum.clone()));
         }
-        if let Some(declared) = flow.blocks.get(&BlockId::from(datum.as_str())) {
-            for writer in declared
-                .writers
-                .cells
-                .iter()
-                .filter(|w| spoken::words_of(flow, w).is_some())
-            {
-                ways.push(Between::Writes(writer.as_str().to_string(), datum.clone()));
-            }
-        }
-        let watched = (flow.cells.iter().find(|c| c.id.as_str() == target.cell))
-            .is_some_and(|c| c.watches.iter().any(|t| t.blocks.iter().any(|b| b.as_str() == datum)));
+    }
+    let watched = (flow.cells.iter().find(|c| c.id.as_str() == target.cell))
+        .is_some_and(|c| c.watches.iter().any(|t| t.blocks.iter().any(|b| b.as_str() == datum)));
+    let mut attempts = Vec::new();
+    for base in 0..bases.len() {
         for again in [false, true] {
-            for position in 0..3 {
+            for position in 0..3u8 {
                 for reopen in [false, true] {
-                    for first in &firsts {
-                        for way in &ways {
+                    for first in 0..firsts.len() {
+                        for (way, how) in ways.iter().enumerate() {
                             // A datum written through a cell's round cannot be written while the target's round is awaited.
-                            if position == 2 && way.needs_a_round() {
+                            if position == 2 && how.needs_a_round() {
                                 continue;
                             }
                             for wake in [true, false] {
@@ -2468,56 +2481,75 @@ fn between_rounds(bases: &[&History], line: &str, reached: &mut Reached, budget:
                                 if !wake && (!watched || position == 2) {
                                     continue;
                                 }
-                                if reached.rounds - started > share {
-                                    break;
-                                }
-                                let mut history = (*base).clone();
-                                if reopen {
-                                    history.sim.anew(&own, Why::Owner);
-                                }
-                                let brought = (|| {
-                                    if position == 0 && !way.done(&mut history, reached) {
-                                        return false;
-                                    }
-                                    history.wake(reached, first);
-                                    if !history.until_within(reached, first, LADDER_STEPS) {
-                                        return false;
-                                    }
-                                    history.carry_round(reached);
-                                    if position == 1 && !way.done(&mut history, reached) {
-                                        return false;
-                                    }
-                                    if wake {
-                                        history.wake(reached, &target.cell);
-                                    }
-                                    if position == 2 && !way.done(&mut history, reached) {
-                                        return false;
-                                    }
-                                    if !history.until_within(reached, &target.cell, LADDER_STEPS) {
-                                        return false;
-                                    }
-                                    if again {
-                                        history.forced = Some(vec![Forced::Ask(Ask::Tool {
-                                            name: "query".to_string(),
-                                            input: "x".to_string(),
-                                        })]);
-                                        history.carry_round(reached);
-                                        history.forced = None;
-                                        return history.until_within(reached, &target.cell, LADDER_STEPS);
-                                    }
-                                    true
-                                })();
-                                if brought {
-                                    history.carry_round(reached);
-                                }
-                                if reached.real.contains(line) {
-                                    return;
-                                }
+                                attempts.push(Attempt {
+                                    base,
+                                    again,
+                                    position,
+                                    reopen,
+                                    first,
+                                    way,
+                                    wake,
+                                });
                             }
                         }
                     }
                 }
             }
+        }
+    }
+    let mut hasher = DefaultHasher::new();
+    line.hash(&mut hasher);
+    let mut rng = Rng::new(hasher.finish());
+    for i in (1..attempts.len()).rev() {
+        attempts.swap(i, rng.below(i + 1));
+    }
+    let started = reached.rounds;
+    for attempt in attempts.into_iter().take(ATTEMPTS) {
+        if reached.rounds - started > budget {
+            return;
+        }
+        let mut history = bases[attempt.base].clone();
+        if attempt.reopen {
+            history.sim.anew(&own, Why::Owner);
+        }
+        let (first, way) = (&firsts[attempt.first], &ways[attempt.way]);
+        let brought = (|| {
+            if attempt.position == 0 && !way.done(&mut history, reached, 0) {
+                return false;
+            }
+            history.wake(reached, first, 0);
+            if !history.until_within(reached, first, LADDER_STEPS) {
+                return false;
+            }
+            history.carry_round(reached);
+            if attempt.position == 1 && !way.done(&mut history, reached, 0) {
+                return false;
+            }
+            if attempt.wake {
+                history.wake(reached, &target.cell, 0);
+            }
+            if attempt.position == 2 && !way.done(&mut history, reached, 0) {
+                return false;
+            }
+            if !history.until_within(reached, &target.cell, LADDER_STEPS) {
+                return false;
+            }
+            if attempt.again {
+                history.forced = Some(vec![Forced::Ask(Ask::Tool {
+                    name: "query".to_string(),
+                    input: "x".to_string(),
+                })]);
+                history.carry_round(reached);
+                history.forced = None;
+                return history.until_within(reached, &target.cell, LADDER_STEPS);
+            }
+            true
+        })();
+        if brought {
+            history.carry_round(reached);
+        }
+        if reached.real.contains(line) {
+            return;
         }
     }
 }
