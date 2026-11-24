@@ -86,6 +86,12 @@ impl Repo {
 
 const WORK: WorkNumber = WorkNumber(1);
 
+/// The item and the work whose commits these are.
+pub(crate) const WHOSE: Whose = Whose {
+    item: store::ItemNumber(36),
+    work: WORK,
+};
+
 /// The name of the work's merge.
 const NAME: &str = "Say goodbye as well";
 
@@ -263,7 +269,7 @@ async fn the_merge_puts_the_checked_commit_on_main_once() {
     let repo = Repo::new("true");
     let started = start(&repo.project, &repo.place(WORK), "main", "main").await.unwrap();
     let head = commit(&started.place.dir, "farewell.txt", "Bye.\n");
-    let merged = merge(&repo.project, &repo.place(WORK), NAME, Some(&head))
+    let merged = merge(&repo.project, &repo.place(WORK), NAME, WHOSE, Some(&head))
         .await
         .expect("the work merges");
     assert_eq!(merged, run(&repo.project.repo, &["rev-parse", "main"]));
@@ -278,8 +284,13 @@ async fn the_merge_puts_the_checked_commit_on_main_once() {
         NAME,
         "named by the work's merge"
     );
+    assert_eq!(
+        run(&repo.project.repo, &["log", "-1", "--format=%B", "main"]),
+        format!("{NAME}\n\nItem: 36\nWork: W1"),
+        "ending with the lines that name its item and its work"
+    );
     assert!(repo.project.repo.join("farewell.txt").is_file());
-    let again = merge(&repo.project, &repo.place(WORK), NAME, Some(&head))
+    let again = merge(&repo.project, &repo.place(WORK), NAME, WHOSE, Some(&head))
         .await
         .expect("merged again");
     assert_eq!(again, merged);
@@ -291,7 +302,7 @@ async fn the_merge_refuses_a_branch_moved_on_from_what_was_checked() {
     let started = start(&repo.project, &repo.place(WORK), "main", "main").await.unwrap();
     let checked = commit(&started.place.dir, "farewell.txt", "Bye.\n");
     commit(&started.place.dir, "later.txt", "Later.\n");
-    let refused = merge(&repo.project, &repo.place(WORK), NAME, Some(&checked))
+    let refused = merge(&repo.project, &repo.place(WORK), NAME, WHOSE, Some(&checked))
         .await
         .expect_err("refused");
     let refused = failed(refused);
@@ -310,7 +321,7 @@ async fn the_merge_runs_no_hook_of_the_repository() {
     std::fs::write(&hook, "#!/bin/sh\nexit 1\n").unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
-    merge(&repo.project, &repo.place(WORK), NAME, Some(&head))
+    merge(&repo.project, &repo.place(WORK), NAME, WHOSE, Some(&head))
         .await
         .expect("the hook is not run");
 }
@@ -320,7 +331,7 @@ async fn the_merge_needs_the_checkout_on_main() {
     let repo = Repo::new("true");
     start(&repo.project, &repo.place(WORK), "main", "main").await.unwrap();
     run(&repo.project.repo, &["switch", "-q", "-c", "elsewhere"]);
-    let refused = merge(&repo.project, &repo.place(WORK), NAME, None)
+    let refused = merge(&repo.project, &repo.place(WORK), NAME, WHOSE, None)
         .await
         .expect_err("the merge is refused");
     let refused = failed(refused);
@@ -359,7 +370,7 @@ async fn the_merge_refuses_a_repository_whose_configuration_names_a_program() {
         let started = start(&repo.project, &repo.place(WORK), "main", "main").await.unwrap();
         let head = commit(&started.place.dir, "farewell.txt", "Bye.\n");
         run(&repo.project.repo, &["config", key, value]);
-        let refused = merge(&repo.project, &repo.place(WORK), NAME, Some(&head))
+        let refused = merge(&repo.project, &repo.place(WORK), NAME, WHOSE, Some(&head))
             .await
             .expect_err(key);
         let refused = failed(refused);
@@ -413,7 +424,7 @@ async fn an_allowed_key_lets_the_work_start_and_merge() {
         .await
         .expect("allowed");
     let head = commit(&started.place.dir, "farewell.txt", "Bye.\n");
-    merge(&repo.project, &repo.place(WORK), NAME, Some(&head))
+    merge(&repo.project, &repo.place(WORK), NAME, WHOSE, Some(&head))
         .await
         .expect("allowed");
 }
@@ -545,4 +556,60 @@ async fn untracked_names_a_directory_with_a_tracked_file_by_its_files_and_a_name
     std::fs::write(dir.join("out dir/one"), "1\n").unwrap();
     assert_eq!(untracked(dir).await.unwrap(), "my notes.txt\nout dir/\nsrc/extra.txt");
     assert_eq!(uncommitted(dir).await.unwrap(), "");
+}
+
+// The engine's merge of main into a work's branch ends with the same two lines as every other commit of the work, and
+// is known as the engine's by its whole message: a commit by the same address with the same first line and another
+// body is not its merge.
+#[tokio::test]
+async fn the_checks_merge_of_main_ends_with_the_lines_and_is_known_as_the_engines_by_its_whole_message() {
+    let repo = Repo::new("true");
+    let started = start(&repo.project, &repo.place(WORK), "main", "main").await.unwrap();
+    commit(&started.place.dir, "farewell.txt", "Bye.\n");
+    let main = commit(&repo.project.repo, "other.txt", "Other.\n");
+    let dir = &started.place.dir;
+
+    let (made, ours) = take_in(dir, &main, &repo.project, WHOSE).await.unwrap();
+    assert!(ours, "the check made the commit");
+    let said = format!("Merge main at {main} into the work's branch\n\nItem: 36\nWork: W1");
+    assert_eq!(run(dir, &["log", "-1", "--format=%B"]), said);
+    assert_eq!(run(dir, &["rev-parse", "HEAD"]), made);
+
+    // Given again after the engine stopped, it finds its own merge and makes no other.
+    let again = take_in(dir, &main, &repo.project, WHOSE).await.unwrap();
+    assert_eq!(again, (made.clone(), true));
+
+    // The same first line with another body is no merge of the engine's.
+    run(
+        dir,
+        &[
+            "commit",
+            "-q",
+            "--amend",
+            "-m",
+            &format!("Merge main at {main} into the work's branch"),
+        ],
+    );
+    let other = run(dir, &["rev-parse", "HEAD"]);
+    assert_eq!(take_in(dir, &main, &repo.project, WHOSE).await.unwrap(), (other, false));
+}
+
+// The messages of the work's own commits are what the squash that merges it gathers: its merges of main are left out.
+#[tokio::test]
+async fn the_works_messages_are_those_of_its_own_commits_oldest_first_without_the_merges() {
+    let repo = Repo::new("true");
+    let started = start(&repo.project, &repo.place(WORK), "main", "main").await.unwrap();
+    let dir = &started.place.dir;
+    commit(dir, "first.txt", "1\n");
+    let main = commit(&repo.project.repo, "other.txt", "Other.\n");
+    take_in(dir, &main, &repo.project, WHOSE).await.unwrap();
+    let head = commit(dir, "second.txt", "2\n");
+    let said = work_messages(&repo.project.repo, &main, &head).await.unwrap();
+    assert_eq!(said, ["Write first.txt", "Write second.txt"]);
+    assert!(
+        work_messages(&repo.project.repo, &head, &head)
+            .await
+            .unwrap()
+            .is_empty()
+    );
 }

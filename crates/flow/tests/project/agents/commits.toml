@@ -1,6 +1,6 @@
 # The commits the engine makes in the project's repository, which the agents see in its history: who they are by, and
-# the words of each. The engine knows a merge of main as its own by this address and its words, so that a merge made
-# before it stopped is not made again.
+# the words of each. The engine knows a merge of main as its own by this address and its whole message, so that a merge
+# made before it stopped is not made again.
 name = "wf-agents"
 email = "wf-agents@localhost"
 
@@ -16,3 +16,7 @@ check = "Merge {main} at {head} into the work's branch"
 merge = "Merge {branch}"
 # The name of a work's merge, where the work has written none.
 unnamed = "Work {work}"
+# The two lines every commit of a work ends with. Filled in a run: `{item_number}` the item's number alone, `{work}` the
+# work's number as it is written everywhere.
+item_line = "Item: {item_number}"
+work_line = "Work: {work}"

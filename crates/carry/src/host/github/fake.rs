@@ -87,6 +87,7 @@ pub(crate) enum Asked {
         head: String,
         method: String,
         title: String,
+        message: String,
     },
     Delete(String),
     Dispatch {
@@ -327,9 +328,9 @@ fn answered(why: &str) -> Failed {
     }
 }
 
-/// Squashes the commit onto main in the bare repository, as GitHub's squash merge does, by a commit of this title, and
-/// gives the new head.
-fn squash(bare: &std::path::Path, head: &str, title: &str) -> Result<String, String> {
+/// Squashes the commit onto main in the bare repository, as GitHub's squash merge does, by a commit of this title and
+/// message, and gives the new head.
+fn squash(bare: &std::path::Path, head: &str, title: &str, message: &str) -> Result<String, String> {
     let git = |args: &[&str]| -> Result<String, String> {
         let output = std::process::Command::new("git")
             .arg("-C")
@@ -347,7 +348,12 @@ fn squash(bare: &std::path::Path, head: &str, title: &str) -> Result<String, Str
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
     };
     let main = git(&["rev-parse", "refs/heads/main"])?;
-    let squashed = git(&["commit-tree", &format!("{head}^{{tree}}"), "-p", &main, "-m", title])?;
+    let tree = format!("{head}^{{tree}}");
+    let mut args = vec!["commit-tree", &tree, "-p", &main, "-m", title];
+    if !message.is_empty() {
+        args.extend(["-m", message]);
+    }
+    let squashed = git(&args)?;
     git(&["update-ref", "refs/heads/main", &squashed])?;
     Ok(squashed)
 }
@@ -420,13 +426,14 @@ impl Api for Fake {
         Ok(pull)
     }
 
-    async fn merge(&self, number: u64, head: &str, method: &str, title: &str) -> Result<String, Failed> {
+    async fn merge(&self, number: u64, head: &str, method: &str, title: &str, message: &str) -> Result<String, Failed> {
         let mut kept = self.kept();
         kept.asked.push(Asked::Merge {
             number,
             head: head.to_string(),
             method: method.to_string(),
             title: title.to_string(),
+            message: message.to_string(),
         });
         if let Some(why) = &kept.refuses {
             return Err(answered(why));
@@ -442,7 +449,7 @@ impl Api for Fake {
                 "HTTP 409: Head branch was modified. Review and try the merge again.",
             ));
         }
-        let merged = squash(&self.bare, head, title)?;
+        let merged = squash(&self.bare, head, title, message)?;
         pull.state = State::Merged;
         pull.merge_commit = Some(merged.clone());
         Ok(merged)
