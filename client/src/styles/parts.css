@@ -713,7 +713,8 @@ textarea:disabled {
 }
 
 /* A section of the item's window, in every tab of it: its head is its name in the accent, strong, with a line after it
-   to the window's edge, which folds the section away at a press; under it, what the section holds. */
+   to the window's edge, which folds the section away at a press; under it, what the section holds. The head of a
+   project's group in a list (`.project-fold`) is drawn as this head is. */
 .cw-fold {
   margin-bottom: var(--space-12);
 }
@@ -724,7 +725,8 @@ textarea:disabled {
   box-shadow: 0 0 var(--glow-blur) var(--glow-spread) color-mix(in srgb, var(--accent) var(--glow-strength), transparent);
 }
 
-.cw-fold-head {
+.cw-fold-head,
+.project-fold {
   display: flex;
   align-items: center;
   gap: var(--space-8);
@@ -745,25 +747,65 @@ textarea:disabled {
 }
 
 /* The line after the name, to the edge. */
-.cw-fold-head::after {
+.cw-fold-head::after,
+.project-fold::after {
   content: '';
   flex: 1;
   height: var(--hairline);
   background: var(--head);
 }
 
-.cw-fold-sign {
+.cw-fold-sign,
+.project-fold-sign {
   width: var(--space-12);
 }
 
 .cw-fold-count,
-.cw-fold-note {
+.cw-fold-note,
+.project-count,
+.project-note,
+.project-fold .muted {
   color: var(--muted);
   font-weight: var(--weight);
 }
 
-.cw-fold-note {
+.cw-fold-note,
+.project-note {
   font-size: var(--size-small);
+}
+
+/* The head of a project's group in a list (parts.tsx, `ProjectHead`), outside the group's rows and over its table's
+   head, with room above it that parts it from the group before; the first group's head has less. Its button is a row
+   high, on one line, and set in from the list's edge as far as a cell's words are, so that the name stands over the
+   first column's words; under the pointer it is filled with the accent's tint, as what can be pressed is. Where the
+   row is short of room, the line after the name goes first, then the name, cut at its end. */
+.project-head {
+  padding: var(--space-12) var(--space-8) var(--space-4);
+  font-size: var(--size-body);
+  font-weight: var(--weight-strong);
+}
+
+.project-group:first-child > .project-head {
+  padding-top: var(--space-4);
+}
+
+.project-fold {
+  height: var(--row);
+  margin: 0;
+  padding: 0 var(--space-4);
+  border-radius: var(--corner);
+  white-space: nowrap;
+  transition: background-color var(--hover-time);
+}
+
+.project-fold:hover {
+  background: var(--accent-tint);
+}
+
+.project-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Label and value pairs. */

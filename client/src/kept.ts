@@ -1,9 +1,9 @@
 // What the owner chose of how a view shows, kept in this browser so that it stands when the view is left and shown
 // again and when the page is loaded again: which of a switch's choices, whether a window is out, the order of a list,
-// which items of a tree are folded.
+// which items of a tree are folded, which projects' groups of a list are folded, the order of the projects.
 // Kept only where the browser lets it be: a page that keeps nothing still works, at its first choices. Widths are kept
 // the same way (`sizes.ts`).
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 
 /// What is kept under a key, or none.
 export function read(key: string): string | null {
@@ -51,6 +51,9 @@ export const CHOICE_KEYS = {
   workWindow: 'wf-agents.work-window',
   /// The order of the list of works.
   worksOrder: 'wf-agents.works-order',
+  /// The projects whose group the owner folded in the list of works, and in the observations.
+  worksFolded: 'wf-agents.works-folded',
+  observationsFolded: 'wf-agents.observations-folded',
   /// The span the system's view counts over.
   systemPeriod: 'wf-agents.system-period',
   /// The address each tab of the bar was last at, after this key and the tab's own address.
@@ -127,4 +130,60 @@ function keptFolds(key: string): Map<number, boolean> {
       /^[1-9]\d*$/.test(n) && (f === 'folded' || f === 'unfolded') ? [[Number(n), f === 'folded']] : [],
     ),
   );
+}
+
+/// Which groups of a list grouped by project the owner folded, by their project, none standing for the group of what
+/// belongs to no project; a group he never folded is open, a project the list comes to have later too. Kept under `key`
+/// as a list in JSON of the projects folded; what was kept there that is no such list is taken as nothing kept, and an
+/// entry of the list that is neither a name nor none is left out.
+export function useKeptFoldedGroups(key: string) {
+  const [value, setValue] = useState<ReadonlySet<string | null>>(() => keptGroups(key));
+  const turn = useCallback(
+    (project: string | null) =>
+      setValue((was) => {
+        const now = new Set(was);
+        if (now.has(project)) now.delete(project);
+        else now.add(project);
+        write(key, now.size > 0 ? JSON.stringify([...now]) : null);
+        return now;
+      }),
+    [key],
+  );
+  return [value, turn] as const;
+}
+
+/// The order of the projects the owner set by dragging them in the console, by their names, kept under
+/// `CHOICE_KEYS.projectOrder` as a list in JSON, which the console writes. It is read again at each drawing of the part
+/// that asks, so that an order changed in the console stands the next time a list is drawn, and worked out again only
+/// where what is kept changed. What was kept there that is no such list is taken as no order, and an entry of it that
+/// is no name is left out.
+export function useKeptProjectOrder(): readonly string[] {
+  const kept = read(CHOICE_KEYS.projectOrder);
+  return useMemo(() => projectOrderOf(kept), [kept]);
+}
+
+/// The order of the projects as it is kept, as `useKeptProjectOrder` reads it.
+function projectOrderOf(kept: string | null): string[] {
+  if (kept === null) return [];
+  let order: unknown;
+  try {
+    order = JSON.parse(kept);
+  } catch {
+    return [];
+  }
+  return Array.isArray(order) ? order.filter((p): p is string => typeof p === 'string') : [];
+}
+
+/// The folded groups kept under `key`, as `useKeptFoldedGroups` keeps them.
+function keptGroups(key: string): Set<string | null> {
+  const v = read(key);
+  if (v === null) return new Set();
+  let kept: unknown;
+  try {
+    kept = JSON.parse(v);
+  } catch {
+    return new Set();
+  }
+  if (!Array.isArray(kept)) return new Set();
+  return new Set(kept.filter((p): p is string | null => p === null || typeof p === 'string'));
 }
