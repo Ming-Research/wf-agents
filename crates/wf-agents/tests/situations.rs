@@ -1,6 +1,11 @@
 //! `wf-agents flow situations`, run as the command: a file for each situation a round of a cell was found in by the
 //! search of works of the flow, with the system prompt, the message and the form, as many as it says; and the same files
 //! each time it is run.
+//!
+//! The repository's own flow is run once, for what only it holds: the command reading the flow and the settings the
+//! project has. That two runs write the same files is held on the small flow, where a run takes less than half as long:
+//! the crates the command runs hold no unordered map or set and no thread in their sources, so nothing that makes two
+//! runs differ depends on the size of the flow.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -43,11 +48,8 @@ fn files(dir: &Path) -> BTreeMap<String, String> {
 }
 
 #[test]
-fn each_situation_of_a_cell_is_written_with_its_system_prompt_its_message_and_the_form_the_same_each_time() {
-    let (first, second) = (
-        tempfile::tempdir().expect("a directory"),
-        tempfile::tempdir().expect("a directory"),
-    );
+fn each_situation_of_a_cell_of_the_engineers_flow_is_written_with_its_system_prompt_its_message_and_the_form() {
+    let first = tempfile::tempdir().expect("a directory");
     let ran = situations(&engineer(), first.path(), Some("R1"));
     assert!(ran.status.success(), "{}", String::from_utf8_lossy(&ran.stderr));
     let dir = first.path().join("R1");
@@ -74,10 +76,6 @@ fn each_situation_of_a_cell_is_written_with_its_system_prompt_its_message_and_th
     assert!(named > 0);
     // Asked again, a cell's directory that holds files is not written over.
     assert!(!situations(&engineer(), first.path(), Some("R1")).status.success());
-    // Run again, the same files are written.
-    let again = situations(&engineer(), second.path(), Some("R1"));
-    assert!(again.status.success(), "{}", String::from_utf8_lossy(&again.stderr));
-    assert_eq!(files(first.path()), files(second.path()));
 }
 
 #[test]
