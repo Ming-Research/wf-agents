@@ -18,7 +18,7 @@ pub const SLOT_HOLDS: &str = "with no slot free, a cell that takes one begins no
 pub const TURN_HOLDS: &str =
     "when it is not the work's turn, a cell that takes the turn begins no round, and nothing else is held";
 
-/// What the histories reached of the room, each of which some history must reach.
+/// What the histories reached of the room, each of which at least `FLOOR` histories must reach.
 pub const REACHED: &[&str] = &[
     EVERYTHING_HELD,
     EVERYTHING_ANSWERS,

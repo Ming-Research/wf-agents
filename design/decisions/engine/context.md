@@ -74,6 +74,15 @@ A datum a cell is given that has no version yet is left out of the message: no l
 - rejected: an agent proposed a line for each, saying it has no version yet; the owner rejected it, because with nothing to read it takes no part.
 - replaced: Sending inputs that held nothing in every message anyway was on main; the owner changed it, because nothing should be sent for an input that holds nothing.
 
+### decision the-situations-tool-writes-the-situations-a-search-reached
+`wf-agents flow situations` writes the situations that rounds of works found by a seeded, bounded search stood in, and tests run each one's script again to the same round.
+- replaced: Deriving situations by rules, held to the rounds of works by tests, was on main; the owner changed it, because 105 of 1392 states written for the engineer's flow were reached by no round, and two of three deletions made by reading the flow were wrong.
+- rejected: an agent proposed keeping the rules, checked both ways on the small flow and one way on the engineer's flow, the states no round reached only counted; the owner rejected it, because the tool could then write states no round of the engineer's flow reaches.
+- rejected: an agent proposed failing the engineer's flow test on any line a round stood in that the tool does not write; the owner rejected it, because 22000 rounds in 30 s leave 42, and 70000 rounds at about 107 s still leave 12 (data: research/situations-search-measured.md).
+- rejected: an agent proposed raising the tool's bound to 70000 rounds; the owner rejected it, because the tool would take about 107 s and 12 lines would still be left (data: research/situations-search-measured.md).
+- rejected: an agent proposed running several seeded searches side by side and merging them in a fixed order; the owner rejected it, because it is another mechanism that holds several cores for 30 s, and what more it would find was not measured.
+- rejected: an agent proposed one more try at the search itself; the owner rejected it, because such changes moved the count by tens of lines, as a seed does, and nothing free of cell names points at the 22-step chain (data: research/situations-search-measured.md).
+
 ### decision a-try-keeps-what-it-was-given
 Before its program starts, a try keeps what it runs on and what its message fills in a file beside it, and a later start records from there what the records lack.
 - rejected: an agent proposed having each try wait, before its program starts, until the store has kept what it fills; the owner rejected it, because every start would then wait on the engine, and with the agents on another machine every try would wait across machines.

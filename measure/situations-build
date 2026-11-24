@@ -1,0 +1,15 @@
+# The measurement `situations-build`: how long it takes to build the command `wf-agents` in release, as it runs in the
+# checkout this script is run in (`measure/` of the measure workflow, `.github/workflows/measure.yml`). The measurements
+# `situations-search` and `situations-search-cell` run this and then `wf-agents flow situations`, so the command's own
+# time is theirs less this one's: after the first pair the build finds nothing to do, and what is left is the build's
+# check that none is.
+set -euo pipefail
+# The runner's own path holds no cargo or node; the project's machine keeps them with rustup and in /opt/node, as the
+# project's workflows put them on the path.
+export PATH="$HOME/.cargo/bin:/opt/node/bin:$PATH"
+# The page is built into the command (crates/web/build.rs), and a checkout of the measure workflow has none built: build
+# it as the project's workflows do, once for the checkout, so that the build after it finds it.
+if [ ! -f client/dist/index.html ]; then
+  (cd client && npm ci --no-audit --no-fund && npm run build)
+fi
+cargo build --release --locked -p wf-agents

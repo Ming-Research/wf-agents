@@ -1,0 +1,9 @@
+# The measurement `situations-search`: how long `wf-agents flow situations` takes on the repository's engineer flow, the
+# whole of it, in release, as the command runs in the checkout this script is run in (`measure/` of the measure
+# workflow). It builds the command first, as `situations-build` does alone, and the command's own time is the median of
+# this measurement's less the median of that one's.
+set -euo pipefail
+bash "$(dirname "$0")/situations-build"
+out="$(mktemp -d)"
+trap 'rm -rf "$out"' EXIT
+target/release/wf-agents flow situations flow/engineer --out "$out" > /dev/null

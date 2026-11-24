@@ -31,9 +31,7 @@ const CHECK: &str = "check";
 /// The source of the questions' standing, which the engine writes.
 pub const ASKED: &str = "asked";
 
-/// The source of a cell's own word that it has handed its work in, which the engine writes yes as the first run of
-/// the cell that dealt with something finishes.
-pub const HANDED_IN: &str = "handed_in";
+pub use flow::HANDED_IN;
 
 /// What a round of a cell returns.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

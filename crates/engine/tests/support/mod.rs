@@ -79,8 +79,8 @@ pub struct Seen {
 /// The first finished run of the records that lacks a write of a block its cell must write, read from the records of
 /// the finishes and the cells' definitions (property a-run-is-one-mechanism), said in words; none where there is none.
 /// A run is held to what its cell must write where its return asked for no call, however much of what ran its round it
-/// dealt with (decision a-return-hands-in-what-its-cell-must-every-time). A return with a question that waits is not
-/// held either; the histories that check this give no cell that must write a question to ask. Nor is a run entered while
+/// dealt with (decision a-return-hands-in-what-its-cell-must-every-time). A return with a question its cell waits for,
+/// one the run asked and did not withdraw, is not held either. Nor is a run entered while
 /// its cell waited ([`waited`]), nor one that only answered the owner: it dealt with its cell's own words alone, wrote
 /// nothing among its cell's outputs but its answer in them, what it committed being none of them, and asked nothing
 /// ([`answered_alone`]).
@@ -95,7 +95,10 @@ pub fn lacking_a_must_write(flow: &Compiled, records: &Records) -> Option<String
             .max();
         let asked = (records.called.iter())
             .any(|c| c.run == finished.run && c.at < finished.at && ended.is_none_or(|e| c.at > e));
-        if asked || waited(records, started) || answered_alone(flow, records, finished, &started.cell) {
+        let asks_and_waits =
+            (records.questions.iter()).any(|q| q.run == finished.run && !q.engine && q.waits && !q.withdrawn);
+        if asked || asks_and_waits || waited(records, started) || answered_alone(flow, records, finished, &started.cell)
+        {
             continue;
         }
         let spec = (flow.cells.iter())

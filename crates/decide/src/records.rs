@@ -244,9 +244,9 @@ pub struct Finished {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Write {
     pub block: BlockId,
-    /// Whether the run hands the version in as changing nothing in meaning, compared with the version the run started
-    /// from. Where it does, the version keeps that version's meaning. Not read for a block with a value: a choice
-    /// changes its meaning when its value does.
+    /// Whether the run hands the version in as changing nothing in meaning, compared with the version its round was
+    /// last told of: the one the run started from, or one put in to it. Where it does, the version keeps that
+    /// version's meaning. Not read for a block with a value: a choice changes its meaning when its value does.
     pub meaning_unchanged: bool,
     /// The block's value, where a condition reads it: a choice such as yes or no.
     pub value: Option<String>,

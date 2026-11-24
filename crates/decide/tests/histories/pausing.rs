@@ -16,7 +16,7 @@ pub const ONLY_FOR_A_NOTE: &str = "a paused work starts a run only for a note a 
 pub const ANSWERS: &str = "a paused work answers a note a person wrote";
 pub const NAMES_ITS_CELL: &str = "a pause names the cell that runs once the work is let on";
 
-/// What the histories reached of a pause, each of which some history must reach.
+/// What the histories reached of a pause, each of which at least `FLOOR` histories must reach.
 pub const REACHED: &[&str] = &[STARTED_PAUSED, HELD_PAUSED, WENT_ON_PAUSED];
 
 const STARTED_PAUSED: &str = "a run starts while the work is paused";

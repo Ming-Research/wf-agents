@@ -16,11 +16,14 @@
 //!   owner's word, a choice people write of the same name, and the merge is run by its own. In half the histories of
 //!   the first test, drawn apart from the rest, a judge stands before the merge, run only while "flip" holds and
 //!   writing a verdict, yes or no, and its points in a dialogue with each cell that writes what it judges, which
-//!   watches it and answers there; the merge then also waits while the verdict stands at no. In a third of the
-//!   histories a cell drawn at random is run by the owner's words to it, a block that interrupts. Each cell may be
-//!   entered again for the results of what it asked for one to three times in a row. In two histories of five, drawn
-//!   apart from the rest, the cells ask the owner questions, and a cell drawn at random is run by the owner's answers
-//!   to its own, a block that interrupts as the owner's words do.
+//!   watches it and answers there; the merge then also waits while the verdict stands at no. In three histories of ten,
+//!   drawn apart from the rest, a check stands before the merge, run by the brief and writing a choice only cells
+//!   write, which the merge also waits for as yes: where the check says no or nothing and has nothing new to run for,
+//!   only a cell keeps the merge from running, and the work is stalled, which the records alone read (`Reading::rest`).
+//!   In a third of the histories a cell drawn at random is run by the owner's words to it, a block that interrupts.
+//!   Each cell may be entered again for the results of what it asked for one to three times in a row. In two histories
+//!   of five, drawn apart from the rest, the cells ask the owner questions, and a cell drawn at random is run by the
+//!   owner's answers to its own, a block that interrupts as the owner's words do.
 //! - people, in the first 0 to 39 steps, at a step with a chance of one in six and at every rest: writing the brief,
 //!   which runs the first cell; writing prose into a block cells write; writing the same marked as not mattering;
 //!   setting the choice to yes or no; confirming the choice; the outside writing main, mattering or not; turning "flip"
@@ -48,7 +51,8 @@
 //!   of the project come and go in some histories, and every history asks the walk what it would decide in every other
 //!   room.
 //!
-//! Every situation a property is about is counted, and a test fails if none of its histories reaches one of them.
+//! Every situation a property is about is counted by the histories that reached it, and a test fails if fewer than
+//! `FLOOR` of them did: the histories run in batches until each was reached in `FLOOR`.
 //!
 //! A failing case prints its seed, the properties it broke and the steps it took; `one_history(seed, drawn, ..)`
 //! replays it, `drawn` being what its test draws from.
@@ -70,20 +74,22 @@ use std::sync::{Mutex, PoisonError};
 use decide::run::{self, Failure, Log, Requires, Return, Step, Unmet};
 use decide::{
     BlockId, CallId, Called, Cell, CellId, Condition, Decision, End, Finished, PutIn, Questioned, Returned, Room,
-    Round, RunId, Seq, Test, TestKind, TestName, Waited, Who, Write,
+    Round, RunId, Seq, Started, Test, TestKind, TestName, Waited, Who, Write,
 };
 use properties::{Moment, Seen, Verdict};
 use reading::{Reading, Writer};
+use support::Says::Value;
 use support::{GATE, World, cell, gate};
 
 /// What the histories of a test are drawn from: the shape of the flow, or any; the number of steps below which
-/// people stop acting; and whether rounds fail in every history, and in a quarter of the rounds before the third, or
-/// as `ANY` draws it.
+/// people stop acting; whether rounds fail in every history, and in a quarter of the rounds before the third, or as
+/// `ANY` draws it; and whether a judge stands before the merge in every history, or as `ANY` draws it.
 #[derive(Clone, Copy)]
 struct Drawn {
     shape: Option<usize>,
     people: usize,
     failing: bool,
+    judged: bool,
 }
 
 /// Any flow, people acting in the first 0 to 39 steps.
@@ -91,6 +97,7 @@ const ANY: Drawn = Drawn {
     shape: None,
     people: 40,
     failing: false,
+    judged: false,
 };
 
 /// Any flow with no judge, people acting in the first 0 to 99 steps and rounds failing in every history, more often:
@@ -100,6 +107,7 @@ const FAILING: Drawn = Drawn {
     shape: None,
     people: 100,
     failing: true,
+    judged: false,
 };
 
 /// The sixth shape only, people acting in the first 0 to 99 steps: that a judge runs while the cell it judges is
@@ -109,6 +117,18 @@ const SKIPPED_JUDGED: Drawn = Drawn {
     shape: Some(5),
     people: 100,
     failing: false,
+    judged: false,
+};
+
+/// Any flow with a judge before the merge in every history, people acting in the first 0 to 99 steps: that the merge
+/// begins over the no of a judge that the flow then skips takes the judge to write no, and a person to turn the word
+/// that skips it before the merge begins, which histories of any flow, with a judge in half of them, all but never
+/// reach.
+const JUDGED: Drawn = Drawn {
+    shape: None,
+    people: 100,
+    failing: false,
+    judged: true,
 };
 
 /// The block only people write, a note: a person's words to the cells that read it.
@@ -116,6 +136,12 @@ const BRIEF: &str = "brief";
 
 /// The block whose value a condition reads.
 const CHOICE: &str = "choice";
+
+/// The block only the check cell writes, a choice of yes or no, and the name of the merge's precondition that reads it:
+/// where it is not yes and the check has nothing new to run for, nothing but a cell keeps the merge from running, and
+/// the work is stalled.
+const CHECKED: &str = "checked";
+const CHECKED_OK: &str = "checked_ok";
 
 /// The block only the outside writes.
 const MAIN: &str = "main";
@@ -338,7 +364,7 @@ impl History {
         let mut rng = Rng::new(seed);
         let mut cells = draw_cells(&mut rng, shape);
         let mut extra = Rng::new(seed ^ 0x0BAD_5EED_CAFE_F00D);
-        let judged = (shape.is_none() && !drawn.failing && extra.chance(50)).then_some(extra);
+        let judged = (shape.is_none() && !drawn.failing && (drawn.judged || extra.chance(50))).then_some(extra);
         let mut failing = Rng::new(seed ^ 0x00FA_11ED_0F0F_0F0F);
         let fails = drawn.failing || failing.chance(50);
         let failing = (shape.is_none() && judged.is_none() && fails).then_some(failing);
@@ -362,6 +388,20 @@ impl History {
             cells[i].runs_on.push(ANSWERED.into());
             cells[i].id.clone()
         });
+        // A check before the merge in three histories of ten, drawn apart from the rest: a cell the brief runs, which
+        // writes the choice the merge also waits for, and which only cells write.
+        let mut checking = Rng::new(seed ^ 0x0C4E_C4ED_5A1E_0001);
+        let check = checking.chance(30).then(|| {
+            let mut c = cell("check", &[BRIEF], &[CHECKED]);
+            c.limit = 1 + checking.below(2) as u32;
+            c.calls = 1 + checking.below(3) as u32;
+            c
+        });
+        let checked_ok = Test {
+            kind: TestKind::All,
+            reads: vec![CHECKED.into()],
+            is: Some("yes".to_string()),
+        };
         let mut w = if judged.is_some() {
             let mut judge = when_flipped(cell("judge", &[BRIEF, "b0", POINTS], &[VERDICT, POINTS]));
             judge.limit = 2;
@@ -381,16 +421,33 @@ impl History {
             cells.push(judge);
             let mut merge = gate();
             merge.requires.push(UNREFUSED.into());
+            if let Some(check) = check.clone() {
+                merge.requires.push(CHECKED_OK.into());
+                cells.push(check);
+            }
             cells.push(merge);
             let unrefused = Test {
                 kind: TestKind::NoneStanding,
                 reads: vec![VERDICT.into()],
                 is: Some("no".to_string()),
             };
-            World::with_tests(cells, [(TestName::from(UNREFUSED), unrefused)].into())
+            let mut tests = BTreeMap::from([(TestName::from(UNREFUSED), unrefused)]);
+            if check.is_some() {
+                tests.insert(TestName::from(CHECKED_OK), checked_ok);
+            }
+            World::with_tests(cells, tests)
+        } else if let Some(check) = check.clone() {
+            let mut merge = gate();
+            merge.requires.push(CHECKED_OK.into());
+            cells.push(check);
+            cells.push(merge);
+            World::with_tests(cells, [(TestName::from(CHECKED_OK), checked_ok)].into())
         } else {
             World::with_gate(cells)
         };
+        if check.is_some() {
+            w.written_by_cells(CHECKED);
+        }
         w.notes(&[BRIEF]);
         w.turning(SPOKEN);
         w.answering(ANSWERED);
@@ -800,7 +857,7 @@ impl History {
             .expect("the run started")
             .clone();
         let cell = flow.cells()[flow.place(&started.cell).expect("a cell of the flow")].clone();
-        let choices: BTreeMap<BlockId, Vec<String>> = [CHOICE, VERDICT, GATE, "ready", "flip"]
+        let choices: BTreeMap<BlockId, Vec<String>> = [CHOICE, VERDICT, CHECKED, GATE, "ready", "flip"]
             .into_iter()
             .map(|b| (b.into(), vec!["yes".to_string(), "no".to_string()]))
             .collect();
@@ -1028,7 +1085,7 @@ impl History {
     /// A return drawn from all the form allows; where `meets`, one that does the cell's work, dealing with everything
     /// that ran the round, and writes only what the cell may, each as it may be written.
     fn draw_return(&mut self, spec: &Cell, told: &run::Told, meets: bool) -> Back {
-        let choice = |b: &BlockId| [CHOICE, VERDICT].contains(&b.as_str());
+        let choice = |b: &BlockId| [CHOICE, VERDICT, CHECKED].contains(&b.as_str());
         let write = |rng: &mut Rng, block: &BlockId, meets: bool| {
             let value = if choice(block) {
                 match rng.below(10) {
@@ -1487,8 +1544,7 @@ fn one_history(seed: u64, drawn: Drawn, log: &mut Vec<String>, verdict: &mut Ver
                 steps += 1;
                 assert!(steps <= bound, "the work has not come to rest within {bound} steps");
             }
-            let rest = h.decide();
-            properties::reaches(&mut h.verdict, &h.w.flow, &h.w.records, &rest, &h.moments);
+            properties::reaches(&mut h.verdict, &h.w.flow, &h.w.records, &h.moments);
         }
         properties::replay(&mut h.verdict, &h.w.flow, &h.w.records, &h.moments);
         h.count_blocks();
@@ -1504,9 +1560,10 @@ fn one_history(seed: u64, drawn: Drawn, log: &mut Vec<String>, verdict: &mut Ver
 /// before it fails, and two tests side by side would each take the other's.
 static HOOK: Mutex<()> = Mutex::new(());
 
-/// Runs `f` on each seed below `seeds` on as many threads as the machine has cores, and gives the results in seed order.
-fn in_parallel<T: Send>(seeds: u64, f: impl Fn(u64) -> T + Sync) -> Vec<T> {
-    let next = std::sync::atomic::AtomicU64::new(0);
+/// Runs `f` on each seed from `from` to below `to` on as many threads as the machine has cores, and gives the results
+/// in seed order.
+fn in_parallel<T: Send>(from: u64, to: u64, f: impl Fn(u64) -> T + Sync) -> Vec<T> {
+    let next = std::sync::atomic::AtomicU64::new(from);
     let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
     let mut done: Vec<(u64, T)> = std::thread::scope(|scope| {
         let workers: Vec<_> = (0..threads)
@@ -1515,7 +1572,7 @@ fn in_parallel<T: Send>(seeds: u64, f: impl Fn(u64) -> T + Sync) -> Vec<T> {
                     let mut mine = Vec::new();
                     loop {
                         let seed = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        if seed >= seeds {
+                        if seed >= to {
                             return mine;
                         }
                         mine.push((seed, f(seed)));
@@ -1529,39 +1586,68 @@ fn in_parallel<T: Send>(seeds: u64, f: impl Fn(u64) -> T + Sync) -> Vec<T> {
     done.into_iter().map(|(_, t)| t).collect()
 }
 
-/// Runs this many histories drawn so, and fails if one breaks a property, or if none reached one of these situations.
+/// In how many histories each situation a test must reach has to be reached. A situation that one history of hundreds
+/// reaches pins nothing: a rule broken only there is found by that one history, and a change of the draws that loses
+/// it loses the check without a sign. Ten is what the least reached of them were steered to; a test counts histories,
+/// not how often each reached the situation.
+const FLOOR: u64 = 10;
+
+/// How many batches of histories a test runs at most: it stops after the first batch in which every situation it must
+/// reach was reached in [`FLOOR`] histories, and fails if the last batch leaves one short of it.
+const BATCHES: u64 = 10;
+
+/// Runs histories drawn so, a batch of `seeds` at a time, until each of these situations was reached in [`FLOOR`] of
+/// them or [`BATCHES`] batches ran, and fails if one breaks a property, or if fewer than [`FLOOR`] reached one of them.
+/// The seeds are the same each time, so a run is: a rarer situation takes more of them.
 fn histories(drawn: Drawn, seeds: u64, reached: &[&str]) {
     let _hook = HOOK.lock().unwrap_or_else(PoisonError::into_inner);
     let hook = panic::take_hook();
     panic::set_hook(Box::new(|_| {}));
     let mut failures = Vec::new();
     let mut seen = Seen::default();
+    // In how many histories each situation was reached.
+    let mut in_histories: BTreeMap<&'static str, u64> = BTreeMap::new();
     let mut broken: BTreeMap<&str, Vec<u64>> = BTreeMap::new();
-    let results = in_parallel(seeds, |seed| {
-        let mut log = Vec::new();
-        let mut verdict = Verdict::default();
-        let outcome = panic::catch_unwind(AssertUnwindSafe(|| one_history(seed, drawn, &mut log, &mut verdict)));
-        (verdict, outcome, log)
-    });
-    for (seed, (verdict, outcome, log)) in (0..seeds).zip(results) {
-        seen.add(&verdict.seen);
-        let mut message = match outcome {
-            Err(e) => (e.downcast_ref::<String>().cloned())
-                .or_else(|| e.downcast_ref::<&str>().map(|s| (*s).to_string()))
-                .unwrap_or_default(),
-            Ok(()) => String::new(),
-        };
-        for (property, what) in &verdict.broken {
-            broken.entry(property).or_default().push(seed);
-            if !message.is_empty() {
-                message.push_str("; ");
+    let mut ran = 0;
+    while ran < seeds * BATCHES {
+        let batch = ran..ran + seeds;
+        let results = in_parallel(batch.start, batch.end, |seed| {
+            let mut log = Vec::new();
+            let mut verdict = Verdict::default();
+            let outcome = panic::catch_unwind(AssertUnwindSafe(|| one_history(seed, drawn, &mut log, &mut verdict)));
+            (verdict, outcome, log)
+        });
+        for (seed, (verdict, outcome, log)) in batch.clone().zip(results) {
+            seen.add(&verdict.seen);
+            for (what, n) in &verdict.seen.0 {
+                if *n > 0 {
+                    *in_histories.entry(what).or_default() += 1;
+                }
             }
-            message.push_str(&format!("{property}: {what}"));
+            let mut message = match outcome {
+                Err(e) => (e.downcast_ref::<String>().cloned())
+                    .or_else(|| e.downcast_ref::<&str>().map(|s| (*s).to_string()))
+                    .unwrap_or_default(),
+                Ok(()) => String::new(),
+            };
+            for (property, what) in &verdict.broken {
+                broken.entry(property).or_default().push(seed);
+                if !message.is_empty() {
+                    message.push_str("; ");
+                }
+                message.push_str(&format!("{property}: {what}"));
+            }
+            if !message.is_empty() {
+                failures.push((seed, message, log));
+            }
         }
-        if !message.is_empty() {
-            failures.push((seed, message, log));
+        ran = batch.end;
+        let short = (reached.iter()).any(|what| in_histories.get(what).copied().unwrap_or(0) < FLOOR);
+        if !short || !failures.is_empty() {
+            break;
         }
     }
+    let seeds = ran;
     panic::set_hook(hook);
     if let Some((seed, message, log)) = failures.first() {
         let by_property: Vec<_> = (broken.iter())
@@ -1595,16 +1681,27 @@ fn histories(drawn: Drawn, seeds: u64, reached: &[&str]) {
         "the deciding code's histories reached: {}",
         counts.join("; ")
     );
-    // And how often each of what they must reach was, so that a rare one shows how close it is to none.
+    // And in how many histories each of what they must reach was, so that a rare one shows how close it is to the
+    // floor.
+    let histories_of = |what: &str| in_histories.get(what).copied().unwrap_or(0);
     let must: Vec<String> = reached
         .iter()
-        .map(|what| format!("{what}: {}", seen.get(what)))
+        .map(|what| format!("{what}: {}", histories_of(what)))
         .collect();
-    let _ = writeln!(std::io::stderr(), "of what they must reach: {}", must.join("; "));
-    let unreached: Vec<_> = reached.iter().filter(|what| seen.get(what) == 0).collect();
+    let _ = writeln!(
+        std::io::stderr(),
+        "of what they must reach, in how many of {seeds} histories: {}",
+        must.join("; ")
+    );
+    let unreached: Vec<String> = (reached.iter())
+        .filter(|what| histories_of(what) < FLOOR)
+        .map(|what| format!("{what}: {}", histories_of(what)))
+        .collect();
+    let all: Vec<String> = in_histories.iter().map(|(what, n)| format!("{what}: {n}")).collect();
     assert!(
         unreached.is_empty(),
-        "no history reached these, so the properties about them check nothing: {unreached:?}"
+        "fewer than {FLOOR} of {seeds} histories reached these, so the properties about them pin nothing: \
+         {unreached:?}\nin how many histories each situation was reached: {all:?}"
     );
 }
 
@@ -1625,4 +1722,66 @@ fn rounds_failing_often_while_people_pause_and_write_keep_the_engines_properties
 #[test]
 fn a_judge_running_while_the_cell_it_judges_is_skipped_keeps_the_engines_properties() {
     histories(SKIPPED_JUDGED, 600, &[]);
+}
+
+#[test]
+fn a_merge_beginning_over_the_no_of_a_judge_the_flow_skips_keeps_the_engines_properties() {
+    histories(JUDGED, 800, &[properties::SKIPPED_NO_PASSES]);
+}
+
+/// The properties a-question-holds-its-cell breaks, as [`properties::question_holds`] judges, where the work has ended by
+/// its last cell's run: a work whose cell `c1` is asked a question that waits, and whose merge began either while `c1`
+/// was skipped and `c1` came back while the merge's round was under way, or, `held`, with `c1` applying.
+fn question_broken_where_a_merge_ends_the_work(held: bool) -> Vec<&'static str> {
+    let mut c1 = cell("c1", &["brief"], &["b0"]);
+    c1.applies = vec![Condition::Is {
+        block: "choice".into(),
+        value: "yes".to_string(),
+    }];
+    let mut w = World::with_gate(vec![cell("c0", &["brief"], &["choice"]), c1]);
+    w.person_writes("brief");
+    w.run("c0", &[("choice", Value("yes"))]);
+    w.run("c1", &[]);
+    w.questions("c1", "which", true);
+    w.says(GATE, true);
+    if held {
+        // The walk would not begin the merge over the question: its run is put in by hand.
+        let run = RunId(w.id());
+        let at = w.tick();
+        w.records.started.push(Started {
+            run,
+            cell: "merge".into(),
+            at,
+            because: Vec::new(),
+            basis: BTreeMap::new(),
+        });
+        let at = w.tick();
+        w.records.rounds.push(Round { run, at });
+    } else {
+        w.person_sets("choice", "no");
+        w.start("merge");
+        w.person_sets("choice", "yes");
+    }
+    w.finish("merge", &[]);
+    let d = w.decide();
+    assert!(
+        matches!(d, Decision::Ended(End::Merged)),
+        "the work has not ended: {d:?}"
+    );
+    let mut v = Verdict::default();
+    properties::question_holds(&mut v, &w.flow, &Reading::new(&w.flow, &w.records), &d);
+    v.broken.iter().map(|(property, _)| *property).collect()
+}
+
+#[test]
+fn a_merge_that_began_while_no_question_held_the_work_ends_it_though_one_holds_it_by_then() {
+    assert_eq!(question_broken_where_a_merge_ends_the_work(false), Vec::<&str>::new());
+}
+
+#[test]
+fn a_merge_that_began_while_a_question_held_the_work_before_it_breaks_the_question_by_ending_the_work() {
+    assert_eq!(
+        question_broken_where_a_merge_ends_the_work(true),
+        vec![properties::QUESTION_HOLDS]
+    );
 }

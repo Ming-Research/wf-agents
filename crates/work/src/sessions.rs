@@ -9,6 +9,8 @@
 //! What each try of a round ran on is recorded as the try begins ([`RanOn`]), so that what a session was begun on is
 //! the records' too ([`began_on`]).
 
+use std::collections::BTreeMap;
+
 use decide::{CallId, RunId, Seq};
 use serde::{Deserialize, Serialize};
 
@@ -193,11 +195,20 @@ pub fn wrote_into(work: &Work, run: RunId, number: usize) -> bool {
 /// in, and whether it begins that session, which it does where no round of the line that took its session before it,
 /// from the same session, put its message into it ([`wrote_into`]).
 pub fn of_round(work: &Work, line: &str, on_line: impl Fn(RunId) -> bool, run: RunId, number: usize) -> (u32, bool) {
-    let at = start(work, run, number);
+    // Where each round began, read once, as [`start`] reads it for one.
+    let mut counted: BTreeMap<RunId, usize> = BTreeMap::new();
+    let mut began: BTreeMap<(RunId, usize), Seq> = BTreeMap::new();
+    for round in &work.records.rounds {
+        let n = counted.entry(round.run).or_default();
+        *n += 1;
+        began.insert((round.run, *n), round.at);
+    }
+    let began_at = |r: RunId, n: usize| began.get(&(r, n)).copied().unwrap_or_else(|| work.tick());
+    let at = began_at(run, number);
     let session = number_at(work, line, at);
     let went_on = (work.spent.keys().chain(work.back.keys()))
         .filter(|(r, n)| on_line(*r) && wrote_into(work, *r, *n))
-        .map(|(r, n)| start(work, *r, *n))
+        .map(|(r, n)| began_at(*r, *n))
         .any(|b| b < at && number_at(work, line, b) == session);
     (session, !went_on)
 }

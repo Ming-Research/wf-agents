@@ -4,54 +4,21 @@
 
 mod support;
 
-use std::collections::BTreeSet;
-use std::path::Path;
-
 use context::Stands;
 use decide::{BlockId, CellId, Outsider, Pauser, Seq};
 use engine::spoken::{self, NoOne, To};
 use engine::{Came, Effect, Event, Handed};
-use flow::{Compiled, Has};
-use support::Sim;
+use flow::Compiled;
+use support::{Sim, engineer, root};
 use work::{Question, Said, Way};
 
 /// The entries of the design tree the reading of the tree hands in, as their names.
 const ENTRIES: &str = "principle lean-agent-input";
 
-/// The directory that holds the repository's flows.
-fn root() -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow")
-}
-
-/// The engineer's flow, compiled against what the engine has for it, as `wf-agents` compiles it.
-fn engineer() -> Compiled {
-    let beside = flow::agents::read(&root()).expect("the files beside the flows are read");
-    let source = flow::read(&root().join("engineer")).expect("the engineer's flow is read");
-    let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<BTreeSet<_>>();
-    let has = Has {
-        sources: names(&[
-            "answer",
-            "asked",
-            "dependencies",
-            "handed_in",
-            "main",
-            "start",
-            "head",
-            "test_times",
-            "tree",
-            "words",
-        ]),
-        acts: names(&["start", "check", "merge", "deliver"]),
-        tools: names(&["query", "run_tests"]),
-        system: flow::system::reserved(&beside).into_iter().collect(),
-    };
-    flow::compile(&source, &has).expect("the engineer's flow compiles")
-}
-
 #[test]
 fn the_implementation_entered_first_after_the_plan_names_each_datum_its_session_holds_with_its_version() {
     let beside = flow::agents::read(&root()).expect("the files beside the flows are read");
-    let mut sim = Sim::of(engineer(), beside);
+    let mut sim = support::sim_of(engineer(), beside);
     sim.wrote("dependencies", "", Some("merged"), Outsider::Outside);
     sim.writes("background", "Greet the user by name.");
     // The start, the reading, the plan with no deep research and no edit of the tree, the plan thought through again,
@@ -105,7 +72,7 @@ fn the_implementation_entered_first_after_the_plan_names_each_datum_its_session_
 #[test]
 fn the_first_message_of_an_agent_s_cell_names_no_guide() {
     let beside = flow::agents::read(&root()).expect("the files beside the flows are read");
-    let mut sim = Sim::of(engineer(), beside);
+    let mut sim = support::sim_of(engineer(), beside);
     sim.wrote("dependencies", "", Some("merged"), Outsider::Outside);
     sim.writes("background", "Greet the user by name.");
     let start = sim.round().expect("the start is given");
@@ -156,7 +123,7 @@ fn carried_on(flow: Compiled, id: &str, deep: bool, tree: Option<&str>) -> (Sim,
         true => vec![("tree_entries", ENTRIES, None)],
         false => vec![],
     };
-    let mut sim = Sim::of(flow, beside);
+    let mut sim = support::sim_of(flow, beside);
     sim.wrote("dependencies", "", Some("merged"), Outsider::Outside);
     if let Some(tree) = tree {
         sim.wrote("tree", tree, None, Outsider::Outside);

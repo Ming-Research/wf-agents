@@ -12,3 +12,10 @@
 # to read (the artifact test-results), and ci.yml keeps it with its run.
 [profile.ci.junit]
 path = "junit.xml"
+
+# The test of the engineer's flow in the context crate prints, and does not fail on, the lines of real rounds that the
+# situations search leaves out (decision the-situations-tool-writes-the-situations-a-search-reached): its output is
+# kept in the log of a run where it passes too.
+[[profile.ci.overrides]]
+filter = 'test(every_situation_written_for_the_engineers_flow_is_a_round_of_a_work_and_covers_what_the_histories_stood_in)'
+success-output = "final"

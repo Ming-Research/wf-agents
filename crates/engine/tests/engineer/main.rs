@@ -22,8 +22,10 @@
 //!    committed to, the branch is at the head the check last passed, and each judge that the head runs and that
 //!    applies, a cell that writes a block the check's preconditions read, was told of a version that says that head
 //!    by a run of it that dealt with it.
-//! 7. A work never stalls at the check's gate: after every step, the deciding code does not find it stalled on a key
-//!    that reads a choice the check's record wrote as it failed, which only the owner speaking to a cell would move.
+//! 7. A work never stalls at the check's gate: after every step, the records alone (`Reading::rest`), not the deciding
+//!    code, do not read it as stalled on a key that reads a choice the check's record wrote as it failed, which only
+//!    the owner speaking to a cell would move; and the deciding code says the work is stalled where, and only where,
+//!    the records read it so, so that a stall it calls a wait is found.
 //!
 //! The first two are judged as each round of the merge begins, and the sixth as the merge finishes, by the histories'
 //! own reading of the records as they were then (`reading`), never by the deciding code's tests.
@@ -49,8 +51,9 @@
 //!   value that stands with nothing but some blocks (`with_nothing_but`), those alone, and no question. A return that
 //!   hands in names as dealt with each thing its round was told ran it, by its name, as an agent writes it. Beside
 //!   such a hand-in, the agent of a cell an answer runs writes in the record of the questions a question of its own in
-//!   three of a hundred, which waits in one of five, the return then handing in each block its cell must write; asks
-//!   one of its own that stands anew in two of a hundred, and withdraws one in two of a hundred. In one history of
+//!   five of a hundred, which waits in one of two, the return then leaving out each block its cell must write in one
+//!   of two, as the decision a-return-hands-in-what-its-cell-must-every-time lets it; asks one of its own that stands
+//!   anew in two of a hundred, and withdraws one in two of a hundred. In one history of
 //!   five the agents are sloppy: half their returns ask for nothing and are sent back, so that runs reach their limit
 //!   of returns;
 //! - an act of the engine's own hands in every block its cell may write: each choice with the value a precondition of
@@ -69,11 +72,20 @@
 //!
 //! Seven histories of ten are steered, drawn by a generator of their own so that the other draws keep their order, each
 //! taking every random step it may; in them a judge's verdict, where a return hands one in, is its refusal in one of
-//! ten only, so that they reach the check past the five judges before it. In three of ten, the work is paused while the
+//! ten only, so that they reach the check past the five judges before it, a choice a judge's own condition waits for
+//! (whether the change needs adversarial testing) is that value in seven of ten, and the owner only lets the work go
+//! on: writes the background first, so that the plan's cells and the implementation run before the check, answers each
+//! question at once, lets a cell go on at its limit, resumes a paused work, writes what the outside writes, writes a
+//! choice people write (a verdict as other than its refusal in nine of ten), and answers a question that stands anew;
+//! it does not cancel, pause, write other prose a person writes, commit, speak to a line or remark on a question,
+//! which in the histories not steered end or rework a work before the check. In three of ten, the work is
+//! paused while the
 //! check's round is under way; once
-//! the check passed, a person writes, while the pause holds the merge back, for a judge that applies, who then refuses,
-//! or writes a verdict as its refusal, a coin of its own deciding; then the work is let on. In one of ten the check
-//! fails the first time it runs and the random steps end there; in two of ten, they end only once the cell told of
+//! the check passed, a person writes, while the pause holds the merge back, an input only people write that runs a cell
+//! before a judge, the background, after which the first judge to hand in refuses, or writes a verdict as its refusal,
+//! a coin of its own deciding; then the work is let on. In one of ten the check
+//! fails the first time it runs and the random steps end there, the first cell that may ask having asked a question it
+//! waits for and left out what it must write; in two of ten, they end only once the cell told of
 //! the failure has answered it with a commit and nothing that matters, the commit running the review and the check
 //! again through the work's head; in one of ten, the first cell that may ask asks a question that does not wait, and
 //! the random steps end once the round of the cell told of the failure that answered it with nothing committed has
@@ -103,7 +115,9 @@
 //! Among the random steps, the owner now and then speaks to a line.
 //!
 //! Every situation the properties are about is counted over all histories (`required`), and the test fails if one was
-//! never reached. A failing case prints its seed and its steps; `one_history(&flow, seed, ..)` replays it.
+//! reached in fewer than `FLOOR` histories: the histories run in batches of `SEEDS` (up to `BATCHES`), and the first
+//! batch after which each was reached in `FLOOR` is the last. A failing case prints its seed and its steps;
+//! `one_history(&flow, seed, ..)` replays it.
 
 // The histories use only part of the driver the tests of histories share.
 #[allow(dead_code)]
@@ -114,6 +128,12 @@ mod groups;
 mod merging;
 mod reading;
 mod single;
+
+// The reading of the records that judges where a work stands (`Reading::rest`) is the histories' own of crate
+// `reading`, which this crate's tests do not depend on; its one file is taken in as it is.
+#[allow(dead_code)]
+#[path = "../../../reading/src/lib.rs"]
+mod whole;
 
 use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -141,6 +161,16 @@ use support::{Driver, Part, Rng, lacking_a_must_write};
 /// so the number is set where each situation comes up in several histories.
 const SEEDS: u64 = 1500;
 
+/// In how many histories each situation the properties are about has to be reached. A situation that one history of
+/// hundreds reaches pins nothing: a rule broken only there is found by that one history, and a change of the draws
+/// that loses it loses the check without a sign.
+const FLOOR: u64 = 10;
+
+/// How many batches of [`SEEDS`] histories are run at most: the first batch in which each situation the properties are
+/// about was reached in [`FLOOR`] histories is the last, and the test fails if the last batch leaves one short of it.
+/// The seeds are the same each time.
+const BATCHES: u64 = 10;
+
 /// How many random steps, at most, a history takes before the content continuation.
 const RANDOM: usize = 200;
 
@@ -155,7 +185,8 @@ const CONTENT_MERGES: &str = "3: a work everyone is content with merges within t
 const RUNS_FOR_NOTHING: &str = "4: runs for nothing stay within the bound";
 const MUST_WRITE_WRITTEN: &str = "5: no finished run lacks a block its cell must write";
 const MERGE_UNSEEN: &str = "6: the work's head the merge merges is a version the review dealt with";
-const CHECK_NEVER_STALLS: &str = "7: a work never stalls at the check's gate";
+const CHECK_NEVER_STALLS: &str =
+    "7: a work never stalls at the check's gate, and the decision says it is stalled where the records read it so";
 const DRIVER: &str = "the driver";
 
 /// The source of the block of the work's head, which the carriers read of the work's branch.
@@ -338,6 +369,9 @@ struct Roles {
     judges: Vec<(usize, BlockId)>,
     /// Each choice a precondition of kind `all` reads, with the value it looks for.
     passing: BTreeMap<BlockId, String>,
+    /// Each choice a judge's own condition waits for, with the value it waits for: a steered history draws it more
+    /// often, so that the judge runs in the histories that are steered to what follows a judge.
+    gates: BTreeMap<BlockId, String>,
     /// Each block a test of content reads.
     contents: BTreeSet<BlockId>,
     /// The block of the work's head, where the flow has one.
@@ -360,9 +394,18 @@ impl Roles {
                 refusals.insert(b.clone(), is.clone());
             }
         }
-        let judges = (refusals.keys())
+        let judges: Vec<(usize, BlockId)> = (refusals.keys())
             .flat_map(|b| {
                 (flow.blocks[b].writers.cells.iter()).map(move |c| (flow.flow.place(c).expect("a cell"), b.clone()))
+            })
+            .collect();
+        let gates = (judges.iter())
+            .flat_map(|(j, _)| &cells[*j].applies)
+            .filter_map(|key| match key {
+                Condition::Is { block, value } if flow.blocks[block].values.is_some() => {
+                    Some((block.clone(), value.clone()))
+                }
+                _ => None,
             })
             .collect();
         // What a precondition waits for of a block: its value, as a key on the block or as a test of kind `all`.
@@ -404,6 +447,7 @@ impl Roles {
             refusals,
             judges,
             passing,
+            gates,
             contents,
             head,
             head_judges,
@@ -437,6 +481,7 @@ fn required(flow: &Compiled, roles: &Roles) -> Vec<String> {
             CONTENT_ON_A_REFUSAL,
             ENGINE_STOPPED,
             LACKING_SENT_BACK,
+            LACKING_TAKEN_WITH_A_QUESTION,
             MERGED_A_REVIEWED_HEAD,
             CHECK_GATED,
             MERGE_ON_A_MOVED_HEAD,
@@ -515,6 +560,8 @@ const CONTENT_ON_A_REFUSAL: &str = "the content continuation began as a judge's 
 const OWNER_ASKED_A_CELL: &str = "the owner had a cell write again a choice a precondition waits on";
 const ENGINE_STOPPED: &str = "the engine stopped";
 const LACKING_SENT_BACK: &str = "a hand-in that lacked a block its cell must write was sent back";
+const LACKING_TAKEN_WITH_A_QUESTION: &str =
+    "a hand-in that lacked a block its cell must write was taken, with a question its cell waits for";
 const MERGED_A_REVIEWED_HEAD: &str = "the merge merged a head the work committed and the review dealt with";
 const CHECK_GATED: &str = "the check failed in passing on a head a judge of it had not dealt with";
 const MERGE_ON_A_MOVED_HEAD: &str = "the merge failed in passing on a head moved since the check passed";
@@ -690,6 +737,9 @@ struct Random {
     refuse_next: bool,
     /// Whether the steered check failure was handed in.
     check_failed: bool,
+    /// Whether the owner of a steered history wrote the background, which runs the plan's cells and so the
+    /// implementation before the check, as its first act.
+    briefed: bool,
     /// The run of the cell told of the failure that answered it as the steering has it: with a commit and nothing that
     /// matters, or with nothing committed.
     answered: Option<RunId>,
@@ -711,6 +761,20 @@ fn passed_before_merge(d: &Driver, roles: &Roles) -> bool {
 }
 
 impl Random {
+    /// The block the owner of a steered history writes first: the first block only people write, and not a choice, that
+    /// a cell which applies runs on, which is the background.
+    fn brief(&self, d: &Driver) -> Option<BlockId> {
+        let reading = Reading::new(&d.flow.flow, &d.work.records, None);
+        (d.flow.flow.cells().iter().enumerate())
+            .filter(|(i, _)| reading.applies(*i))
+            .flat_map(|(_, c)| c.runs_on.iter())
+            .find(|b| {
+                let block = &d.flow.blocks[*b];
+                block.writers.people && block.writers.cells.is_empty() && block.values.is_none()
+            })
+            .cloned()
+    }
+
     /// A hand-in of everything the cell writes as it stands: each choice as it is, or its first value where it never
     /// was, a verdict as its refusal where `refuse` says so; each other block, no opinion for a cell before it among
     /// them, as a change that does not matter.
@@ -733,10 +797,20 @@ impl Random {
 
     /// What the steering through a refusal does now, where it does anything: pauses the work while the check's round
     /// is under way; once the check passed under the pause, commits on the branch as a person, in one of three, or
-    /// writes for a judge that applies (who then refuses) or a verdict as its refusal, a coin of its own deciding; then
+    /// writes an input that runs the cells before a judge (which then refuses) or a verdict as its refusal, a coin of
+    /// its own deciding; then
     /// lets the work on. Where the check failed under its
     /// pause, it lets the work on, to try at the next check.
     fn steered(&mut self, d: &Driver) -> Option<Event> {
+        // The owner of a steered history briefs first, as the owner of a work does, so that the plan's cells and the
+        // implementation run, and ask, before the check does: a quiet owner that never wrote it would have each verdict
+        // written by a person and the check run with no cell that may ask having handed in.
+        if self.steer != Steer::Not && !self.briefed {
+            self.briefed = true;
+            if let Some(background) = self.brief(d) {
+                return Some(wrote(&background, Outsider::Person, true, None));
+            }
+        }
         if self.steer != Steer::Refuse || self.stage >= 2 {
             return None;
         }
@@ -775,9 +849,11 @@ impl Random {
             let block = &d.flow.blocks[*b];
             block.writers.people && block.writers.cells.is_empty() && block.values.is_none()
         };
-        let for_judges: Vec<&BlockId> = (self.roles.judges.iter())
-            .filter(|(j, _)| reading.applies(*j))
-            .flat_map(|(j, _)| d.flow.flow.cells()[*j].runs_on.iter().filter(only_people))
+        // The input a judge looks at again is one that runs the cells before it: a block only people write that some
+        // cell which applies runs on, the background, from which the plan and then its judges are reached again.
+        let for_judges: Vec<&BlockId> = (d.flow.flow.cells().iter().enumerate())
+            .filter(|(i, _)| reading.applies(*i))
+            .flat_map(|(_, c)| c.runs_on.iter().filter(only_people))
             .collect();
         if self.steering.chance(50) && !for_judges.is_empty() {
             self.refuse_next = true;
@@ -799,13 +875,18 @@ impl Random {
                     // A steered history's judges pass in nine of ten, so that it reaches the check past the judges
                     // before it, the plan's and the change's.
                     let refusal = self.roles.refusals.get(b).filter(|_| self.steer != Steer::Not);
-                    let value = match refusal {
-                        Some(refusal) if d.rng.chance(90) => {
+                    // A steered history's choice that a judge's condition waits for is that value in seven of ten.
+                    let gate = (self.roles.gates.get(b))
+                        .filter(|_| self.steer != Steer::Not)
+                        .filter(|_| d.rng.chance(70));
+                    let value = match (refusal, gate) {
+                        (Some(refusal), _) if d.rng.chance(90) => {
                             values.iter().find(|v| *v != refusal).unwrap_or(refusal).clone()
                         }
-                        Some(refusal) => refusal.clone(),
-                        None if values.len() == 1 || d.rng.chance(55) => values[0].clone(),
-                        None => values[1 + d.rng.below(values.len() - 1)].clone(),
+                        (Some(refusal), _) => refusal.clone(),
+                        (None, Some(gate)) => gate.clone(),
+                        (None, None) if values.len() == 1 || d.rng.chance(55) => values[0].clone(),
+                        (None, None) => values[1 + d.rng.below(values.len() - 1)].clone(),
                     };
                     handed_in.push(handed(b, cell, true, Some(value)));
                 }
@@ -1032,12 +1113,27 @@ impl Random {
                 // Nine agents in ten owe nothing they leave out.
                 next_word(d, run, i, cell, &mut handed_in, 90);
                 let first = !d.work.records.questions.iter().any(|q| !q.engine);
-                let force = self.steer == Steer::FailCheckLeft && first;
+                let force = match self.steer {
+                    Steer::FailCheckLeft if first => Some(false),
+                    Steer::FailCheck if first => Some(true),
+                    _ => None,
+                };
                 // A value that stands with nothing but some blocks is handed in with no question beside it.
                 let questions = match may_ask(&d.flow, i, &handed_in) {
-                    true => self.questions(d, i, cell, &mut handed_in, force),
+                    true => self.questions(d, i, cell, force),
                     false => Vec::new(),
                 };
+                // A return whose question waits hands in as much of what its cell must write as the draw gives
+                // (decision a-return-hands-in-what-its-cell-must-every-time): each such block is left out in one of
+                // two.
+                if questions
+                    .iter()
+                    .any(|q| matches!(q, Question::Asked { waits: true, .. }))
+                {
+                    let must = d.flow.cells[i].must_write.clone();
+                    let leaves_out = force == Some(true);
+                    handed_in.retain(|h| !must.contains(&h.block) || (!leaves_out && d.rng.chance(50)));
+                }
                 let mut came = hands_in(d, run, i, handed_in);
                 came.said.questions = questions;
                 came
@@ -1046,19 +1142,10 @@ impl Random {
     }
 
     /// What the agent of the cell at this place writes in the record of the questions beside its hand-in, where an
-    /// answer runs its cell: a question of its own in three of a hundred, which waits in one of five, and always one
-    /// that does not wait where `force` says so; one of its own that stands asked anew, as it was, in two of a
-    /// hundred; one withdrawn in two of a hundred; nothing otherwise. A return whose question waits may leave out the
-    /// blocks its cell must write, which the histories' check of them does not allow for (`lacking_a_must_write`):
-    /// such a return hands each of them in.
-    fn questions(
-        &self,
-        d: &mut Driver,
-        i: usize,
-        cell: &str,
-        handed_in: &mut Vec<Handed>,
-        force: bool,
-    ) -> Vec<Question> {
+    /// answer runs its cell: a question of its own in five of a hundred, which waits in one of two, and always one
+    /// where `force` says so, waiting as it says; one of its own that stands asked anew, as it was, in two of a
+    /// hundred; one withdrawn in two of a hundred; nothing otherwise.
+    fn questions(&self, d: &mut Driver, i: usize, cell: &str, force: Option<bool>) -> Vec<Question> {
         let spec = &d.flow.cells[i];
         if !(spec.watches.iter()).any(|t| t.of_source(&d.flow, flow::ANSWER).is_some()) {
             return Vec::new();
@@ -1068,26 +1155,18 @@ impl Random {
             .map(|(name, _)| name.to_string())
             .collect();
         let fresh = format!("{cell}_{}", d.work.records.questions.len());
-        let drawn = if force { None } else { Some(d.rng.below(100)) };
+        let drawn = if force.is_some() { None } else { Some(d.rng.below(100)) };
         let (name, waits) = match drawn {
-            None => (fresh, false),
-            Some(0..=2) => (fresh, d.rng.chance(20)),
-            Some(3..=4) if !own.is_empty() => (own[d.rng.below(own.len())].clone(), false),
-            Some(5..=6) if !own.is_empty() => {
+            None => (fresh, force == Some(true)),
+            Some(0..=4) => (fresh, d.rng.chance(50)),
+            Some(5..=6) if !own.is_empty() => (own[d.rng.below(own.len())].clone(), false),
+            Some(7..=8) if !own.is_empty() => {
                 let name = own[d.rng.below(own.len())].clone();
                 let why = "Settled.".to_string();
                 return vec![Question::Withdrawn { name, why }];
             }
             _ => return Vec::new(),
         };
-        if waits {
-            let missing: Vec<BlockId> = (d.flow.cells[i].must_write.iter())
-                .filter(|b| !handed_in.iter().any(|h| &h.block == *b))
-                .cloned()
-                .collect();
-            let stands = self.as_it_stands(d, i, cell, false);
-            handed_in.extend(stands.into_iter().filter(|h| missing.contains(&h.block)));
-        }
         let way = |does: &str, follows: &str| Way {
             does: does.to_string(),
             follows: follows.to_string(),
@@ -1175,7 +1254,9 @@ impl Random {
             .filter(|(_, q)| q.unanswered())
             .map(|(name, q)| (name.to_string(), latest_number(&d.flow, &d.work.records, &q)))
             .collect();
-        if !unanswered.is_empty() && d.rng.chance(50) {
+        // A steered history's owner answers each as soon as it can, so that the check is not held back by one.
+        let quiet = self.steer != Steer::Not;
+        if !unanswered.is_empty() && (quiet || d.rng.chance(50)) {
             let (question, version) = unanswered[d.rng.below(unanswered.len())].clone();
             let option = 1 + d.rng.below(2) as u64;
             return Event::Answer {
@@ -1184,11 +1265,26 @@ impl Random {
                 option,
             };
         }
-        let event = match d.rng.below(100) {
+        // A steered history's owner leaves the work as it is, but for what lets it go on: no cancelling, no pausing
+        // (the steering pauses it where it must), no prose a person writes, no commit, no word to a line and no remark
+        // on a question, and a verdict it writes is not a refusal in nine of ten. The steering has to reach the check
+        // in the random steps, which a cancelled or reworked work seldom does, and which a work held for a person's
+        // verdict never does.
+        let roll = match d.rng.below(100) {
+            0 | 22..=36 | 77..=89 if quiet => 100,
+            67..=76 if quiet && !paused => 100,
+            n => n,
+        };
+        let event = match roll {
             0 => Some(Event::Cancelled { why: None }),
             1..=21 => pick(&mut d.rng, people_choices).map(|b| {
                 let values = blocks[&b].values.clone().expect("a choice");
-                let value = values[d.rng.below(values.len())].clone();
+                let value = match self.roles.refusals.get(&b) {
+                    Some(refusal) if quiet && d.rng.chance(90) => {
+                        values.iter().find(|v| *v != refusal).unwrap_or(refusal).clone()
+                    }
+                    _ => values[d.rng.below(values.len())].clone(),
+                };
                 wrote(&b, Outsider::Person, true, Some(value))
             }),
             22..=36 => pick(&mut d.rng, people_prose).map(|b| wrote(&b, Outsider::Person, true, None)),
@@ -1621,36 +1717,45 @@ impl History {
             }
         }
         let mut stalled = None;
-        match decide(flow, records) {
+        let decision = decide(flow, records);
+        match &decision {
             Decision::Wait { on, .. } if on.iter().any(|w| matches!(w, Waited::Limit { .. })) => {
                 reached.push(CELL_LIMIT.to_string());
             }
             Decision::Ended(_) => self.ended = true,
-            // Stalled on a key that reads what the check wrote as it failed: only the owner speaking to a cell would
-            // move it. A work stalled before the check ran, which stands at the first gate that does not hold, the
-            // merge's where the check's own hold, is not at the check's.
-            Decision::Stalled { at, on, .. } => {
-                let check = &flow.cells()[self.roles.check].id;
-                let failed: Vec<&BlockId> = (self.roles.check_passes(&self.d.flow))
-                    .filter(|(b, pass)| {
-                        (reading.record(check)).is_some_and(|f| {
-                            f.writes
-                                .iter()
-                                .any(|w| &w.block == *b && w.value.as_ref() != Some(*pass))
-                        })
-                    })
-                    .map(|(b, _)| b)
-                    .collect();
-                if on
-                    .iter()
-                    .any(|key| key_reads(&self.d.flow, key).iter().any(|b| failed.contains(b)))
-                {
-                    stalled = Some(format!(
-                        "the work stalled at {at} on {on:?}, which only the check writes"
-                    ));
-                }
-            }
             _ => {}
+        }
+        // Stalled on a key that reads what the check wrote as it failed: only the owner speaking to a cell would move
+        // it. Where the work stands is read from the records alone, never from what the deciding code calls it. A
+        // work stalled before the check ran, which stands at the first gate that does not hold, the merge's where the
+        // check's own hold, is not at the check's.
+        let rest = whole::Reading::new(flow, records).rest(flow);
+        // And the decision says the work is stalled where, and only where, the records read it so: a stall it calls a
+        // wait is one the owner is never shown.
+        let reads_stalled = matches!(rest, whole::Rest::Stalled { .. });
+        if reads_stalled != matches!(decision, Decision::Stalled { .. }) {
+            stalled = Some(format!("the records read {rest:?}, and the decision is {decision:?}"));
+        }
+        if let whole::Rest::Stalled { at, on } = rest {
+            let check = &flow.cells()[self.roles.check].id;
+            let failed: Vec<&BlockId> = (self.roles.check_passes(&self.d.flow))
+                .filter(|(b, pass)| {
+                    (reading.record(check)).is_some_and(|f| {
+                        f.writes
+                            .iter()
+                            .any(|w| &w.block == *b && w.value.as_ref() != Some(*pass))
+                    })
+                })
+                .map(|(b, _)| b)
+                .collect();
+            if on
+                .iter()
+                .any(|key| key_reads(&self.d.flow, key).iter().any(|b| failed.contains(b)))
+            {
+                stalled = Some(format!(
+                    "the records read the work stalled at {at} on {on:?}, which only the check writes"
+                ));
+            }
         }
         for r in reached {
             self.reach(r);
@@ -1831,6 +1936,24 @@ impl History {
         }
         if self.d.seen.lacking > 0 {
             reached.push(LACKING_SENT_BACK.to_string());
+        }
+        // A run that finished lacking a block its cell must write, which asked no call and asked a question its cell
+        // waits for: the engine took it, as the decision allows.
+        let waiting_ask = |run: RunId| {
+            (records.questions.iter()).any(|q| q.run == run && !q.engine && q.waits && !q.withdrawn)
+                && !records.called.iter().any(|c| c.run == run)
+        };
+        let lacking_taken = records.finished.iter().any(|f| {
+            let cell = &records.started.iter().find(|s| s.run == f.run).expect("a run").cell;
+            let spec = flow
+                .cells
+                .iter()
+                .find(|c| &c.id == cell)
+                .expect("the cell is in the flow");
+            waiting_ask(f.run) && spec.must_write.iter().any(|b| !f.writes.iter().any(|w| &w.block == b))
+        });
+        if lacking_taken {
+            reached.push(LACKING_TAKEN_WITH_A_QUESTION.to_string());
         }
         if self.d.seen.stops > 0 {
             reached.push(ENGINE_STOPPED.to_string());
@@ -2016,6 +2139,7 @@ fn one_history(flow: &Compiled, seed: u64, log: &mut Vec<String>) -> Verdict {
         paused_it: false,
         refuse_next: false,
         check_failed: false,
+        briefed: false,
         answered: None,
         branch: branch.clone(),
     };
@@ -2101,10 +2225,10 @@ type Case = (u64, String, Vec<String>);
 /// before it fails, and two tests side by side would each take the other's.
 static HOOK: Mutex<()> = Mutex::new(());
 
-/// Runs `f` on each seed below `seeds` on as many threads as the machine has cores, and gives the results in seed
-/// order.
-fn in_parallel<T: Send>(seeds: u64, f: impl Fn(u64) -> T + Sync) -> Vec<T> {
-    let next = std::sync::atomic::AtomicU64::new(0);
+/// Runs `f` on each seed from `from` to below `to` on as many threads as the machine has cores, and gives the results
+/// in seed order.
+fn in_parallel<T: Send>(from: u64, to: u64, f: impl Fn(u64) -> T + Sync) -> Vec<T> {
+    let next = std::sync::atomic::AtomicU64::new(from);
     let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
     let mut done: Vec<(u64, T)> = std::thread::scope(|scope| {
         let workers: Vec<_> = (0..threads)
@@ -2113,7 +2237,7 @@ fn in_parallel<T: Send>(seeds: u64, f: impl Fn(u64) -> T + Sync) -> Vec<T> {
                     let mut mine = Vec::new();
                     loop {
                         let seed = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        if seed >= seeds {
+                        if seed >= to {
                             return mine;
                         }
                         mine.push((seed, f(seed)));
@@ -2127,49 +2251,58 @@ fn in_parallel<T: Send>(seeds: u64, f: impl Fn(u64) -> T + Sync) -> Vec<T> {
     done.into_iter().map(|(_, t)| t).collect()
 }
 
-/// Runs the histories, prints what they reached and counted, and fails if one breaks a property, or if none reached a
-/// situation the properties are about. A panic anywhere in a history, raised while the hook is silenced, is kept as a
-/// breach with its message, so that it is said when the test fails.
+/// Runs the histories, prints what they reached and counted, and fails if one breaks a property, or if fewer than
+/// [`FLOOR`] histories reached a situation the properties are about. A panic anywhere in a history, raised while the
+/// hook is silenced, is kept as a breach with its message, so that it is said when the test fails.
 fn histories() {
     let _hook = HOOK.lock().unwrap_or_else(PoisonError::into_inner);
     let flow = engineer();
     let roles = Roles::new(&flow);
     let hook = panic::take_hook();
     panic::set_hook(Box::new(|_| {}));
-    let mut reached: BTreeMap<String, u64> = required(&flow, &roles).into_iter().map(|r| (r, 0)).collect();
+    let must = required(&flow, &roles);
+    let mut reached: BTreeMap<String, u64> = must.iter().map(|r| (r.clone(), 0)).collect();
     let mut runs: BTreeMap<CellId, (u64, u64)> = BTreeMap::new();
     let mut broken: BTreeMap<&str, Vec<Case>> = BTreeMap::new();
     let mut continued = 0;
     let mut most = (0, 1);
-    let results = in_parallel(SEEDS, |seed| {
-        let mut log = Vec::new();
-        let verdict = match panic::catch_unwind(AssertUnwindSafe(|| one_history(&flow, seed, &mut log))) {
-            Ok(verdict) => verdict,
-            Err(e) => {
-                let mut verdict = Verdict::default();
-                verdict.broken.insert(DRIVER, message(e.as_ref()));
-                verdict
+    let mut ran = 0;
+    while ran < SEEDS * BATCHES {
+        let batch = ran..ran + SEEDS;
+        let results = in_parallel(batch.start, batch.end, |seed| {
+            let mut log = Vec::new();
+            let verdict = match panic::catch_unwind(AssertUnwindSafe(|| one_history(&flow, seed, &mut log))) {
+                Ok(verdict) => verdict,
+                Err(e) => {
+                    let mut verdict = Verdict::default();
+                    verdict.broken.insert(DRIVER, message(e.as_ref()));
+                    verdict
+                }
+            };
+            (verdict, log)
+        });
+        for (seed, (verdict, log)) in batch.clone().zip(results) {
+            for r in verdict.reached {
+                *reached.entry(r).or_default() += 1;
             }
-        };
-        (verdict, log)
-    });
-    for (seed, (verdict, log)) in (0..SEEDS).zip(results) {
-        for r in verdict.reached {
-            *reached.entry(r).or_default() += 1;
-        }
-        for (cell, (all, nothing)) in verdict.runs {
-            let total = runs.entry(cell).or_default();
-            total.0 += all;
-            total.1 += nothing;
-        }
-        if let Some((steps, bound)) = verdict.steps {
-            continued += 1;
-            if steps * most.1 > most.0 * bound {
-                most = (steps, bound);
+            for (cell, (all, nothing)) in verdict.runs {
+                let total = runs.entry(cell).or_default();
+                total.0 += all;
+                total.1 += nothing;
+            }
+            if let Some((steps, bound)) = verdict.steps {
+                continued += 1;
+                if steps * most.1 > most.0 * bound {
+                    most = (steps, bound);
+                }
+            }
+            for (property, what) in verdict.broken {
+                broken.entry(property).or_default().push((seed, what, log.clone()));
             }
         }
-        for (property, what) in verdict.broken {
-            broken.entry(property).or_default().push((seed, what, log.clone()));
+        ran = batch.end;
+        if broken.values().any(|cases| !cases.is_empty()) || must.iter().all(|r| reached[r] >= FLOOR) {
+            break;
         }
     }
     panic::set_hook(hook);
@@ -2178,7 +2311,7 @@ fn histories() {
     let mut err = std::io::stderr();
     let _ = writeln!(
         err,
-        "{SEEDS} histories, {continued} with a content continuation; the most of its bound one took: {most:?}"
+        "{ran} histories, {continued} with a content continuation; the most of its bound one took: {most:?}"
     );
     let _ = writeln!(err, "reached, in how many histories:");
     for (what, n) in &reached {
@@ -2205,10 +2338,15 @@ fn histories() {
         ));
     }
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
-    let unreached: Vec<&String> = reached.iter().filter(|(_, n)| **n == 0).map(|(r, _)| r).collect();
+    let unreached: Vec<String> = (must.iter())
+        .filter(|r| reached[*r] < FLOOR)
+        .map(|r| format!("{r}: {}", reached[r]))
+        .collect();
+    let all: Vec<String> = reached.iter().map(|(r, n)| format!("{r}: {n}")).collect();
     assert!(
         unreached.is_empty(),
-        "no history reached these, so the properties about them check nothing: {unreached:?}"
+        "fewer than {FLOOR} of {ran} histories reached these, so the properties about them pin nothing: \
+         {unreached:?}\nin how many histories each situation was reached: {all:?}"
     );
 }
 

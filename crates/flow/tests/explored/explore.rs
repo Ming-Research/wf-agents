@@ -27,7 +27,7 @@ use crate::model::{
     show_key, skipped, waited_at_gate,
 };
 use crate::support::World;
-use reading::{Reading, Reason, Writer};
+use reading::{Reading, Reason, Rest, Writer};
 
 /// The properties, by their numbers in the owner's test plan.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1312,9 +1312,12 @@ impl Explorer<'_> {
         let m = self.model;
         let flow = &m.compiled.flow;
         let trace = &s.trace;
+        // Where the work stands is read from the records alone: a stop is for a person, the owner or the outside where
+        // they read it so, and what the deciding code calls it is not taken.
+        let rest = Reading::new(flow, &s.world.records).rest(flow);
         let (stop, on_purpose) = match d {
-            Decision::Ended(End::Merged) => ("the work merged".to_string(), true),
-            Decision::Ended(End::Cancelled) => ("the work was cancelled".to_string(), true),
+            Decision::Ended(End::Merged) => ("the work merged".to_string(), matches!(rest, Rest::Ended)),
+            Decision::Ended(End::Cancelled) => ("the work was cancelled".to_string(), matches!(rest, Rest::Ended)),
             Decision::Stalled { at, on, by } => {
                 for key in on {
                     self.reach(waited_at_gate(at, key));
@@ -1328,7 +1331,9 @@ impl Explorer<'_> {
                 if !wrong.is_empty() {
                     self.breach(Property::Shown, stop.clone(), trace, wrong.join("; "));
                 }
-                (stop, true)
+                let right = matches!(&rest, Rest::Stalled { at: a, on: o }
+                    if a == at && o.len() == on.len() && o.iter().all(|k| on.contains(k)));
+                (stop, right)
             }
             Decision::Wait { at, on } => {
                 for w in on {
@@ -1337,15 +1342,9 @@ impl Explorer<'_> {
                     }
                 }
                 let shown: Vec<String> = on.iter().map(show_waited).collect();
-                let on_purpose = on.iter().any(|w| match w {
-                    Waited::Call { on, .. } => on.is_some(),
-                    Waited::Limit { .. } | Waited::Calls { .. } | Waited::Answer { .. } => true,
-                    Waited::Precondition { by, .. } => by
-                        .iter()
-                        .any(|maker| matches!(maker, Maker::Owner | Maker::Outside { .. })),
-                    Waited::Outside { .. } => true,
-                    Waited::Slot | Waited::Turn => false,
-                });
+                // The engine makes a call of its own, and a slot or the work's turn is waited for: none is a stop for
+                // the owner.
+                let on_purpose = matches!(&rest, Rest::Waiting { at: a } if a == at);
                 (
                     format!("the work waits at {at} for {}", shown.join(" and ")),
                     on_purpose,
@@ -1359,7 +1358,7 @@ impl Explorer<'_> {
                 self.reach(WAITED_FOR_THE_OWNER.to_string());
             }
         } else {
-            self.breach(Property::NextStep, stop, trace, String::new());
+            self.breach(Property::NextStep, stop, trace, format!("the records read {rest:?}"));
         }
         if let Decision::Wait { on, .. } = d
             && on

@@ -1,6 +1,13 @@
-//! `wf-agents flow situations`, run as the command on the repository's engineer flow: a file for each situation an
-//! entry of a cell can be in, with the system prompt, the message and the form, as many as it says.
+//! `wf-agents flow situations`, run as the command: a file for each situation a round of a cell was found in by the
+//! search of works of the flow, with the system prompt, the message and the form, as many as it says; and the same files
+//! each time it is run.
+//!
+//! The repository's own flow is run once, for what only it holds: the command reading the flow and the settings the
+//! project has. That two runs write the same files is held on the small flow, where a run takes less than half as long:
+//! the crates the command runs hold no unordered map or set and no thread in their sources, so nothing that makes two
+//! runs differ depends on the size of the flow.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -9,89 +16,79 @@ fn engineer() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../flow/engineer")
 }
 
-fn situations(out: &Path, cell: &str) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_wf-agents"))
-        .args(["flow", "situations"])
-        .arg(engineer())
-        .arg("--out")
-        .arg(out)
-        .args(["--cell", cell])
-        .output()
-        .expect("the command runs")
+fn small() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../flow/tests/project/small")
 }
 
-/// The text of the file of the situation of this name, under the cell's directory.
-fn file(dir: &Path, name: &str) -> String {
-    let found = (fs::read_dir(dir).expect("the cell's directory is read"))
-        .map(|entry| entry.expect("an entry").path())
-        .find(|path| path.to_string_lossy().ends_with(&format!("-{name}.md")));
-    fs::read_to_string(found.unwrap_or_else(|| panic!("no situation {name}"))).expect("the file is read")
+fn situations(flow: &Path, out: &Path, cell: Option<&str>) -> Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_wf-agents"));
+    command.args(["flow", "situations"]).arg(flow).arg("--out").arg(out);
+    if let Some(cell) = cell {
+        command.args(["--cell", cell]);
+    }
+    command.output().expect("the command runs")
 }
 
-/// The part of a message under the heading of this datum, to the next heading of its level.
-fn datum(text: &str, block: &str) -> String {
-    let message = text.split("===== message =====").nth(1).expect("a message");
-    let message = message.split("===== return form =====").next().unwrap_or_default();
-    let heading = format!("## `{block}`");
-    let Some(at) = message.find(&heading).map(|at| &message[at..]) else {
-        return String::new();
-    };
-    let end = at[heading.len()..]
-        .find("\n## ")
-        .map_or(at.len(), |end| end + heading.len());
-    at[..end].trim_end().to_string()
+/// Each file under the directory, by its path from it, with its text.
+fn files(dir: &Path) -> BTreeMap<String, String> {
+    fn walk(root: &Path, at: &Path, into: &mut BTreeMap<String, String>) {
+        for entry in fs::read_dir(at).expect("the directory is read") {
+            let path = entry.expect("an entry").path();
+            if path.is_dir() {
+                walk(root, &path, into);
+            } else {
+                let name = path.strip_prefix(root).expect("under the root").display().to_string();
+                into.insert(name, fs::read_to_string(&path).expect("the file is read"));
+            }
+        }
+    }
+    let mut all = BTreeMap::new();
+    walk(dir, dir, &mut all);
+    all
 }
 
 #[test]
-fn each_situation_of_a_cell_is_written_with_its_system_prompt_its_message_and_the_form() {
-    let out = tempfile::tempdir().expect("a directory");
-    let ran = situations(out.path(), "R2");
+fn each_situation_of_a_cell_of_the_engineers_flow_is_written_with_its_system_prompt_its_message_and_the_form() {
+    let first = tempfile::tempdir().expect("a directory");
+    let ran = situations(&engineer(), first.path(), Some("R1"));
     assert!(ran.status.success(), "{}", String::from_utf8_lossy(&ran.stderr));
-    let dir = out.path().join("R2");
+    let dir = first.path().join("R1");
     let written = fs::read_dir(&dir).expect("the cell's directory is read").count();
     let said = String::from_utf8_lossy(&ran.stdout);
-    assert!(said.starts_with(&format!("R2: {written} situations, in ")), "{said}");
-    let text = file(&dir, "later-plan-ran_holds_last-rest_lacks");
-    assert!(text.starts_with("situation = \"later-plan-ran_holds_last-rest_lacks\"\n"));
-    for part in ["system prompt", "message", "return form"] {
-        assert!(text.contains(&format!("\n===== {part} =====\n\n")), "{part}");
-    }
-    // Asked again, a cell's directory that holds files is not written over.
-    let again = situations(out.path(), "R2");
-    assert!(!again.status.success());
-}
-
-#[test]
-fn a_datum_given_latest_the_session_lacks_is_sent_whole_and_one_it_holds_new_its_held_line() {
-    let out = tempfile::tempdir().expect("a directory");
-    assert!(situations(out.path(), "R2").status.success());
-    let dir = out.path().join("R2");
-    let lacks = datum(&file(&dir, "later-plan-ran_holds_last-rest_lacks"), "background");
-    let holds_latest = datum(&file(&dir, "later-plan-ran_holds_last-rest_holds_latest"), "background");
-    let holds = datum(&file(&dir, "later-plan-ran_holds_last-rest_holds"), "background");
-    assert!(lacks.ends_with("{content}"), "{lacks}");
     assert!(
-        !holds_latest.is_empty() && !holds_latest.contains("{content}"),
-        "{holds_latest}"
+        written > 0 && said.starts_with(&format!("R1: {written} situations, in ")),
+        "{said}"
     );
-    assert_ne!(lacks, holds_latest);
-    assert_eq!(holds, "");
-}
-
-#[test]
-fn every_setting_a_message_names_is_given_beside_its_name() {
-    let out = tempfile::tempdir().expect("a directory");
-    assert!(situations(out.path(), "I1").status.success());
-    // What the cell returns names it, which a message gives where the session lacks it.
+    // A file holds the situation, then the system prompt, the message and the form, each under a line that says which it
+    // is; and each setting a message names is given beside its name, which what the cell returns names.
     let mut named = 0;
-    for entry in fs::read_dir(out.path().join("I1")).expect("the cell's directory is read") {
-        let path = entry.expect("an entry").path();
-        let text = fs::read_to_string(&path).expect("the file is read");
+    for (path, text) in files(first.path()) {
+        assert!(text.starts_with("situation = \""), "{path}");
+        for part in ["system prompt", "message", "return form"] {
+            assert!(text.contains(&format!("\n===== {part} =====\n\n")), "{path}: {part}");
+        }
         let message = text.split("===== message =====").nth(1).expect("a message");
         let bare = message.matches("`owner.language`").count();
         let given = message.matches("`owner.language` ({owner.language})").count();
-        assert_eq!(bare, given, "{}", path.display());
+        assert_eq!(bare, given, "{path}");
         named += given;
     }
     assert!(named > 0);
+    // Asked again, a cell's directory that holds files is not written over.
+    assert!(!situations(&engineer(), first.path(), Some("R1")).status.success());
+}
+
+#[test]
+fn a_flow_is_written_the_same_situations_each_time_it_is_run() {
+    let (first, second) = (
+        tempfile::tempdir().expect("a directory"),
+        tempfile::tempdir().expect("a directory"),
+    );
+    for out in [&first, &second] {
+        let ran = situations(&small(), out.path(), None);
+        assert!(ran.status.success(), "{}", String::from_utf8_lossy(&ran.stderr));
+    }
+    let all = files(first.path());
+    assert!(!all.is_empty());
+    assert_eq!(all, files(second.path()));
 }

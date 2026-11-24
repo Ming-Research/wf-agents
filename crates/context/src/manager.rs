@@ -25,10 +25,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use decide::{BlockId, CallId, InputView, Records, RunId, Seq, VersionView, Writer};
+use decide::{BlockId, CallId, InputView, Records, RunId, Seq, VersionView, View, Writer};
 use flow::agents::{Agents, Part};
 use flow::{CellSpec, Compiled, InputKind, Listed};
-use work::sessions::{began_at, number_at, of_line, of_round, start};
+use work::sessions::{began_at, number_at, of_line, of_round};
 use work::{Ask, Back, Call, Fill, Given, Why, Work};
 
 use crate::diff;
@@ -98,6 +98,34 @@ pub fn enter(
     carried: &Carried<'_>,
     anew: bool,
 ) -> Result<Entered, String> {
+    entered(flow, words, work, run, number, carried, anew, true)
+}
+
+/// The situation the round is in as it is entered, as [`enter`] has it, with no message made: what is sent, its text and
+/// what it fills are left empty. For whoever asks only what situation an entry is in, and enters many.
+pub fn situation_of(
+    flow: &Compiled,
+    words: &Agents,
+    work: &Work,
+    run: RunId,
+    number: usize,
+    carried: &Carried<'_>,
+    anew: bool,
+) -> Result<Entered, String> {
+    entered(flow, words, work, run, number, carried, anew, false)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn entered(
+    flow: &Compiled,
+    words: &Agents,
+    work: &Work,
+    run: RunId,
+    number: usize,
+    carried: &Carried<'_>,
+    anew: bool,
+    message: bool,
+) -> Result<Entered, String> {
     let (about, changes) = (carried.about, carried.changes);
     let started = (work.records.started.iter())
         .find(|s| s.run == run)
@@ -139,6 +167,9 @@ pub fn enter(
     // What each datum fills, by its name.
     let mut filling: BTreeMap<&BlockId, Vec<Fill>> = BTreeMap::new();
     let data = message::given(flow, words, cell);
+    // What the walk reads of the records, once for the entry: it is the same for each datum.
+    let seen = decide::view(&flow.flow, &records);
+    let written = decide::versions(&records);
     for given in &data {
         let block = &given.block;
         let all = versions.get(block).map_or(&[][..], Vec::as_slice);
@@ -154,7 +185,7 @@ pub fn enter(
                 by: by(flow, &records, block, v),
             })
         };
-        let last = last_worked_from(flow, &records, cell, block, all);
+        let last = last_worked_from(flow, &records, cell, block, all, &seen, &written);
         let holds = |at: Seq| held.versions.get(block).is_some_and(|h| h.contains(&at));
         let new = all
             .iter()
@@ -246,7 +277,6 @@ pub fn enter(
     let ran_by = decide::told(&flow.flow, &records, run)
         .map(|t| t.ran_by)
         .unwrap_or_default();
-    let seen = decide::view(&flow.flow, &records);
     let inputs: Vec<&InputView> = (seen.cells.iter())
         .find(|c| c.cell == cell.id)
         .map_or_else(Vec::new, |c| c.runs_on.iter().collect());
@@ -343,7 +373,10 @@ pub fn enter(
             situation.holds.push(part);
         }
     }
-    let sent = message::message(flow, words, cell, &situation, Values::Run(&values));
+    let sent = match message {
+        true => message::message(flow, words, cell, &situation, Values::Run(&values)),
+        false => Vec::new(),
+    };
     let mut fills = Vec::new();
     for s in &sent {
         match s.part.as_str() {
@@ -366,7 +399,7 @@ pub fn enter(
         }
     }
     Ok(Entered {
-        text: message::text(&sent),
+        text: if message { message::text(&sent) } else { String::new() },
         situation,
         run: values,
         sent,
@@ -507,21 +540,25 @@ fn by(flow: &Compiled, records: &Records, block: &BlockId, version: &VersionView
 /// filled with the latest; or the latest a run of the cell wrote, where that is later, a cell's own version being no
 /// change to it; or the latest of the block's `versions` the owner ruled on, where that is later, as the walk reads
 /// them: a point the owner ruled on is new to no cell (39), so what came before it is no change to the cell.
+///
+/// `seen` is what the walk reads of the records ([`decide::view`]) and `written` the versions of each block they hold
+/// ([`decide::versions`]), both read once for the entry that asks for each datum.
 fn last_worked_from(
     flow: &Compiled,
     records: &Records,
     cell: &CellSpec,
     block: &BlockId,
     versions: &[VersionView],
+    seen: &View,
+    written: &BTreeMap<BlockId, Vec<VersionView>>,
 ) -> Option<Seq> {
     let finished = (records.finished.iter()).filter(|f| of_cell(records, f.run, cell));
     let runs_it = (flow.flow.place(&cell.id)).is_some_and(|p| flow.flow.cells()[p].runs_on.contains(block));
     if runs_it {
         // The walk's own reading, which a cause records alike.
-        let view = decide::view(&flow.flow, records);
-        let of = view.cells.into_iter().find(|c| c.cell == cell.id);
+        let of = seen.cells.iter().find(|c| c.cell == cell.id);
         return of
-            .and_then(|c| c.runs_on.into_iter().find(|i| &i.block == block))
+            .and_then(|c| c.runs_on.iter().find(|i| &i.block == block))
             .and_then(|i| i.worked);
     }
     let wrote = (finished.clone())
@@ -530,7 +567,7 @@ fn last_worked_from(
         .max();
     let last = finished.max_by_key(|f| f.at);
     let round = last.and_then(|f| (records.rounds.iter()).filter(|r| r.run == f.run).map(|r| r.at).max());
-    let all = decide::versions(records).remove(block).unwrap_or_default();
+    let all = written.get(block).map_or(&[][..], Vec::as_slice);
     let given = round.and_then(|round| all.iter().map(|v| v.at).filter(|at| *at < round).max());
     let ruled = (versions.iter()).filter(|v| v.ruled).map(|v| v.at).max();
     given.max(wrote).max(ruled)
@@ -573,11 +610,15 @@ struct Held {
 /// place.
 fn held(flow: &Compiled, work: &Work, line: &str, run: RunId, number: usize, began: Seq) -> Held {
     let records = &work.records;
-    let on_line = |r: RunId| {
-        let cell = records.started.iter().find(|s| s.run == r).map(|s| &s.cell);
-        let spec = cell.and_then(|cell| flow.cells.iter().find(|c| c.id == *cell));
-        spec.and_then(|c| c.line.as_deref()) == Some(line)
-    };
+    // The runs of the line, read once: each is asked of for every round of the work.
+    let mut of_the_line: BTreeSet<RunId> = BTreeSet::new();
+    for started in &records.started {
+        let spec = flow.cells.iter().find(|c| c.id == started.cell);
+        if spec.and_then(|c| c.line.as_deref()) == Some(line) {
+            of_the_line.insert(started.run);
+        }
+    }
+    let on_line = |r: RunId| of_the_line.contains(&r);
     let (session, begins) = of_round(work, line, on_line, run, number);
     if begins {
         return Held::default();
@@ -585,16 +626,22 @@ fn held(flow: &Compiled, work: &Work, line: &str, run: RunId, number: usize, beg
     // Each round of the line that ran in the session and ended before this one began, with where it began and ended.
     let mut rounds: Vec<(RunId, usize, Seq, Seq)> = Vec::new();
     let mut counted: BTreeMap<RunId, usize> = BTreeMap::new();
+    // Where each run's rounds ended, in order, read once.
+    let mut ended_at: BTreeMap<RunId, Vec<Seq>> = BTreeMap::new();
+    for returned in &records.returned {
+        ended_at.entry(returned.run).or_default().push(returned.at);
+    }
     for round in &records.rounds {
         let k = counted.entry(round.run).or_default();
         *k += 1;
-        let ended = (records.returned.iter()).filter(|r| r.run == round.run).nth(*k - 1);
-        if let Some(ended) = ended
-            && ended.at < began
+        let ended = ended_at.get(&round.run).and_then(|ends| ends.get(*k - 1));
+        // The place the round began at is the place of this round of the records, which is [`start`] of it.
+        if let Some(&ended) = ended
+            && ended < began
             && on_line(round.run)
-            && number_at(work, line, start(work, round.run, *k)) == session
+            && number_at(work, line, round.at) == session
         {
-            rounds.push((round.run, *k, round.at, ended.at));
+            rounds.push((round.run, *k, round.at, ended));
         }
     }
     // Where the session last held nothing: where it began, or where it was reopened under its id, begun again or
@@ -658,7 +705,7 @@ fn held(flow: &Compiled, work: &Work, line: &str, run: RunId, number: usize, beg
                 hold(&mut held, &p.block, p.version);
             }
         }
-        let begun = records.rounds.iter().filter(|x| x.run == *r).count();
+        let begun = counted.get(r).copied().unwrap_or(0);
         let finished = (records.finished.iter()).find(|f| f.run == *r && *k == begun && f.at > *ended);
         let mut taken = Vec::new();
         if let Some(f) = finished.filter(|f| f.at > top && f.at < began) {

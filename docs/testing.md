@@ -36,8 +36,14 @@ of each part.
 
    Each part that keeps state over time (the deciding code, the loop, the driver, the store and the context manager)
    has histories of its own. A property is judged by the histories' own reading of the records, never by the code
-   under test. Each such test counts every case it is there to reach and fails where no history reached one, so that
-   no property passes by never being tried; a failing history gives its seed, which replays it. This layer is the one
+   under test: that a work rests waiting for someone, or is stalled, is read from the records by `Reading::rest`, and
+   a disagreement with what the deciding code says is a breach, whichever way it goes. So that a work stalls in them at
+   all, some histories of the small flows have a check that only cells write, which the merge waits for, and the
+   engineer's histories hold the deciding code to calling a work stalled exactly where the records read it so. Each
+   such test counts every case it is there to reach
+   and fails where none did; those of the deciding code and of the engineer's flow count the histories that reached each
+   case, run more in batches until each has been reached in ten, and fail where one has not, so that no property passes
+   by a case tried once; a failing history gives its seed, which replays it. This layer is the one
    to catch a fault that needs an order of events nobody wrote down: a stop between two steps, a write while a round
    is under way, a return after a send-back.
 
@@ -46,7 +52,21 @@ of each part.
    one way through the flow; the next change then meets a way no one ever ran.
 
    Each flow the repository defines is compiled with the files beside the flows, the system prompt of each of its
-   lines and the form of its return are made, and every situation an entry of each of its cells can reach is written.
+   lines and the form of its return are made, and the situations an entry of each of its cells was found in are
+   written. A search of the context crate takes works of the flow through the engine's own loop with the context
+   manager entering each round, by an action set of its own, seeded and bounded, and keeps for each line a round stood
+   in a script that carries such a round out on a fresh work; the tool writes those situations and no other, so that
+   each is a round a work reached, on any flow, and no rule of what a cell can be entered in is kept in step by hand.
+   The context manager's histories choose what they do apart from the search, and hold what it wrote to real rounds:
+   each script, run again, carries out a round in the same situation, the message the page shows for it is what the
+   engine sent, and every line a round of the histories stood in, on the small flow of its tests, is one a written
+   situation stands in. On the engineer's flow the lines a round stood in and the search left out are printed by cell,
+   with the steps before the first round that stood in each, and do not fail the test: some need two passes through the
+   flow, which the search does not reach in the 30 s the tool has (decision
+   the-situations-tool-writes-the-situations-a-search-reached).
+   How long the tool takes on the engineer's flow is timed by the measurements `situations-build` and
+   `situations-search` of `measure/`, the tool's own time being the second less the first; `situations-search-cell`
+   times one cell of it.
    The deciding code's own walk goes through it every way a work can go within a bound, or through many random
    histories, checking at each decision the properties that flow must keep, such as no merge on what is not settled
    and every work coming to rest. This layer is the one to catch a change of a definition (a cell, a block, a

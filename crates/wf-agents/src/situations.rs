@@ -1,5 +1,6 @@
-//! `wf-agents flow situations`: what each agent's cell of a definition is sent in every situation an entry of it can
-//! reach (`context::situations`), a file for each situation in a directory for the cell. A file holds the situation,
+//! `wf-agents flow situations`: what each agent's cell of a definition is sent in every situation a search of works of
+//! the flow found an entry of it in (`context::witness`, `context::situations`), a file for each situation in a
+//! directory for the cell. A file holds the situation,
 //! as its keys write it; the system prompt of the cell's line, made as the engine makes it (`flow::system`); the
 //! message, built by the builder the engine sends it with (`context::message`); and the form of a return, made as the
 //! engine gives it to the agents' program (`flow::form`). What a run fills is left open as `{name}`, and a setting a
@@ -12,6 +13,7 @@ use std::path::Path;
 
 use context::Values;
 use context::situations::{self, Named};
+use context::witness;
 use flow::agents::{Agents, DECLARATION, Declaration};
 use flow::{CellSpec, Compiled, Kind};
 
@@ -28,7 +30,8 @@ pub struct Asked<'a> {
 }
 
 /// Writes each agent's cell's situations, as the module says, the definition compiled against what the engine has;
-/// for each cell, a line of how many it wrote, where, and how many combinations of each datum's own state there are.
+/// for each cell, a line of how many it wrote, where, and how many lines of what a round stands in the search found
+/// for it.
 pub fn write(asked: &Asked, has: &flow::Has) -> Result<Vec<String>, String> {
     let shown = |e: &dyn std::fmt::Display| format!("{}: {e}", asked.dir.display());
     let source = flow::read(asked.dir).map_err(|e| shown(&e))?;
@@ -47,6 +50,14 @@ pub fn write(asked: &Asked, has: &flow::Has) -> Result<Vec<String>, String> {
     if let (Some(id), true) = (asked.cell, cells.is_empty()) {
         return Err(format!("{} has no agent's cell {id}", compiled.name));
     }
+    // A cell's directory that holds files already is not written over, which is told before the search, which takes time.
+    for cell in &cells {
+        let at = asked.out.join(cell.id.as_str());
+        let held = std::fs::read_dir(&at).map(|mut entries| entries.next().is_some());
+        if held.unwrap_or(false) {
+            return Err(format!("{} holds files already", at.display()));
+        }
+    }
     // The project's declaration, read from its checkout where one is given: its settings, and where its files are.
     let declaration = match asked.project {
         Some(checkout) => Some(declaration(checkout, &beside)?),
@@ -58,17 +69,17 @@ pub fn write(asked: &Asked, has: &flow::Has) -> Result<Vec<String>, String> {
     });
     // The blocks whose versions the engine compares itself, which a session that holds none of is told unread.
     let compared = carry::compared(&compiled);
+    // The works of the flow the search runs, which the situations are the rounds of; of the one cell asked for, the
+    // lines of that cell alone are sought.
+    let focus = asked.cell.and(cells.first()).map(|c| c.id.clone());
+    let found = witness::search(&compiled, &beside, &compared, focus.as_ref(), &witness::BOUNDS);
     let mut said = Vec::new();
     for cell in cells {
         let at = asked.out.join(cell.id.as_str());
-        let held = std::fs::read_dir(&at).map(|mut entries| entries.next().is_some());
-        if held.unwrap_or(false) {
-            return Err(format!("{} holds files already", at.display()));
-        }
         std::fs::create_dir_all(&at).map_err(|e| format!("{}: {e}", at.display()))?;
         let form = flow::form::form(&compiled, &beside, cell.line.as_deref().unwrap_or_default())?;
         let system = system(&beside, declaration.as_ref(), &compiled, cell, asked.project, &named)?;
-        let all = situations::situations(&compiled, &beside, cell, &compared);
+        let all = situations::situations(&found, cell);
         for (n, situation) in all.iter().enumerate() {
             let sent = context::message(&compiled, &beside, cell, &situation.situation, Values::Slots(&named));
             let message = context::message::text(&sent);
@@ -76,14 +87,20 @@ pub fn write(asked: &Asked, has: &flow::Has) -> Result<Vec<String>, String> {
             let text = file(situation, &system, &message, &form);
             std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))?;
         }
-        let every = situations::combinations(&compiled, &beside, cell, &compared);
         said.push(format!(
-            "{}: {} situations, in {}; {every} combinations of each datum's own state",
+            "{}: {} situations, in {}; {} lines of what a round stands in were found",
             cell.id.as_str(),
             all.len(),
-            at.display()
+            at.display(),
+            situations::witnessed(&found, cell)
         ));
     }
+    said.push(format!(
+        "the search carried out {} rounds and kept {} states of works, {} of its histories were dropped",
+        found.rounds,
+        found.kept,
+        found.faults.len()
+    ));
     Ok(said)
 }
 

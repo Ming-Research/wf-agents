@@ -6,7 +6,8 @@
 //! - `repair`: `wf-agents repair-costs`, the one-off correction of costs recorded before a round's cost was what its
 //!   results say it spent.
 //! - `talk`: the commands that talk to a running engine.
-//! - `situations`: `wf-agents flow situations`, what each agent's cell is sent in every situation it can be in.
+//! - `situations`: `wf-agents flow situations`, what each agent's cell is sent in every situation a search of works of
+//!   the flow found it in.
 //! - `names`, a test: no source names a cell, a line, a group or a block of a flow.
 
 mod carried;
@@ -601,10 +602,11 @@ enum FlowCommand {
         #[arg(long, default_value_t = 7490)]
         port: u16,
     },
-    /// Writes what each agent's cell of the definition in a directory is sent in every situation an entry of it can be
-    /// in, a file for each situation in a directory for the cell: the situation, the system prompt of its line, the
-    /// message and the form of a return, what a run fills left open as `{name}`. It reads nothing of an installation
-    /// or a work, and prints for each cell how many situations it wrote.
+    /// Writes what each agent's cell of the definition in a directory is sent in every situation a search of works of
+    /// the flow found an entry of it in, a file for each situation in a directory for the cell: the situation, the
+    /// system prompt of its line, the message and the form of a return, what a run fills left open as `{name}`. The
+    /// search runs works of the definition in memory, which takes time; it reads nothing of an installation or a work,
+    /// and prints for each cell how many situations it wrote.
     Situations {
         /// The definition's directory.
         dir: PathBuf,

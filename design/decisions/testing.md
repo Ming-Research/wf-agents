@@ -31,9 +31,10 @@ wf-agents' workflows stop and fail a test still running at the line the engine g
 - rejected: an agent proposed no stop for a single test, the job's limit its only bound; the owner rejected it, because a test that hung would hold its job for up to 15 minutes and the job is cancelled with no JUnit, so the test is found only from the log.
 
 ### decision wf-agents-tests-build-dependencies-optimized
-wf-agents' CI builds its tests with the dependencies fully optimized and its own crates unoptimized, except the flow crate, which is built at level 1.
+wf-agents' CI builds its tests with the dependencies and the crates context, engine, decide and work fully optimized, its other own crates unoptimized, and the flow crate at level 1.
 - replaced: Test builds unoptimized throughout, with SQLite built for debugging, was on main; the owner changed it, because slow CI was the first thing to fix, or the iterations would never end.
 - replaced: Building the workspace's own crates at level 1 was on main; the owner changed it, because the build, not the tests, was the larger part of each run.
+- replaced: Building context, engine, decide and work unoptimized with the other own crates was on main; the owner changed it, because the situations test ran 330 s unoptimized against 63 s at level 3, which costs 5 s more to compile (data: research/situations-search-measured.md).
 
 ### decision wf-agents-ci-splits-its-tests-by-count
 wf-agents' CI runs its Rust tests in three jobs, each running a third of every binary's tests by nextest's count, not by any list kept by hand.
