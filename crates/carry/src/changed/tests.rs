@@ -493,29 +493,52 @@ async fn a_diff_over_its_bound_is_cut_at_a_character_with_its_whole_length_said(
     }
 }
 
+/// The path of the index of the work's worktree.
+fn index_of(dir: &Path) -> PathBuf {
+    dir.join(run(dir, &["rev-parse", "--git-path", "index"]))
+}
+
+/// Gives the tracked file a time newer than the index knows, its content as it was: git cannot tell the file is as it
+/// was without reading it, and a refresh would write down what it finds.
+fn touched_later(dir: &Path, file: &str) {
+    let file = std::fs::File::options().write(true).open(dir.join(file)).unwrap();
+    file.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(5_000))
+        .unwrap();
+}
+
 #[tokio::test]
 async fn a_look_at_the_worktree_leaves_its_index_as_it_was_so_an_agent_s_own_git_is_never_held_up() {
     let (repo, place) = started().await;
     let r = &repo.project.repo;
-    let index = run(&place.dir, &["rev-parse", "--git-path", "index"]);
-    let index = place.dir.join(index);
-    // The file is tracked and its content is as committed, but git cannot tell without reading it: its time is newer
-    // than the index knows, which a refresh would write down.
-    let file = std::fs::File::options()
-        .write(true)
-        .open(place.dir.join("greeting.txt"))
-        .unwrap();
-    file.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(5_000))
-        .unwrap();
-    drop(file);
+    let index = index_of(&place.dir);
+    touched_later(&place.dir, "greeting.txt");
     let before = std::fs::read(&index).unwrap();
+    Known::default()
+        .changed(r, MAIN, WORK, &place)
+        .await
+        .unwrap()
+        .expect("a head");
+    assert_eq!(std::fs::read(&index).unwrap(), before, "a look wrote the index");
+}
+
+#[tokio::test]
+async fn the_diff_of_a_file_against_the_worktree_leaves_its_index_as_it_was_too() {
+    let (repo, place) = started().await;
+    let r = &repo.project.repo;
+    // The file is tracked, committed by the work, and differs from the base: its diff is the one taken against the
+    // worktree, which is not the diff of a file git does not track.
+    commit(&place.dir, "greeting.txt", "Hello.\nHi.\n");
+    touched_later(&place.dir, "greeting.txt");
     let known = Known::default();
+    // The look that tells which files changed is no part of what is checked here.
     known.changed(r, MAIN, WORK, &place).await.unwrap().expect("a head");
-    std::fs::write(place.dir.join("notes.txt"), "One\n").unwrap();
-    known
-        .diff(r, MAIN, (WORK, &place), "notes.txt")
+    let index = index_of(&place.dir);
+    let before = std::fs::read(&index).unwrap();
+    let diff = known
+        .diff(r, MAIN, (WORK, &place), "greeting.txt")
         .await
         .unwrap()
         .expect("changed");
-    assert_eq!(std::fs::read(&index).unwrap(), before, "a look wrote the index");
+    assert!(diff.text.contains("+Hi."), "{}", diff.text);
+    assert_eq!(std::fs::read(&index).unwrap(), before, "a diff wrote the index");
 }
