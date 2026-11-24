@@ -95,15 +95,8 @@ pub enum Hand {
     Must,
     /// Every block the cell may write.
     All,
-    /// What the cell must write and the block of its outputs at this place among those it need not.
-    Only(usize),
-}
-
-/// Which value a return that writes a choice gives it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Pick {
-    First,
-    Last,
+    /// What the cell must write and, of the blocks of its outputs it need not, each at the place of a set bit.
+    Mask(u32),
 }
 
 /// Which of what ran the round a return names as dealt with.
@@ -111,8 +104,16 @@ pub enum Pick {
 pub enum Dealt {
     Everything,
     Nothing,
-    /// Every other one of what ran the round.
-    Part,
+    /// Each of what ran the round at the place of a set bit.
+    Mask(u32),
+}
+
+/// Whether the bit of this place is set in the mask; a place past the mask's width is not.
+fn set(mask: u32, place: usize) -> bool {
+    u32::try_from(place)
+        .ok()
+        .and_then(|p| mask.checked_shr(p))
+        .is_some_and(|m| m & 1 == 1)
 }
 
 /// What a return asks for, beside its blocks.
@@ -147,12 +148,15 @@ pub enum Fate {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Carry {
     pub hand: Hand,
-    pub pick: Pick,
+    /// Which value a block of the return that is a choice is given: its last where the bit of its place among the blocks
+    /// handed in is set, its first where not.
+    pub picks: u32,
     pub dealt: Dealt,
     pub asks: Asks,
     pub fate: Fate,
-    /// Whether a block handed in that was written before is handed in as changing nothing in meaning.
-    pub unmatters: bool,
+    /// Whether a block handed in that was written before is handed in as changing nothing in meaning: each at the place
+    /// of a set bit among the blocks handed in.
+    pub unmatters: u32,
     /// Whether a block the cell may not write is handed in beside the rest, which sends the return back.
     pub wrong: bool,
 }
@@ -161,11 +165,11 @@ impl Carry {
     /// The return of a cell that hands in what it must write, and deals with all that ran it.
     pub const PLAIN: Carry = Carry {
         hand: Hand::Must,
-        pick: Pick::First,
+        picks: 0,
         dealt: Dealt::Everything,
         asks: Asks::Nothing,
         fate: Fate::Reaches,
-        unmatters: false,
+        unmatters: 0,
         wrong: false,
     };
 }
@@ -621,21 +625,24 @@ impl Node {
         match how.hand {
             Hand::Must => {}
             Hand::All => chosen.extend(optional.iter().cloned()),
-            Hand::Only(k) => chosen.extend(optional.get(k).cloned()),
+            Hand::Mask(mask) => {
+                let more = optional.iter().enumerate().filter(|(place, _)| set(mask, *place));
+                chosen.extend(more.map(|(_, block)| block.clone()));
+            }
         }
         let mut writes = Vec::new();
-        for block in chosen {
+        for (place, block) in chosen.into_iter().enumerate() {
             let values = self.sim.flow.blocks[&block].values.clone();
-            let value = values.map(|v| match how.pick {
-                Pick::First => v[0].clone(),
-                Pick::Last => v[v.len() - 1].clone(),
+            let value = values.map(|v| match set(how.picks, place) {
+                false => v[0].clone(),
+                true => v[v.len() - 1].clone(),
             });
             let written = !self.sim.versions(block.as_str()).is_empty();
             let content = match &value {
                 Some(value) => value.clone(),
                 None => self.content(block.as_str()),
             };
-            let matters = value.is_some() || !(how.unmatters && written);
+            let matters = value.is_some() || !(set(how.unmatters, place) && written);
             writes.push(Handed {
                 block,
                 content,
@@ -679,8 +686,8 @@ impl Node {
         match how.dealt {
             Dealt::Everything => {}
             Dealt::Nothing => came.dealt_with = Some(Vec::new()),
-            Dealt::Part => {
-                let part = (ran_by.into_iter().enumerate()).filter(|(i, _)| i % 2 == 0);
+            Dealt::Mask(mask) => {
+                let part = (ran_by.into_iter().enumerate()).filter(|(place, _)| set(mask, *place));
                 came.dealt_with = Some(part.map(|(_, b)| b).collect());
             }
         }
@@ -773,31 +780,54 @@ fn outputs_of(flow: &Compiled, cell: &CellSpec) -> (Vec<BlockId>, Vec<BlockId>) 
     (must.into_iter().cloned().collect(), may.into_iter().cloned().collect())
 }
 
-/// What the search does at a state before a round is carried out: each thing people, the outside or the owner may do.
-fn befores(node: &Node, writes: &[Action]) -> Vec<Action> {
+/// Everything people, the outside or the owner may do before a round, whether or not each may at a state: each write,
+/// each line's session begun anew, a word to each cell that has words of its own, and an answer to a question.
+fn things_before(flow: &Compiled, writes: &[Action]) -> Vec<Action> {
     let mut all: Vec<Action> = writes.to_vec();
+    all.extend(flow.lines.keys().map(|line| Action::Reopen { line: line.clone() }));
     all.extend(
-        node.sim
-            .flow
-            .lines
-            .keys()
-            .map(|line| Action::Reopen { line: line.clone() }),
+        (flow.cells.iter())
+            .filter(|cell| spoken::words_of(flow, &cell.id).is_some())
+            .map(|cell| Action::Say {
+                cell: cell.id.as_str().to_string(),
+            }),
     );
-    for cell in &node.sim.flow.cells {
-        if spoken::words_of(&node.sim.flow, &cell.id).is_some() {
-            let to = To::Cell(cell.id.clone());
-            if spoken::receiver(&node.sim.flow, &node.sim.work, &to).is_ok() {
-                all.push(Action::Say {
-                    cell: cell.id.as_str().to_string(),
-                });
-            }
-        }
-    }
-    let unanswered = (decide::questions::questions(&node.sim.work.records).into_iter()).any(|(_, q)| q.unanswered());
-    if unanswered {
-        all.extend([1, 2].map(|option| Action::Answer { option }));
-    }
+    all.extend([1, 2].map(|option| Action::Answer { option }));
     all
+}
+
+/// Whether the thing may be done at the state: a word goes to a cell that takes words, an answer to a question that
+/// stands unanswered; the rest, always.
+fn may_do(node: &Node, action: &Action) -> bool {
+    match action {
+        Action::Say { cell } => {
+            let to = To::Cell(CellId::from(cell.as_str()));
+            spoken::receiver(&node.sim.flow, &node.sim.work, &to).is_ok()
+        }
+        Action::Answer { .. } => {
+            (decide::questions::questions(&node.sim.work.records).into_iter()).any(|(_, q)| q.unanswered())
+        }
+        _ => true,
+    }
+}
+
+/// One of the things before a round, drawn from those the state allows, in a few draws; none where they found none.
+fn draw_before(node: &Node, all: &[Action], rng: &mut Rng) -> Option<Action> {
+    if all.is_empty() {
+        return None;
+    }
+    (0..4)
+        .map(|_| &all[rng.below(all.len())])
+        .find(|action| may_do(node, action))
+        .cloned()
+}
+
+/// The first of the things before a round the state allows, from this place among them on.
+fn systematic_before(node: &Node, all: &[Action], from: usize) -> Option<Action> {
+    (0..all.len())
+        .map(|k| &all[(from + k) % all.len()])
+        .find(|action| may_do(node, action))
+        .cloned()
 }
 
 /// Each way a round of the cell under way returns, one thing different in each from the plain return, the plain one
@@ -808,15 +838,16 @@ fn carries(cell: &CellSpec, optional: usize) -> Vec<Carry> {
         hand: Hand::All,
         ..plain
     };
+    let every_other = Dealt::Mask(0b0101_0101);
     let mut all = vec![
         plain,
         all_of,
         Carry {
-            pick: Pick::Last,
+            picks: u32::MAX,
             ..all_of
         },
         Carry {
-            pick: Pick::Last,
+            picks: u32::MAX,
             ..plain
         },
         Carry {
@@ -824,7 +855,7 @@ fn carries(cell: &CellSpec, optional: usize) -> Vec<Carry> {
             ..all_of
         },
         Carry {
-            dealt: Dealt::Part,
+            dealt: every_other,
             ..all_of
         },
     ];
@@ -849,21 +880,23 @@ fn carries(cell: &CellSpec, optional: usize) -> Vec<Carry> {
             },
         ]);
     }
-    all.extend((0..optional).map(|k| Carry {
-        hand: Hand::Only(k),
+    all.extend((0..optional.min(32)).map(|k| Carry {
+        hand: Hand::Mask(1 << k),
         ..plain
     }));
+    // Every block handed in that was written before as changing nothing in meaning, and each of the first few alone.
+    all.extend(
+        [u32::MAX, 0b1, 0b10, 0b100, 0b1000, 0b10000]
+            .into_iter()
+            .map(|unmatters| Carry { unmatters, ..all_of }),
+    );
     all.extend([
-        Carry {
-            unmatters: true,
-            ..all_of
-        },
         Carry {
             dealt: Dealt::Nothing,
             ..plain
         },
         Carry {
-            dealt: Dealt::Part,
+            dealt: every_other,
             ..plain
         },
         Carry { wrong: true, ..plain },
@@ -900,16 +933,16 @@ fn carries(cell: &CellSpec, optional: usize) -> Vec<Carry> {
 }
 
 /// A return drawn at random.
-fn drawn(rng: &mut Rng, optional: usize, line: bool) -> Carry {
+fn drawn(rng: &mut Rng, line: bool) -> Carry {
     let hand = match rng.below(10) {
         0..=1 => Hand::Must,
-        2..=4 => Hand::All,
-        _ => Hand::Only(rng.below(optional.max(1))),
+        2..=3 => Hand::All,
+        _ => Hand::Mask(rng.next() as u32),
     };
     let dealt = match rng.below(10) {
         0..=5 => Dealt::Everything,
         6..=7 => Dealt::Nothing,
-        _ => Dealt::Part,
+        _ => Dealt::Mask(rng.next() as u32),
     };
     let asks = match (line, rng.below(20)) {
         (false, _) => Asks::Nothing,
@@ -929,11 +962,11 @@ fn drawn(rng: &mut Rng, optional: usize, line: bool) -> Carry {
     };
     Carry {
         hand,
-        pick: if rng.chance(50) { Pick::First } else { Pick::Last },
+        picks: rng.next() as u32,
         dealt,
         asks,
         fate,
-        unmatters: rng.chance(20),
+        unmatters: if rng.chance(30) { rng.next() as u32 } else { 0 },
         wrong: rng.chance(4),
     }
 }
@@ -951,7 +984,8 @@ struct Search<'a> {
     flow: &'a Compiled,
     focus: Option<&'a CellId>,
     bounds: Bounds,
-    writes: Vec<Action>,
+    /// Everything people, the outside and the owner may do before a round, which the state of a work allows or not.
+    statics: Vec<Action>,
     found: Found,
     archive: Vec<Kept>,
     keys: BTreeSet<(String, u64)>,
@@ -1031,11 +1065,19 @@ impl Search<'_> {
     }
 
     /// Keeps the node where no state alike was kept. Where the archive is full, a state of the highest rank, one of them
-    /// by its key, makes room: what ranks least is what the search goes on from next.
+    /// by its key, makes room, unless the node would rank above all of them: what ranks least is what the search goes on
+    /// from next.
     fn keep(&mut self, node: &Node) {
         let key = node.key();
         if !self.keys.insert(key.clone()) {
             self.found.repeated += 1;
+            return;
+        }
+        let ranks: Vec<usize> = self.archive.iter().map(|k| self.rank(k)).collect();
+        let full = self.archive.len() >= self.bounds.archive;
+        let most = ranks.iter().copied().max().unwrap_or(0);
+        if full && self.rank_of(&key.0, 0) >= most {
+            self.keys.remove(&key);
             return;
         }
         self.born += 1;
@@ -1045,11 +1087,9 @@ impl Search<'_> {
             turns: 0,
             born: self.born,
         };
-        if self.archive.len() < self.bounds.archive {
+        if !full {
             self.archive.push(kept);
         } else {
-            let ranks: Vec<usize> = self.archive.iter().map(|k| self.rank(k)).collect();
-            let most = ranks.iter().copied().max().unwrap_or(0);
             let worn: Vec<usize> = (0..self.archive.len()).filter(|&i| ranks[i] == most).collect();
             let at = worn[(key_number(&kept.key) % worn.len() as u64) as usize];
             self.keys.remove(&self.archive[at].key);
@@ -1063,7 +1103,11 @@ impl Search<'_> {
         self.tried += 1;
         let (node, sights) = self.child(from, actions)?;
         timed("note", || self.note(&node, &sights));
-        self.keep(&node);
+        // A history that carried no agent's round and has none under way is the state it began at, with something
+        // written that no round has yet been sent: it goes on in the draw that made it, and is not kept.
+        if !(sights.is_empty() && node.sim.round().is_none()) {
+            self.keep(&node);
+        }
         Some(node)
     }
 
@@ -1087,11 +1131,16 @@ impl Search<'_> {
     /// How much the search has spent on a kept state's pending cell and on the state itself: the less, the sooner the
     /// search goes on from it, so that the cells few rounds were carried out of get their share.
     fn rank(&self, kept: &Kept) -> usize {
-        let carried = match kept.key.0.as_str() {
+        self.rank_of(&kept.key.0, kept.turns)
+    }
+
+    /// The same for a state of this pending cell that was gone on from so many times.
+    fn rank_of(&self, cell: &str, turns: usize) -> usize {
+        let carried = match cell {
             AT_REST => self.found.rounds / self.flow.cells.len().max(1),
             cell => self.found.cells.get(cell).copied().unwrap_or(0),
         };
-        carried * 4 + kept.turns
+        carried * 4 + turns
     }
 
     /// The kept state gone on from soonest by its rank: of those of the least, the newest on one turn and the oldest on
@@ -1119,7 +1168,6 @@ impl Search<'_> {
         self.archive[at].turns += 1;
         let node = self.archive[at].node.clone();
         let mut rng = Rng::new(SEED ^ key_number(&self.archive[at].key) ^ turn as u64);
-        let at_start = timed("befores", || befores(&node, &self.writes));
         let how = match node.sim.round() {
             Some(round) => {
                 let cell = node.sim.cell(&round).clone();
@@ -1137,30 +1185,22 @@ impl Search<'_> {
                 (Some(cursor), true) => cursor,
                 _ => &node,
             };
-            let (optional, line, has_round) = facts(from);
-            // What may happen before a round is what may happen to the state the history has come to.
-            let own;
-            let before: &[Action] = if std::ptr::eq(from, &node) {
-                &at_start
-            } else {
-                own = timed("befores", || befores(from, &self.writes));
-                &own
-            };
+            let (line, has_round) = facts(from);
             let actions = match place {
                 0 if !how.is_empty() => vec![Action::Carry(how[(born + turn) % how.len()])],
-                1 if !before.is_empty() => vec![
-                    before[(born + turn) % before.len()].clone(),
-                    Action::Carry(Carry::PLAIN),
-                ],
+                1 => match timed("befores", || systematic_before(&node, &self.statics, born + turn)) {
+                    Some(before) => vec![before, Action::Carry(Carry::PLAIN)],
+                    None => continue,
+                },
                 _ if has_round && rng.chance(25) => vec![Action::Carry(forward(&mut rng))],
                 _ => {
                     let mut actions = Vec::new();
                     for _ in 0..rng.below(BEFORE + 1) {
-                        if !before.is_empty() {
-                            actions.push(before[rng.below(before.len())].clone());
+                        if let Some(before) = timed("befores", || draw_before(from, &self.statics, &mut rng)) {
+                            actions.push(before);
                         }
                     }
-                    actions.push(Action::Carry(drawn(&mut rng, optional, line)));
+                    actions.push(Action::Carry(drawn(&mut rng, line)));
                     actions
                 }
             };
@@ -1171,15 +1211,11 @@ impl Search<'_> {
     }
 }
 
-/// What the round under way of a state is like: how many blocks its cell may write beside those it must, whether its
-/// cell is an agent's, and whether there is one.
-fn facts(node: &Node) -> (usize, bool, bool) {
+/// What the round under way of a state is like: whether its cell is an agent's, and whether there is one.
+fn facts(node: &Node) -> (bool, bool) {
     match node.sim.round() {
-        Some(round) => {
-            let cell = node.sim.cell(&round);
-            (outputs_of(&node.sim.flow, cell).1.len(), cell.line.is_some(), true)
-        }
-        None => (0, true, false),
+        Some(round) => (node.sim.cell(&round).line.is_some(), true),
+        None => (true, false),
     }
 }
 
@@ -1188,7 +1224,7 @@ fn facts(node: &Node) -> (usize, bool, bool) {
 fn forward(rng: &mut Rng) -> Carry {
     Carry {
         hand: Hand::All,
-        pick: if rng.chance(50) { Pick::First } else { Pick::Last },
+        picks: rng.next() as u32,
         ..Carry::PLAIN
     }
 }
@@ -1252,11 +1288,12 @@ pub fn search(
     let writes = writes(flow);
     let mut faults = Vec::new();
     let roots = roots(&fresh(flow, words, compared), &writes, &mut faults);
+    let statics = things_before(flow, &writes);
     let mut search = Search {
         flow,
         focus,
         bounds: *bounds,
-        writes,
+        statics,
         found: Found::default(),
         archive: Vec::new(),
         keys: BTreeSet::new(),
