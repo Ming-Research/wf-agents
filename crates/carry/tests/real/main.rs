@@ -152,6 +152,9 @@ pub struct Fake {
     /// Whether the build writes a decision of the design tree that is not in the forms of the tree's rules, until a
     /// round of it is told its return was sent back for that, when it writes it as they say.
     pub ill_formed_tree: bool,
+    /// Whether the review, which only reads, commits a decision of the design tree that is not in the forms of the tree's
+    /// rules.
+    pub review_commits_an_ill_formed_tree: bool,
     /// Whether the build, once told its return was sent back for a change not committed, takes the change back and
     /// returns nothing else, whatever else it was told: what it returned before is to stand for the rest.
     pub build_mends_the_edit_and_nothing_else: bool,
@@ -219,6 +222,7 @@ impl Default for Fake {
             tree_question: false,
             names_entries: false,
             ill_formed_tree: false,
+            review_commits_an_ill_formed_tree: false,
             build_mends_the_edit_and_nothing_else: false,
         }
     }
@@ -580,6 +584,19 @@ takes_back() {{
         git merge --abort
     fi
 }}
+# What the build writes of the design tree where its tree is ill-formed: a decision with no line of an approach turned
+# down, and the decision put right once the round is told its return was sent back for that.
+ill_formed_tree() {{
+    if [ '{ill_formed}' = yes ]; then
+        mkdir -p design/decisions
+        if grep -q 'not in the forms the tree' "$log/$n.stdin"; then
+            printf '# Formed\n\nWhat it covers.\n\n### decision formed-right\nA first line.\n- rejected: an agent proposed a second line; the owner rejected it, because one is enough.\n' > '{formed_file}'
+        else
+            printf '# Formed\n\nWhat it covers.\n\n### decision formed-wrong\nA first line only.\n' > '{formed_file}'
+        fi
+        git add '{formed_file}'
+    fi
+}}
 leaves() {{
     # Where the build also mends the edit and nothing else, it leaves the edit only in a round that has the results of
     # its calls: the rounds before, which ask a question or a call, are not what the test is about.
@@ -692,6 +709,7 @@ case "$first" in
             dealt=''
             out='"build_questions":[{{"name":"which_name","waits":true,"tree":{tree_mark},"recommends":1,"ask":"Which name?","options":[{{"does":"the first name","follows":"a warmer greeting"}},{{"does":"the full name","follows":"a formal one"}}]}}]'
         elif [ "$results" = no ] && [ "$sent_back" = no ] && [ '{then_asks}' = yes ]; then
+            ill_formed_tree
             built
             calls='"query":[{{"sql":"select the check"}}]'
         elif {{ [ "$results" = no ] && [ '{lose}' = yes ]; }} || {{ [ "$checked" = no ] && [ '{question}' = yes ]; }}; then
@@ -716,15 +734,7 @@ case "$first" in
                 printf '# Greeting\n\nHow the work greets.\n\n### {entry}\nGreet by the first name.\n- rejected: an agent proposed greeting no one; the owner rejected it, because it names no one.\n\n### decision greet-once\nGreet once.\n- rejected: an agent proposed greeting twice; the owner rejected it, because once is enough.\n' > '{entry_file}'
                 git add '{entry_file}'
             fi
-            if [ '{ill_formed}' = yes ]; then
-                mkdir -p design/decisions
-                if grep -q 'not in the forms the tree' "$log/$n.stdin"; then
-                    printf '# Formed\n\nWhat it covers.\n\n### decision formed-right\nA first line.\n- rejected: an agent proposed a second line; the owner rejected it, because one is enough.\n' > '{formed_file}'
-                else
-                    printf '# Formed\n\nWhat it covers.\n\n### decision formed-wrong\nA first line only.\n' > '{formed_file}'
-                fi
-                git add '{formed_file}'
-            fi
+            ill_formed_tree
             if [ '{moves}' = yes ] && [ ! -f "$log/moved" ]; then
                 touch "$log/moved"
                 r=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
@@ -746,6 +756,11 @@ case "$first" in
                 protected='"protected_changes":{{"{guide}":"The build needs the line."}},'
             fi
             [ '{then_asks}' = yes ] || built
+            # A build that asked for calls committed in the round that asked: what it puts right of the tree now is its own
+            # commit.
+            if [ '{then_asks}' = yes ] && [ '{ill_formed}' = yes ] && ! git diff --cached --quiet; then
+                git -c user.name=Fake -c user.email=fake@example.com commit -q -m 'Put the tree right'
+            fi
             head=$(git rev-parse HEAD)
             if [ '{loses_branch}' = yes ]; then
                 git update-ref -d "$(git symbolic-ref HEAD)"
@@ -760,6 +775,12 @@ case "$first" in
     Review)
         if [ '{review_leaves}' = yes ]; then
             echo "$n" >> greeting.txt
+        fi
+        if [ '{review_commits_tree}' = yes ]; then
+            mkdir -p design/decisions
+            printf '# Formed\n\nWhat it covers.\n\n### decision formed-wrong\nA first line only.\n' > '{formed_file}'
+            git add '{formed_file}'
+            git -c user.name=Fake -c user.email=fake@example.com commit -q -m 'Write the tree'
         fi
         out='"verdict":{{"value":"yes","why":"Fine."}}' ;;
 esac
@@ -827,6 +848,7 @@ fi
         tree_mark = fake.tree_question,
         names_entries = yes(fake.names_entries),
         ill_formed = yes(fake.ill_formed_tree),
+        review_commits_tree = yes(fake.review_commits_an_ill_formed_tree),
         formed_file = FORMED_FILE,
         mends_only = yes(fake.build_mends_the_edit_and_nothing_else),
         entry = GREETING_ENTRY,
