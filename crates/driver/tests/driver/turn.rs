@@ -28,7 +28,7 @@ fn turning_of(written: bool, task: &str) -> Compiled {
         [lines.main]
         [blocks.main]
         outside = "main"
-        [blocks.text]
+        {text}
         [blocks.verdict]
         [blocks.merged]
         shown = true
@@ -37,7 +37,8 @@ fn turning_of(written: bool, task: &str) -> Compiled {
             r#""write", "check", "land""#
         } else {
             r#""check", "land""#
-        }
+        },
+        text = if written { "[blocks.text]" } else { "" }
     );
     let write = r#"
         title = "Write"
@@ -118,9 +119,20 @@ fn due(works: usize) -> (H, Vec<WorkNumber>, Vec<Todo>) {
     (h, numbers, todos)
 }
 
+/// The rounds among what is to be done, each by its work, its cell and its number: the engine's release of a work that
+/// merged is no round.
+fn begun(todos: &[Todo]) -> Vec<(WorkNumber, String, usize)> {
+    (todos.iter())
+        .filter_map(|todo| match &todo.effect {
+            Effect::Round { cell, number, .. } => Some((todo.work, cell.to_string(), *number)),
+            _ => None,
+        })
+        .collect()
+}
+
 /// The work's round under way hands in this block, which its cell wrote.
 fn finishes(h: &mut H, work: WorkNumber, block: &str) -> Vec<(WorkNumber, String, usize)> {
-    rounds(&h.hands_in(work, &[(block, None)]))
+    begun(&h.hands_in(work, &[(block, None)]))
 }
 
 /// The work's own pause, by the owner.
@@ -139,7 +151,7 @@ fn pauses(h: &mut H, work: WorkNumber) {
 fn of_two_works_due_to_check_at_once_the_lower_number_begins_and_the_other_waits_for_the_turn() {
     let (mut h, works, todos) = due(2);
     let (a, b) = (works[0], works[1]);
-    assert_eq!(rounds(&todos), [(a, "check".to_string(), 1)]);
+    assert_eq!(begun(&todos), [(a, "check".to_string(), 1)]);
     assert_eq!(h.d().held(a), None);
     assert_eq!(h.d().held(b), Some(Holder::Turn));
     assert_eq!(h.decision(b), waits_for_the_turn("check"));
@@ -157,7 +169,7 @@ fn of_two_works_due_to_check_at_once_the_lower_number_begins_and_the_other_waits
 fn three_works_take_the_turn_one_after_another_in_the_order_of_their_numbers_where_they_began_to_want_it_together() {
     let (mut h, works, todos) = due(3);
     let (a, b, c) = (works[0], works[1], works[2]);
-    assert_eq!(rounds(&todos), [(a, "check".to_string(), 1)]);
+    assert_eq!(begun(&todos), [(a, "check".to_string(), 1)]);
     finishes(&mut h, a, "verdict");
     assert_eq!(finishes(&mut h, a, "merged"), [(b, "check".to_string(), 1)]);
     assert_eq!(h.d().held(c), Some(Holder::Turn));
@@ -174,9 +186,9 @@ fn a_work_of_another_project_is_not_held_by_the_turn_of_this_one() {
         ..new_item("b", &[], "turning")
     });
     let todos = h.outside("main", "Main is at 1.");
-    assert_eq!(rounds(&todos), [(a, "check".to_string(), 1)]);
+    assert_eq!(begun(&todos), [(a, "check".to_string(), 1)]);
     let todos = h.outside_of("two", "main", "Main is at 1.");
-    assert_eq!(rounds(&todos), [(b, "check".to_string(), 1)]);
+    assert_eq!(begun(&todos), [(b, "check".to_string(), 1)]);
     assert_eq!(h.d().held(b), None);
 }
 
@@ -188,7 +200,7 @@ fn the_pause_of_everything_keeps_the_work_that_holds_the_turn_its_turn() {
     // What the round under way hands in is taken, and the merge does not begin while the pause holds.
     assert_eq!(finishes(&mut h, a, "verdict"), []);
     // Lifted, the holder goes on to its merge and the other work does not begin its check.
-    assert_eq!(rounds(&h.pause_everything(false)), [(a, "land".to_string(), 1)]);
+    assert_eq!(begun(&h.pause_everything(false)), [(a, "land".to_string(), 1)]);
     assert_eq!(h.d().held(b), Some(Holder::Turn));
 }
 
@@ -201,7 +213,7 @@ fn a_paused_work_that_waits_for_the_turn_is_passed_over_and_keeps_its_place() {
     // The turn goes to the work after the paused one.
     assert_eq!(finishes(&mut h, a, "merged"), [(c, "check".to_string(), 1)]);
     // Let on again, the paused one waits for the work that has the turn, as one that came to want it before.
-    assert_eq!(rounds(&h.let_on(b)), []);
+    assert_eq!(begun(&h.let_on(b)), []);
     assert_eq!(h.d().held(b), Some(Holder::Turn));
     finishes(&mut h, c, "verdict");
     assert_eq!(finishes(&mut h, c, "merged"), [(b, "check".to_string(), 1)]);
@@ -215,7 +227,7 @@ fn a_work_paused_before_its_check_ended_lets_the_next_begin_and_waits_behind_tho
     pauses(&mut h, a);
     assert_eq!(finishes(&mut h, a, "verdict"), [(b, "check".to_string(), 1)]);
     // Let on, it waits behind the work that began, and the one that wanted the turn before its pause comes before it.
-    assert_eq!(rounds(&h.let_on(a)), []);
+    assert_eq!(begun(&h.let_on(a)), []);
     assert_eq!(h.d().held(a), Some(Holder::Turn));
     finishes(&mut h, b, "verdict");
     assert_eq!(finishes(&mut h, b, "merged"), [(c, "check".to_string(), 1)]);
@@ -255,7 +267,7 @@ fn a_work_that_waited_for_a_work_that_ended_still_draws_the_wait_once_another_ve
     let (_, b) = h.add_let_on(new_item("b", &[], "turning"));
     let todos = h.outside("main", "Main is at 1.");
     assert_eq!(
-        rounds(&todos),
+        begun(&todos),
         [(a, "write".to_string(), 1), (b, "write".to_string(), 1)]
     );
     assert_eq!(finishes(&mut h, a, "text"), [(a, "check".to_string(), 1)]);

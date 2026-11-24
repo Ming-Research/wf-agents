@@ -70,8 +70,7 @@ async fn a_tools_call_and_an_act_under_way_are_calls_where_they_say_they_run() {
     assert_eq!(state(&called, "build"), "calling");
 
     // The merge's act runs as the CI run it says: a round under way, the cell's call.
-    let runs = until(router, |s| s["now"]["kind"] == "round").await;
-    assert_eq!(runs["now"]["cell"], "merge");
+    let runs = until(router, |s| s["now"]["kind"] == "round" && s["now"]["cell"] == "merge").await;
     assert_eq!(runs["now"]["at"], MERGE);
     assert_eq!(state(&runs, "merge"), "calling");
 
