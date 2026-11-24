@@ -262,8 +262,8 @@ pub struct Bounds {
 /// it (a quarter of them), how many states of works it keeps, and how many histories it makes from a state at each turn.
 /// What the engineer's flow needs of them and what they cost is what `measure/situations-search` times.
 pub const BOUNDS: Bounds = Bounds {
-    rounds: 24_000,
-    plateau: 6_000,
+    rounds: 22_000,
+    plateau: 5_500,
     archive: 1_000,
     draws: 8,
 };
