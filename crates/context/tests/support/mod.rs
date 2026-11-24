@@ -25,7 +25,6 @@ use flow::{Compiled, Has, Kind, Source};
 const FLOW: &str = r#"
 name = "sessions"
 order = ["plan", "build", "review", "close"]
-tools = ["query"]
 
 [limits]
 runs = 1000
@@ -72,6 +71,7 @@ task = "Write the plan for the request."
 watches = ["request", "opinions"]
 reads = ["notes", "plan", "tree"]
 outputs = ["plan"]
+tools = ["query"]
 
 [kinds]
 tree = "last_and_latest"
@@ -93,6 +93,7 @@ takes_main = true
 watches = ["plan"]
 reads = ["request", "code", "tree"]
 outputs = ["code"]
+tools = ["query"]
 
 [kinds]
 tree = "last_and_latest"
@@ -113,6 +114,7 @@ watches = ["code"]
 reads = ["plan", "notes"]
 outputs = ["opinions", "verdict"]
 must_write = ["verdict"]
+tools = ["query"]
 
 [kinds]
 code = "last_and_latest"
@@ -131,6 +133,7 @@ task = "Close the work."
 watches = ["finish"]
 reads = ["verdict"]
 outputs = []
+tools = ["query"]
 
 [kinds]
 finish = "latest"

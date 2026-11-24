@@ -990,14 +990,14 @@ impl Search<'_> {
 
     /// Keeps the node where no state alike was kept. Where the archive is full, a state gone on from as often as any,
     /// one of them by its key, makes room: what is gone on from least is what the search goes on from next.
-    fn keep(&mut self, node: Node) {
+    fn keep(&mut self, node: &Node) {
         let key = node.key();
         if !self.keys.insert(key.clone()) {
             return;
         }
         self.born += 1;
         let kept = Kept {
-            node,
+            node: node.clone(),
             key,
             turns: 0,
             born: self.born,
@@ -1016,13 +1016,13 @@ impl Search<'_> {
         self.found.kept += 1;
     }
 
-    /// Does the actions on a copy of the node, notes what its rounds stood in, and keeps the copy.
-    fn try_out(&mut self, from: &Node, actions: &[Action]) {
+    /// Does the actions on a copy of the node, notes what its rounds stood in, keeps the copy, and gives it.
+    fn try_out(&mut self, from: &Node, actions: &[Action]) -> Option<Node> {
         self.tried += 1;
-        if let Some((node, sights)) = self.child(from, actions) {
-            self.note(&node, &sights);
-            self.keep(node);
-        }
+        let (node, sights) = self.child(from, actions)?;
+        self.note(&node, &sights);
+        self.keep(&node);
+        Some(node)
     }
 
     /// Why the search ends, where it does.
@@ -1055,36 +1055,44 @@ impl Search<'_> {
         }
     }
 
-    /// Goes on from a kept state, a few histories each time it is gone on from: first each way a round returns, then each
-    /// thing that may happen before a round and the plain return after it, and when those are done, draws of both.
+    /// Goes on from a kept state, a few histories each time it is gone on from: a return of the cell under way and a
+    /// thing that may happen before a round, each a different one for each state and each turn, so that the states
+    /// between them try each; then draws, some going forward only, every block handed in, so that a work goes deep into
+    /// its flow, and the others of a few things before a round and a return, some going on from what the draw before it
+    /// reached, so that what is reached takes more than one thing to come to.
     fn go_on(&mut self, at: usize) {
         let turn = self.archive[at].turns;
+        let born = self.archive[at].born;
         self.archive[at].turns += 1;
         let node = self.archive[at].node.clone();
-        let round = node.sim.round();
-        let mut items: Vec<Vec<Action>> = Vec::new();
-        let mut optional = 0;
-        let mut line = true;
-        if let Some(round) = &round {
-            let cell = node.sim.cell(round).clone();
-            optional = outputs_of(&node.sim.flow, &cell).1.len();
-            line = cell.line.is_some();
-            items.extend(carries(&cell, optional).into_iter().map(|how| vec![Action::Carry(how)]));
-        }
-        let before = befores(&node, &self.writes);
-        items.extend(
-            before
-                .iter()
-                .map(|action| vec![action.clone(), Action::Carry(Carry::PLAIN)]),
-        );
         let mut rng = Rng::new(SEED ^ key_number(&self.archive[at].key) ^ turn as u64);
-        for place in turn * self.bounds.draws..(turn + 1) * self.bounds.draws {
+        let before = befores(&node, &self.writes);
+        let how = match node.sim.round() {
+            Some(round) => {
+                let cell = node.sim.cell(&round).clone();
+                carries(&cell, outputs_of(&node.sim.flow, &cell).1.len())
+            }
+            None => Vec::new(),
+        };
+        let mut cursor: Option<Node> = None;
+        for place in 0..self.bounds.draws {
             if self.done() {
                 return;
             }
-            let actions = match items.get(place) {
-                Some(actions) => actions.clone(),
-                None => {
+            let onward = place >= 2 && rng.chance(60);
+            let from = match (&cursor, onward) {
+                (Some(cursor), true) => cursor,
+                _ => &node,
+            };
+            let (optional, line, has_round) = facts(from);
+            let actions = match place {
+                0 if !how.is_empty() => vec![Action::Carry(how[(born + turn) % how.len()])],
+                1 if !before.is_empty() => vec![
+                    before[(born + turn) % before.len()].clone(),
+                    Action::Carry(Carry::PLAIN),
+                ],
+                _ if has_round && rng.chance(25) => vec![Action::Carry(forward(&mut rng))],
+                _ => {
                     let mut actions = Vec::new();
                     for _ in 0..rng.below(BEFORE + 1) {
                         if !before.is_empty() {
@@ -1095,8 +1103,32 @@ impl Search<'_> {
                     actions
                 }
             };
-            self.try_out(&node, &actions);
+            if let Some(next) = self.try_out(from, &actions) {
+                cursor = Some(next);
+            }
         }
+    }
+}
+
+/// What the round under way of a state is like: how many blocks its cell may write beside those it must, whether its
+/// cell is an agent's, and whether there is one.
+fn facts(node: &Node) -> (usize, bool, bool) {
+    match node.sim.round() {
+        Some(round) => {
+            let cell = node.sim.cell(&round);
+            (outputs_of(&node.sim.flow, cell).1.len(), cell.line.is_some(), true)
+        }
+        None => (0, true, false),
+    }
+}
+
+/// A return that hands in every block its cell may write, and deals with all that ran it, with a value for a choice
+/// drawn.
+fn forward(rng: &mut Rng) -> Carry {
+    Carry {
+        hand: Hand::All,
+        pick: if rng.chance(50) { Pick::First } else { Pick::Last },
+        ..Carry::PLAIN
     }
 }
 
@@ -1173,7 +1205,7 @@ pub fn search(
         picks: 0,
     };
     search.found.faults = faults;
-    for root in roots {
+    for root in &roots {
         search.keep(root);
     }
     while !search.done() {

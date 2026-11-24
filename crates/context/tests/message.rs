@@ -679,7 +679,7 @@ fn a_return_that_hands_in_the_change_without_an_answer_marked_tree_in_the_tree_i
 // second alone, in memory; it catches a variant of the return's faults left without words.
 #[test]
 fn a_return_that_leaves_the_design_tree_out_of_its_forms_is_sent_back_with_each_fault_on_a_line_of_its_own() {
-    let mut sim = Sim::new();
+    let mut sim = support::small();
     sim.writes("request", "Greet the user.");
     carry(&mut sim, &[("plan", "Greet by name.", None)]);
     let round = sim.round().expect("the build is entered");
@@ -1047,9 +1047,10 @@ fn a_setting_the_task_what_a_cell_does_for_a_datum_or_a_block_s_words_name_is_se
     let mut sim = support::small();
     let language = |key: &str| (key == "owner.language").then(|| "Chinese".to_string());
     sim.named = flow::system::Settings::of(None, &sim.words.installation, language);
-    let code = sim.flow.blocks.get_mut(&BlockId::from("code")).expect("the code");
+    let flow = std::sync::Arc::make_mut(&mut sim.flow);
+    let code = flow.blocks.get_mut(&BlockId::from("code")).expect("the code");
     code.what = Some("The code, its comments in `owner.language`.".to_string());
-    let build = (sim.flow.cells.iter_mut())
+    let build = (flow.cells.iter_mut())
         .find(|c| c.id.as_str() == "build")
         .expect("the build");
     build.task = Some("Build what the plan says, in `owner.language`.".to_string());
