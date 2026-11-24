@@ -24,7 +24,8 @@ describe('the route', () => {
     expect(routeOf('#/system')).toEqual({ view: 'system' });
     expect(routeOf('#/system/4w')).toEqual({ view: 'system', period: '4w' });
     expect(routeOf('#/system/all')).toEqual({ view: 'system', period: 'all' });
-    expect(routeOf('#/system/week')).toEqual({ view: 'console' });
+    expect(routeOf('#/system/week')).toEqual({ view: 'system', period: 'week' });
+    expect(routeOf('#/system/year')).toEqual({ view: 'console' });
     expect(routeOf('#/settings')).toEqual({ view: 'settings' });
     expect(routeOf('#/somewhere')).toEqual({ view: 'console' });
   });
@@ -47,9 +48,11 @@ describe('the route', () => {
     expect(hashOf({ view: 'console', item: 141 })).toBe('#/console/items/141');
     expect(tabOf({ view: 'console', item: 141 })).toBe('#/console');
     expect(hashOf({ view: 'system', period: '4w' })).toBe('#/system/4w');
-    expect(hashOf({ view: 'system', period: 'week' })).toBe('#/system');
+    expect(hashOf({ view: 'system', period: 'week' })).toBe('#/system/week');
     expect(tabOf({ view: 'system', period: 'all' })).toBe('#/system');
     expect(periodOf({ view: 'system' })).toBe('week');
     expect(periodOf({ view: 'system', period: 'all' })).toBe('all');
+    expect(periodOf(routeOf('#/system/week'))).toBe('week');
+    expect(routeOf(hashOf({ view: 'system', period: 'week' }))).toEqual({ view: 'system', period: 'week' });
   });
 });

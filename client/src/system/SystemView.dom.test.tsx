@@ -11,7 +11,7 @@ import { waitCount, waitCounted } from '../works/words';
 import { fixtureCopies, fixtureItems, fixtureWork } from '../works/fixtures';
 import { type Source, SourceContext } from '../works/source';
 import { type SystemSource, SystemSourceContext } from './api';
-import { fixtureAccounts, fixtureSettings, fixtureSystem } from './fixtures';
+import { fixtureAccounts, fixtureSettings, fixtureSystem, fixtureUnderWay } from './fixtures';
 import { STANDING_WORDS, standingOf } from './standing';
 import { SystemView } from './SystemView';
 
@@ -28,6 +28,7 @@ afterEach(() => {
 function sources(engine: Engine = { slots: 2, taken: 1, paused: null, keepWarm: true }) {
   const listening = new Set<{ onChanged: (c: Changed) => void; onOpened: () => void }>();
   const asked: number[][] = [];
+  const goingRead = { count: 0 };
   const works: Source = {
     loadCopies: async () => fixtureCopies(),
     loadItems: async () => fixtureItems(),
@@ -71,13 +72,24 @@ function sources(engine: Engine = { slots: 2, taken: 1, paused: null, keepWarm: 
       asked.push(weeks);
       return fixtureSystem(weeks);
     },
+    loadUnderWay: async () => {
+      goingRead.count += 1;
+      return fixtureUnderWay();
+    },
     loadSettings: async () => fixtureSettings(),
     saveSettings: async () => ({ said: '', committed: false }),
     loadAccounts: async () => fixtureAccounts(),
     account: async () => ({ atLimit: false, resets: null, notLetGo: null }),
     look: async () => ({ looking: [] }),
   };
-  return { works, system, asked, changed: (c: Changed) => listening.forEach((l) => l.onChanged(c)) };
+  return {
+    works,
+    system,
+    asked,
+    goingRead,
+    changed: (c: Changed) => listening.forEach((l) => l.onChanged(c)),
+    opened: () => listening.forEach((l) => l.onOpened()),
+  };
 }
 
 async function settle() {
@@ -102,6 +114,9 @@ function draw(element: ReactNode, s: ReturnType<typeof sources>) {
   unmounts.push(() => act(() => root.unmount()));
   return { container, render };
 }
+
+/// The columns of what a round's calls have come to so far.
+const CALLS = ['Context', 'Added', 'Per call', 'Cost'];
 
 const texts = (root: ParentNode, selector: string) => [...root.querySelectorAll(selector)].map((e) => e.textContent?.trim() ?? '');
 
@@ -197,7 +212,6 @@ describe('the System view', () => {
           round: now.round,
           began: now.since,
           time: null,
-          bounds: null,
           rest: n === 0 ? { kind: 'expected' as const, ms: 12 * 60_000 } : { kind: 'longer' as const },
         };
       }),
@@ -210,8 +224,8 @@ describe('the System view', () => {
       /^Stopping since [^:]+:\d\d: no round begins, and the engine ends once the rounds under way have ended, expected in about 12m 0s$/,
     );
     const under = now.querySelectorAll('table')[0];
-    expect(texts(under, 'thead th')).toEqual(['Work', 'Item', 'Cell', 'Since', 'To go']);
-    const rests = texts(under, 'tbody td:last-child');
+    expect(texts(under, 'thead th')).toEqual(['Work', 'Item', 'Cell', 'Since', 'To go', ...CALLS]);
+    const rests = texts(under, 'tbody td:nth-child(5)');
     expect(rests[0]).toBe('about 12m 0s');
     expect(rests.slice(1)).toEqual(running.slice(1).map(() => 'longer than any before'));
   });
@@ -222,7 +236,7 @@ describe('the System view', () => {
     await settle();
     const now = part(container, 'Now');
     expect(texts(now, 'dd')[0]).toBe('Every work goes on');
-    expect(texts(now.querySelectorAll('table')[0], 'thead th')).toEqual(['Work', 'Item', 'Cell', 'Since']);
+    expect(texts(now.querySelectorAll('table')[0], 'thead th')).toEqual(['Work', 'Item', 'Cell', 'Since', ...CALLS]);
   });
 
   it('counts what waits for the owner by the one count, the things that wait, as the bar says it', async () => {
@@ -327,15 +341,26 @@ describe('the System view', () => {
     expect(texts(spent, 'h4')).toContain('By cell');
     const wrong = part(container, 'Gone wrong');
     expect(wrong.textContent).toContain("The agent's program could not start.");
-    const all = [...container.querySelectorAll('.switch-choice')].find((b) => b.textContent === 'All time') as HTMLElement;
-    act(() => all.click());
-    expect(window.location.hash).toBe('#/system/all');
+    // The spans are links, each to its own address, the one in use marked.
+    const links = [...container.querySelectorAll('a.span-link')];
+    expect(links.map((a) => [a.textContent, a.getAttribute('href'), a.getAttribute('aria-current')])).toEqual([
+      ['This week', '#/system/week', 'true'],
+      ['4 weeks', '#/system/4w', null],
+      ['All time', '#/system/all', null],
+    ]);
     render(<SystemView period="all" />);
     await settle();
     // All time from the week the earliest item was added in.
     const earliest = Math.min(...fixtureItems().items.map((i) => i.added));
     expect(s.asked.at(-1)?.[0]).toBeLessThanOrEqual(earliest);
     expect(s.asked.at(-1)?.[0]).toBeGreaterThan(earliest - 7 * 24 * 60 * 60 * 1000);
+    expect(
+      [...container.querySelectorAll('a.span-link')].map((a) => [a.textContent, a.getAttribute('aria-current')]),
+    ).toEqual([
+      ['This week', null],
+      ['4 weeks', null],
+      ['All time', 'true'],
+    ]);
     const before = s.asked.length;
     act(() => s.changed({ works: [41], items: false, copies: false, accounts: false, observations: false }));
     await settle();
@@ -363,5 +388,155 @@ describe('the System view', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  /// The fixtures' round under way, cloned into four works, each with what its calls have come to in one of the cases a
+  /// figure is in: past its lines, within them, with no line, and none told yet; the works' own round has none.
+  function fourRounds(s: ReturnType<typeof sources>) {
+    const items = fixtureItems();
+    const base = items.items.find((i) => i.work.now.kind === 'round') as Item;
+    const clones = [500, 501, 502, 503].map((n) => ({ ...base, number: n + 1000, work: { ...base.work, number: n } }));
+    s.works.loadItems = async () => ({ ...items, items: [...items.items, ...clones] });
+    const now = base.work.now;
+    if (now.kind !== 'round') throw new Error('a round');
+    const at = { run: now.run, round: now.round };
+    const line = (value: number, scope: 'cell' | 'flow') => ({ value, samples: 12, scope });
+    s.system.loadUnderWay = async () => {
+      s.goingRead.count += 1;
+      return [
+        {
+          work: 500,
+          ...at,
+          context: 182_400,
+          added: { value: 96_000, line: line(60_000, 'cell'), past: true },
+          perCall: { value: 8_000, line: line(5_000, 'cell'), past: true },
+          cost: { value: 1_240_000, line: line(900_000, 'flow'), past: true },
+        },
+        {
+          work: 501,
+          ...at,
+          context: 64_000,
+          added: { value: 21_000, line: line(60_000, 'cell'), past: false },
+          perCall: { value: 3_000, line: line(5_000, 'cell'), past: false },
+          cost: { value: 310_000, line: line(900_000, 'flow'), past: false },
+        },
+        {
+          work: 502,
+          ...at,
+          context: 12_000,
+          added: { value: 4_000, line: null, past: false },
+          perCall: { value: 2_000, line: null, past: false },
+          cost: { value: 52_000, line: null, past: false },
+        },
+        { work: 503, ...at, context: null, added: null, perCall: null, cost: null },
+      ];
+    };
+  }
+
+  const rowOf = (container: ParentNode, work: number) => {
+    const rows = [...part(container, 'Now').querySelectorAll('table')[0].querySelectorAll('tbody tr')];
+    const row = rows.find((r) => r.querySelector('td a')?.textContent === `W${work}`);
+    if (!row) throw new Error(`no row of W${work}`);
+    return row;
+  };
+
+  it('says of each round under way what its calls have come to, with the line beside each figure, and marks a figure past its line', async () => {
+    const s = sources();
+    fourRounds(s);
+    const { container } = draw(<SystemView period="week" />, s);
+    await settle();
+    // Past: each figure beside its line, in the colour of a warning.
+    const past = rowOf(container, 500);
+    expect(texts(past, 'td').slice(4)).toEqual(['182k', '96k of 60k', '8.0k of 5.0k', '$1.24 of $0.90']);
+    expect(past.querySelectorAll('.warn-text')).toHaveLength(3);
+    const added = past.querySelectorAll('td')[5].querySelector('span') as HTMLElement;
+    expect(added.getAttribute('title')).toContain("The tokens the round's context has grown by since it began.");
+    expect(added.getAttribute('title')).toContain(
+      'stops a round only where its growth over the round and its growth for each call',
+    );
+    expect(added.getAttribute('title')).toContain('Its line is 60k, which 12 rounds of its cell give; it is past it.');
+    const cost = past.querySelectorAll('td')[7].querySelector('span') as HTMLElement;
+    expect(cost.getAttribute('title')).toContain("12 agents' rounds of its flow give");
+    // Within: the line beside each, in no colour.
+    const within = rowOf(container, 501);
+    expect(texts(within, 'td').slice(4)).toEqual(['64k', '21k of 60k', '3.0k of 5.0k', '$0.31 of $0.90']);
+    expect(within.querySelectorAll('.warn-text')).toHaveLength(0);
+    expect(within.querySelectorAll('td')[5].querySelector('span')?.getAttribute('title')).toContain('it is within it.');
+    // No line yet: the figure alone, and the title says why.
+    const alone = rowOf(container, 502);
+    expect(texts(alone, 'td').slice(4)).toEqual(['12k', '4.0k', '2.0k', '$0.05']);
+    expect(alone.querySelectorAll('.warn-text')).toHaveLength(0);
+    expect(alone.querySelectorAll('td')[5].querySelector('span')?.getAttribute('title')).toContain('No line yet');
+    // No call told yet, as of an engine's act, which makes none: said so, not left empty or shown as nought.
+    const none = rowOf(container, 503);
+    expect(texts(none, 'td').slice(4)).toEqual(['none yet', 'none yet', 'none yet', 'none yet']);
+    expect(none.querySelectorAll('td')[4].querySelector('.muted')?.getAttribute('title')).toContain(
+      'Told once the round has made a call',
+    );
+  });
+
+  it('reads what the rounds have come to when the stream says it changed, for no other change and not while hidden', async () => {
+    const s = sources();
+    const { render } = draw(<SystemView period="week" />, s);
+    await settle();
+    expect(s.goingRead.count).toBe(1);
+    const read = s.asked.length;
+    const only = { works: [], items: false, copies: false, accounts: false, observations: false, going: true };
+    act(() => s.changed(only));
+    await settle();
+    expect(s.goingRead.count).toBe(2);
+    expect(s.asked.length, 'what the span holds is not read again for it').toBe(read);
+    // A change of a work reads the span and not what the rounds have come to.
+    act(() => s.changed({ ...only, works: [41], going: false }));
+    await settle();
+    expect(s.goingRead.count).toBe(2);
+    expect(s.asked.length).toBe(read + 1);
+    // One that says both is for both.
+    act(() => s.changed({ ...only, works: [41] }));
+    await settle();
+    expect(s.goingRead.count).toBe(3);
+    expect(s.asked.length).toBe(read + 2);
+    // The stream opening again, when changes may have been missed, reads it too.
+    act(() => s.opened());
+    await settle();
+    expect(s.goingRead.count).toBe(4);
+    // Hidden, the view is told nothing; shown again, it reads once what it missed.
+    render(<SystemView period="week" active={false} />);
+    await settle();
+    act(() => s.changed(only));
+    await settle();
+    expect(s.goingRead.count).toBe(4);
+    render(<SystemView period="week" active />);
+    await settle();
+    expect(s.goingRead.count).toBe(5);
+    act(() => s.changed(only));
+    await settle();
+    expect(s.goingRead.count).toBe(6);
+  });
+
+  it('says what a merge cost on average as what the whole span spent for each merge, beside what the merged works cost themselves', async () => {
+    const s = sources();
+    const { container } = draw(<SystemView period="week" />, s);
+    await settle();
+    const system = fixtureSystem(s.asked[0]);
+    expect(system.merged.length).toBeGreaterThan(0);
+    const tileOf = (root: ParentNode) =>
+      [...part(root, 'Produced').querySelectorAll('.tile')].find(
+        (t) => t.querySelector('.label')?.textContent === "A merge's cost, on average",
+      ) as HTMLElement;
+    const per = system.spent.usdMicros / system.merged.length;
+    const own = system.merged.reduce((sum, m) => sum + m.spent.usdMicros, 0) / system.merged.length;
+    expect(per).not.toBe(own);
+    const dollar = (micros: number) => (micros > 0 && micros < 10_000 ? '<$0.01' : `$${(micros / 1_000_000).toFixed(2)}`);
+    const tile = tileOf(container);
+    expect(tile.querySelector('.tile-value')?.firstChild?.textContent).toBe(dollar(per));
+    expect(tile.querySelector('.tile-more')?.textContent?.trim()).toBe(`the merged works' own: ${dollar(own)}`);
+    expect(tile.getAttribute('title')).toContain('for each work merged in it');
+    // No merge in the span: none, and nothing beside it.
+    s.system.loadSystem = async (weeks) => ({ ...fixtureSystem(weeks), merged: [] });
+    const none = draw(<SystemView period="4w" />, s);
+    await settle();
+    const empty = tileOf(none.container);
+    expect(empty.querySelector('.tile-value')?.textContent).toBe('none');
   });
 });
