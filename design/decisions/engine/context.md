@@ -81,6 +81,7 @@ A datum a cell is given that has no version yet is left out of the message: no l
 - rejected: an agent proposed failing the engineer's flow test on any line a round stood in that the tool does not write; the owner rejected it, because 22000 rounds in 30 s leave 42, and 70000 rounds at about 107 s still leave 12 (data: research/situations-search-measured.md).
 - rejected: an agent proposed raising the tool's bound to 70000 rounds; the owner rejected it, because the tool would take about 107 s and 12 lines would still be left (data: research/situations-search-measured.md).
 - rejected: an agent proposed running several seeded searches side by side and merging them in a fixed order; the owner rejected it, because it is another mechanism that holds several cores for 30 s, and what more it would find was not measured.
+- rejected: an agent proposed one more try at the search itself; the owner rejected it, because such changes moved the count by tens of lines, as a seed does, and nothing free of cell names points at the 22-step chain (data: research/situations-search-measured.md).
 
 ### decision a-try-keeps-what-it-was-given
 Before its program starts, a try keeps what it runs on and what its message fills in a file beside it, and a later start records from there what the records lack.
