@@ -1725,6 +1725,7 @@ fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() 
     // of theirs stood in is one the search found, or the search leaves out what a work can reach.
     let sim = support::sim_of(support::limited(), support::words());
     let found = witness::search(&sim.flow, &sim.words, &sim.compared, None, &witness::BOUNDS);
+    let spent = witness::spent();
     let written = support::written(&sim, &found);
     let gaps = missing(&reached.real, &written.lines);
     assert!(
@@ -1735,7 +1736,7 @@ fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() 
         "{}\n\nwhat the search met: {:?}\n\nwhat is wrong with a situation written: {:?}\n\nthe cells that none is \
          written for: {:?}\n\nrounds stood in what the search did not find, {gaps}\n\nthe first round that stood in \
          each of some of them:\n{}\n\nthe last scripted history: {:?}",
-        what_the_search_did(&found),
+        what_the_search_did(&found, &spent),
         found.faults,
         written.wrong,
         written.without,
@@ -1746,16 +1747,18 @@ fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() 
 
 /// What a search did, as a failure says it: its rounds, the states it kept, the lines it found, why it ended, how each
 /// entry was met and how the lines grew with the rounds.
-fn what_the_search_did(found: &witness::Found) -> String {
+fn what_the_search_did(found: &witness::Found, spent: &[(&str, std::time::Duration)]) -> String {
     format!(
         "the search carried out {} rounds, kept {} states and found {} lines, and ended because {}; entries met: {:?}; \
-         lines found by rounds: {:?}",
+         rounds of each cell: {:?}; lines found by rounds: {:?}; its time went to: {:?}",
         found.rounds,
         found.kept,
         found.lines.len(),
         found.ended,
         found.entries,
-        found.curve
+        found.cells,
+        found.curve,
+        spent
     )
 }
 
@@ -2073,6 +2076,14 @@ fn directed_tests(reached: &mut Reached, passed: &History, deep: &History) -> Ve
     log
 }
 
+/// What bounds the search the engineer's flow is tried with.
+const BOUNDS: witness::Bounds = witness::Bounds {
+    rounds: 6_000,
+    plateau: 2_000,
+    archive: 400,
+    draws: 8,
+};
+
 /// How many histories of the engineer's flow the test runs apart from the search, how many steps each takes, and how
 /// many of the first steps of each only carry what the work gives with everything handed in, so that the history goes
 /// into the flow.
@@ -2117,7 +2128,8 @@ fn the_engineers_histories() -> Reached {
 fn every_situation_written_for_the_engineers_flow_is_a_round_of_a_work_and_covers_what_the_histories_stood_in() {
     let begun = std::time::Instant::now();
     let sim = support::engineer_sim();
-    let found = witness::search(&sim.flow, &sim.words, &sim.compared, None, &witness::BOUNDS);
+    let found = witness::search(&sim.flow, &sim.words, &sim.compared, None, &BOUNDS);
+    let spent = witness::spent();
     eprintln!(
         "the search: {:?}, {} rounds, {} states kept, {} lines found",
         begun.elapsed(),
@@ -2179,7 +2191,7 @@ fn every_situation_written_for_the_engineers_flow_is_a_round_of_a_work_and_cover
     assert!(
         failures.is_empty(),
         "{}\n\n{}",
-        what_the_search_did(&found),
+        what_the_search_did(&found, &spent),
         failures.join("\n\n")
     );
 }

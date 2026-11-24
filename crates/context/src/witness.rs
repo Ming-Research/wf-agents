@@ -19,9 +19,11 @@
 //! The simulation here is the one the tests of the manager run works with, and the search's own set of actions is
 //! its own: the tests' histories choose theirs apart from it, so that they can show what the search leaves out.
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::time::{Duration, Instant};
 
 use decide::{BlockId, CellId, Condition, Decision, Outsider, RunId, Seq, Waited, decide};
 use engine::spoken::{self, To};
@@ -33,6 +35,29 @@ use crate::manager::Entered;
 use crate::message::Situation;
 use crate::sim::{Given, Sim};
 use crate::situations::stood;
+
+thread_local! {
+    /// What the search's time on this thread went to, by what it did.
+    static SPENT: RefCell<BTreeMap<&'static str, Duration>> = const { RefCell::new(BTreeMap::new()) };
+}
+
+/// Does this, and adds the time it took to what the search's time went to under this name.
+fn timed<T>(what: &'static str, then: impl FnOnce() -> T) -> T {
+    let begun = Instant::now();
+    let out = then();
+    SPENT.with(|spent| *spent.borrow_mut().entry(what).or_default() += begun.elapsed());
+    out
+}
+
+/// What the time of the searches on this thread went to, by what they did, the most first.
+pub fn spent() -> Vec<(&'static str, Duration)> {
+    let mut all: Vec<_> = SPENT.with(|spent| spent.borrow().iter().map(|(what, took)| (*what, *took)).collect());
+    all.sort_by_key(|(_, took)| std::cmp::Reverse(*took));
+    all
+}
+
+/// What a state that no round is under way in is called, in its key.
+const AT_REST: &str = "at rest";
 
 /// How a round enters its cell's session.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -197,6 +222,8 @@ pub struct Found {
     pub kept: usize,
     /// How many rounds it carried out that entered their cell each way.
     pub entries: BTreeMap<Entry, usize>,
+    /// How many rounds it carried out of each cell.
+    pub cells: BTreeMap<String, usize>,
     /// How many lines it had found after each thousand rounds, by the rounds it had carried out.
     pub curve: Vec<(usize, usize)>,
     /// Why it ended: the rounds were spent, no new line came for the stated rounds, or there was nothing left to try.
@@ -343,8 +370,7 @@ impl Rng {
 
 impl Node {
     fn take(&mut self, event: Event) -> Result<(), String> {
-        self.sim
-            .try_take(event)
+        timed("engine", || self.sim.try_take(event))
             .map(|_| ())
             .map_err(|refused| format!("{refused:?}"))
     }
@@ -524,10 +550,10 @@ impl Node {
         }
         let line = self.sim.line(&round);
         let begins = self.sim.begins(&round);
-        let entry = self.entry(&round, begins);
-        let going_on = self.sim.enter(&round, false);
+        let entry = timed("entry", || self.entry(&round, begins));
+        let going_on = timed("enter", || self.sim.enter(&round, false));
         let lost = !begins && how.fate == Fate::Lost;
-        let anew = (begins || lost).then(|| self.sim.enter(&round, true));
+        let anew = (begins || lost).then(|| timed("enter", || self.sim.enter(&round, true)));
         // The round is sent what its first try fills: the session as it stands, or one that holds nothing where it
         // begins its session; and, where its session is lost, a second try in one that holds nothing.
         let first = match (&anew, begins) {
@@ -682,6 +708,10 @@ impl Node {
     /// What the next round is sent and what the work holds of its choices, as a key: states with the same key are
     /// alike for the search.
     fn key(&self) -> (String, u64) {
+        timed("key", || self.key_of())
+    }
+
+    fn key_of(&self) -> (String, u64) {
         let mut hasher = DefaultHasher::new();
         let cell = match self.sim.round() {
             Some(round) => {
@@ -707,7 +737,7 @@ impl Node {
             None => {
                 let at = format!("{:?}", decide(&self.sim.flow.flow, &self.sim.work.records));
                 at.chars().take(160).collect::<String>().hash(&mut hasher);
-                "rest".to_string()
+                AT_REST.to_string()
             }
         };
         let versions = decide::versions(&self.sim.work.records);
@@ -928,7 +958,7 @@ struct Search<'a> {
 impl Search<'_> {
     /// Tries the actions on a copy of the node: where all of them were done, the copy and what it carried out.
     fn child(&mut self, from: &Node, actions: &[Action]) -> Option<(Node, Vec<Sight>)> {
-        let mut node = from.clone();
+        let mut node = timed("clone", || from.clone());
         let mut sights = Vec::new();
         let done = catch_unwind(AssertUnwindSafe(|| {
             for action in actions {
@@ -967,6 +997,7 @@ impl Search<'_> {
             self.found.rounds += 1;
             self.since += 1;
             *self.found.entries.entry(sight.entry).or_default() += 1;
+            *self.found.cells.entry(sight.cell.as_str().to_string()).or_default() += 1;
             if self.found.rounds.is_multiple_of(1000) {
                 self.found.curve.push((self.found.rounds, self.found.lines.len()));
             }
@@ -988,8 +1019,8 @@ impl Search<'_> {
         }
     }
 
-    /// Keeps the node where no state alike was kept. Where the archive is full, a state gone on from as often as any,
-    /// one of them by its key, makes room: what is gone on from least is what the search goes on from next.
+    /// Keeps the node where no state alike was kept. Where the archive is full, a state of the highest rank, one of them
+    /// by its key, makes room: what ranks least is what the search goes on from next.
     fn keep(&mut self, node: &Node) {
         let key = node.key();
         if !self.keys.insert(key.clone()) {
@@ -997,7 +1028,7 @@ impl Search<'_> {
         }
         self.born += 1;
         let kept = Kept {
-            node: node.clone(),
+            node: timed("clone", || node.clone()),
             key,
             turns: 0,
             born: self.born,
@@ -1005,10 +1036,9 @@ impl Search<'_> {
         if self.archive.len() < self.bounds.archive {
             self.archive.push(kept);
         } else {
-            let most = self.archive.iter().map(|k| k.turns).max().unwrap_or(0);
-            let worn: Vec<usize> = (0..self.archive.len())
-                .filter(|&i| self.archive[i].turns == most)
-                .collect();
+            let ranks: Vec<usize> = self.archive.iter().map(|k| self.rank(k)).collect();
+            let most = ranks.iter().copied().max().unwrap_or(0);
+            let worn: Vec<usize> = (0..self.archive.len()).filter(|&i| ranks[i] == most).collect();
             let at = worn[(key_number(&kept.key) % worn.len() as u64) as usize];
             self.keys.remove(&self.archive[at].key);
             self.archive[at] = kept;
@@ -1020,7 +1050,7 @@ impl Search<'_> {
     fn try_out(&mut self, from: &Node, actions: &[Action]) -> Option<Node> {
         self.tried += 1;
         let (node, sights) = self.child(from, actions)?;
-        self.note(&node, &sights);
+        timed("note", || self.note(&node, &sights));
         self.keep(&node);
         Some(node)
     }
@@ -1042,12 +1072,23 @@ impl Search<'_> {
         self.ended().is_some()
     }
 
-    /// The kept state gone on from least often: of those, the newest on one turn and the oldest on the next, so that the
-    /// search goes deep into what it has just reached and comes back to what it reached first.
+    /// How much the search has spent on a kept state's pending cell and on the state itself: the less, the sooner the
+    /// search goes on from it, so that the cells few rounds were carried out of get their share.
+    fn rank(&self, kept: &Kept) -> usize {
+        let carried = match kept.key.0.as_str() {
+            AT_REST => self.found.rounds / self.flow.cells.len().max(1),
+            cell => self.found.cells.get(cell).copied().unwrap_or(0),
+        };
+        carried * 4 + kept.turns
+    }
+
+    /// The kept state gone on from soonest by its rank: of those of the least, the newest on one turn and the oldest on
+    /// the next, so that the search goes deep into what it has just reached and comes back to what it reached first.
     fn next(&mut self) -> Option<usize> {
-        let least = self.archive.iter().map(|k| k.turns).min()?;
         self.picks += 1;
-        let among = (0..self.archive.len()).filter(|&i| self.archive[i].turns == least);
+        let ranks: Vec<usize> = self.archive.iter().map(|k| self.rank(k)).collect();
+        let least = *ranks.iter().min()?;
+        let among = (0..self.archive.len()).filter(|&i| ranks[i] == least);
         let born = |i: &usize| self.archive[*i].born;
         match self.picks % 2 {
             0 => among.min_by_key(born),
@@ -1066,7 +1107,7 @@ impl Search<'_> {
         self.archive[at].turns += 1;
         let node = self.archive[at].node.clone();
         let mut rng = Rng::new(SEED ^ key_number(&self.archive[at].key) ^ turn as u64);
-        let before = befores(&node, &self.writes);
+        let before = timed("befores", || befores(&node, &self.writes));
         let how = match node.sim.round() {
             Some(round) => {
                 let cell = node.sim.cell(&round).clone();
