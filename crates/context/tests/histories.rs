@@ -168,6 +168,9 @@ struct Reached {
     real: BTreeSet<String>,
     /// For a line of `real`, the first round that stood in it: why its run began, its number, and the situation.
     examples: BTreeMap<String, String>,
+    /// For a line of `real`, the last steps of the history that first stood in it: rounds, writes from outside, reopened
+    /// sessions.
+    trails: BTreeMap<String, String>,
     /// Rounds carried to a session of an agent's cell.
     rounds: usize,
     /// The rounds of the last scripted history.
@@ -545,6 +548,7 @@ impl History {
 
     /// A person or the outside writes the block anew: a choice with one of its values.
     fn put(&mut self, block: &str) {
+        self.trace.push(format!("written: {block}"));
         let content = self.content(block);
         let declared = &self.sim.flow.blocks[&BlockId::from(block)];
         let by = if declared.writers.people {
@@ -563,6 +567,7 @@ impl History {
 
     /// A person or the outside writes the choice with this value.
     fn put_value(&mut self, block: &str, value: &str) {
+        self.trace.push(format!("written: {block} = {value}"));
         let by = match self.sim.flow.blocks[&BlockId::from(block)].writers.people {
             true => Outsider::Person,
             false => Outsider::Outside,
@@ -574,6 +579,7 @@ impl History {
     /// in, and the line's next round runs in the new one: which round begins a session is what the records say
     /// ([`Sim::begins`]), where the test's account of what the session holds is begun anew ([`History::carry`]).
     fn reopen(&mut self, line: &str, reached: &mut Reached) {
+        self.trace.push(format!("reopened: {line}"));
         self.sim.anew(line, Why::Owner);
         reached.reopened += 1;
     }
@@ -1431,6 +1437,16 @@ impl History {
                     .find(|s| s.run == round.run)
                     .map(|s| format!("{:?}", s.because));
                 let example = format!("{because:?}, round {}, {:?}", round.number, entered.situation);
+                let trail = self
+                    .trace
+                    .iter()
+                    .rev()
+                    .take(60)
+                    .rev()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(" | ");
+                reached.trails.insert(line.clone(), trail);
                 reached.examples.insert(line.clone(), example);
                 reached.real.insert(line);
             }
@@ -1771,11 +1787,20 @@ fn what_the_search_did(found: &witness::Found, spent: &[(&str, std::time::Durati
 fn examples_of(reached: &Reached, written: &BTreeSet<String>) -> String {
     let all: Vec<&String> = reached.real.difference(written).collect();
     let stride = all.len().div_ceil(30).max(1);
+    let mut cell = "";
     let shown: Vec<String> = (all.iter().step_by(stride))
         .map(|line| {
             let example = reached.examples.get(*line).map(String::as_str).unwrap_or_default();
             let end = example.char_indices().nth(360).map_or(example.len(), |(at, _)| at);
-            format!("{line} <= {}", &example[..end])
+            let mut text = format!("{line} <= {}", &example[..end]);
+            // The steps before the first round of each cell's first line shown, which say what chain reached it.
+            let of = line.split(':').next().unwrap_or_default();
+            if of != cell {
+                cell = of;
+                let trail = reached.trails.get(*line).map(String::as_str).unwrap_or_default();
+                text.push_str(&format!("\n    steps before it: {trail}"));
+            }
+            text
         })
         .collect();
     shown.join("\n")
