@@ -21,7 +21,7 @@ fn what_each_round_under_way_has_come_to_is_held_by_its_work_run_and_round() {
     let (run_a, _, round_a, _) = h.round(a);
     let (run_b, _, round_b, _) = h.round(b);
     let under = |run, round| Under::Round { run, round };
-    assert!(h.d().going().is_empty());
+    assert!(h.d().rounds_come_to().is_empty());
     assert!(
         h.dm()
             .along(a, under(run_a, round_a), Some(Along::Going(going(10_000))))
@@ -34,7 +34,7 @@ fn what_each_round_under_way_has_come_to_is_held_by_its_work_run_and_round() {
         h.dm()
             .along(a, under(run_a, round_a), Some(Along::Going(going(12_000))))
     );
-    let mut held = h.d().going();
+    let mut held = h.d().rounds_come_to();
     held.sort_by_key(|(work, ..)| *work);
     assert_eq!(
         held,
@@ -58,9 +58,9 @@ fn what_a_round_has_come_to_is_let_go_of_once_the_round_has_ended() {
         h.dm()
             .along(work, Under::Round { run, round }, Some(Along::Going(going(7_000))));
     }
-    assert_eq!(h.d().going().len(), 2);
+    assert_eq!(h.d().rounds_come_to().len(), 2);
     h.hands_in(a, &[("text", None)]);
-    let held = h.d().going();
+    let held = h.d().rounds_come_to();
     assert_eq!(held.len(), 1, "only the round of the other work is under way: {held:?}");
     assert_eq!(held[0].0, b);
 }
@@ -74,5 +74,5 @@ fn a_round_that_says_where_it_waits_is_not_among_what_agents_rounds_have_come_to
         .dm()
         .along(a, Under::Round { run, round }, Some(Along::Runs { at: "link".into() }));
     assert!(changed);
-    assert!(h.d().going().is_empty());
+    assert!(h.d().rounds_come_to().is_empty());
 }

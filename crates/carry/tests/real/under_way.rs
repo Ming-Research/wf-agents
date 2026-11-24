@@ -17,9 +17,9 @@ async fn what_the_calls_of_a_round_have_come_to_is_told_while_it_runs_and_let_go
     let mut real = Real::trial(fake);
     let work = real.add().await;
     real.act(work, Act::Resume);
-    real.until(|real| (real.service.driver().going().iter()).any(|(_, _, _, going)| going.context.is_some()))
+    real.until(|real| (real.service.driver().rounds_come_to().iter()).any(|(_, _, _, going)| going.context.is_some()))
         .await;
-    let held = real.service.driver().going();
+    let held = real.service.driver().rounds_come_to();
     assert_eq!(held.len(), 1, "{held:?}");
     let (held_work, run, round, going) = held[0];
     assert_eq!((held_work, run, round), (work, real.run_of(work, "plan"), 1));
@@ -34,5 +34,5 @@ async fn what_the_calls_of_a_round_have_come_to_is_told_while_it_runs_and_let_go
     assert!(cost > 0.0, "the call is priced at its model's: {cost}");
 
     real.until(|real| ended(&real.decision(work))).await;
-    assert!(real.service.driver().going().is_empty());
+    assert!(real.service.driver().rounds_come_to().is_empty());
 }

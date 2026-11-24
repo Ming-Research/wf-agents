@@ -6,6 +6,9 @@
 use decide::{CallId, Records, RunId};
 use store::WorkNumber;
 
+use crate::history::{Line, Lines};
+use crate::judged::Against;
+
 /// Where a round or a call stands as it goes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Along {

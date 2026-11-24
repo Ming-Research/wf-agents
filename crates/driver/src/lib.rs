@@ -1795,7 +1795,7 @@ impl Driver {
 
     /// What the agents' rounds under way have come to so far, as what carries them out last said, each with its work,
     /// run and round: the rounds with no call yet are there with nothing told.
-    pub fn going(&self) -> Vec<(WorkNumber, decide::RunId, usize, Going)> {
+    pub fn rounds_come_to(&self) -> Vec<(WorkNumber, decide::RunId, usize, Going)> {
         (self.along.iter())
             .filter_map(|((work, under), along)| {
                 let (Along::Going(going), Under::Round { run, round }) = (along, under) else {

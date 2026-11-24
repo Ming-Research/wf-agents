@@ -543,7 +543,7 @@ impl Figure {
 impl Going {
     /// What each agent's round under way has come to, by its work, run and round.
     pub fn of(driver: &Driver) -> Vec<Going> {
-        let mut going: Vec<Going> = (driver.going().into_iter())
+        let mut going: Vec<Going> = (driver.rounds_come_to().into_iter())
             .map(|(work, run, round, going)| Going {
                 work: work.0,
                 run: run.0,
