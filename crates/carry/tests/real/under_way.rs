@@ -1,6 +1,7 @@
 //! What the calls of an agent's round have come to so far is told to the loop while the round runs, and let go of when
 //! it ends.
 
+use driver::Going;
 use service::Act;
 
 use crate::{Fake, Real, ended};
@@ -39,4 +40,34 @@ async fn what_the_calls_of_a_round_have_come_to_is_told_while_it_runs_and_let_go
 
     real.until(|real| ended(&real.decision(work))).await;
     assert!(real.service.driver().rounds_come_to().is_empty());
+}
+
+// A round whose first try began a call and was told its session is not found goes on in a second try, which begins by
+// telling nothing of its calls: what the first try's call came to is held while it runs, and is gone, the round still
+// under way, once the second begins. Fails where a try does not begin by telling an empty `Going`, since the round then
+// shows the first try's figures until its own first call. Under a second alone: the fake's refusal and its retry.
+#[tokio::test]
+async fn a_second_try_of_a_round_begins_by_telling_nothing_of_its_calls() {
+    let fake = Fake {
+        lose_session: true,
+        lose_after_a_start: true,
+        ..Fake::default()
+    };
+    let mut real = Real::trial(fake);
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| (real.service.driver().rounds_come_to().iter()).any(|(_, _, _, going)| going.context.is_some()))
+        .await;
+    let (_, run, round, first) = (real.service.driver().rounds_come_to().into_iter())
+        .find(|(.., going)| going.context.is_some())
+        .expect("the first try's figures are held");
+    assert_eq!(first.context, Some(1_100), "100 sent and 1,000 read from the cache");
+
+    real.until(|real| {
+        (real.service.driver().rounds_come_to().iter())
+            .any(|(w, r, n, going)| (*w, *r, *n) == (work, run, round) && *going == Going::default())
+    })
+    .await;
+    real.until(|real| ended(&real.decision(work))).await;
+    assert_eq!(real.failures, 0, "a session not found is no failure of the round");
 }

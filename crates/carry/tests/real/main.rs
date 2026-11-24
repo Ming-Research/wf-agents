@@ -73,6 +73,9 @@ pub struct Fake {
     /// With `lose_session`, whether the call told that the session is not found says so as version 2.1.327 does: in
     /// a result naming the session it was to go on in, the one line it prints, with nothing on its standard error.
     pub lose_in_result: bool,
+    /// With `lose_session`, whether the call told that the session is not found has begun a call to the model, its
+    /// start printed, before it says so.
+    pub lose_after_a_start: bool,
     /// Whether the build asks the owner in its first run a question it waits for, and for the query of the check in
     /// the run entered for the answer, before it hands in; with `lose_session`, its last run is the one told the
     /// session is not found.
@@ -187,6 +190,7 @@ impl Default for Fake {
             omits_cost: false,
             lose_session: false,
             lose_in_result: false,
+            lose_after_a_start: false,
             question_first: false,
             plan_sleeps: 0,
             plan_sleeps_once_begun: 0,
@@ -694,6 +698,10 @@ case "$first" in
         else
             if [ '{lose}' = yes ] && [ ! -f "$log/lost" ] && grep -qx -- --resume "$log/$n.args"; then
                 touch "$log/lost"
+                if [ '{after_a_start}' = yes ]; then
+                    printf '%s\n' '{{"type":"system","subtype":"init","claude_code_version":"9.9.9"}}'
+                    printf '%s\n' '{{"type":"stream_event","event":{{"type":"message_start","message":{{"usage":{{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":1000}}}}}},"parent_tool_use_id":null}}'
+                fi
                 if [ '{lose_in_result}' = yes ]; then
                     id=$(grep -A1 -x -- --resume "$log/$n.args" | tail -n 1)
                     printf '{{"type":"result","subtype":"error_during_execution","duration_ms":0,"is_error":true,"num_turns":0,"session_id":"%s","total_cost_usd":0,"usage":{{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}},"errors":["No conversation found with session ID: %s"]}}\n' "$id" "$id"
@@ -779,6 +787,7 @@ fi
         omits_cost = yes(fake.omits_cost),
         lose = yes(fake.lose_session),
         lose_in_result = yes(fake.lose_in_result),
+        after_a_start = yes(fake.lose_after_a_start),
         question = yes(fake.question_first),
         sleeps = fake.plan_sleeps,
         begun_sleeps = fake.plan_sleeps_once_begun,
