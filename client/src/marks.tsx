@@ -11,6 +11,7 @@ import type { ReactNode } from 'react';
 
 import { ConditionGlyph, DataGlyphs, LineGlyph, ToolGlyph } from './Chart';
 import { type Mark, NO_MARK } from './matrix';
+import { TrackBlock, type TrackKind } from './console/track';
 import { Sign } from './parts';
 import { RUN_STATES, type RunState, lookStyle, pulses } from './works/state-marks';
 import type { Held } from './works-api';
@@ -43,7 +44,24 @@ export type MarkKey =
   | 'unread'
   | 'filesChanged'
   | RunState
+  | TrackMark
   | ConsoleMark;
+
+/// A colour of the time track the item window draws for a work, drawn here as a sample for the console's legend: a
+/// model that ran, the tools that ran, and what the work waited for while nothing ran.
+export type TrackMark = `track${Capitalize<TrackKind>}`;
+
+/// The mark of each kind of stretch a track draws, so that the legend lists every colour the track has.
+export const TRACK_MARKS: Record<TrackKind, TrackMark> = {
+  model: 'trackModel',
+  tool: 'trackTool',
+  owner: 'trackOwner',
+  paused: 'trackPaused',
+  items: 'trackItems',
+  turn: 'trackTurn',
+  gap: 'trackGap',
+  unknown: 'trackUnknown',
+};
 
 /// A mark of the console's tree, drawn on its canvas (`console/snap.ts`) and here as a sample for its legend: a card by
 /// how its work stands, a shadow, the tags and rows of a card, what joins the cards, and the map of the columns.
@@ -181,6 +199,18 @@ const ofRun = (state: RunState, name: string): Entry => ({
   draw: (words) => <StateMark state={state} title={words} />,
 });
 
+/// A sample of a colour of the time track: the track's own block in a small box, saying on pointing at it what the
+/// colour is.
+function TrackSample({ kind }: { kind: TrackKind }) {
+  return (
+    <span className="legend-track">
+      <TrackBlock kind={kind} />
+    </span>
+  );
+}
+
+const ofTrack = (kind: TrackKind, name: string): Entry => ({ name, draw: () => <TrackSample kind={kind} /> });
+
 /// The table: every mark, its part and its name.
 export const MARKS: Record<MarkKey, Entry> = {
   line: { name: 'line', draw: () => <LineGlyph on /> },
@@ -216,6 +246,14 @@ export const MARKS: Record<MarkKey, Entry> = {
   notYet: ofRun('notYet', 'not yet'),
   skipped: ofRun('skipped', 'skipped'),
   notRun: ofRun('notRun', 'did not run'),
+  trackModel: ofTrack('model', 'model ran'),
+  trackTool: ofTrack('tool', 'tools ran'),
+  trackOwner: ofTrack('owner', 'waits for you'),
+  trackPaused: ofTrack('paused', 'pause'),
+  trackItems: ofTrack('items', 'waits for items'),
+  trackTurn: ofTrack('turn', 'waits for turn'),
+  trackGap: ofTrack('gap', 'nothing ran'),
+  trackUnknown: ofTrack('unknown', 'not known'),
   cardStopped: { name: 'stopped', draw: () => <CardSample look="stopped" /> },
   cardRunning: { name: 'running', draw: () => <CardSample look="running" /> },
   cardWaiting: { name: 'waiting', draw: () => <CardSample look="waiting" /> },

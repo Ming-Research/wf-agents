@@ -209,6 +209,8 @@ pub struct CellSpec {
     /// The work's branch takes the latest main in as each run of the cell starts, as an agent cell that changes the
     /// code says; an engine cell's never does.
     pub takes_main: bool,
+    /// The cell takes the turn of its work's project, as its file says ([`decide::Cell::turn`]).
+    pub takes_turn: bool,
     /// What runs the cell, by its data: what it watches, each in the order named.
     pub watches: Vec<Watched>,
 }
@@ -1885,6 +1887,7 @@ impl<'a> Definition<'a> {
             limit: runs,
             calls: limits.calls,
             slot: file.kind == Kind::Agent,
+            turn: file.takes_turn,
             dialogues: self.dialogues(id, file),
             verdicts: self.verdicts(id, file),
             judges: self.judges(id, file),
@@ -1925,6 +1928,7 @@ impl<'a> Definition<'a> {
                 .and_then(|line| self.flow.lines.get(line))
                 .map_or(0, |line| line.levels_above),
             takes_main: file.kind == Kind::Agent && file.takes_main,
+            takes_turn: file.takes_turn,
             watches: takes.watches,
         };
         (cell, spec)

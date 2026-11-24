@@ -1342,7 +1342,7 @@ impl Explorer<'_> {
                     }
                 }
                 let shown: Vec<String> = on.iter().map(show_waited).collect();
-                // The engine makes a call of its own: waiting for it is no stop for the owner.
+                // The engine makes a call of its own, and a slot or the work's turn is waited for: none is a stop for the owner.
                 let on_purpose = matches!(&rest, Rest::Waiting { at: a } if a == at);
                 (
                     format!("the work waits at {at} for {}", shown.join(" and ")),
@@ -1442,6 +1442,7 @@ fn show_waited(w: &Waited) -> String {
         Waited::Answer { question } => format!("the owner's answer to {question}"),
         Waited::Outside { source, block, .. } => format!("the outside ({source}), of which {block} waits"),
         Waited::Slot => "a slot".to_string(),
+        Waited::Turn => "its turn to check and merge".to_string(),
     }
 }
 

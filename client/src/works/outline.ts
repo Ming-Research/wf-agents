@@ -28,6 +28,7 @@ function cellOf(c: OutlineCell, page: Pick<WorkPage, 'outline' | 'steps'>): Cell
     act: null,
     effort: null,
     takesMain: false,
+    takesTurn: false,
     when: [],
     requires: [],
     watches: c.watches,

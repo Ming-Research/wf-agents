@@ -330,6 +330,7 @@ pub fn on_items(waited: &Waited) -> bool {
         | Waited::Limit { .. }
         | Waited::Calls { .. }
         | Waited::Slot
+        | Waited::Turn
         | Waited::Answer { .. }
         | Waited::Outside { .. } => false,
     }

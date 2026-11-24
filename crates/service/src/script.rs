@@ -48,11 +48,9 @@
 //! cell = "review"
 //! asks = []
 //!
-//! # The first round of the merge's check waits for the project's turn, which work 3 holds, for the first half of its
-//! # time, and then runs as the CI run at this link.
+//! # The first round of the merge's check runs as the CI run at this link.
 //! [[flows.trial.rounds]]
 //! cell = "check"
-//! turn = 3
 //! at = "https://github.com/o/r/actions/runs/2"
 //!
 //! # The first round of the second run of plan fails: nothing comes back, and the work is paused with this reason.
@@ -236,11 +234,7 @@ pub struct RoundScript {
     pub failure: Option<Failure>,
     /// When the usage limit its failure reached resets, in milliseconds since the start of 1970.
     pub resets: Option<u64>,
-    /// For an act of the engine, the work that holds the project's turn to check and merge, which it says it waits
-    /// for during the first half of its time.
-    pub turn: Option<u64>,
-    /// For an act of the engine, the link of the CI run it says it runs as: from its begin, or once the turn it waits
-    /// for is taken.
+    /// For an act of the engine, the link of the CI run it says it runs as, from its begin.
     pub at: Option<String>,
 }
 
@@ -290,9 +284,7 @@ pub struct Planned {
     pub spent: Spent,
     /// How long it is under way, in milliseconds.
     pub ms: u64,
-    /// The work whose turn to check and merge it says it waits for during the first half of its time.
-    pub turn: Option<u64>,
-    /// The link of the CI run it says it runs as, from its begin or once the turn is taken.
+    /// The link of the CI run it says it runs as, from its begin.
     pub at: Option<String>,
 }
 
@@ -366,12 +358,10 @@ impl Script {
                 if round.commits.is_some() && (round.fails.is_some() || round.asks.is_some()) {
                     faults.push(format!("{at}: only a round that does the cell's work commits"));
                 }
-                if (round.turn.is_some() || round.at.is_some())
+                if round.at.is_some()
                     && (flow.cells.iter()).any(|cell| cell.id.as_str() == round.cell && cell.kind == Kind::Agent)
                 {
-                    faults.push(format!(
-                        "{at}: only an act of the engine waits for the turn or runs as a CI run"
-                    ));
+                    faults.push(format!("{at}: only an act of the engine runs as a CI run"));
                 }
                 if round.fails.is_none() && (round.failure.is_some() || round.resets.is_some()) {
                     faults.push(format!(
@@ -476,7 +466,6 @@ impl Script {
                     },
                     spent,
                     ms: or(took.ms, self.took.ms, ROUND_MS),
-                    turn: None,
                     at: None,
                 };
             }
@@ -582,7 +571,6 @@ impl Script {
             ends: Ends::Came(came),
             spent,
             ms: or(took.ms, self.took.ms, ROUND_MS),
-            turn: entry.and_then(|entry| entry.turn),
             at: entry.and_then(|entry| entry.at.clone()),
         }
     }
