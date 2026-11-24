@@ -221,13 +221,15 @@ mod tests {
             wants: Some(Time(500)),
             ..Turned::default()
         };
-        let works = |held: &Turned| [(WorkNumber(1), held), (WorkNumber(2), &waiting)];
-        assert_eq!(whose(works(&held.turned)), Some(WorkNumber(1)));
+        fn works<'a>(held: &'a Turned, waiting: &'a Turned) -> [(WorkNumber, &'a Turned); 2] {
+            [(WorkNumber(1), held), (WorkNumber(2), waiting)]
+        }
+        assert_eq!(whose(works(&held.turned, &waiting)), Some(WorkNumber(1)));
         let kept = held.work.clone();
         held.hold_at_fault(kept);
         assert_eq!(held.standing, Standing::AtFault);
         assert!(!held.turned.holds);
         assert_eq!(held.turned.wants, None);
-        assert_eq!(whose(works(&held.turned)), Some(WorkNumber(2)));
+        assert_eq!(whose(works(&held.turned, &waiting)), Some(WorkNumber(2)));
     }
 }
