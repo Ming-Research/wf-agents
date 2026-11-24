@@ -853,10 +853,14 @@ async fn data_is_held_by_the_commit_checked_and_not_by_the_worktree() {
     let fault = |path: &str| {
         format!("design/decisions/extra.md:7: decision keep-it: the data `{path}` is not in the repository")
     };
-    let told = |commit: &str| formed(&place.dir, "design/", &rules(), commit);
-    assert_eq!(told(&with_note).await, Ok(Vec::new()), "the commit that held the file");
+    let rules = rules();
     assert_eq!(
-        told(&without_note).await,
+        formed(&place.dir, "design/", &rules, &with_note).await,
+        Ok(Vec::new()),
+        "the commit that held the file"
+    );
+    assert_eq!(
+        formed(&place.dir, "design/", &rules, &without_note).await,
         Ok(vec![fault("research/note.md")]),
         "the commit that does not"
     );
@@ -864,7 +868,7 @@ async fn data_is_held_by_the_commit_checked_and_not_by_the_worktree() {
     let commit = write(&place.dir, "design/decisions/extra.md", &text("research/untracked.md"));
     assert!(on_disk("research/untracked.md"));
     assert_eq!(
-        told(&commit).await,
+        formed(&place.dir, "design/", &rules, &commit).await,
         Ok(vec![fault("research/untracked.md")]),
         "a file of the worktree no commit holds"
     );
