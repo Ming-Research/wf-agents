@@ -1079,7 +1079,7 @@ impl Saying {
 impl Teller {
     /// What the calls to the model of the round of this number, the first being one, have come to so far, against the
     /// lines the run guard judges it by: no record holds it, and the engine keeps the latest while the round is under
-    /// way. Said again for each call of the round, and with nothing told where a try begins.
+    /// way. Said again for each call of the round.
     pub fn going(&self, round: usize, going: Going) {
         // Where the loop has ended, the process is stopping: what is given again says it again.
         let _ = self.to.send(Message::Along {

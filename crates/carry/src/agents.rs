@@ -770,10 +770,9 @@ impl Inner {
                     let mut crossed: Option<Crossing> = None;
                     let mut told_answered = false;
                     let mut told_usage = 0;
-                    // The loop holds the round from the start of its program, with nothing told of its calls until the
-                    // first. A try follows another only where the program refused the session and printed no call
-                    // (`Stream::refused`), so there are no figures of an earlier try to be shown over.
-                    teller.going(round.number, Going::default());
+                    // Nothing is told of the calls until the first: a try follows another only where the program
+                    // refused the session and printed no call (`Stream::refused`), so there are no figures of an
+                    // earlier try to be shown over.
                     let mut told_going = Going::default();
                     let ran = {
                         let mut each = |line: &[u8]| {

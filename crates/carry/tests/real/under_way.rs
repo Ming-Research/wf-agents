@@ -1,17 +1,14 @@
 //! What the calls of an agent's round have come to so far is told to the loop while the round runs, and let go of when
 //! it ends.
 
-use driver::Going;
 use service::Act;
 
 use crate::{Fake, Real, ended};
 
-// The round is held from the start of its program with nothing told of its calls, as the first thing the loop holds of
-// it. The fake's plan then makes one call to Opus 5.5 of 100 tokens sent and 1,000 read from the cache and sleeps: while
-// the round sleeps, the loop holds that call's prompt as the round's context, no growth for a one-call round, and what
-// the call costs at the model's price, told once the call's own line has named its model; once the work has ended it
-// holds nothing. Fails where a try does not begin by telling the round, since what the loop first holds of it is then
-// the call's figures.
+// The fake's plan makes one call to Opus 5.5 of 100 tokens sent and 1,000 read from the cache and sleeps: while the
+// round sleeps, the loop holds that call's prompt as the round's context, no growth for a one-call round, and what the
+// call costs at the model's price, told once the call's own line has named its model; once the work has ended it holds
+// nothing.
 #[tokio::test]
 async fn what_the_calls_of_a_round_have_come_to_is_told_while_it_runs_and_let_go_of_when_it_ends() {
     let fake = Fake {
@@ -21,11 +18,6 @@ async fn what_the_calls_of_a_round_have_come_to_is_told_while_it_runs_and_let_go
     let mut real = Real::trial(fake);
     let work = real.add().await;
     real.act(work, Act::Resume);
-    real.until(|real| !real.service.driver().rounds_come_to().is_empty())
-        .await;
-    let first = real.service.driver().rounds_come_to();
-    assert_eq!(first.len(), 1, "{first:?}");
-    assert_eq!(first[0].3, Going::default(), "the round has made no call");
     real.until(|real| {
         (real.service.driver().rounds_come_to().iter())
             .any(|(_, _, _, going)| going.cost.is_some_and(|cost| cost.value > 0.0))

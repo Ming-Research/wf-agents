@@ -1794,7 +1794,7 @@ impl Driver {
     }
 
     /// What the agents' rounds under way have come to so far, as what carries them out last said, each with its work,
-    /// run and round: the rounds with no call yet are there with nothing told.
+    /// run and round: a round that has made no call has told nothing and is not there.
     pub fn rounds_come_to(&self) -> Vec<(WorkNumber, decide::RunId, usize, Going)> {
         (self.along.iter())
             .filter_map(|((work, under), along)| {
