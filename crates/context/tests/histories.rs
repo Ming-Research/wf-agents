@@ -308,9 +308,9 @@ struct History {
     /// Whether the returns hand in, beside what their cell must, only the blocks near the target, so that the cells
     /// that watch the rest are not run.
     focus: bool,
-    /// Whether the first steps, which only carry the work's rounds, hand in everything and let every choice pass, so
+    /// How many of the first steps, which only carry the work's rounds, hand in everything and let every choice pass, so
     /// that the work goes as far into the flow as it can.
-    forward: bool,
+    forward: usize,
     /// The cells whose returns deal with nothing, so that a cell that runs until a run of it has dealt with something is
     /// run again.
     nothing_dealt: BTreeSet<String>,
@@ -351,8 +351,8 @@ struct Mode {
 
 impl Mode {
     /// Every block handed in, every choice passing, no tool asked for, no question asked, nothing handed in as changing
-    /// nothing in meaning, and nothing steered.
-    fn forward() -> Mode {
+    /// nothing in meaning, and nothing steered but the cells whose returns deal with nothing.
+    fn forward(nothing_dealt: BTreeSet<String>) -> Mode {
         Mode {
             writes: 100,
             asks: 0,
@@ -363,7 +363,7 @@ impl Mode {
             focus: false,
             unmatter_datum: false,
             prefer: BTreeMap::new(),
-            nothing_dealt: BTreeSet::new(),
+            nothing_dealt,
         }
     }
 }
@@ -411,7 +411,7 @@ impl History {
             calls: 15,
             unmatter_datum: false,
             focus: false,
-            forward: false,
+            forward: 0,
             nothing_dealt: BTreeSet::new(),
             prefer: BTreeMap::new(),
             force: BTreeMap::new(),
@@ -493,7 +493,10 @@ impl History {
             self.quiet -= 1;
             // The work goes forward: every block its cells write is handed in, every choice passes, no tool is asked for
             // and nobody asks a question, as a work that goes well does.
-            let kept = self.forward.then(|| self.swap_mode(Mode::forward()));
+            let kept = (self.forward > 0).then(|| {
+                self.forward -= 1;
+                self.swap_mode(Mode::forward(self.nothing_dealt.clone()))
+            });
             let acted = self.quiet_step(reached);
             if let Some(kept) = kept {
                 self.swap_mode(kept);
@@ -1771,13 +1774,32 @@ impl Target {
                 blocks.extend(watched.blocks.iter().map(|b| b.as_str().to_string()));
             }
         }
-        let mut near: Vec<String> = blocks.clone();
-        if let Some(spec) = sim.flow.cells.iter().find(|c| c.id.as_str() == cell) {
-            let grouped: Vec<&str> = (spec.watches.iter().filter(|t| t.is_group()))
-                .flat_map(|t| t.blocks.iter().map(|b| b.as_str()))
-                .collect();
-            near.retain(|b| !grouped.contains(&b.as_str()) || datum == Some(b.as_str()));
+        // What wakes the cells that write the datum and the blocks the cell watches by itself, besides what the datum is and
+        // what the owner's words and rulings on it are written in: the blocks a chain of runs from a writer of the datum
+        // to the cell passes, which the returns hand in where a run is focused. A block watched as one of a group wakes
+        // every cell that watches the group, so it is left out unless it is the datum.
+        let alone = |cell: &str| -> Vec<String> {
+            let spec = sim.flow.cells.iter().find(|c| c.id.as_str() == cell);
+            (spec.into_iter())
+                .flat_map(|c| c.watches.iter().filter(|t| !t.is_group()))
+                .flat_map(|t| t.blocks.iter().map(|b| b.as_str().to_string()))
+                .collect()
+        };
+        let grouped: Vec<String> = (sim.flow.cells.iter().find(|c| c.id.as_str() == cell).into_iter())
+            .flat_map(|c| c.watches.iter().filter(|t| t.is_group()))
+            .flat_map(|t| t.blocks.iter().map(|b| b.as_str().to_string()))
+            .collect();
+        let mut near: Vec<String> = blocks.iter().filter(|b| !grouped.contains(b)).cloned().collect();
+        near.extend(datum.map(str::to_string));
+        near.extend(alone(cell));
+        for block in near.clone() {
+            let writers = (sim.flow.blocks.get(&BlockId::from(block.as_str()))).map(|d| d.writers.cells.clone());
+            for writer in writers.unwrap_or_default() {
+                near.extend(alone(writer.as_str()));
+            }
         }
+        near.sort();
+        near.dedup();
         let state = datum.and_then(|_| rest.split(' ').nth(1)).map(str::to_string);
         let runs_on = (sim.flow.flow.cells().iter())
             .find(|c| c.id.as_str() == cell)
@@ -1958,8 +1980,8 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
         history.unmatters = [0, 20, 50][rng.below(3)];
         history.partial = [0, 25, 60][rng.below(3)];
         history.calls = [15, 40, 70][rng.below(3)];
-        history.forward = rng.chance(75);
-        history.focus = rng.chance(35);
+        history.forward = if rng.chance(60) { rng.below(60) } else { 0 };
+        history.focus = rng.chance(25);
         history.unmatter_datum = rng.chance(50);
         history.nothing_dealt.clear();
         if target.one_shot && rng.chance(85) {
