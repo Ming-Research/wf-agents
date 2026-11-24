@@ -1,26 +1,14 @@
-/* The observations: one row each in the list view (works.css), the full width, a line between rows: the mark of one
-   not yet read, its text cut to three lines with where it came from under it, and at its right the button that marks
-   it read or when it was read. A row read is muted. Every value is a token (tokens.css). */
+/* The observations: one row each in the list view (works.css), the full width, a line between rows: its text cut to
+   three lines with where it came from under it, and at its right whether it is handled. Every value is a token
+   (tokens.css). */
 
 .observation {
   display: grid;
-  grid-template-columns: var(--space-8) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 0 var(--space-8);
   align-items: start;
   padding: var(--space-8) var(--space-12);
   border-bottom: var(--hairline) solid var(--line);
-}
-
-/* The mark stands on the middle of the text's first line. */
-.observation-mark {
-  display: flex;
-  align-items: center;
-  height: calc(var(--size-body) * var(--line-height));
-}
-
-/* An observation not yet read: a dot in the text's colour, which says no state of a work. */
-.dot-unread {
-  background: var(--text);
 }
 
 .observation-body {
@@ -39,11 +27,7 @@
   line-clamp: 3;
 }
 
-.observation-read .observation-text {
-  color: var(--muted);
-}
-
-/* Where it came from, on one line cut at its end, the item's title giving way first. */
+/* Where it came from, on one line cut at its end, the items' titles giving way first. */
 .observation-facts {
   display: flex;
   align-items: baseline;
@@ -67,7 +51,19 @@
   text-overflow: ellipsis;
 }
 
+/* The item that took it in, where its work was cancelled: its title grey and struck through, as a cancelled item's
+   title is on the console's cards (chart.css, `.legend-title.cancelled`). */
+.observation-taken-cancelled .observation-taken-title {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+/* Whether it is handled, as an item's standing is said: its dot and its word, on the middle of the text's first line. */
 .observation-end {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  height: calc(var(--size-body) * var(--line-height));
   color: var(--muted);
   font-size: var(--size-small);
   white-space: nowrap;

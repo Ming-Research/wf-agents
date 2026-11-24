@@ -284,6 +284,28 @@ describe('the list of works', () => {
     expect(page.querySelector('.view-line select')).toBeNull();
   });
 
+  it('orders the groups as the owner ordered the projects in the console, and takes a new order at the next drawing', () => {
+    localStorage.setItem('wf-agents.project-order', JSON.stringify(['wf-agents', 'gone', 'Whitefoot']));
+    const container = document.body.appendChild(document.createElement('div'));
+    const root = createRoot(container);
+    unmounts.push(() => act(() => root.unmount()));
+    const source = fixtureSource();
+    const list = () => (
+      <SourceContext.Provider value={source}>
+        <WorksTable items={fixtureItems()} projects={fixtureProjects().names} />
+      </SourceContext.Provider>
+    );
+    const names = () => groupsOf(container).map((g) => headOf(g).name);
+    act(() => root.render(list()));
+    // The projects the order names that have a group, then the others in order of their names, no project last.
+    expect(names()).toEqual(['wf-agents', 'Whitefoot', 'example', 'no project']);
+    // The console orders the projects anew while the list is open: the list's next drawing takes the new order.
+    localStorage.setItem('wf-agents.project-order', JSON.stringify(['example']));
+    act(() => root.render(list()));
+    expect(names()).toEqual(['example', 'Whitefoot', 'wf-agents', 'no project']);
+    expect(listed(groupsOf(container)[0])).toEqual([42, 50, 46]);
+  });
+
   it('heads a project with no work as any other, its count nought, and says under it that it has none', () => {
     const page = draw(<WorksTable items={fixtureItems(8)} projects={fixtureProjects(8).names} />, fixtureSource());
     const groups = groupsOf(page);

@@ -7,7 +7,8 @@ export interface ProjectGroup<T> {
   rows: T[];
 }
 
-/// The rows in a group for each project: first each project the installation names, in the order given, which is the
+/// The rows in a group for each project: first the projects in the order the owner gave them in the console (`order`),
+/// those of them that have a group; then each other project the installation names, in the order given, which is the
 /// order of their names, a project with no row among them; then each other project a row names, by name, as one the
 /// installation no longer names; and last, where any row belongs to no project, the group of those. Each group keeps
 /// its rows in the order given.
@@ -15,6 +16,7 @@ export function groupByProject<T>(
   names: readonly string[],
   rows: readonly T[],
   projectOf: (row: T) => string | null,
+  order: readonly string[] = [],
 ): ProjectGroup<T>[] {
   const of = new Map<string | null, T[]>(names.map((name) => [name, []]));
   for (const row of rows) {
@@ -24,7 +26,8 @@ export function groupByProject<T>(
     else group.push(row);
   }
   const others = [...of.keys()].filter((p): p is string => p !== null && !names.includes(p)).sort();
-  return [...names, ...others, ...(of.has(null) ? [null] : [])].map((project) => ({
+  const placed = new Set([...order.filter((p) => of.has(p)), ...names, ...others]);
+  return [...placed, ...(of.has(null) ? [null] : [])].map((project) => ({
     project,
     rows: of.get(project) ?? [],
   }));

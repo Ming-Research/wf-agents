@@ -5,7 +5,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { useKept, useKeptFoldedGroups, useKeptFolds, useKeptTicks } from './kept';
+import { useKept, useKeptFoldedGroups, useKeptFolds, useKeptProjectOrder, useKeptTicks } from './kept';
 
 afterEach(() => {
   localStorage.clear();
@@ -99,6 +99,46 @@ describe('the items the owner folds and unfolds in a tree', () => {
       [3, true],
       [5, false],
     ]);
+  });
+});
+
+describe('the order of the projects the owner gave in the console', () => {
+  /// The order a part reads, at each of its drawings.
+  function drawings() {
+    const seen: (readonly string[])[] = [];
+    function Probe() {
+      seen.push(useKeptProjectOrder());
+      return null;
+    }
+    const root = createRoot(document.body.appendChild(document.createElement('div')));
+    const draw = () => act(() => root.render(<Probe />));
+    return { seen, draw };
+  }
+
+  it('is read again at each drawing, the same list while what is kept stays the same', () => {
+    const { seen, draw } = drawings();
+    draw();
+    expect(seen[0]).toEqual([]);
+    localStorage.setItem('wf-agents.project-order', JSON.stringify(['wf-agents', 'Whitefoot']));
+    draw();
+    draw();
+    expect(seen[1]).toEqual(['wf-agents', 'Whitefoot']);
+    expect(seen[2]).toBe(seen[1]);
+    localStorage.setItem('wf-agents.project-order', JSON.stringify(['Whitefoot']));
+    draw();
+    expect(seen[3]).toEqual(['Whitefoot']);
+  });
+
+  it('takes what was kept that is no list as no order, and leaves out an entry that is no name', () => {
+    const { seen, draw } = drawings();
+    for (const kept of ['not json', '{"a": 1}', 'null', '"wf-agents"']) {
+      localStorage.setItem('wf-agents.project-order', kept);
+      draw();
+      expect(seen[seen.length - 1]).toEqual([]);
+    }
+    localStorage.setItem('wf-agents.project-order', JSON.stringify(['wf-agents', 3, null, 'example']));
+    draw();
+    expect(seen[seen.length - 1]).toEqual(['wf-agents', 'example']);
   });
 });
 

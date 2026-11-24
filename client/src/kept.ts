@@ -1,9 +1,9 @@
 // What the owner chose of how a view shows, kept in this browser so that it stands when the view is left and shown
 // again and when the page is loaded again: which of a switch's choices, whether a window is out, the order of a list,
-// which items of a tree are folded, which projects' groups of a list are folded.
+// which items of a tree are folded, which projects' groups of a list are folded, the order of the projects.
 // Kept only where the browser lets it be: a page that keeps nothing still works, at its first choices. Widths are kept
 // the same way (`sizes.ts`).
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 
 /// What is kept under a key, or none.
 export function read(key: string): string | null {
@@ -150,6 +150,28 @@ export function useKeptFoldedGroups(key: string) {
     [key],
   );
   return [value, turn] as const;
+}
+
+/// The order of the projects the owner set by dragging them in the console, by their names, kept under
+/// `CHOICE_KEYS.projectOrder` as a list in JSON, which the console writes. It is read again at each drawing of the part
+/// that asks, so that an order changed in the console stands the next time a list is drawn, and worked out again only
+/// where what is kept changed. What was kept there that is no such list is taken as no order, and an entry of it that
+/// is no name is left out.
+export function useKeptProjectOrder(): readonly string[] {
+  const kept = read(CHOICE_KEYS.projectOrder);
+  return useMemo(() => projectOrderOf(kept), [kept]);
+}
+
+/// The order of the projects as it is kept, as `useKeptProjectOrder` reads it.
+function projectOrderOf(kept: string | null): string[] {
+  if (kept === null) return [];
+  let order: unknown;
+  try {
+    order = JSON.parse(kept);
+  } catch {
+    return [];
+  }
+  return Array.isArray(order) ? order.filter((p): p is string => typeof p === 'string') : [];
 }
 
 /// The folded groups kept under `key`, as `useKeptFoldedGroups` keeps them.

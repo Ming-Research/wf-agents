@@ -1,6 +1,6 @@
 // Every mark the page draws, in one table: what draws each, one part for each look, and its name, one or two words in
 // the system's own terms; and the legend, which draws a list of them on one line. The flow's matrix, the flowchart, the
-// strip of a work's cells, a work's history, the observations and the console each list in their legend the marks they
+// strip of a work's cells, a work's history and the console each list in their legend the marks they
 // draw, so that one thing has one name and one look in every view (Article 8). What the flow's files define is named by
 // its key (principle definitions-shown-as-written); how a run ended or stands has one set of marks, which the strip
 // draws for each cell, as its run stands, and the history for each run (`works/state-marks.ts`). Beside the table, the
@@ -18,7 +18,7 @@ import type { Held } from './works-api';
 import { NO_LEVEL, keysLine, linesAdded, linesRemoved } from './works/words';
 
 /// A mark the page draws: of the flow's definition, as its files' keys name it; of a line between cells; of who
-/// writes a datum besides the cells; of how a run ended or stands; of an observation not read.
+/// writes a datum besides the cells; of how a run ended or stands.
 export type MarkKey =
   | 'line'
   | 'whenYes'
@@ -41,7 +41,6 @@ export type MarkKey =
   | 'people'
   | 'outside'
   | 'shown'
-  | 'unread'
   | 'filesChanged'
   | RunState
   | TrackMark
@@ -174,11 +173,6 @@ function AgeSample() {
   );
 }
 
-/// The mark of an observation not yet read: a dot in the text's colour.
-export function UnreadMark() {
-  return <span className="dot dot-unread" role="img" aria-label="unread" title="unread" />;
-}
-
 /// The flow's files in the directory shown differ from those the engine started with: a tag framed in grey, in the
 /// text's colour, with the sign for unequal. It takes none of the colours that mean a state.
 export function FilesChangedMark() {
@@ -234,7 +228,6 @@ export const MARKS: Record<MarkKey, Entry> = {
   people: { name: 'people', draw: (words) => <Sign name="people" words={words} /> },
   outside: { name: 'outside', draw: (words) => <Sign name="outside" words={words} /> },
   shown: { name: 'shown', draw: (words) => <Sign name="shown" words={words} /> },
-  unread: { name: 'unread', draw: () => <UnreadMark /> },
   filesChanged: { name: 'files changed', draw: () => <FilesChangedMark /> },
   running: ofRun('running', 'running'),
   waiting: ofRun('waiting', 'waiting'),

@@ -34,6 +34,19 @@ describe('a list grouped by project', () => {
     ]);
   });
 
+  it('puts first the projects in the order the owner gave them, those that have a group, then the others as before', () => {
+    const rows = [row(4, null), row(3, 'zeta'), row(2, 'example'), row(1, 'wf-agents')];
+    const names = ['Whitefoot', 'example', 'wf-agents'];
+    const ordered = (order: string[]) =>
+      groupByProject(names, rows, (r) => r.project, order).map((g) => g.project);
+    // A name the order keeps that has no group, as a project no longer named, is passed over; one given twice stands
+    // where it was first given.
+    expect(ordered(['wf-agents', 'gone', 'zeta', 'wf-agents'])).toEqual(['wf-agents', 'zeta', 'Whitefoot', 'example', null]);
+    // A project the installation names that has no row has a group, and so stands where the order puts it.
+    expect(ordered(['example', 'Whitefoot'])).toEqual(['example', 'Whitefoot', 'wf-agents', 'zeta', null]);
+    expect(ordered([])).toEqual(['Whitefoot', 'example', 'wf-agents', 'zeta', null]);
+  });
+
   it('groups by the projects the rows name where the installation names none, as before its projects are read', () => {
     expect(grouped([], [row(2, 'wf-agents'), row(1, 'Whitefoot')])).toEqual([
       ['Whitefoot', [1]],

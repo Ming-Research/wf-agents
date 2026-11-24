@@ -1,6 +1,7 @@
 // The list of works: the record of every work, ended or not, one to a row, for the owner to look back at; what needs
-// the owner now is the console's. The works stand in a group for each project, in order of the projects' names
-// (projects.ts), each work in its own project's group, one that waits for the owner as well. A group's head stands
+// the owner now is the console's. The works stand in a group for each project, in the order the owner gave the
+// projects in the console and then in order of their names (projects.ts), read again at each drawing, each work in its
+// own project's group, one that waits for the owner as well. A group's head stands
 // outside its table: the project's name, which folds the group away and opens it again, with how many works it holds and
 // what they cost (parts.tsx, `ProjectGroup`); which groups are folded is kept in the browser. A row says the item's
 // number and title, the work's state and the cell it stands at, how each cell of its flow stands, the level its rounds
@@ -18,7 +19,7 @@
 
 import { type CSSProperties, type RefObject, memo, useLayoutEffect, useMemo, useRef } from 'react';
 
-import { CHOICE_KEYS, useKept, useKeptFoldedGroups } from '../kept';
+import { CHOICE_KEYS, useKept, useKeptFoldedGroups, useKeptProjectOrder } from '../kept';
 import { Legend } from '../marks';
 import { Arrow, Edge, ProjectGroup } from '../parts';
 import { groupByProject } from '../projects';
@@ -224,7 +225,11 @@ export function WorksTable({ items, projects = NO_PROJECTS, failed = null }: {
   );
   if (widths.title !== undefined) style.width = 'auto';
   const all = useMemo(() => orderWorks(items.items, order), [items, order]);
-  const groups = useMemo(() => groupByProject(projects, all, (w) => w.item.project), [projects, all]);
+  const projectOrder = useKeptProjectOrder();
+  const groups = useMemo(
+    () => groupByProject(projects, all, (w) => w.item.project, projectOrder),
+    [projects, all, projectOrder],
+  );
   const waiting = waitingCount(all.map((w) => w.work));
   // The columns are fitted again when the groups or what of them is open change, and when the owner drags a column or
   // gives one back its own width; not at each step of a drag, which changes no other column's width.

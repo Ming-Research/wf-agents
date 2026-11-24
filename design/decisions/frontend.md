@@ -143,7 +143,7 @@ The browser keeps each view as the owner left it: its switches, window, order, s
 - replaced: A view removed when another tab was shown, then built again with its scroll lost when he came back, was on main; the owner changed it, because coming back to the console was a poor experience.
 
 ### decision a-list-is-grouped-by-project
-The works and the observations stand in a group for each project, in order of the projects' names, each headed outside its rows by the project's name, which folds the group, and how many it holds.
+The works and the observations stand in a group for each project, in the order the owner gave the projects in the console and then by name, each headed outside its rows by its name, which folds it.
 - replaced: A choice of one project in the works' view line, which showed that project's works and every work waiting for the owner, was on main; the owner changed it, because he wanted each project outside the table, folding by its name.
 
 ### decision one-window-floats-over-the-right
