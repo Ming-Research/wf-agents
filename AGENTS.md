@@ -14,3 +14,4 @@ What an agent needs to know for this repository, beyond the rules every agent is
 - Tests run in CI (`.github/workflows/ci.yml`), not on the machine the agents run on, where they only fight the owner
   for the processor. Before a check, run `rustfmt` on each Rust file you changed or added, naming each file: CI checks
   the format first.
+- A fault of the owner's page is seen in a real browser, not in a simulated page (`docs/testing.md`, item 8).

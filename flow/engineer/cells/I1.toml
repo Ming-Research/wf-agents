@@ -12,10 +12,10 @@ owner took, or else the one it recommends. For each answered question marked `tr
 design tree, as its rules say. If main's tree has changed since, an entry may follow its wording and place, but not
 change its meaning.
 
-Start from a test that shows what the change is for, red on the code before the change: use the research's test where
-it left one. Run each test you add or extend both on the change and on the code before it. A test that you remove, skip
-or weaken needs a technical reason. Where the cost per operation or request can change, measure what could get slower
-as well as what the change is for.
+Where a test can show what the change is for, start from one that is red on the code before the change: use the
+research's test where it left one. Run each test you add or extend both on the change and on the code before it. A test
+that you remove, skip or weaken needs a technical reason. Where the cost per operation or request can change, measure
+what could get slower as well as what the change is for.
 
 If the plan does not hold (its direction is wrong, or it needs a decision of the tree changed, or a choice the owner
 has not made, such as accepting a slowdown), do not work around it. Say where and why in `plan_doubts`. The answer

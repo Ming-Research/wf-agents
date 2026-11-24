@@ -39,7 +39,8 @@
 import { read } from './api';
 import type { Flow, GivenBlock, Read, SentPiece, Watch } from './api';
 
-export type Person = 'owner' | 'architect';
+/// A person a recorded call was put to: only the owner, as the engine no longer puts a call to anyone else.
+export type Person = 'owner';
 
 /// Who paused a work: the owner, or the engine itself, as when a round failed or the work spent more than it may.
 export type Pauser = 'owner' | 'engine';
@@ -47,8 +48,9 @@ export type Pauser = 'owner' | 'engine';
 /// The limit a run reached.
 export type Limit = { of: 'returns'; sentBack: number } | { of: 'calls'; made: number };
 
-/// What a call is: a tool the engine runs, a question for a person, a run at a limit that the owner lets go on, or
-/// the engine's wait until a time before a round that failed in passing, the `failed`th in a row, is tried again.
+/// What a call is: a tool the engine runs, a question for a person (only in a work recorded before the engine stopped
+/// making them, and read as recorded), a run at a limit that the owner lets go on, or the engine's wait until a time
+/// before a round that failed in passing, the `failed`th in a row, is tried again.
 export type Call =
   | { kind: 'tool'; name: string; input: string }
   | { kind: 'question'; who: Person; question: string }
@@ -336,8 +338,6 @@ export type Ends =
   /// Answers this version of the work's question by one of its options, on its card in the item's window: the version
   /// by its number among the versions of its cell's questions, none where it has none.
   | { kind: 'answer'; question: string; version: number | null }
-  /// Answers in words the question this call puts, on its card at the plan's end.
-  | { kind: 'reply'; call: number }
   /// Lets the run at its limit go on, as the result of this call.
   | { kind: 'goOn'; call: number }
   /// Lets the cell go on past its limit.
