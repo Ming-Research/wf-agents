@@ -4,4 +4,6 @@
 # measurement's less this one's: after the first pair the build finds nothing to do, and what is left is the build's
 # check that none is.
 set -euo pipefail
+# The runner's own path holds no cargo; the project's machine keeps it with rustup, which installs the pinned toolchain.
+export PATH="$HOME/.cargo/bin:$PATH"
 cargo build --release --locked -p wf-agents

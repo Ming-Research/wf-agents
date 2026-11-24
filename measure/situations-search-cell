@@ -3,6 +3,8 @@
 # in (`measure/` of the measure workflow). It builds the command first, as `situations-build` does alone, and the
 # command's own time is the median of this measurement's less the median of that one's.
 set -euo pipefail
+# The runner's own path holds no cargo; the project's machine keeps it with rustup, which installs the pinned toolchain.
+export PATH="$HOME/.cargo/bin:$PATH"
 cargo build --release --locked -p wf-agents
 out="$(mktemp -d)"
 trap 'rm -rf "$out"' EXIT

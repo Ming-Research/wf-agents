@@ -18,14 +18,12 @@
 //!   writing a verdict, yes or no, and its points in a dialogue with each cell that writes what it judges, which
 //!   watches it and answers there; the merge then also waits while the verdict stands at no. In three histories of ten,
 //!   drawn apart from the rest, a check stands before the merge, run by the brief and writing a choice only cells
-//! write,
-//!   which the merge also waits for as yes: where the check says no or nothing and has nothing new to run for, only a
-//!   cell keeps the merge from running, and the work is stalled, which the records alone read (`Reading::rest`). In a
-//!   third of the
-//!   histories a cell drawn at random is run by the owner's words to it, a block that interrupts. Each cell may be
-//!   entered again for the results of what it asked for one to three times in a row. In two histories of five, drawn
-//!   apart from the rest, the cells ask the owner questions, and a cell drawn at random is run by the owner's answers
-//!   to its own, a block that interrupts as the owner's words do.
+//!   write, which the merge also waits for as yes: where the check says no or nothing and has nothing new to run for,
+//!   only a cell keeps the merge from running, and the work is stalled, which the records alone read (`Reading::rest`).
+//!   In a third of the histories a cell drawn at random is run by the owner's words to it, a block that interrupts.
+//!   Each cell may be entered again for the results of what it asked for one to three times in a row. In two histories
+//!   of five, drawn apart from the rest, the cells ask the owner questions, and a cell drawn at random is run by the
+//!   owner's answers to its own, a block that interrupts as the owner's words do.
 //! - people, in the first 0 to 39 steps, at a step with a chance of one in six and at every rest: writing the brief,
 //!   which runs the first cell; writing prose into a block cells write; writing the same marked as not mattering;
 //!   setting the choice to yes or no; confirming the choice; the outside writing main, mattering or not; turning "flip"

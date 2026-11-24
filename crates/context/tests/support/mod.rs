@@ -195,6 +195,8 @@ pub fn branched() -> Compiled {
     flow::compile(&source, &has).expect("the small flow with what the branch holds compiles")
 }
 
+// Each test binary uses some of these.
+#[allow(unused_imports)]
 pub use context::sim::{FOR, Given, Sim, changed};
 
 /// A work of the small flow, the blocks the carrier compares itself being the tree.
