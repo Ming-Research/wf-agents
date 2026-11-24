@@ -20,7 +20,8 @@ fn situations(out: &Path, cell: &str) -> Output {
         .expect("the command runs")
 }
 
-/// The text of the file of the first situation, by name, in the cell's directory that begins and ends its name as given.
+/// The text of the file of the first situation, by name, in the cell's directory that begins and ends its name as
+/// given.
 fn file_like(dir: &Path, begins: &str, ends: &str) -> String {
     let mut files: Vec<PathBuf> = (fs::read_dir(dir).expect("the cell's directory is read"))
         .map(|entry| entry.expect("an entry").path())

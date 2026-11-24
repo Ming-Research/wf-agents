@@ -737,8 +737,8 @@ struct Random {
     refuse_next: bool,
     /// Whether the steered check failure was handed in.
     check_failed: bool,
-    /// Whether the owner of a steered history wrote the background, which runs the plan's cells and so the implementation
-    /// before the check, as its first act.
+    /// Whether the owner of a steered history wrote the background, which runs the plan's cells and so the
+    /// implementation before the check, as its first act.
     briefed: bool,
     /// The run of the cell told of the failure that answered it as the steering has it: with a commit and nothing that
     /// matters, or with nothing committed.
@@ -761,8 +761,8 @@ fn passed_before_merge(d: &Driver, roles: &Roles) -> bool {
 }
 
 impl Random {
-    /// The block the owner of a steered history writes first: the first block only people write, and not a choice, that a
-    /// cell which applies runs on, which is the background.
+    /// The block the owner of a steered history writes first: the first block only people write, and not a choice, that
+    /// a cell which applies runs on, which is the background.
     fn brief(&self, d: &Driver) -> Option<BlockId> {
         let reading = Reading::new(&d.flow.flow, &d.work.records, None);
         (d.flow.flow.cells().iter().enumerate())
@@ -797,8 +797,8 @@ impl Random {
 
     /// What the steering through a refusal does now, where it does anything: pauses the work while the check's round
     /// is under way; once the check passed under the pause, commits on the branch as a person, in one of three, or
-    /// writes an input that runs the cells before a judge (which then refuses) or a verdict as its refusal, a coin of its
-    /// own deciding; then
+    /// writes an input that runs the cells before a judge (which then refuses) or a verdict as its refusal, a coin of
+    /// its own deciding; then
     /// lets the work on. Where the check failed under its
     /// pause, it lets the work on, to try at the next check.
     fn steered(&mut self, d: &Driver) -> Option<Event> {
@@ -849,8 +849,8 @@ impl Random {
             let block = &d.flow.blocks[*b];
             block.writers.people && block.writers.cells.is_empty() && block.values.is_none()
         };
-        // The input a judge looks at again is one that runs the cells before it: a block only people write that some cell
-        // which applies runs on, the background, from which the plan and then its judges are reached again.
+        // The input a judge looks at again is one that runs the cells before it: a block only people write that some
+        // cell which applies runs on, the background, from which the plan and then its judges are reached again.
         let for_judges: Vec<&BlockId> = (d.flow.flow.cells().iter().enumerate())
             .filter(|(i, _)| reading.applies(*i))
             .flat_map(|(_, c)| c.runs_on.iter().filter(only_people))
@@ -1123,8 +1123,9 @@ impl Random {
                     true => self.questions(d, i, cell, force),
                     false => Vec::new(),
                 };
-                // A return whose question waits hands in as much of what its cell must write as the draw gives (decision
-                // a-return-hands-in-what-its-cell-must-every-time): each such block is left out in one of two.
+                // A return whose question waits hands in as much of what its cell must write as the draw gives
+                // (decision a-return-hands-in-what-its-cell-must-every-time): each such block is left out in one of
+                // two.
                 if questions
                     .iter()
                     .any(|q| matches!(q, Question::Asked { waits: true, .. }))

@@ -187,9 +187,9 @@ fn what_the_cell_only_writes_stands_held_or_lacking_and_the_tree_lacking_stands_
     assert!(plan.iter().all(|n| n.situation.data["tree"] != Stands::Lacks));
 }
 
-// The research applies only where `deep_needed` is no, and only the research sets it, so that once it says yes it is never
-// set back: a run of the research is never entered with anything the deep research wrote, which runs only on yes, as its
-// questions and the owner's words to it are. The deep research is entered with what the research wrote.
+// The research applies only where `deep_needed` is no, and only the research sets it, so that once it says yes it is
+// never set back: a run of the research is never entered with anything the deep research wrote, which runs only on yes,
+// as its questions and the owner's words to it are. The deep research is entered with what the research wrote.
 #[test]
 fn what_only_cells_that_run_after_every_run_of_the_cell_write_is_never_written_when_it_is_entered() {
     let (flow, words) = (

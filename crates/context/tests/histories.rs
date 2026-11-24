@@ -28,18 +28,18 @@
 //!
 //! The situations the tool writes (`wf-agents flow situations`) are held to the rounds the histories carry, datum by
 //! datum ([`stood`]: a real round is a product of every datum's own state, a written situation one cut of them): on the
-//! small flow in both directions, so that every state a datum stood in a round is one the tool writes, and every state it
-//! writes was stood in by a round of the histories, which is why the scripted history brings about what the random steps
-//! reach too seldom; and on the engineer's flow, which these histories carry with the owner's words, questions and
-//! answers, in both directions too, by a search that keeps the state of a history whenever it reached a state of a datum
-//! none had and goes on from it, a group of the flow's cells to a test. Each run is steered at a state not yet reached:
-//! it begins from a kept state of the target's cell, of one before it or of one after it, forces the choices the target
-//! cell runs on, has the owner write and speak to the cells that write the datum, and hands in blocks that change nothing
-//! in meaning and returns that deal with part of what ran the round, as real returns do. The search ends where the last
-//! runs reached nothing. A state it does not reach is read: it is given a directed test, or it is deleted from the rules
-//! as one no round can stand in, by an argument from the flow's files and the deciding code. The check holds each state of
-//! each datum, not the joint situations written, so that a datum stood in alone in each of its states may not be stood
-//! in together with the others as a written situation says.
+//! small flow in both directions, so that every state a datum stood in a round is one the tool writes, and every state
+//! it writes was stood in by a round of the histories, which is why the scripted history brings about what the random
+//! steps reach too seldom; and on the engineer's flow, which these histories carry with the owner's words, questions
+//! and answers, in both directions too, by a search that keeps the state of a history whenever it reached a state of a
+//! datum none had and goes on from it, a group of the flow's cells to a test. Each run is steered at a state not yet
+//! reached: it begins from a kept state of the target's cell, of one before it or of one after it, forces the choices
+//! the target cell runs on, has the owner write and speak to the cells that write the datum, and hands in blocks that
+//! change nothing in meaning and returns that deal with part of what ran the round, as real returns do. The search ends
+//! where the last runs reached nothing. A state it does not reach is read: it is given a directed test, or it is
+//! deleted from the rules as one no round can stand in, by an argument from the flow's files and the deciding code. The
+//! check holds each state of each datum, not the joint situations written, so that a datum stood in alone in each of
+//! its states may not be stood in together with the others as a written situation says.
 
 mod support;
 
@@ -177,7 +177,8 @@ struct Reached {
     trace: Vec<String>,
     /// The directed tests that did not bring the work where they say, and why.
     stale: Vec<String>,
-    /// For each agent's cell, the states of a history at the entry of a round of it, one for each situation it stood in.
+    /// For each agent's cell, the states of a history at the entry of a round of it, one for each situation it stood
+    /// in.
     archive: BTreeMap<String, Vec<Kept>>,
 }
 
@@ -294,8 +295,9 @@ struct History {
     quiet: usize,
     /// The rounds carried, each by its cell, its run and its number among the run's.
     trace: Vec<String>,
-    /// How often, in a hundred, a return hands in a block its cell need not write, and how often a return of a cell that
-    /// takes the owner's answers asks a question; and, of some blocks, how often the return hands in that block alone.
+    /// How often, in a hundred, a return hands in a block its cell need not write, and how often a return of a cell
+    /// that takes the owner's answers asks a question; and, of some blocks, how often the return hands in that block
+    /// alone.
     writes: u64,
     asks: u64,
     /// How often, in a hundred, a block a return hands in that was written before is handed in as changing nothing in
@@ -310,16 +312,16 @@ struct History {
     /// Whether the returns hand in, beside what their cell must, only the blocks near the target, so that the cells
     /// that watch the rest are not run.
     focus: bool,
-    /// How many of the first steps, which only carry the work's rounds, hand in everything and let every choice pass, so
-    /// that the work goes as far into the flow as it can.
+    /// How many of the first steps, which only carry the work's rounds, hand in everything and let every choice pass,
+    /// so that the work goes as far into the flow as it can.
     forward: usize,
-    /// Whether nothing happens by chance: no round is lost, fails or is compacted, no return asks for a tool or leaves out
-    /// what its cell must write, and no round is also entered anew. A directed test is run so.
+    /// Whether nothing happens by chance: no round is lost, fails or is compacted, no return asks for a tool or leaves
+    /// out what its cell must write, and no round is also entered anew. A directed test is run so.
     steady: bool,
     /// What the next returns of each cell hand in, in turn, in place of what the draw gives.
     says: BTreeMap<String, Vec<Say>>,
-    /// The cells whose returns deal with nothing, so that a cell that runs until a run of it has dealt with something is
-    /// run again.
+    /// The cells whose returns deal with nothing, so that a cell that runs until a run of it has dealt with something
+    /// is run again.
     nothing_dealt: BTreeSet<String>,
     prefer: BTreeMap<String, u64>,
     /// The cells whose returns ask a question their cell waits for the answer to, where the cell takes answers.
@@ -538,8 +540,8 @@ impl History {
     fn step(&mut self, reached: &mut Reached) {
         if self.quiet > 0 {
             self.quiet -= 1;
-            // The work goes forward: every block its cells write is handed in, every choice passes, no tool is asked for
-            // and nobody asks a question, as a work that goes well does.
+            // The work goes forward: every block its cells write is handed in, every choice passes, no tool is asked
+            // for and nobody asks a question, as a work that goes well does.
             let kept = (self.forward > 0).then(|| {
                 self.forward -= 1;
                 self.swap_mode(Mode::forward(self.nothing_dealt.clone()))
@@ -604,7 +606,8 @@ impl History {
 
     /// What the work holds changes before its next round, as it does among the random steps: a person or the outside
     /// writes, the owner reopens a line's session or speaks to a cell, a cell is made to ask a question, or the blocks
-    /// the next returns hand in are chosen. Each is done nearer the target than the random steps would, where it can be.
+    /// the next returns hand in are chosen. Each is done nearer the target than the random steps would, where it can
+    /// be.
     fn perturb(&mut self, reached: &mut Reached, target: &Target) {
         match self.rng.below(9) {
             0 | 1 => {
@@ -676,8 +679,8 @@ impl History {
 
     /// As [`History::speaks`], where the words go, more often than not, to a cell whose words are one of these blocks.
     fn speaks_near(&mut self, near: &[String]) -> bool {
-        // Where a cell is made to ask a question it waits for, the owner speaks to it first, which enters it by the words
-        // alone, and answers later.
+        // Where a cell is made to ask a question it waits for, the owner speaks to it first, which enters it by the
+        // words alone, and answers later.
         let answering = if self.waits.is_empty() { 50 } else { 10 };
         if self.rng.chance(answering) && self.answers() {
             return true;
@@ -761,8 +764,8 @@ impl History {
         }
     }
 
-    /// A history for a directed test of the engineer's flow, in which nothing happens by chance: each cell hands in what it
-    /// must write and what the test says, every choice passes, and nobody asks a question or a tool.
+    /// A history for a directed test of the engineer's flow, in which nothing happens by chance: each cell hands in
+    /// what it must write and what the test says, every choice passes, and nobody asks a question or a tool.
     fn directed(seed: u64) -> History {
         let sim = support::engineer_sim();
         let scene = Scene::engineer(&sim);
@@ -794,8 +797,8 @@ impl History {
         self.compact_next = false;
     }
 
-    /// Carries what the work gives until the round next is of this cell, which it leaves to be carried. Says where the work
-    /// stood where it does not come to one: the directed test is stale.
+    /// Carries what the work gives until the round next is of this cell, which it leaves to be carried. Says where the
+    /// work stood where it does not come to one: the directed test is stale.
     fn until(&mut self, reached: &mut Reached, cell: &str) -> Result<(), String> {
         if self.until_within(reached, cell, 300) {
             return Ok(());
@@ -820,8 +823,8 @@ impl History {
         ))
     }
 
-    /// Carries what the work gives, in at most this many steps, until the round next is of this cell, which it leaves to be
-    /// carried. Says whether it came to one.
+    /// Carries what the work gives, in at most this many steps, until the round next is of this cell, which it leaves
+    /// to be carried. Says whether it came to one.
     fn until_within(&mut self, reached: &mut Reached, cell: &str, steps: usize) -> bool {
         for _ in 0..steps {
             match self.sim.round() {
@@ -837,8 +840,9 @@ impl History {
         false
     }
 
-    /// Has the cell run: the owner says some words to it, or, where it has none of its own, one block it watches by itself is
-    /// written, by a person or the outside, or by the cell that writes it, which is run in the same way, to a depth.
+    /// Has the cell run: the owner says some words to it, or, where it has none of its own, one block it watches by
+    /// itself is written, by a person or the outside, or by the cell that writes it, which is run in the same way, to a
+    /// depth.
     fn wake(&mut self, reached: &mut Reached, cell: &str, depth: u8) {
         if self.say_to(cell) || depth >= 2 {
             return;
@@ -879,8 +883,8 @@ impl History {
         Ok(())
     }
 
-    /// Brings the work to a round of this cell whose run took main in, which the number of the run decides; where it did not,
-    /// the round is carried, and what runs the cell is done again, which `wake` does, a few times.
+    /// Brings the work to a round of this cell whose run took main in, which the number of the run decides; where it
+    /// did not, the round is carried, and what runs the cell is done again, which `wake` does, a few times.
     fn until_with_main(&mut self, reached: &mut Reached, cell: &str, wake: fn(&mut History)) -> Result<(), String> {
         for _ in 0..8 {
             wake(self);
@@ -975,9 +979,9 @@ impl History {
             tool("y"),
         ]);
         self.drain(reached);
-        // The notes are written after the review's last run, and its next run reads them in its first round, which fails
-        // after its program had the message: its second round holds them as the latest, which the review never worked
-        // from as they are. The first of the two runs gives the review a last run to have worked from.
+        // The notes are written after the review's last run, and its next run reads them in its first round, which
+        // fails after its program had the message: its second round holds them as the latest, which the review never
+        // worked from as they are. The first of the two runs gives the review a last run to have worked from.
         for _ in 0..2 {
             self.put("notes");
             self.put("plan");
@@ -1044,8 +1048,9 @@ impl History {
         let held = self.lines.get(&line).cloned().unwrap_or_default();
         let going_on = self.sim.enter(round, false);
         let lost = !begins && !self.steady && self.rng.chance(10);
-        // Entered in a session that holds nothing: on the small flow every round; on the engineer's where the round begins
-        // one or is lost, and in two of five of the others, which each take as long as the walk of the work to enter.
+        // Entered in a session that holds nothing: on the small flow every round; on the engineer's where the round
+        // begins one or is lost, and in two of five of the others, which each take as long as the walk of the work to
+        // enter.
         let anew = (self.scene.models || begins || lost || (!self.steady && self.rng.chance(40)))
             .then(|| self.sim.enter(round, true));
         self.check(round, &going_on, &held, reached);
@@ -1208,7 +1213,8 @@ impl History {
                 });
             }
         }
-        // A choice that says what a return holds nothing else but, with the value it is given, is handed in with just that.
+        // A choice that says what a return holds nothing else but, with the value it is given, is handed in with just
+        // that.
         for kept in writes.clone() {
             let Some(value) = &kept.value else {
                 continue;
@@ -1252,7 +1258,8 @@ impl History {
                 value,
             });
         }
-        // Where nothing happens by chance, a run the owner's words ran answers them, as a cell that is told something does.
+        // Where nothing happens by chance, a run the owner's words ran answers them, as a cell that is told something
+        // does.
         if self.steady {
             let ran_by = (decide::told(&self.sim.flow.flow, &self.sim.work.records, round.run))
                 .map(|told| told.ran_by)
@@ -1291,8 +1298,8 @@ impl History {
     }
 
     /// Whether a block a return hands in changes its meaning: a block that is no choice, written before, is handed in
-    /// as changing nothing in meaning as often as the history says, and the datum the run is steered at, where the history
-    /// says so, as often as not, a first version included, which says nothing and is new to no cell.
+    /// as changing nothing in meaning as often as the history says, and the datum the run is steered at, where the
+    /// history says so, as often as not, a first version included, which says nothing and is new to no cell.
     fn matters(&mut self, block: &BlockId, value: Option<&str>) -> bool {
         if value.is_some() {
             return true;
@@ -1764,15 +1771,16 @@ impl History {
     }
 }
 
-/// What a situation of the cell says, as lines each of one thing the tool writes a situation for, apart: how the session
-/// stands with each datum, and whether the datum ran the cell; what the session holds as the entry begins; what else is
-/// given. A real round and a written situation are held to the same lines, so that the state of a datum is compared by
-/// the cell and whether it ran it, and a state of one datum is not asked of another. A situation does not say its entry:
-/// two entries that stand alike are one.
+/// What a situation of the cell says, as lines each of one thing the tool writes a situation for, apart: how the
+/// session stands with each datum, and whether the datum ran the cell; what the session holds as the entry begins; what
+/// else is given. A real round and a written situation are held to the same lines, so that the state of a datum is
+/// compared by the cell and whether it ran it, and a state of one datum is not asked of another. A situation does not
+/// say its entry: two entries that stand alike are one.
 fn stood(cell: &CellSpec, s: &Situation) -> Vec<String> {
     let id = cell.id.as_str();
-    // A datum ran the cell where it is watched by itself and new; a member of a group stands by its own state alone, the
-    // text of a datum being the builder's from its kind and its state, and the group that ran the cell is a line of its own.
+    // A datum ran the cell where it is watched by itself and new; a member of a group stands by its own state alone,
+    // the text of a datum being the builder's from its kind and its state, and the group that ran the cell is a line of
+    // its own.
     let ran = |block: &str| (cell.watches.iter()).any(|t| !t.is_group() && t.name == block && s.new.contains(&t.name));
     let mut lines: Vec<String> = (s.data.iter())
         .map(|(block, stands)| {
@@ -1799,9 +1807,9 @@ fn stood(cell: &CellSpec, s: &Situation) -> Vec<String> {
     lines
 }
 
-/// What the tool writes for every agent's cell of the flow, as the lines of [`stood`], and how many of its situations are
-/// of a session begun anew in which another cell of its line was read first. The project's guide is in the system prompt
-/// of every session, and no situation holds it or lacks it as a datum.
+/// What the tool writes for every agent's cell of the flow, as the lines of [`stood`], and how many of its situations
+/// are of a session begun anew in which another cell of its line was read first. The project's guide is in the system
+/// prompt of every session, and no situation holds it or lacks it as a datum.
 fn written(sim: &Sim) -> (BTreeSet<String>, usize) {
     let mut lines = BTreeSet::new();
     let mut after_read = 0;
@@ -1996,9 +2004,9 @@ struct Target {
     /// Whether the line says the datum ran the cell, and whether the owner can speak to the cell.
     ran_it: bool,
     wordy: bool,
-    /// The blocks a return hands in, beside what its cell must, where the run is focused: the datum, what runs the writers
-    /// of it and what the owner's ruling is written in, and each block the cell watches by itself, not as one of a group,
-    /// which is what runs the cell without running the cells before it that watch the group.
+    /// The blocks a return hands in, beside what its cell must, where the run is focused: the datum, what runs the
+    /// writers of it and what the owner's ruling is written in, and each block the cell watches by itself, not as one
+    /// of a group, which is what runs the cell without running the cells before it that watch the group.
     near: Vec<String>,
 }
 
@@ -2035,10 +2043,10 @@ impl Target {
                 blocks.extend(watched.blocks.iter().map(|b| b.as_str().to_string()));
             }
         }
-        // What wakes the cells that write the datum and the blocks the cell watches by itself, besides what the datum is and
-        // what the owner's words and rulings on it are written in: the blocks a chain of runs from a writer of the datum
-        // to the cell passes, which the returns hand in where a run is focused. A block watched as one of a group wakes
-        // every cell that watches the group, so it is left out unless it is the datum.
+        // What wakes the cells that write the datum and the blocks the cell watches by itself, besides what the datum
+        // is and what the owner's words and rulings on it are written in: the blocks a chain of runs from a writer of
+        // the datum to the cell passes, which the returns hand in where a run is focused. A block watched as one of a
+        // group wakes every cell that watches the group, so it is left out unless it is the datum.
         let alone = |cell: &str| -> Vec<String> {
             let spec = sim.flow.cells.iter().find(|c| c.id.as_str() == cell);
             (spec.into_iter())
@@ -2123,12 +2131,13 @@ impl Target {
 /// A directed test of the engineer's flow: from the work as it stands after the first pass, it says what happens.
 type Directed = fn(&mut Reached, History) -> Result<(), String>;
 
-/// The blocks the implementation hands in as changing nothing in meaning, so that no review that watches the change is run.
+/// The blocks the implementation hands in as changing nothing in meaning, so that no review that watches the change is
+/// run.
 const UNCHANGED: [&str; 5] = ["code", "title", "decisions", "evidence", "acceptance"];
 
-/// The owner and the outside write, the owner speaks to the cells that wrote the plan and the change and answers what they
-/// asked, and the plan is written anew, which the implementation then answers, in what it hands in with `changed` as
-/// changing its meaning and the rest of the change as changing nothing in it. `head`, a block of the change, is not
+/// The owner and the outside write, the owner speaks to the cells that wrote the plan and the change and answers what
+/// they asked, and the plan is written anew, which the implementation then answers, in what it hands in with `changed`
+/// as changing its meaning and the rest of the change as changing nothing in it. `head`, a block of the change, is not
 /// written: it runs every review.
 fn after_a_pass(history: &mut History, changed: &[&'static str]) {
     for block in ["background", "tree", "test_times"] {
@@ -2162,8 +2171,8 @@ fn one_review_answered(reached: &mut Reached, passed: History) -> Result<(), Str
     Ok(())
 }
 
-/// The implementation answers all three at once: the first fills the session with what the others then stand with as the
-/// latest.
+/// The implementation answers all three at once: the first fills the session with what the others then stand with as
+/// the latest.
 fn all_three_answered(reached: &mut Reached, mut history: History) -> Result<(), String> {
     after_a_pass(&mut history, &["review", "test_review", "design_review"]);
     for cell in ["T1", "T2", "T3"] {
@@ -2190,18 +2199,19 @@ fn no_plan_written(reached: &mut Reached, _: History) -> Result<(), String> {
     Ok(())
 }
 
-/// The line of the reviews begins a new session after the tester wrote the tests, and the implementation answers one review.
+/// The line of the reviews begins a new session after the tester wrote the tests, and the implementation answers one
+/// review.
 fn reopened_after_the_tests(reached: &mut Reached, mut history: History) -> Result<(), String> {
     history.reopen("code_reviewer", reached);
     after_a_pass(&mut history, &["design_review"]);
     history.carry_next(reached, "T3")
 }
 
-/// The tests: the tester writes them as changing nothing in meaning and raises a point; the implementation answers it, which
-/// the tester's own dialogue runs it with; then each of the reviews is run by the implementation's answer to its own
-/// dialogue alone, with the session lacking the tests the tester wrote since. The test review's choice of whether the change
-/// needs the tester goes to no and back to yes, so that the tester is run by a choice whose versions between its last
-/// and its latest it was never told.
+/// The tests: the tester writes them as changing nothing in meaning and raises a point; the implementation answers it,
+/// which the tester's own dialogue runs it with; then each of the reviews is run by the implementation's answer to its
+/// own dialogue alone, with the session lacking the tests the tester wrote since. The test review's choice of whether
+/// the change needs the tester goes to no and back to yes, so that the tester is run by a choice whose versions between
+/// its last and its latest it was never told.
 fn the_tests_written_between(reached: &mut Reached, mut history: History) -> Result<(), String> {
     // The reviews are run again, and the tester is not run: the change needs no tester.
     history.force.insert("needs_testing".to_string(), "no".to_string());
@@ -2219,7 +2229,8 @@ fn the_tests_written_between(reached: &mut Reached, mut history: History) -> Res
         history.carry_next(reached, cell)?;
     }
     // Each review in turn is run by the implementation's answer alone after the tester wrote tests the review's session
-    // lacks: the implementation answers the tester's point and the review, the review is run, and the tester is run again.
+    // lacks: the implementation answers the tester's point and the review, the review is run, and the tester is run
+    // again.
     for (cell, dialogue) in [("T1", "review"), ("T2", "test_review"), ("T3", "design_review")] {
         history.say_to("I1");
         history.says.insert(
@@ -2245,9 +2256,9 @@ fn the_tests_written_between(reached: &mut Reached, mut history: History) -> Res
     Ok(())
 }
 
-/// The check before the merge fails, the implementation answers, and the check fails again, and then once more as changing
-/// nothing in meaning while the owner's words run the implementation: its session holds the check's earlier version and
-/// lacks the later, as the implementation's own, and not.
+/// The check before the merge fails, the implementation answers, and the check fails again, and then once more as
+/// changing nothing in meaning while the owner's words run the implementation: its session holds the check's earlier
+/// version and lacks the later, as the implementation's own, and not.
 fn the_check_failing_twice(reached: &mut Reached, mut history: History) -> Result<(), String> {
     history.force.insert("checked".to_string(), "no".to_string());
     // What was asked is answered, so that the check may run, and the cells it runs are carried.
@@ -2271,8 +2282,9 @@ fn the_check_failing_twice(reached: &mut Reached, mut history: History) -> Resul
     history.carry_next(reached, "I1")
 }
 
-/// The line of the implementation begins a new session in which a cell that takes main in was read and the other is then run,
-/// by the owner's words or the background, the first cell's return having handed in or having asked for a tool.
+/// The line of the implementation begins a new session in which a cell that takes main in was read and the other is
+/// then run, by the owner's words or the background, the first cell's return having handed in or having asked for a
+/// tool.
 fn main_taken_in(reached: &mut Reached, passed: History) -> Result<(), String> {
     let tool = || {
         Forced::Ask(Ask::Tool {
@@ -2313,9 +2325,9 @@ fn main_taken_in(reached: &mut Reached, passed: History) -> Result<(), String> {
     Ok(())
 }
 
-/// The last round of the line of the reviews ends with its session compacted, and the first of the reviews is run again: its
-/// session holds what that return handed in and none of the message. The same of the tester, run again by the
-/// implementation's answer to its point.
+/// The last round of the line of the reviews ends with its session compacted, and the first of the reviews is run
+/// again: its session holds what that return handed in and none of the message. The same of the tester, run again by
+/// the implementation's answer to its point.
 fn compacted_after_a_return(reached: &mut Reached, passed: History) -> Result<(), String> {
     let mut history = passed.clone();
     history.put("head");
@@ -2325,7 +2337,8 @@ fn compacted_after_a_return(reached: &mut Reached, passed: History) -> Result<()
     history.put("head");
     history.carry_next(reached, "T1")?;
     let mut history = passed;
-    // The choice of whether the tester is needed goes to no and back to yes, so that the tester is run by a new version.
+    // The choice of whether the tester is needed goes to no and back to yes, so that the tester is run by a new
+    // version.
     history.force.insert("needs_testing".to_string(), "no".to_string());
     history.put("head");
     for cell in ["T1", "T2", "T3"] {
@@ -2350,14 +2363,15 @@ fn compacted_after_a_return(reached: &mut Reached, passed: History) -> Result<()
     history.carry_next(reached, "T4")
 }
 
-/// The work as it stands once the plan is written, the change is made, every review has been run, the tester has raised a
-/// point and the implementation has answered it, and no other point has been raised; with the design cells run too where
-/// `deep` says the plan needs them.
+/// The work as it stands once the plan is written, the change is made, every review has been run, the tester has raised
+/// a point and the implementation has answered it, and no other point has been raised; with the design cells run too
+/// where `deep` says the plan needs them.
 fn first_pass(reached: &mut Reached, deep: bool) -> History {
     let mut passed = History::directed(u64::from(deep));
     let needed = if deep { "yes" } else { "no" };
     passed.force.insert("deep_needed".to_string(), needed.to_string());
-    // A return that says the plan needs deep research holds nothing else but a question, so the plan is the design cell's.
+    // A return that says the plan needs deep research holds nothing else but a question, so the plan is the design
+    // cell's.
     let plan = ["plan_owner", "plan_agent", "acceptance"];
     if deep {
         passed
@@ -2381,10 +2395,10 @@ fn first_pass(reached: &mut Reached, deep: bool) -> History {
     passed
 }
 
-/// The directed tests of the engineer's flow, each a history that is brought to a round by what its cells hand in and what
-/// the owner and the outside write between two rounds of one line's session, which the random steps reach only by chance.
-/// Each begins from the work as it stands after [`first_pass`]. Says, of each, how many lines it reached that no other
-/// reached before it.
+/// The directed tests of the engineer's flow, each a history that is brought to a round by what its cells hand in and
+/// what the owner and the outside write between two rounds of one line's session, which the random steps reach only by
+/// chance. Each begins from the work as it stands after [`first_pass`]. Says, of each, how many lines it reached that
+/// no other reached before it.
 fn directed_tests(reached: &mut Reached, passed: &History, deep: &History) -> Vec<String> {
     let scripts: [(&str, Directed, &History); 9] = [
         ("one review answered", one_review_answered, passed),
@@ -2460,8 +2474,8 @@ impl Between {
     }
 }
 
-/// How many steps a directed attempt waits for a round of a cell, how many attempts are made at a line, and how many rounds
-/// the attempts at the lines still open may carry together.
+/// How many steps a directed attempt waits for a round of a cell, how many attempts are made at a line, and how many
+/// rounds the attempts at the lines still open may carry together.
 const LADDER_STEPS: usize = 30;
 const ATTEMPTS: usize = 150;
 const LADDER_ROUNDS: usize = 3000;
@@ -2484,14 +2498,14 @@ struct Attempt {
     wake: bool,
 }
 
-/// Tries to bring the work to a round that stands in the state of a datum this line says, by what the owner and the outside
-/// do to the datum between two rounds of one line's session: from one of the bases, the line's session is reopened or not,
-/// a cell of the line runs, and the datum is written before it, after it, or after the target's own run began, as the
-/// owner's words, a person's or the outside's hand, or the cell that writes it; and the target's round asks for a tool, or
-/// does not, so that a round of its run goes on in what the first was sent. A cell the owner cannot speak to is run by
-/// writing what it watches ([`History::wake`]). The attempts are taken in an order that does not depend on where the
-/// work stands, as many as [`ATTEMPTS`] and as the budget of rounds lets. Every attempt carries its rounds through the
-/// history's own checks, so that all the lines they stand in are reached.
+/// Tries to bring the work to a round that stands in the state of a datum this line says, by what the owner and the
+/// outside do to the datum between two rounds of one line's session: from one of the bases, the line's session is
+/// reopened or not, a cell of the line runs, and the datum is written before it, after it, or after the target's own
+/// run began, as the owner's words, a person's or the outside's hand, or the cell that writes it; and the target's
+/// round asks for a tool, or does not, so that a round of its run goes on in what the first was sent. A cell the owner
+/// cannot speak to is run by writing what it watches ([`History::wake`]). The attempts are taken in an order that does
+/// not depend on where the work stands, as many as [`ATTEMPTS`] and as the budget of rounds lets. Every attempt carries
+/// its rounds through the history's own checks, so that all the lines they stand in are reached.
 fn between_rounds(bases: &[&History], line: &str, reached: &mut Reached, budget: usize) {
     use std::hash::{DefaultHasher, Hash, Hasher};
     let Some(first_base) = bases.first() else {
@@ -2537,7 +2551,8 @@ fn between_rounds(bases: &[&History], line: &str, reached: &mut Reached, budget:
                 for reopen in [false, true] {
                     for first in 0..firsts.len() {
                         for (way, how) in ways.iter().enumerate() {
-                            // A datum written through a cell's round cannot be written while the target's round is awaited.
+                            // A datum written through a cell's round cannot be written while the target's round is
+                            // awaited.
                             if position == 2 && how.needs_a_round() {
                                 continue;
                             }
@@ -2619,15 +2634,15 @@ fn between_rounds(bases: &[&History], line: &str, reached: &mut Reached, budget:
     }
 }
 
-/// Searches the engineer's flow for rounds that stand in the lines wanted. Each run is steered at a line not yet reached,
-/// at random: it begins from a state of the work kept at the entry of a round of the line's cell, or of the nearest cell
-/// before it that has one, or from nothing, where none is kept and now and then; sets how the histories' random steps are
-/// weighed, as a mode of its own (how often a return hands in what it need not, how often the owner speaks, asks and
-/// writes, how often a choice passes), and which of the blocks near the target the returns hand in or leave out; changes
-/// what the work holds a few times, as the owner and the outside do; and goes on with the driver's own steps. The rounds
-/// it carries keep the states they were entered in, one for each situation ([`History::keep`]). It goes on until every
-/// line wanted was reached or the runs are spent. Says what the rounds reached, and, every tenth run, how many lines
-/// were still open.
+/// Searches the engineer's flow for rounds that stand in the lines wanted. Each run is steered at a line not yet
+/// reached, at random: it begins from a state of the work kept at the entry of a round of the line's cell, or of the
+/// nearest cell before it that has one, or from nothing, where none is kept and now and then; sets how the histories'
+/// random steps are weighed, as a mode of its own (how often a return hands in what it need not, how often the owner
+/// speaks, asks and writes, how often a choice passes), and which of the blocks near the target the returns hand in or
+/// leave out; changes what the work holds a few times, as the owner and the outside do; and goes on with the driver's
+/// own steps. The rounds it carries keep the states they were entered in, one for each situation ([`History::keep`]).
+/// It goes on until every line wanted was reached or the runs are spent. Says what the rounds reached, and, every tenth
+/// run, how many lines were still open.
 fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
     let mut rng = Rng::new(seed);
     let mut reached = Reached::default();
@@ -2689,8 +2704,8 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
         *tried.entry(line).or_default() += 1;
         let target = Target::of(&flow_of, line);
         // Where the run begins: a state kept at a round of the target's cell, or of the nearest cell before it that has
-        // one, chosen by how near its situation is to the line, which the run then carries on to the cell; from nothing,
-        // where none is kept and now and then.
+        // one, chosen by how near its situation is to the line, which the run then carries on to the cell; from
+        // nothing, where none is kept and now and then.
         let at = order.iter().position(|c| *c == target.cell).unwrap_or(0);
         let near = |cell: &str, reached: &Reached| -> Vec<(usize, u32)> {
             (reached.archive.get(cell).into_iter().flatten().enumerate())
@@ -2717,9 +2732,9 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
             }
             (reached.archive[cell][chosen].2.clone(), cell == target.cell)
         });
-        // Now and then it begins from a state kept at a round of a cell after the target's instead, and has the owner write
-        // what runs the cell again: a session holds what the cells after it read, which only a cell run again can be
-        // sent as the session stands.
+        // Now and then it begins from a state kept at a round of a cell after the target's instead, and has the owner
+        // write what runs the cell again: a session holds what the cells after it read, which only a cell run again can
+        // be sent as the session stands.
         let later: Option<History> = (at + 1 < order.len() && rng.chance(20))
             .then(|| {
                 let cells: Vec<&String> = (order[at + 1..].iter())
@@ -2764,9 +2779,9 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
         if target.one_shot && rng.chance(85) {
             history.nothing_dealt.insert(target.cell.clone());
         }
-        // A version of a datum that the cell never dealt with stands held in its session, new to the cell, where its run
-        // deals with nothing; and, where the owner can turn to the cell while a question it waits for stands unanswered,
-        // the datum need not run it.
+        // A version of a datum that the cell never dealt with stands held in its session, new to the cell, where its
+        // run deals with nothing; and, where the owner can turn to the cell while a question it waits for stands
+        // unanswered, the datum need not run it.
         let held_line = target.state.as_deref().is_some_and(|s| s.starts_with("holds"));
         if held_line && rng.chance(50) {
             history.nothing_dealt.insert(target.cell.clone());
@@ -2791,8 +2806,8 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
         if rng.chance(85) {
             history.force.extend(target.runs_on.iter().cloned());
         }
-        // A state of a datum unwritten is brought about by no return handing it in, and of the owner's talk with a cell, by
-        // the owner not talking nor a cell asking.
+        // A state of a datum unwritten is brought about by no return handing it in, and of the owner's talk with a
+        // cell, by the owner not talking nor a cell asking.
         let quiet_owner = target.unwritten && target.talk() && rng.chance(85);
         if let Some(datum) = target.datum.as_ref().filter(|_| target.unwritten && rng.chance(85)) {
             history.prefer.insert(datum.clone(), 0);
@@ -2838,8 +2853,8 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
             if reached.real.contains(*line) {
                 continue;
             }
-            // From the work after the first passes, and from states the search kept at the entry of a round of the target's
-            // cell or of one of the two cells before it, with nothing left to chance.
+            // From the work after the first passes, and from states the search kept at the entry of a round of the
+            // target's cell or of one of the two cells before it, with nothing left to chance.
             let at = (line.split_once(": ")).and_then(|(cell, _)| order.iter().position(|c| c == cell));
             let mut kept: Vec<History> = Vec::new();
             for cell in order[..=at.unwrap_or(0)].iter().rev().take(3) {
@@ -2901,7 +2916,8 @@ fn every_state_written_for(cells: &[&str], seed: u64) {
     let held: Vec<&String> = (reached.real.iter())
         .filter(|line| of_these(line) && line.contains(" holds") && line.ends_with("and ran it"))
         .collect();
-    // What the session held, as rounds of the cells with a line of it open stood in, which the open lines are read against.
+    // What the session held, as rounds of the cells with a line of it open stood in, which the open lines are read
+    // against.
     let frames: Vec<&String> = (reached.real.iter())
         .filter(|line| {
             let cell = line.split_once(": ").map(|(cell, _)| cell);

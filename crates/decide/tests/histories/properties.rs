@@ -682,8 +682,8 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
 /// Property a-work-comes-to-rest, and no work stalls but where nothing can move it: where the work stands is read from
 /// the records alone ([`Reading::rest`]), and the decision must stand there, whatever kind it says: ended; stalled,
 /// with the keys that do not hold; waiting at the same cell; or moving at the same cell, which the pause, a slot, the
-/// work's turn or the owner's pause of everything may hold back. A stall the decision calls a wait, or a wait it calls a stall, is
-/// found here, and no kind is taken from the decision.
+/// work's turn or the owner's pause of everything may hold back. A stall the decision calls a wait, or a wait it calls
+/// a stall, is found here, and no kind is taken from the decision.
 fn rest_read(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision) {
     let rest = reading.rest(flow);
     let same = match (&rest, d) {

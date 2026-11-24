@@ -210,8 +210,8 @@ pub struct Given {
     pub number: usize,
 }
 
-/// A work of a flow, the small flow unless it is made of another, taken one thing at a time through the engine's loop. It is cloned where a search goes on
-/// from a state it reached.
+/// A work of a flow, the small flow unless it is made of another, taken one thing at a time through the engine's loop.
+/// It is cloned where a search goes on from a state it reached.
 #[derive(Clone)]
 pub struct Sim {
     pub flow: Compiled,
@@ -633,8 +633,8 @@ pub fn engineer() -> Compiled {
     flow::compile(&source, &has).expect("the engineer's flow compiles")
 }
 
-/// A work of the engineer's flow, taken in the way the carrier takes it: main taken in as runs of the cells that take it
-/// in start, and what changed in the tree and the head said by the carrier.
+/// A work of the engineer's flow, taken in the way the carrier takes it: main taken in as runs of the cells that take
+/// it in start, and what changed in the tree and the head said by the carrier.
 pub fn engineer_sim() -> Sim {
     let beside = flow::agents::read(&root()).expect("the files beside the flows are read");
     let flow = engineer();

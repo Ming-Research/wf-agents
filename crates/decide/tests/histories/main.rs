@@ -17,7 +17,8 @@
 //!   the first test, drawn apart from the rest, a judge stands before the merge, run only while "flip" holds and
 //!   writing a verdict, yes or no, and its points in a dialogue with each cell that writes what it judges, which
 //!   watches it and answers there; the merge then also waits while the verdict stands at no. In three histories of ten,
-//!   drawn apart from the rest, a check stands before the merge, run by the brief and writing a choice only cells write,
+//!   drawn apart from the rest, a check stands before the merge, run by the brief and writing a choice only cells
+//! write,
 //!   which the merge also waits for as yes: where the check says no or nothing and has nothing new to run for, only a
 //!   cell keeps the merge from running, and the work is stalled, which the records alone read (`Reading::rest`). In a
 //!   third of the
@@ -52,8 +53,8 @@
 //!   of the project come and go in some histories, and every history asks the walk what it would decide in every other
 //!   room.
 //!
-//! Every situation a property is about is counted by the histories that reached it, and a test fails if fewer than `FLOOR`
-//! of them did: the histories run in batches until each was reached in `FLOOR`.
+//! Every situation a property is about is counted by the histories that reached it, and a test fails if fewer than
+//! `FLOOR` of them did: the histories run in batches until each was reached in `FLOOR`.
 //!
 //! A failing case prints its seed, the properties it broke and the steps it took; `one_history(seed, drawn, ..)`
 //! replays it, `drawn` being what its test draws from.
@@ -1596,9 +1597,9 @@ const FLOOR: u64 = 10;
 /// reach was reached in [`FLOOR`] histories, and fails if the last batch leaves one short of it.
 const BATCHES: u64 = 10;
 
-/// Runs histories drawn so, a batch of `seeds` at a time, until each of these situations was reached in [`FLOOR`] of them
-/// or [`BATCHES`] batches ran, and fails if one breaks a property, or if fewer than [`FLOOR`] reached one of them. The
-/// seeds are the same each time, so a run is: a rarer situation takes more of them.
+/// Runs histories drawn so, a batch of `seeds` at a time, until each of these situations was reached in [`FLOOR`] of
+/// them or [`BATCHES`] batches ran, and fails if one breaks a property, or if fewer than [`FLOOR`] reached one of them.
+/// The seeds are the same each time, so a run is: a rarer situation takes more of them.
 fn histories(drawn: Drawn, seeds: u64, reached: &[&str]) {
     let _hook = HOOK.lock().unwrap_or_else(PoisonError::into_inner);
     let hook = panic::take_hook();
@@ -1681,7 +1682,8 @@ fn histories(drawn: Drawn, seeds: u64, reached: &[&str]) {
         "the deciding code's histories reached: {}",
         counts.join("; ")
     );
-    // And in how many histories each of what they must reach was, so that a rare one shows how close it is to the floor.
+    // And in how many histories each of what they must reach was, so that a rare one shows how close it is to the
+    // floor.
     let histories_of = |what: &str| in_histories.get(what).copied().unwrap_or(0);
     let must: Vec<String> = reached
         .iter()
