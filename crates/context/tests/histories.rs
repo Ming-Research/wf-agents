@@ -311,6 +311,11 @@ struct History {
     /// How many of the first steps, which only carry the work's rounds, hand in everything and let every choice pass, so
     /// that the work goes as far into the flow as it can.
     forward: usize,
+    /// Whether nothing happens by chance: no round is lost, fails or is compacted, no return asks for a tool or leaves out
+    /// what its cell must write, and no round is also entered anew. A directed test is run so.
+    steady: bool,
+    /// What the next returns of each cell hand in, in turn, in place of what the draw gives.
+    says: BTreeMap<String, Vec<Say>>,
     /// The cells whose returns deal with nothing, so that a cell that runs until a run of it has dealt with something is
     /// run again.
     nothing_dealt: BTreeSet<String>,
@@ -319,6 +324,38 @@ struct History {
     force: BTreeMap<String, String>,
     /// What a run of the search is steered at.
     target: Option<Target>,
+}
+
+/// What the return of a cell hands in, exactly: each block it hands in beside what its cell must write every time, and
+/// whether it changes its meaning.
+#[derive(Clone)]
+struct Say {
+    writes: Vec<(&'static str, bool)>,
+    /// Whether it asks the owner a question, which its cell does not wait for.
+    asks: bool,
+}
+
+impl Say {
+    /// Hands in these blocks, each as changing its meaning.
+    fn all(blocks: &[&'static str]) -> Say {
+        Say {
+            writes: blocks.iter().map(|b| (*b, true)).collect(),
+            asks: false,
+        }
+    }
+
+    /// The same, asking a question.
+    fn asking(mut self) -> Say {
+        self.asks = true;
+        self
+    }
+
+    /// Hands in these blocks, each as changing its meaning, and these, each as changing nothing in it.
+    fn with(changed: &[&'static str], unchanged: &[&'static str]) -> Say {
+        let mut writes: Vec<(&'static str, bool)> = changed.iter().map(|b| (*b, true)).collect();
+        writes.extend(unchanged.iter().map(|b| (*b, false)));
+        Say { writes, asks: false }
+    }
 }
 
 /// What a scripted return does.
@@ -412,6 +449,8 @@ impl History {
             unmatter_datum: false,
             focus: false,
             forward: 0,
+            steady: false,
+            says: BTreeMap::new(),
             nothing_dealt: BTreeSet::new(),
             prefer: BTreeMap::new(),
             force: BTreeMap::new(),
@@ -702,6 +741,67 @@ impl History {
         }
     }
 
+    /// A history for a directed test of the engineer's flow, in which nothing happens by chance: each cell hands in what it
+    /// must write and what the test says, every choice passes, and nobody asks a question or a tool.
+    fn directed(seed: u64) -> History {
+        let sim = support::engineer_sim();
+        let scene = Scene::engineer(&sim);
+        let mut history = History::of(sim, scene, seed);
+        history.steady = true;
+        history.writes = 0;
+        history.asks = 0;
+        history.calls = 0;
+        history.scene.passes = Some(100);
+        history
+    }
+
+    /// Carries what the work gives until the round next is of this cell, which it leaves to be carried. A directed test that
+    /// the work does not bring to the cell is stale: it stops, saying where the work stood.
+    fn until(&mut self, reached: &mut Reached, cell: &str) {
+        for _ in 0..300 {
+            match self.sim.round() {
+                Some(round) if round.cell.as_str() == cell => return,
+                Some(round) => self.carry(&round, reached),
+                None => match self.sim.calls().first() {
+                    Some(call) => self.sim.done(*call, "the rows"),
+                    None if self.lets_go() => {}
+                    None => break,
+                },
+            }
+        }
+        panic!(
+            "a directed test did not bring the work to a round of {cell}: it stands at {:?}; the last rounds carried: {:?}",
+            decide(&self.sim.flow.flow, &self.sim.work.records),
+            self.trace.iter().rev().take(25).collect::<Vec<_>>()
+        );
+    }
+
+    /// Carries the round of this cell that comes next.
+    fn carry_next(&mut self, reached: &mut Reached, cell: &str) {
+        self.until(reached, cell);
+        let round = self.sim.round().expect("the round of the cell");
+        self.carry(&round, reached);
+    }
+
+    /// The owner says some words to the cell.
+    fn say_to(&mut self, cell: &str) {
+        let id = (self.sim.flow.cells.iter())
+            .find(|c| c.id.as_str() == cell)
+            .map(|c| c.id.clone())
+            .expect("a cell of the flow");
+        self.count += 1;
+        let words = format!("Do it again, {}", self.count);
+        self.sim.take(Event::Said {
+            to: To::Cell(id),
+            words,
+        });
+    }
+
+    /// The owner answers each question that stands unanswered.
+    fn answers_all(&mut self) {
+        while self.answers() {}
+    }
+
     /// The scripted history: each state of a datum that the random steps reach too seldom to count on, in turn, each
     /// brought about by what happens in the engine's own order. A datum the cell is given may be written after a run
     /// began and before its round is entered, and a return sent back is followed by a round of the same run, which
@@ -829,10 +929,11 @@ impl History {
         }
         let held = self.lines.get(&line).cloned().unwrap_or_default();
         let going_on = self.sim.enter(round, false);
-        let lost = !begins && self.rng.chance(10);
+        let lost = !begins && !self.steady && self.rng.chance(10);
         // Entered in a session that holds nothing: on the small flow every round; on the engineer's where the round begins
         // one or is lost, and in two of five of the others, which each take as long as the walk of the work to enter.
-        let anew = (self.scene.models || begins || lost || self.rng.chance(40)).then(|| self.sim.enter(round, true));
+        let anew = (self.scene.models || begins || lost || (!self.steady && self.rng.chance(40)))
+            .then(|| self.sim.enter(round, true));
         self.check(round, &going_on, &held, reached);
         if let Some(anew) = &anew {
             self.check(round, anew, &Held::default(), reached);
@@ -884,7 +985,7 @@ impl History {
         if let Some(forced) = self.forced.as_mut().filter(|_| scripted) {
             forced.remove(0);
         }
-        if scripted || self.rng.chance(8) {
+        if scripted || (!self.steady && self.rng.chance(8)) {
             // A round that failed after its program had its message, as at the usage limit, put it into its session;
             // one that failed before its program ran put nothing there.
             if scripted || self.rng.chance(50) {
@@ -897,7 +998,7 @@ impl History {
             return;
         }
         self.lines.entry(line.clone()).or_default().fill(round.run, &used.fills);
-        let compactions = u32::from(self.rng.chance(10));
+        let compactions = u32::from(!self.steady && self.rng.chance(10));
         let came = self.came(round);
         self.sim.returns(round, came, compactions);
         if compactions > 0 {
@@ -933,7 +1034,8 @@ impl History {
             Some(Forced::Fail) => {}
             None => {}
         }
-        if !scripted && self.rng.chance(self.calls) {
+        let said = (self.says.get_mut(round.cell.as_str())).and_then(|says| (!says.is_empty()).then(|| says.remove(0)));
+        if !scripted && !self.steady && self.rng.chance(self.calls) {
             // A tool run on something, or a tool run on nothing.
             let ask = match self.rng.below(3) {
                 0 | 1 => Ask::Tool {
@@ -950,7 +1052,7 @@ impl History {
         let cell = self.sim.cell(round).clone();
         let place = self.sim.flow.flow.place(&cell.id).expect("the cell's place");
         let outputs = self.sim.flow.flow.cells()[place].outputs.clone();
-        let leaves_out = !cell.must_write.is_empty() && !all && self.rng.chance(14);
+        let leaves_out = !cell.must_write.is_empty() && !all && !self.steady && self.rng.chance(14);
         let mut writes = Vec::new();
         for block in outputs {
             // A question is asked in the return's own field, and what answers it is the owner's.
@@ -959,11 +1061,18 @@ impl History {
             }
             let must = cell.must_write.contains(&block);
             let percent = self.prefer.get(block.as_str()).copied().unwrap_or(self.writes);
+            let listed = said
+                .as_ref()
+                .and_then(|s| s.writes.iter().find(|(b, _)| *b == block.as_str()).copied());
             let near = !self.focus || {
                 let named = (self.target.as_ref()).is_none_or(|t| t.near.iter().any(|n| n == block.as_str()));
                 named || self.rng.chance(8)
             };
-            if (must && !leaves_out) || (!must && !only_must && near && (all || self.rng.chance(percent))) {
+            let drawn = match &said {
+                Some(_) => listed.is_some(),
+                None => !only_must && near && (all || self.rng.chance(percent)),
+            };
+            if (must && !leaves_out) || (!must && drawn) {
                 let passes = self.scene.passing.contains(&block.as_str())
                     && self.scene.passes.is_some_and(|percent| self.rng.chance(percent));
                 let value = self.sim.flow.blocks[&block].values.clone().map(|v| match passes {
@@ -972,7 +1081,10 @@ impl History {
                     _ => v[self.rng.below(v.len())].clone(),
                 });
                 let content = value.clone().unwrap_or_else(|| self.content(block.as_str()));
-                let matters = self.matters(&block, value.as_deref());
+                let matters = match listed {
+                    Some((_, matters)) => matters || value.is_some(),
+                    None => self.matters(&block, value.as_deref()),
+                };
                 writes.push(Handed {
                     block,
                     content,
@@ -1010,7 +1122,7 @@ impl History {
             self.sim.work.given.get(&(round.run, round.number)),
             Some(Given::SentBack(_))
         );
-        if wrong || (!scripted && self.rng.chance(if again { 40 } else { 4 })) {
+        if wrong || (!scripted && !self.steady && self.rng.chance(if again { 40 } else { 4 })) {
             let others: Vec<BlockId> = (self.sim.flow.blocks.keys())
                 .filter(|b| !self.sim.flow.flow.cells()[place].outputs.contains(b))
                 .cloned()
@@ -1034,7 +1146,10 @@ impl History {
                 .unwrap_or_default();
             came.dealt_with = Some(ran_by.into_iter().filter(|_| self.rng.chance(50)).collect());
         }
-        came.said.questions = self.questions(&cell);
+        came.said.questions = match said.as_ref().is_some_and(|s| s.asks) {
+            true => self.question(&cell, false),
+            false => self.questions(&cell),
+        };
         came
     }
 
@@ -1066,6 +1181,12 @@ impl History {
         if !self.scene.talks || !answered || !self.rng.chance(self.asks) {
             return Vec::new();
         }
+        let waits = self.rng.chance(50);
+        self.question(cell, waits)
+    }
+
+    /// A question of the cell's own, which it waits for the answer to or not.
+    fn question(&mut self, cell: &CellSpec, waits: bool) -> Vec<Question> {
         let name = format!("{}_{}", cell.id, self.sim.work.records.questions.len());
         let way = |does: &str, follows: &str| Way {
             does: does.to_string(),
@@ -1074,7 +1195,7 @@ impl History {
         vec![Question::Asked {
             ask: format!("Which way for {name}?"),
             name,
-            waits: self.rng.chance(50),
+            waits,
             tree: None,
             recommends: Some(1),
             options: vec![
@@ -1857,6 +1978,58 @@ impl Target {
     }
 }
 
+/// The directed tests of the engineer's flow, each a history that is brought to a round by what its cells hand in and what
+/// the owner and the outside write between two rounds of one line's session, which the random steps reach only by chance.
+/// Each begins from the work as it stands once the first review of the change has come and every cell after it has run.
+fn directed_tests(reached: &mut Reached) {
+    // The plan is written and asked about, the change is made and asked about, and the work goes through the code reviewer's
+    // line and the tester's, with no points raised.
+    let mut passed = History::directed(0);
+    passed.force.insert("deep_needed".to_string(), "no".to_string());
+    passed.says.insert(
+        "R1".to_string(),
+        vec![Say::all(&["plan_owner", "plan_agent", "acceptance"]).asking()],
+    );
+    passed.says.insert(
+        "I1".to_string(),
+        vec![Say::all(&["code", "title", "decisions", "evidence"]).asking()],
+    );
+    passed.drain(reached);
+    // What happens before the next review: the outside and the owner write, the owner speaks to the cells that wrote the
+    // plan and the change and answers what they asked, and the plan is written anew, which the implementation then answers
+    // in `dialogue` alone, with what it changed meaning nothing, so that the review is run by its own dialogue and no
+    // cell of its line before it is run.
+    let unchanged = ["code", "title", "decisions", "evidence", "acceptance"];
+    let after = |mut history: History, dialogues: &[&'static str]| {
+        for block in ["background", "tree", "head", "test_times"] {
+            history.put(block);
+        }
+        history.say_to("R1");
+        history.say_to("I1");
+        history.answers_all();
+        history
+            .says
+            .entry("R1".to_string())
+            .or_default()
+            .push(Say::all(&["plan_owner", "plan_agent"]));
+        history
+            .says
+            .entry("I1".to_string())
+            .or_default()
+            .push(Say::with(dialogues, &unchanged));
+        history
+    };
+    for (cell, dialogue) in [("T1", "review"), ("T2", "test_review"), ("T3", "design_review")] {
+        let mut history = after(passed.clone(), &[dialogue]);
+        history.carry_next(reached, cell);
+    }
+    // All three, in a pass: the first fills the session with what the others then stand with as the latest.
+    let mut history = after(passed.clone(), &["review", "test_review", "design_review"]);
+    for cell in ["T1", "T2", "T3"] {
+        history.carry_next(reached, cell);
+    }
+}
+
 /// Searches the engineer's flow for rounds that stand in the lines wanted. Each run is steered at a line not yet reached,
 /// at random: it begins from a state of the work kept at the entry of a round of the line's cell, or of the nearest cell
 /// before it that has one, or from nothing, where none is kept and now and then; sets how the histories' random steps are
@@ -1871,6 +2044,12 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
     let mut reached = Reached::default();
     let mut log = Vec::new();
     let begun = std::time::Instant::now();
+    directed_tests(&mut reached);
+    log.push(format!(
+        "after the directed tests, {:?}: {} lines open",
+        begun.elapsed(),
+        wanted.difference(&reached.real).count()
+    ));
     let flow_of = support::engineer_sim();
     let order: Vec<String> = (flow_of.flow.flow.cells().iter())
         .map(|c| c.id.as_str().to_string())
