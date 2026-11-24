@@ -869,3 +869,796 @@ fn markdown_under(root: &Path, dir: &Path, into: &mut Vec<std::path::PathBuf>) {
         }
     }
 }
+
+// What the script this check replaced (`design/lint.py` at the commit before this work, still in the repository while
+// the installed engine needs it) says of the same files, one line for each fault as it printed them: each case below
+// is a tree that script was run on, and what a case expects is the script's output on it, line for line, not what the
+// port is thought to do. Each case is a small tree in memory; all of them together take well under a millisecond.
+
+const HEAD: &str = "# T\n\nCovers.\n\n";
+const REJ: &str = "- rejected: an agent proposed x; the owner rejected it, because y.";
+const OPENS: &str = "a file opens with `# <title>`, a blank line and one line of what it covers";
+const BLANK: &str = "two entries are parted by one blank line, and no blank line ends the file";
+const NOT_A_LINE: &str = "not a line in the form of a `rejected` or a `replaced` line";
+const NOT_A_HEADING: &str = "an entry of decisions/ opens with `### decision <name>`";
+
+fn dec(name: &str, first: &str, under: &[&str]) -> String {
+    let lines: String = under.iter().map(|line| format!("{line}\n")).collect();
+    format!("### decision {name}\n{first}\n{lines}")
+}
+
+fn prin(name: &str) -> String {
+    format!("### principle {name}\nRule one.\nWhy: because.\n")
+}
+
+/// A line the script printed, of a file named from the design directory.
+fn said(file: &str, line: usize, text: &str) -> String {
+    format!("design/{file}:{line}: {text}")
+}
+
+/// What the check says of exactly these files, named from the design directory, where the repository holds exactly
+/// `held` besides them, each as a line of its words.
+fn told_of(files: &[(&str, String)], held: &[&str]) -> Vec<String> {
+    let rules = rules();
+    let sources: Vec<Source> = files
+        .iter()
+        .map(|(path, text)| Source {
+            path: format!("design/{path}"),
+            kind: if path.starts_with("principles/") {
+                "principle"
+            } else {
+                "decision"
+            }
+            .to_string(),
+            text: Some(text.clone()),
+        })
+        .collect();
+    words(&check(&sources, &rules.format, held), &rules.faults)
+}
+
+/// Each case whose told lines are not the script's, with both, so that one run shows every difference.
+fn assert_as_the_script_said(cases: Vec<(&str, Vec<(&str, String)>, Vec<&str>, Vec<String>)>) {
+    let mut differing = Vec::new();
+    for (name, files, held, expected) in cases {
+        let told = told_of(&files, &held);
+        if told != expected {
+            differing.push(format!("{name}:\n  told:     {told:#?}\n  expected: {expected:#?}"));
+        }
+    }
+    assert!(differing.is_empty(), "{}", differing.join("\n"));
+}
+
+#[test]
+fn the_lines_of_a_decision_are_in_form_where_the_script_said_so() {
+    let case = |name, lines: &[&str], expected: Vec<usize>| {
+        let told: Vec<String> = expected
+            .iter()
+            .map(|n| said("decisions/b.md", *n, &format!("decision three-four: {NOT_A_LINE}")))
+            .collect();
+        let text = format!("{HEAD}{}", dec("three-four", "It holds.", lines));
+        (name, vec![("decisions/b.md", text)], Vec::new(), told)
+    };
+    assert_as_the_script_said(vec![
+        case(
+            "a reason of one full stop and one more",
+            &["- rejected: an agent proposed x; the owner rejected it, because .."],
+            vec![],
+        ),
+        case(
+            "a reason of a full stop alone",
+            &["- rejected: an agent proposed x; the owner rejected it, because ."],
+            vec![7],
+        ),
+        case(
+            "a reason with no full stop",
+            &["- rejected: an agent proposed x; the owner rejected it, because y"],
+            vec![7],
+        ),
+        case(
+            "a full stop and then a space",
+            &["- rejected: an agent proposed x; the owner rejected it, because y. "],
+            vec![7],
+        ),
+        case(
+            "an approach of no characters",
+            &["- rejected: an agent proposed ; the owner rejected it, because y."],
+            vec![7],
+        ),
+        case(
+            "an approach of one space",
+            &["- rejected: an agent proposed  ; the owner rejected it, because y."],
+            vec![],
+        ),
+        case(
+            "the words between twice",
+            &["- rejected: an agent proposed a; the owner rejected it, because ; the owner rejected it, because y."],
+            vec![],
+        ),
+        case(
+            "who proposed, not of the three",
+            &[
+                "- rejected: the reviewer proposed x; the owner rejected it, because y.",
+                "- rejected: a reviewer agent proposed x; the owner rejected it, because y.",
+                "- rejected: an agentx proposed x; the owner rejected it, because y.",
+            ],
+            vec![7, 9],
+        ),
+        case(
+            "a replaced line with nothing before or after its words",
+            &[
+                "- replaced:  was on main; the owner changed it, because y.",
+                "- replaced: x was on main; the owner changed it, because .",
+                "- replaced: x was on main; the owner changed it, because yy",
+            ],
+            vec![7, 8, 9],
+        ),
+        case(
+            "a replaced line with no approach",
+            &[
+                "- replaced: was on main; the owner changed it, because y.",
+                "- replaced:x was on main; the owner changed it, because y.",
+            ],
+            vec![7, 8],
+        ),
+    ]);
+}
+
+#[test]
+fn the_opening_of_a_file_and_the_blank_lines_in_it_are_as_the_script_said() {
+    let one = dec("three-four", "It holds.", &[REJ]);
+    let two = dec("one-three", "It holds.", &[REJ]);
+    let only = |text: String| vec![("decisions/b.md", text)];
+    let crlf = |text: String| text.replace('\n', "\r\n");
+    assert_as_the_script_said(vec![
+        (
+            "a tree in the line breaks of a system that ends each line with two characters",
+            vec![
+                ("principles/a.md", crlf(format!("{HEAD}{}", prin("one-two")))),
+                ("decisions/b.md", crlf(format!("{HEAD}{one}"))),
+            ],
+            vec![],
+            vec![],
+        ),
+        (
+            "a mark of byte order before the title",
+            only(format!("\u{feff}{HEAD}{one}")),
+            vec![],
+            vec![said("decisions/b.md", 1, OPENS)],
+        ),
+        (
+            "a file of nothing",
+            only(String::new()),
+            vec![],
+            vec![said("decisions/b.md", 1, OPENS)],
+        ),
+        (
+            "a title and no more",
+            only("# T\n".to_string()),
+            vec![],
+            vec![said("decisions/b.md", 1, OPENS)],
+        ),
+        (
+            "a title and a line of what it covers, no entry",
+            only("# T\n\nCovers.".to_string()),
+            vec![],
+            vec![],
+        ),
+        (
+            "the same ended by a line break",
+            only("# T\n\nCovers.\n".to_string()),
+            vec![],
+            vec![],
+        ),
+        ("the same and a blank line", only(HEAD.to_string()), vec![], vec![]),
+        (
+            "a line of what it covers that is a heading",
+            only(format!("# T\n\n# Covers\n\n{one}")),
+            vec![],
+            vec![said("decisions/b.md", 1, OPENS)],
+        ),
+        (
+            "a title with no space after its mark",
+            only(format!("#T\n\nCovers.\n\n{one}")),
+            vec![],
+            vec![said("decisions/b.md", 1, OPENS)],
+        ),
+        (
+            "a line of what it covers that begins with a mark",
+            only(format!("# T\n\n#x\n\n{one}")),
+            vec![],
+            vec![said("decisions/b.md", 1, OPENS)],
+        ),
+        (
+            "a second line of spaces",
+            only(format!("# T\n \nCovers.\n\n{one}")),
+            vec![],
+            vec![said("decisions/b.md", 1, OPENS)],
+        ),
+        (
+            "no title, and two entries after what it covers",
+            only(format!(
+                "T\n\nCovers.\n\n{one}\n{}",
+                dec("five-six", "It holds.", &[REJ])
+            )),
+            vec![],
+            vec![said("decisions/b.md", 1, OPENS)],
+        ),
+        (
+            "no title and no entry",
+            only("T\nCovers.\n\nplain text\n".to_string()),
+            vec![],
+            vec![said("decisions/b.md", 1, OPENS)],
+        ),
+        (
+            "two blank lines after what a file covers",
+            only(format!("# T\n\nCovers.\n\n\n{one}")),
+            vec![],
+            vec![said("decisions/b.md", 5, BLANK)],
+        ),
+        (
+            "two blank lines between entries",
+            only(format!("{HEAD}{one}\n\n{two}")),
+            vec![],
+            vec![said("decisions/b.md", 9, BLANK)],
+        ),
+        (
+            "three blank lines at the end, the last said twice as the script said it",
+            only(format!("{HEAD}{one}\n\n\n")),
+            vec![],
+            vec![
+                said("decisions/b.md", 9, BLANK),
+                said("decisions/b.md", 10, BLANK),
+                said("decisions/b.md", 10, BLANK),
+            ],
+        ),
+        (
+            "a line of spaces between entries is no blank line",
+            only(format!("{HEAD}{one}  \n{two}")),
+            vec![],
+            vec![
+                said("decisions/b.md", 8, &format!("decision three-four: {NOT_A_LINE}")),
+                said("decisions/b.md", 9, &format!("decision three-four: {NOT_A_LINE}")),
+                said(
+                    "decisions/b.md",
+                    9,
+                    "decision three-four: names decision one-three, which no file holds",
+                ),
+                said("decisions/b.md", 10, &format!("decision three-four: {NOT_A_LINE}")),
+            ],
+        ),
+        (
+            "no line break at the end of the last line",
+            only(format!("{HEAD}{one}").trim_end_matches('\n').to_string()),
+            vec![],
+            vec![],
+        ),
+        (
+            "a line break of two characters inside an entry",
+            only(format!("{HEAD}### decision three-four\nIt holds.\r\n{REJ}\r\n")),
+            vec![],
+            vec![],
+        ),
+    ]);
+}
+
+#[test]
+fn headings_are_read_as_the_script_read_them() {
+    let after = |heading: &str| format!("{HEAD}{heading}\nIt holds.\n{REJ}\n");
+    let only = |text: String| vec![("decisions/b.md", text)];
+    let not_a_name = |name: &str| {
+        said(
+            "decisions/b.md",
+            5,
+            &format!("decision {name}: the name is not lowercase words joined by hyphens"),
+        )
+    };
+    let heading = said("decisions/b.md", 5, NOT_A_HEADING);
+    assert_as_the_script_said(vec![
+        (
+            "a tab in the heading",
+            only(after("### decision\tthree-four")),
+            vec![],
+            vec![heading.clone()],
+        ),
+        (
+            "a no-break space at the end of the heading",
+            only(after("### decision three-four\u{a0}")),
+            vec![],
+            vec![heading.clone()],
+        ),
+        (
+            "a space at the end of the heading",
+            only(after("### decision three-four ")),
+            vec![],
+            vec![heading.clone()],
+        ),
+        (
+            "a heading of another case",
+            only(after("### Decision three-four")),
+            vec![],
+            vec![heading.clone()],
+        ),
+        (
+            "a heading of four marks",
+            only(after("#### decision three-four")),
+            vec![],
+            vec![heading.clone()],
+        ),
+        (
+            "a heading with no name",
+            only(after("### decision ")),
+            vec![],
+            vec![heading.clone()],
+        ),
+        (
+            "a name of one word",
+            only(after("### decision three")),
+            vec![],
+            vec![not_a_name("three")],
+        ),
+        (
+            "a name of two hyphens in a row",
+            only(after("### decision three--four")),
+            vec![],
+            vec![not_a_name("three--four")],
+        ),
+        (
+            "a name that ends with a hyphen",
+            only(after("### decision three-four-")),
+            vec![],
+            vec![not_a_name("three-four-")],
+        ),
+        (
+            "a name of an upper case letter",
+            only(after("### decision Three-4")),
+            vec![],
+            vec![not_a_name("Three-4")],
+        ),
+        (
+            "an entry that opens in the middle of another",
+            only(format!(
+                "{HEAD}### decision one-two\nIt holds.\n### decision three-four\nIt holds.\n{REJ}\n"
+            )),
+            vec![],
+            vec![
+                said("decisions/b.md", 7, &format!("decision one-two: {NOT_A_LINE}")),
+                said(
+                    "decisions/b.md",
+                    7,
+                    "decision one-two: names decision three-four, which no file holds",
+                ),
+                said("decisions/b.md", 8, &format!("decision one-two: {NOT_A_LINE}")),
+            ],
+        ),
+        (
+            "a heading before the line of what the file covers",
+            only(format!("# T\n\n{}", dec("one-two", "It holds.", &[REJ]))),
+            vec![],
+            vec![said("decisions/b.md", 1, OPENS)],
+        ),
+    ]);
+}
+
+#[test]
+fn the_names_taken_and_named_are_judged_as_the_script_judged_them() {
+    let at = |file: &str, line: usize, text: &str| said(file, line, text);
+    let first = |name: &str| dec(name, "It holds.", &[REJ]);
+    assert_as_the_script_said(vec![
+        (
+            "a name taken by the later of two files, as the files are ordered by their parts and not their paths",
+            vec![
+                ("decisions/a-b.md", format!("{HEAD}{}", first("same-name"))),
+                ("decisions/a/x.md", format!("{HEAD}{}", first("same-name"))),
+                (
+                    "decisions/a.md",
+                    format!("{HEAD}{}", dec("other-name", "See decision same-name.", &[REJ])),
+                ),
+            ],
+            vec![],
+            vec![at(
+                "decisions/a-b.md",
+                5,
+                "decision same-name: the name is taken by design/decisions/a/x.md:5",
+            )],
+        ),
+        (
+            "a name a principle has and two decisions take",
+            vec![
+                ("decisions/b.md", format!("{HEAD}{}", first("same-name"))),
+                ("decisions/a.md", format!("{HEAD}{}", first("same-name"))),
+                ("principles/z.md", format!("{HEAD}{}", prin("same-name"))),
+            ],
+            vec![],
+            vec![
+                at(
+                    "decisions/a.md",
+                    5,
+                    "decision same-name: the name is taken by design/principles/z.md:5",
+                ),
+                at(
+                    "decisions/b.md",
+                    5,
+                    "decision same-name: the name is taken by design/principles/z.md:5",
+                ),
+            ],
+        ),
+        (
+            "a name taken in the files of a concept, under it and beside it",
+            vec![
+                ("decisions/a/b.md", format!("{HEAD}{}", first("same-name"))),
+                ("decisions/a.md", format!("{HEAD}{}", first("same-name"))),
+                ("decisions/a-.md", format!("{HEAD}{}", first("same-name"))),
+            ],
+            vec![],
+            vec![
+                at(
+                    "decisions/a/b.md",
+                    5,
+                    "decision same-name: the name is taken by design/decisions/a.md:5",
+                ),
+                at(
+                    "decisions/a-.md",
+                    5,
+                    "decision same-name: the name is taken by design/decisions/a.md:5",
+                ),
+            ],
+        ),
+        (
+            "a name taken in one file",
+            vec![(
+                "decisions/b.md",
+                format!("{HEAD}{}\n{}", first("one-two"), first("one-two")),
+            )],
+            vec![],
+            vec![at(
+                "decisions/b.md",
+                9,
+                "decision one-two: the name is taken by design/decisions/b.md:5",
+            )],
+        ),
+        (
+            "a decision that takes a principle's name and names itself as a decision",
+            vec![
+                ("principles/a.md", format!("{HEAD}{}", prin("one-two"))),
+                (
+                    "decisions/b.md",
+                    format!(
+                        "{HEAD}{}",
+                        dec("one-two", "See principle one-two and decision one-two.", &[REJ])
+                    ),
+                ),
+            ],
+            vec![],
+            vec![
+                at(
+                    "decisions/b.md",
+                    5,
+                    "decision one-two: the name is taken by design/principles/a.md:5",
+                ),
+                at(
+                    "decisions/b.md",
+                    6,
+                    "decision one-two: names decision one-two, which is a principle",
+                ),
+            ],
+        ),
+        (
+            "a line that names one of the wrong kind, one of its own wrong kind and one no file holds",
+            vec![
+                ("principles/p.md", format!("{HEAD}{}", prin("one-two"))),
+                (
+                    "decisions/d.md",
+                    format!(
+                        "{HEAD}{}",
+                        dec(
+                            "three-four",
+                            "decision one-two, principle three-four, principle none-here.",
+                            &[REJ]
+                        )
+                    ),
+                ),
+            ],
+            vec![],
+            vec![
+                at(
+                    "decisions/d.md",
+                    6,
+                    "decision three-four: names decision one-two, which is a principle",
+                ),
+                at(
+                    "decisions/d.md",
+                    6,
+                    "decision three-four: names principle three-four, which is a decision",
+                ),
+                at(
+                    "decisions/d.md",
+                    6,
+                    "decision three-four: names principle none-here, which no file holds",
+                ),
+            ],
+        ),
+        (
+            "names that end in a hyphen, a longer name, a word run together and two spaces",
+            vec![
+                ("principles/a.md", format!("{HEAD}{}", prin("one-two"))),
+                (
+                    "decisions/b.md",
+                    format!(
+                        "{HEAD}{}",
+                        dec(
+                            "three-four",
+                            "Per principle one-two, principle one-two-, decision three-four; principle one-two-three. \
+                             principleone-two decision  three-four.",
+                            &[REJ]
+                        )
+                    ),
+                ),
+            ],
+            vec![],
+            vec![at(
+                "decisions/b.md",
+                6,
+                "decision three-four: names principle one-two-three, which no file holds",
+            )],
+        ),
+        (
+            "a name run into an underscore, a full stop and a bracket",
+            vec![(
+                "decisions/b.md",
+                format!(
+                    "{HEAD}{}",
+                    dec(
+                        "three-four",
+                        "Per principle one-two_x and principle one-two.x and (principle one-two)",
+                        &[REJ]
+                    )
+                ),
+            )],
+            vec![],
+            vec![
+                at(
+                    "decisions/b.md",
+                    6,
+                    "decision three-four: names principle one-two, which no file holds",
+                ),
+                at(
+                    "decisions/b.md",
+                    6,
+                    "decision three-four: names principle one-two, which no file holds",
+                ),
+            ],
+        ),
+        (
+            "names that begin with a digit",
+            vec![
+                ("principles/a.md", format!("{HEAD}{}", prin("1-2"))),
+                (
+                    "decisions/b.md",
+                    format!(
+                        "{HEAD}{}",
+                        dec("three-four", "Per principle 1-2 and principle 1-2-x.", &[REJ])
+                    ),
+                ),
+            ],
+            vec![],
+            vec![at(
+                "decisions/b.md",
+                6,
+                "decision three-four: names principle 1-2-x, which no file holds",
+            )],
+        ),
+        (
+            "a name that runs into a capital letter, and one that runs into a hyphen and a letter that is no word of a name",
+            vec![(
+                "decisions/b.md",
+                format!(
+                    "{HEAD}{}",
+                    dec(
+                        "three-four",
+                        "See principle foo-bar\u{c9} and decision foo-bar-\u{e9}.",
+                        &[REJ]
+                    )
+                ),
+            )],
+            vec![],
+            vec![at(
+                "decisions/b.md",
+                6,
+                "decision three-four: names decision foo-bar, which no file holds",
+            )],
+        ),
+        (
+            "names in marks that are no word characters, and kinds run into a word",
+            vec![
+                ("principles/p.md", format!("{HEAD}{}", prin("one-two"))),
+                (
+                    "decisions/d.md",
+                    format!(
+                        "{HEAD}{}",
+                        dec(
+                            "three-four",
+                            "Per `principle one-two`, \"decision three-four\", *principle one-two*, principle one-two's \
+                             and x1principle one-two and 9decision three-four.",
+                            &[REJ]
+                        )
+                    ),
+                ),
+            ],
+            vec![],
+            vec![],
+        ),
+        (
+            "names in the lines of a principle",
+            vec![(
+                "principles/p.md",
+                format!("{HEAD}### principle one-two\nSee decision nowhere-here.\nWhy: see principle nowhere-else.\n"),
+            )],
+            vec![],
+            vec![
+                at(
+                    "principles/p.md",
+                    6,
+                    "principle one-two: names decision nowhere-here, which no file holds",
+                ),
+                at(
+                    "principles/p.md",
+                    7,
+                    "principle one-two: names principle nowhere-else, which no file holds",
+                ),
+            ],
+        ),
+    ]);
+}
+
+#[test]
+fn the_limits_the_moments_and_the_data_are_judged_as_the_script_judged_them() {
+    let at = |line: usize, text: &str| said("decisions/b.md", line, &format!("decision one-two: {text}"));
+    let moment = |what: &str| format!("names a work, an item or a date: {what}");
+    let only =
+        |first: &str, under: &[&str]| vec![("decisions/b.md", format!("{HEAD}{}", dec("one-two", first, under)))];
+    let missing = |data: &str| format!("the data `{data}` is not in the repository");
+    assert_as_the_script_said(vec![
+        (
+            "a work, an item and a date in many forms, and one past the first on the next line",
+            only(
+                "Work 12, work 12, W3, item #4, Item 5, item 6, items 7, #99999, #100000, 2026-1-1, 12026-01-01, \
+                 2026-01-011.",
+                &["- rejected: an agent proposed x W9; the owner rejected it, because see 2020-02-30."],
+            ),
+            vec![],
+            vec![at(6, &moment("Work 12")), at(7, &moment("W9"))],
+        ),
+        (
+            "a number of five digits after a number of six",
+            only("Fix #123456 and #12345 and C#7.", &[REJ]),
+            vec![],
+            vec![at(6, &moment("#12345"))],
+        ),
+        (
+            "a work in the words of the other lines",
+            only(
+                "It holds.",
+                &[
+                    "- rejected: an agent proposed x; the owner rejected it, because y at #1.",
+                    "- replaced: Work 3 was on main; the owner changed it, because y.",
+                ],
+            ),
+            vec![],
+            vec![at(7, &moment("#1")), at(8, &moment("Work 3"))],
+        ),
+        (
+            "a work number set off by hyphens, and words that are no work",
+            only("a-W12 and W12-b and x#12-y and w12.", &[REJ]),
+            vec![],
+            vec![at(6, &moment("W12"))],
+        ),
+        (
+            "numbers and letters that run into a work's number",
+            only("Fix \u{e9}W12 and W12\u{e9} and W12_ and _W12.", &[REJ]),
+            vec![],
+            vec![],
+        ),
+        (
+            "a date in the name of data",
+            only(
+                "It holds.",
+                &[
+                    "- rejected: an agent proposed x; the owner rejected it, because y (data: `research/2026-01-01-foo.md`).",
+                ],
+            ),
+            vec!["research/2026-01-01-foo.md"],
+            vec![at(7, &moment("2026-01-01"))],
+        ),
+        (
+            "a first line of 200 characters of two bytes each",
+            only(&"\u{e9}".repeat(200), &[REJ]),
+            vec![],
+            vec![],
+        ),
+        (
+            "a first line of 201 characters of two bytes each",
+            only(&"\u{e9}".repeat(201), &[REJ]),
+            vec![],
+            vec![at(6, "the first line is 201 characters, over 200")],
+        ),
+        (
+            "a first line of 200 characters of three bytes each",
+            only(&"\u{65e5}".repeat(200), &[REJ]),
+            vec![],
+            vec![],
+        ),
+        (
+            "a rule and a reason each of 301 characters",
+            vec![(
+                "principles/p.md",
+                format!(
+                    "{HEAD}### principle one-two\n{}\nWhy: {}\n",
+                    "a".repeat(301),
+                    "b".repeat(301)
+                ),
+            )],
+            vec![],
+            vec![
+                said(
+                    "principles/p.md",
+                    6,
+                    "principle one-two: the rule is 301 characters, over 300",
+                ),
+                said(
+                    "principles/p.md",
+                    7,
+                    "principle one-two: the reason is 301 characters, over 300",
+                ),
+            ],
+        ),
+        (
+            "a principle that names a work, an item and a date, which only a decision is held from",
+            vec![(
+                "principles/p.md",
+                format!("{HEAD}### principle one-two\nRule at W12 and 2026-01-01.\nWhy: see #12.\n"),
+            )],
+            vec![],
+            vec![],
+        ),
+        (
+            "a reason of spaces",
+            vec![(
+                "principles/p.md",
+                format!("{HEAD}### principle one-two\nRule.\nWhy:    \n"),
+            )],
+            vec![],
+            vec![said(
+                "principles/p.md",
+                7,
+                "principle one-two: the reason after `Why: ` is empty",
+            )],
+        ),
+        (
+            "a reason with no space after its mark",
+            vec![(
+                "principles/p.md",
+                format!("{HEAD}### principle one-two\nRule.\nWhy:x\n"),
+            )],
+            vec![],
+            vec![said(
+                "principles/p.md",
+                6,
+                "principle one-two: a principle is its rule on one line and its reason on one line after `Why: `",
+            )],
+        ),
+        (
+            "data named in many ways in two lines",
+            only(
+                "x (data: `a/b`) and (data: `c d`) and (data: ``) and (data: `x`",
+                &["- rejected: an agent proposed x; the owner rejected it, because y (data: `p/q`)(data: `r`)."],
+            ),
+            vec![],
+            vec![
+                at(6, &missing("a/b")),
+                at(6, &missing("c d")),
+                at(7, &missing("p/q")),
+                at(7, &missing("r")),
+            ],
+        ),
+    ]);
+}

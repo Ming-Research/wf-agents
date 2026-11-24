@@ -736,3 +736,136 @@ async fn this_repository_s_tree_format_finds_and_gives_whole_every_entry_of_its_
     let given = entries(&place.dir, &tree, &format, Some(&commit), &names, &words).await;
     assert_eq!(given, Ok(parts.join("\n\n")));
 }
+
+/// Writes the bytes to the file, commits it, and gives the commit.
+fn write_bytes(dir: &Path, file: &str, bytes: &[u8]) -> String {
+    let path = dir.join(file);
+    std::fs::create_dir_all(path.parent().expect("a directory")).expect("the directory is made");
+    std::fs::write(&path, bytes).expect("the file is written");
+    run(dir, &["add", file]);
+    run(dir, &["commit", "-q", "-m", &format!("Write {file}")]);
+    run(dir, &["rev-parse", "HEAD"])
+}
+
+const OPENING_FAULT: &str = "a file opens with `# <title>`, a blank line and one line of what it covers";
+
+// A file of the tree that is not text is told at its first line, and one that holds nothing is told, as
+// `design/lint.py` told it, as not opening as a file should. Well under a second alone, on a repository of three
+// commits; no other test takes a file's bytes from git to the check.
+#[tokio::test]
+async fn a_file_of_the_tree_that_is_not_text_or_holds_nothing_is_a_fault_at_its_first_line() {
+    let (_repo, place) = started().await;
+    write_bytes(&place.dir, "design/decisions/binary.md", &[0xff, 0xfe, b'A', b'\n']);
+    write(&place.dir, "design/decisions/empty.md", "");
+    let commit = write(
+        &place.dir,
+        "design/decisions/fine.md",
+        "# Fine\n\nWhat it covers.\n\n### decision keep-it\nIt holds.\n- rejected: an agent proposed one; the owner \
+         rejected it, because none.\n",
+    );
+    let told = formed(&place.dir, "design/", &rules(), &commit).await.expect("read");
+    assert_eq!(
+        told,
+        [
+            "design/decisions/binary.md:1: the file is not text, so its forms cannot be read".to_string(),
+            format!("design/decisions/empty.md:1: {OPENING_FAULT}"),
+        ]
+    );
+}
+
+// A file whose name holds a space, a quotation mark or a letter outside ASCII is read and named as it is, not as git
+// writes such a name where it quotes it, and the faults come in the order of the names, part by part. Well under
+// a second alone, on a repository of four commits; it catches a listing of the files that quotes a name or splits it
+// at a space, which no other test names.
+#[tokio::test]
+async fn files_whose_names_hold_a_space_a_quotation_mark_or_a_letter_outside_ascii_are_read_and_named_as_they_are() {
+    let (_repo, place) = started().await;
+    write(&place.dir, "design/decisions/a b.md", "bad\n");
+    write(&place.dir, "design/decisions/q\"q.md", "bad\n");
+    let commit = write(&place.dir, "design/decisions/\u{e9}.md", "bad\n");
+    let told = formed(&place.dir, "design/", &rules(), &commit).await.expect("read");
+    assert_eq!(
+        told,
+        [
+            format!("design/decisions/a b.md:1: {OPENING_FAULT}"),
+            format!("design/decisions/q\"q.md:1: {OPENING_FAULT}"),
+            format!("design/decisions/\u{e9}.md:1: {OPENING_FAULT}"),
+        ]
+    );
+}
+
+// The tree may be in another directory of the project, named with or without a slash at its end: its files are named
+// from the root of the repository, and the files of the same kinds of another directory are not read. Well under a
+// second alone, on a repository of three commits; it catches a directory taken as `design/` whatever the declaration
+// says.
+#[tokio::test]
+async fn a_tree_in_another_directory_is_read_there_and_named_from_the_repository_root_with_or_without_a_slash() {
+    let (_repo, place) = started().await;
+    write(&place.dir, "design/decisions/elsewhere.md", "bad\n");
+    write(&place.dir, "docs/notes/principles/p.md", "bad\n");
+    let commit = write(&place.dir, "docs/notes/decisions/d.md", "bad\n");
+    let expected = [
+        format!("docs/notes/principles/p.md:1: {OPENING_FAULT}"),
+        format!("docs/notes/decisions/d.md:1: {OPENING_FAULT}"),
+    ];
+    for tree in ["docs/notes/", "docs/notes"] {
+        let told = formed(&place.dir, tree, &rules(), &commit).await.expect("read");
+        assert_eq!(told, expected, "{tree}");
+    }
+}
+
+// The faults are told in the order the tree is read, a concept's file before the files of the concepts under it
+// and before a file whose name only begins with its name and a hyphen, and the name two files hold is taken by the
+// one read first, whichever of them git lists first: git lists `a-b.md` before `a/x.md`. The expectation is what the
+// script this replaces printed for the same two files. Well under a second alone, on a repository of three commits;
+// it catches the files read in git's order of paths.
+#[tokio::test]
+async fn files_are_read_in_the_order_of_their_parts_not_of_their_paths_so_that_the_first_to_hold_a_name_is_the_same() {
+    let (_repo, place) = started().await;
+    let text = "# T\n\nCovers.\n\n### decision same-name\nIt holds.\n- rejected: an agent proposed x; the owner rejected \
+                it, because y.\n";
+    write(&place.dir, "design/decisions/a-b.md", text);
+    let commit = write(&place.dir, "design/decisions/a/x.md", text);
+    let told = formed(&place.dir, "design/", &rules(), &commit).await.expect("read");
+    assert_eq!(
+        told,
+        ["design/decisions/a-b.md:5: decision same-name: the name is taken by design/decisions/a/x.md:5"]
+    );
+}
+
+// Data is held by the commit that is checked: a file removed since the commit is held by it and one removed in the
+// commit is not, and a file in the worktree that no commit holds is not. Well under a second alone, on a repository of
+// four commits; it catches data looked for on the disk of the worktree, which the script this replaces did.
+#[tokio::test]
+async fn data_is_held_by_the_commit_checked_and_not_by_the_worktree() {
+    let (_repo, place) = started().await;
+    let on_disk = |path: &str| place.dir.join(path).exists();
+    write(&place.dir, "research/note.md", "Note.\n");
+    let text = |path: &str| {
+        format!(
+            "# Extra\n\nWhat the tests add.\n\n### decision keep-it\nIt holds.\n- rejected: an agent proposed one; the \
+             owner rejected it, because none (data: `{path}`).\n"
+        )
+    };
+    let with_note = write(&place.dir, "design/decisions/extra.md", &text("research/note.md"));
+    let without_note = remove(&place.dir, "research/note.md");
+    assert!(!on_disk("research/note.md"));
+    let fault = |path: &str| {
+        format!("design/decisions/extra.md:7: decision keep-it: the data `{path}` is not in the repository")
+    };
+    let told = |commit: &str| formed(&place.dir, "design/", &rules(), commit);
+    assert_eq!(told(&with_note).await, Ok(Vec::new()), "the commit that held the file");
+    assert_eq!(
+        told(&without_note).await,
+        Ok(vec![fault("research/note.md")]),
+        "the commit that does not"
+    );
+    std::fs::write(place.dir.join("research/untracked.md"), "Not committed.\n").expect("the file is written");
+    let commit = write(&place.dir, "design/decisions/extra.md", &text("research/untracked.md"));
+    assert!(on_disk("research/untracked.md"));
+    assert_eq!(
+        told(&commit).await,
+        Ok(vec![fault("research/untracked.md")]),
+        "a file of the worktree no commit holds"
+    );
+}
