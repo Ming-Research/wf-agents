@@ -12,7 +12,7 @@ use crate::{Fake, Real, ended};
 #[tokio::test]
 async fn what_the_calls_of_a_round_have_come_to_is_told_while_it_runs_and_let_go_of_when_it_ends() {
     let fake = Fake {
-        plan_sleeps_once_begun: 3,
+        plan_sleeps_once_begun: 1,
         ..Fake::default()
     };
     let mut real = Real::trial(fake);
