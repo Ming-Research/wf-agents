@@ -4,8 +4,8 @@
 // scroll stops. Each column beside it stands where the most of what joins the two near the middle of the screen is
 // level: each item of the one beside it, weighed the more the nearer the middle it is, wants the block of items under
 // it, or the item above it, level with it, any part of either doing; the column stays where it is while every want is
-// met, and else glides only as far as the weighed wants call for, so that no column leaps. Each column further out
-// follows the one beside it the same way.
+// met, and else glides only as far as the weighed wants call for, so that no column leaps, and only the way the column
+// it follows moves, so that none goes against it. Each column further out follows the one beside it the same way.
 //
 // Each item is a card; one a work goes on on is a faint tint of the colour of what the work does, and one above such
 // an item has an edge of the light accent. Under each item that depends on an item besides its main dependent, a
@@ -449,9 +449,10 @@ const SLACK = 1;
 export const KEEP = 3;
 /// How much of the way to where it stands a column beside the one scrolled goes each frame: one that was the one
 /// scrolled rests where its own scroll left it, not where its links would put it, and glides there once another is.
-/// It goes no faster than `PACE` times the column it follows moved in that frame, so that a small scroll never moves
-/// another column far, however far its links would put it, and every column stops when the scroll does; what is left it
-/// makes up as the scroll goes on.
+/// It goes only the way the column it follows moved in that frame, and no further than `PACE` times as far, so that a
+/// small scroll never moves another column far, however far its links would put it, no column goes against the one it
+/// follows as the wants near the middle change, and every column stops when the scroll does; what is left it makes up
+/// as the scroll goes on.
 const LINK_EASE = 0.2;
 export const PACE = 1.5;
 
@@ -2257,9 +2258,10 @@ export class SnapScene {
   /// item of `from` near the middle of the screen wants what it is joined to in `c` level with it, the item above it or
   /// any part of the block of the items under it, the more nearly the nearer the middle it is, and weighs the more. The
   /// column stays where it is while every want is met, and else goes to the nearest place where the wants not met, each
-  /// pulling by its weight times how far it is from being met, pull it no further either way, but no more than `most`
-  /// rows in one frame. With nothing joining them near the middle, it stays.
-  private link(c: number, from: number, most = Infinity): void {
+  /// pulling by its weight times how far it is from being met, pull it no further either way. Given `most`, it goes in
+  /// one frame only the way of its sign, and no more than that many rows: where the wants pull it the other way, it
+  /// stays. With nothing joining them near the middle, it stays.
+  private link(c: number, from: number, most?: number): void {
     const t = this.tree as Tree;
     const src = this.columns[from];
     const me = this.columns[c];
@@ -2318,7 +2320,9 @@ export class SnapScene {
       if (g > 0 ? pull(mid) <= 0 : pull(mid) < 0) lo = mid;
       else hi = mid;
     }
-    me.at += Math.max(-most, Math.min(most, ((g > 0 ? lo : hi) - me.at) * LINK_EASE));
+    const step = ((g > 0 ? lo : hi) - me.at) * LINK_EASE;
+    if (most === undefined) me.at += step;
+    else me.at += most > 0 ? Math.min(most, Math.max(0, step)) : Math.max(most, Math.min(0, step));
   }
 
   /// Adds to the funnels, or to `g`, the one from an item ending at `px`, its box from `top` to `bottom`, to items
@@ -3059,7 +3063,7 @@ export class SnapScene {
       c.at += (c.aim - c.at) * GLIDE;
       if (Math.abs(c.aim - c.at) * ROW < REST) c.at = c.aim;
     });
-    const moved = (d: number) => PACE * Math.abs(this.columns[d].at - was[d]);
+    const moved = (d: number) => PACE * (this.columns[d].at - was[d]);
     for (let d = this.driver + 1; d < this.columns.length; d += 1) this.link(d, d - 1, moved(d - 1));
     for (let d = this.driver - 1; d >= 0; d -= 1) this.link(d, d + 1, moved(d + 1));
     const y = (d: number, rank: number) => {

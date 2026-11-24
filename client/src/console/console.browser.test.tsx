@@ -5,7 +5,7 @@
 // the item it points to, brought to the middle; the tree drawn again stands where it stood, the item selected kept; an
 // item revealed comes into the room the panel leaves, or to the middle when it is above or below what is seen; the
 // columns beside the one scrolled follow it, each where what joins it to the next near the middle of the screen is
-// level, and never faster than half again the one it follows; the view stands through a change of height or theme; and
+// level, only the way the one it follows moves and never faster than half again; the view stands through a change of height or theme; and
 // once destroyed, the scene listens to nothing. The pointer and the wheel are events sent to the canvas at the points
 // the test works out from where the columns stand (`place`), so that each lands where the test means; the keys are the
 // browser's own. They pin as well: a click on an item's funnel folds what is under it
@@ -835,6 +835,25 @@ describe('the tree in columns', () => {
     expect(was[0]).toBeCloseTo(7.5, 3);
     expect(was[1] - start[1]).toBeGreaterThan(0.5);
     expect(was[1] - start[1]).toBeLessThanOrEqual(PACE * 3 + 1e-6);
+  });
+
+  it('never moves the column beside the one scrolled against it where the items have none to three under them', () => {
+    // As the items near the middle change, the wants on the second column pull it now one way, now the other.
+    const under = [3, 2, 2, 3, 1, 0, 0, 2, 3, 1, 0, 2];
+    scene.show(under.map((n, k) => card(k + 1, Array.from({ length: n }, (_, j) => card(100 + 4 * k + j)))));
+    settle(scene);
+    move(50, line);
+    for (const way of [1, -1, 1, -1]) {
+      for (let k = 0; k < 200; k += 1) {
+        const was = scene.place().columns.map((c) => c.at);
+        wheel(0, way * 0.1 * ROW);
+        scene.step();
+        const now = scene.place().columns.map((c) => c.at);
+        const moved = [now[0] - was[0], now[1] - was[1]];
+        expect(moved[1] * Math.sign(moved[0])).toBeGreaterThanOrEqual(-1e-9);
+        if (moved[0] === 0) expect(moved[1]).toBe(0);
+      }
+    }
   });
 
   it('makes the column scrolled the one the others follow, and brings the first column after it', async () => {
