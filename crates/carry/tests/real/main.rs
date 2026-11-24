@@ -688,6 +688,8 @@ case "$first" in
         # A round told its return was sent back for a change not committed has nothing more to ask for.
         sent_back=no
         grep -q 'changes to tracked files that are not committed' "$log/$n.stdin" && sent_back=yes
+        # The same where the return was sent back for the tree's forms.
+        grep -q 'not in the forms the tree' "$log/$n.stdin" && sent_back=yes
         answered=no
         awk '{{gsub(/\\n/, "\n"); print}}' "$log/$n.stdin" | sed -n '/^## Why you are run$/,$p' | grep -q '^- `build_questions`' && answered=yes
         if [ '{mends_only}' = yes ] && [ "$sent_back" = yes ] && [ ! -f "$log/mended" ] \
