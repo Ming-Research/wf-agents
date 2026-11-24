@@ -4,7 +4,7 @@
 //!
 //! A line stands past the largest value of the history by as much as that is past its median: `2 × largest − median`,
 //! in the quantity's own units, so that it reaches as far out as the history itself does. A round is judged against
-//! the rounds of its own cell where at least as many of them as the settings say (`history.samples`) tell the quantity,
+//! the rounds of its own cell where at least [`HISTORY_SAMPLES`] of them tell the quantity,
 //! with a median above nothing, since a history with no scale gives no line; otherwise against every round of the
 //! flow, where a median of nothing is usual and only a history of nothing at all gives no line; and with fewer there
 //! too, it is not judged. A round that went past the lines of a signal that stops a round, stopped or let run, never
@@ -15,6 +15,11 @@ use decide::run::Failure;
 use decide::{CellId, RunId};
 use flow::Compiled;
 use work::{Back, Measures, Spent, Work};
+
+/// How many values a history needs at least before it gives a line: 19, of which a value of the same kind is the largest
+/// one time in twenty, so that a line from fewer would stand on too little. It is the same for every installation, and
+/// the policy a judgment is made under carries it ([`crate::Policy`]).
+pub const HISTORY_SAMPLES: usize = 19;
 
 /// The line of a history: past its largest value by as much as that is past its median. None for an empty one.
 pub fn line(values: &[f64]) -> Option<f64> {
@@ -224,6 +229,9 @@ pub struct Lines {
     pub work_spent: Option<Line>,
     /// How long the rounds of a work of the flow take in all, in milliseconds, as the flow's other works' have.
     pub work_time: Option<Line>,
+    /// For the engine's own rounds: how long one test of the project's CI may run before it is stopped, in
+    /// milliseconds, as the history of the project's merged checks says it ([`crate::timed::test_time`]).
+    pub test_time: Option<f64>,
 }
 
 impl Lines {
@@ -262,6 +270,7 @@ impl Lines {
             time: whole(&|s| s.ms.map(|ms| ms as f64)),
             work_spent: None,
             work_time: None,
+            test_time: None,
         }
     }
 }
@@ -453,7 +462,8 @@ mod tests {
             run: decide::RunId(1),
             round: 1,
             usd_micros: 300_000,
-            input_tokens: 0,
+            uncached_tokens: 0,
+            cache_written_tokens: None,
             cached_tokens: 0,
             output_tokens: 0,
         });

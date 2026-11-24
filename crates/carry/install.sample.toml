@@ -13,9 +13,12 @@ language = "Chinese"
 
 # The projects the works are done in, each a table named by the name the installation gives it, by which items and the
 # page know it: an item belongs to one project, and its works run in that project's repository, with what the project
-# declares in flow/project.toml on its main branch (its design tree, its files the agents are given, its settings, its
-# tests and workflows). Item numbers are one sequence across the projects, and an item may depend on an item of another
-# project, waited for as any other. Two projects never name one repository.
+# declares in wf-agents.toml at the root of its repository, on its main branch (its design tree, its files the agents
+# are given, its settings, its tests and workflows, its heavy commands, the command that checks it where the
+# local repository is the host, and how its pull requests are merged where GitHub is). This file holds only what is of
+# this machine. Item numbers are one sequence across the projects, and an item may depend on an item of another
+# project, waited for as any other. Two projects never name one repository. A project whose declaration cannot be read
+# is held: its works are paused, saying why, and the others go on.
 [projects.example]
 # The local git repository the works are done in: its own checkout, which stays on the main branch. Each work has a
 # branch `work-<n>` and a worktree `<data>/worktrees/<n>` made from the main branch's head, and is merged here; with
@@ -23,10 +26,6 @@ language = "Chinese"
 repo = "/path/to/the/repository"
 # The repository's main branch.
 main = "main"
-# A shell command whose exit with 0 means the work passes. Where the local repository is the host, it is run in a
-# work's worktree by the check before the merge and by the agents' tool `run_tests`. With [projects.example.github]
-# below, the CI is run instead, and this command is not.
-check = "./test.sh"
 # The acts refuse a repository whose own configuration could make git run a program (a filter, a merge driver, a
 # hooks directory, an included file and the like). A key the repository needs is allowed here, whole or as a beginning
 # followed by `*`.
@@ -37,8 +36,8 @@ check = "./test.sh"
 # workflows on the pushed commit, once; the agents' tool `run_tests` pushes the commit it runs to a branch of its own,
 # deleted when the run's result is read, and has only the tests and checks a request names run, by the project's fast
 # workflow, on the commit the request names or else the work's last commit; nothing is run on this machine. Both
-# workflows are declared in the project's flow/project.toml. The merge merges the work's pull request. Without this
-# table, the local repository is the host.
+# workflows are declared in the project's wf-agents.toml, with how the pull request is merged. Without this table, the
+# local repository is the host, and the project's wf-agents.toml names the command that checks it.
 # The engine needs `git` and `gh`, and its own token for GitHub in its environment: a fine-grained token for the
 # project's repository, with Contents and Pull requests read and write, Checks and Commit statuses read, and Actions
 # read and write, for the workflows it runs by hand. The engine itself never pushes a change to the project's workflow
@@ -56,45 +55,24 @@ check = "./test.sh"
 # # The engine cancels the run it asked for, and the check fails its round in passing and is tried again after a wait,
 # # or the agents' tool says so.
 # start_minutes = 10
-# # A run of the fast workflow not complete after this many minutes is cancelled, and said as what it found; the full
-# # workflows take the time flow/project.toml gives them (`ci.full.too_long`).
-# timeout_minutes = 120
-# # How a pull request is merged: squash, merge or rebase.
-# merge_method = "squash"
-# # Whether a work's branch on GitHub is deleted once it is merged.
-# delete_branch = false
 # # The gh command line, or a path to it.
 # gh = "gh"
 # # The runners the project's repository has: `github` for GitHub's own machines, and the label of each self-hosted
-# # runner registered for it. A workflow of the project (its `ci.fast` and `ci.full` in flow/project.toml) names the
-# # runner it runs on, and is not run where the repository lacks it.
+# # runner registered for it. A workflow of the project (its `ci.fast`, `ci.full` and `ci.measure` in wf-agents.toml)
+# # names the runner it runs on, and is not run where the repository lacks it.
 # runners = ["github"]
 
 [agents]
-# The command line program that runs an agent's round.
+# The command line program that runs an agent's round: `claude`, or a path to it. Every agent is refused it, so that
+# no agent runs the program itself, where nothing counts what it spends. What agents may do is not set here: it is
+# `allowed.toml` beside the flows, and the program is given the same on every machine.
 command = "claude"
 # How many agents' rounds run at once; the others wait their turn.
 slots = 2
-# What the program is given on every round after what the engine gives it. No permission mode is given here: the program
-# starts in default mode whatever it is given (the engine sets CLAUDE_CODE_SUBPROCESS_ENV_SCRUB), so `--permission-mode`
-# and `--dangerously-skip-permissions` are refused, and what agents may do is given as --allowedTools rules, such as
-# edits in their worktree.
-args = ["--allowedTools", "Edit(./**)", "Write(./**)", "--tools", "Bash,Read,Edit,Write,Grep,Glob", "--strict-mcp-config", "--disable-slash-commands"]
-# Every agent is refused what the files beside the flows refuse every agent (git push, claude) and the heavy commands
-# its project's declaration names (`[heavy]` of `flow/project.toml`: builds, test suites and the like). Here the
-# installation names the commands that update its projects' lock files and build, run and install nothing, which an
-# agent that writes may run though a heavy command covers them, as `uv lock` where a project's heavy commands hold `uv`,
-# and the uses of those that are refused all the same (`*` for any text): the engine knows no lock command of its own. A
-# lock command that a heavy command falls under or that falls under what every agent is refused, and a `*` or a
-# parenthesis in a lock command, are refused. In `args`, `--settings`, `--setting-sources`, `--permission-prompt-tool`,
-# `--` and a last flag not known to take no value are refused, since they would undo the engine's rules or take its own
-# arguments after them. With no lock command named, an agent may update no lock file, and `wf-agents run` says so as it
-# starts.
-permissions = { locks = ["uv lock"], locks_except = ["uv lock *--script*"] }
-# Which settings files the program reads, given as --setting-sources on every round. Left out, it is `user`, so that a
-# settings file the worktree holds, which an agent may write, is not read; `project` and `local`, which are such files,
-# are refused.
-# setting_sources = "user"
+# The highest level one round may run at: a round of a line that runs above its item's level goes no higher. It is no
+# lower than items.highest_level, so that a round of an item at its highest level can run at it. Left out, the top
+# level.
+highest_level = "4"
 # The program is given only these variables of the engine's environment: PATH, HOME, USER, LANG and LC_*, TMPDIR, TERM
 # and SHELL, and those named here, such as a proxy; none of them reaches a command an agent runs, which the program is
 # told to scrub of credentials. The program runs under no credential but the accounts added on the Settings view: a
@@ -140,8 +118,8 @@ model = "claude-fable-5-1"
 [items]
 # The level an item is added at where it is given none.
 default_level = "2"
-# The highest level an item may be at: an item above it is refused as it is added, and no line of the flow runs above
-# it. Left out, the top level.
+# The highest level an item may be at: an item above it is refused as it is added. A line of the flow may run a round
+# above it, up to agents.highest_level. Left out, the top level.
 highest_level = "3"
 # The most words an item's title may have, a Chinese character counting as a word: 20 allows 20 English words or 20
 # Chinese characters. A title is held to it when it is made or changed. There is no default.
@@ -164,30 +142,6 @@ cache_minutes = 60
 # cost, each reading the session, no more than writing it again would beyond reading it, at its model's prices: 39 on
 # Opus and Sonnet 5.5, 19 on Haiku 5.5, 79 on Fable 5.1. Left out, it is 55.
 warm_minutes = 55
-
-[history]
-# A measured quantity (a round's growth of context, its cost and time, a work's spend) is judged against the history
-# of its own kind: its line stands past the largest value by as much as that is past the median. A history gives a line
-# once it has at least this many values: 19, of which a value of the same kind is the largest one time in twenty. Left
-# out, it is 19.
-samples = 19
-
-# The agents' tool `query`: one read-only SQL query on the engine's store, which the engine runs and answers in the next
-# message. Off until the owner has settled what the agents see: with it off, a request is answered that the store is
-# not open to agents yet, and the store is not touched. Left out, it is off. It may be turned on only where
-# `db/schema.sql` marks a table or a column "hidden from agents" in its comment: none is hidden is a fault at start.
-# [query]
-# open = false
-# # The most rows a query is kept with; a query finding more has the first of them kept, and the agent is given the
-# # query that reads the rest.
-# max_rows = 200
-# # The milliseconds a query may run before it is stopped.
-# timeout_ms = 5000
-# # The most bytes of rows a query is kept with, and the most one row may take: a row over it is refused.
-# max_bytes = 1048576
-# # The longest a string or a blob may be in a query, however it is made. One call of a function over very long values
-# # is not stopped by the time above, so what it may cost is held by this.
-# max_value_bytes = 65536
 
 # The copies of the engine's database. Every day while the engine runs, it copies the database whole into
 # `backups/` in the data directory and keeps the newest `keep` there. Without this table, that is all: the copies share

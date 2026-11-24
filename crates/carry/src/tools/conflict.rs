@@ -48,7 +48,7 @@ mod tests {
     /// it started; gives the repository and main's new head.
     async fn moved(file: &str) -> (Repo, String) {
         let repo = Repo::new("true");
-        let started = crate::git::start(&repo.project, &repo.place(WORK), "main")
+        let started = crate::git::start(&repo.project, &repo.place(WORK), "main", "main")
             .await
             .unwrap();
         commit(&started.place.dir, "greeting.txt", "Hello, you.\n");
@@ -67,12 +67,15 @@ mod tests {
         let place = repo.place(WORK);
         let branch = Branch {
             work: WORK,
+            item: store::ItemNumber(36),
             title: "Greet the user",
             about: "",
             place: &place,
+            continues: None,
         };
+        let said = super::super::tests::said();
         let told = Told {
-            unread: None,
+            said: &said,
             tools: &[],
         };
         let call = Call {
@@ -118,7 +121,7 @@ mod tests {
     async fn a_branch_that_merges_cleanly_is_checked_by_the_host_as_before() {
         let (repo, _) = moved("other.txt").await;
         let (said, asked) = checked(&repo).await;
-        assert_eq!(said, format!("The check could not be run: {NO_TOOLS}"));
+        assert_eq!(said, format!("No check ran ({NO_TOOLS})."));
         assert_eq!(asked, [Asked::RunTests(Named::default())]);
     }
 

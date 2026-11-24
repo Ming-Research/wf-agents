@@ -24,6 +24,7 @@ import type {
   WorkPage,
 } from '../works-api';
 import { outlineOf } from '../testing';
+import { workName } from '../works/words';
 import type { Source } from './source';
 
 const LIMITS: Limits = { runs: 3, returns: 2, calls: 40 };
@@ -255,7 +256,9 @@ function cellsAt(at: string | null, state: CellState, deep = true): CellNow[] {
 
 const spentOf = (dollars: number, hours: number, rounds: number): Spent => ({
   usdMicros: Math.round(dollars * 1e6),
-  inputTokens: rounds * 41_000,
+  inputTokens: rounds * 800,
+  cacheWrittenTokens: rounds * 40_200,
+  unsplitTokens: 0,
   cachedTokens: rounds * 30_000,
   outputTokens: rounds * 3_200,
   workingMs: Math.round(hours * HOUR),
@@ -703,10 +706,10 @@ export function fixtureSource(start = Date.now()): Source {
   const find = (work: number) => {
     const item = data.items.find((i) => i.work.number === work);
     if (item !== undefined) return { item, summary: item.work };
-    throw new Error(`There is no work ${work}`);
+    throw new Error(`There is no work ${workName(work)}`);
   };
   const told = (work: number) => {
-    const c: Changed = { works: [work], items: true, copies: false, accounts: false };
+    const c: Changed = { works: [work], items: true, copies: false, accounts: false, observations: false };
     window.setTimeout(() => listeners.forEach((on) => on(c)), 0);
   };
   const change = (s: Summary, what: Act) => {
@@ -755,11 +758,17 @@ export function fixtureSource(start = Date.now()): Source {
     }
   };
   return {
-    // Each work with the questions the owner may answer ahead counted as the engine counts them, from the questions as
-    // they stand now.
-    loadItems: () => {
-      for (const i of data.items) i.work.ahead = aheadOf(questions[i.number] ?? [], i.work.waits ?? []);
-      return Promise.resolve(structuredClone(data));
+    items: {
+      // Each work with the questions the owner may answer ahead counted as the engine counts them, from the questions
+      // as they stand now.
+      loadItems: () => {
+        for (const i of data.items) i.work.ahead = aheadOf(questions[i.number] ?? [], i.work.waits ?? []);
+        return Promise.resolve(structuredClone(data));
+      },
+      changes: (onChanged) => {
+        listeners.add(onChanged);
+        return () => listeners.delete(onChanged);
+      },
     },
     loadWork: (work) => {
       try {
@@ -770,7 +779,8 @@ export function fixtureSource(start = Date.now()): Source {
       }
     },
     // The made-up works have no block with a version.
-    loadVersion: (work, block, number) => Promise.reject(new Error(`Work ${work} has no version ${number} of ${block}`)),
+    loadVersion: (work, block, number) =>
+      Promise.reject(new Error(`${workName(work)} has no version ${number} of ${block}.`)),
     act: (work, what) => {
       try {
         const { summary } = find(work);

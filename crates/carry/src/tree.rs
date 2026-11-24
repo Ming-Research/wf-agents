@@ -26,7 +26,7 @@ use std::path::Path;
 
 use decide::questions::{Standing, questions};
 use flow::agents::{Entries, Tree, TreeFormat, fill};
-use work::{Question, Said, Work};
+use work::{Question, Work};
 
 use crate::git::{self, Place};
 use crate::settings::Project;
@@ -280,17 +280,18 @@ pub(crate) async fn unknown(
 /// as a round ends whose return writes a block handed in only with the answers there (`answers_in_the_tree` of its
 /// file), the return saying this beside its work, or as the check before the merge looks, with no return, which says
 /// nothing: each question marked `tree` that has the owner's answer to its latest version ([`answered`]), where the
-/// work's own change against main, at `main`, changes no file of the tree; none where it changes one. In the order of
-/// their names. A question kept before questions said `tree` is marked by none.
+/// work's own change against main, at `main`, changes no file of the tree; none where it changes one. `rewritten` names
+/// the questions the return, with what it completes, asks anew or withdraws. In the order of their names. A question
+/// kept before questions said `tree` is marked by none.
 pub(crate) async fn unwritten(
     project: &Project,
     place: &Place,
     main: &str,
     tree: &str,
     work: &Work,
-    said: &Said,
+    rewritten: &[String],
 ) -> Result<Vec<String>, String> {
-    let answered = answered(work, said);
+    let answered = answered(work, rewritten);
     if answered.is_empty() || changed_by_the_work(project, place, main, tree).await? {
         return Ok(Vec::new());
     }
@@ -300,9 +301,9 @@ pub(crate) async fn unwritten(
 /// Each question of the work marked `tree` that has the owner's answer to its latest version, by its name, in the order
 /// of the names: but one that the return saying this asks anew or withdraws, which has no answer to its latest version
 /// once the return is taken.
-fn answered(work: &Work, said: &Said) -> Vec<String> {
+fn answered(work: &Work, rewritten: &[String]) -> Vec<String> {
     let marked = |q: &Standing<'_>| matches!(work.question(q.latest), Some(Question::Asked { tree: Some(true), .. }));
-    let rewritten = |name: &str| said.questions.iter().any(|q| q.name() == name);
+    let rewritten = |name: &str| rewritten.iter().any(|q| q == name);
     (questions(&work.records).into_iter())
         .filter(|(name, q)| q.stands() && q.answer.is_some() && marked(q) && !rewritten(name))
         .map(|(name, _)| name.to_string())

@@ -20,8 +20,8 @@ by_owner = ", written by the owner"
 
 # How a datum whose file says `names_tree_entries` is given in place of its names, one to a line: each entry it names
 # whole, as the design tree's latest version on the work's branch has it, those of one file after `file`, `{path}` the
-# file's path, the files in the order of the kinds of the project's `[tree_format]` and then by path; and after them,
-# each name that version does not hold as `gone`, `{reference}` the name as it was written.
+# file's path, the files in the order of the kinds of the tree's format (`agents/tree.toml`) and then by path; and after
+# them, each name that version does not hold as `gone`, `{reference}` the name as it was written.
 [entries]
 file = "From `{path}`:"
 gone = "{reference}: the design tree's latest version on the work's branch holds no such entry."

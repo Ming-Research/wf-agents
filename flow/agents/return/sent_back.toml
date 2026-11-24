@@ -9,7 +9,13 @@ earlier = "## Round {round} of this run: what you returned was sent back"
 item = "- {text}"
 # Between two names where a text names several, as the values of a choice.
 between = ", "
-again = "Return again, with everything this return should say in one return."
+# What the round is told to do about the list: what it returned and is not listed stands (decision
+# a-sent-back-return-is-completed-by-what-is-missing).
+again = "Return again with only what is listed here. What you returned before and is not listed stands."
+# What follows the list where the return sent back stands for nothing of what the next gives: it asked for calls, or it
+# could not be read. Such a return is given whole again, as a return that asks for calls asks for nothing else (decision
+# a-sent-back-return-is-completed-by-what-is-missing).
+again_whole = "Return again, with everything this return should say in one return."
 
 # The words of each thing that can be wrong. In a text, `{block}` is a block's name; `{name}` a name as the return wrote
 # it, or, of what it dealt with, the name of the block or group; `{value}` a value it wrote; `{values}` the values of a
@@ -29,13 +35,15 @@ not_handed_in = "`{block}` is not handed in, and this cell must hand it in every
 # (`with_nothing_but`), and the other blocks this return holds, `{besides}`, each between backticks, joined by `between`.
 nothing_but = "`{block}` is `{value}`, and a return with that value must hold none of {besides}."
 unreadable = "What came back could not be read as a return of its form. Each quote and each line break inside a text must be escaped: {why}"
+# No return is sent back for these two now: a name that did not run the round, or is written twice, changes nothing.
+# The words stay for the reasons of returns sent back before.
 not_run_by = "`{name}` is named in `dealt_with`, but it did not run this round."
 dealt_with_twice = "`{name}` is named twice in `dealt_with`."
 dealt_with_nothing = "`dealt_with` names nothing of what ran this round, and the return asks for no call, so the cell would run again at once."
 written_over = "Another writer wrote version {version} of `{block}` after this round was told of the version it writes over."
 choice_changed = "`{block}` is a choice named in `meaning_unchanged`, but the return gives it a different value from the one it has."
 asks_and_works = "The return asks for calls and also deals with something or writes a block: a return that asks for calls asks for nothing else."
-not_watched = "`{name}` is named in `dealt_with`, but it is not one of the things that run this cell."
+not_watched = "`{name}` is named in `dealt_with`, but it is not a name this cell is given."
 not_a_tool = "`{name}` is not a tool this cell may ask for."
 unchanged_not_written = "`{block}` is named in `meaning_unchanged`, but this return does not write it."
 # A question the return writes that is not its cell's own: another cell's, or one the engine asked.
@@ -53,7 +61,7 @@ not_answerable = "The question `{name}` cannot be asked from this cell: no answe
 # return nor the engine's question that stands of the file as it is says why.
 unexplained = "`{path}` is a file the project protects. The work's branch changes it, and nothing says why: say in `protected_changes` why the change is needed, or take it back."
 # A file, `{path}`, that the run of a line that changes only the project's tests changed on the work's branch, and that
-# is none of the project's tests (`[tests]` of `project.toml`).
+# is none of the project's tests (`[tests]` of its declaration).
 not_a_test = "`{path}` is not one of the project's tests, which are the only files your line changes: take back what this run changed in it."
 # The worktree, as the round of a line that may change the work ended with a return that asks for no call, holds, of the
 # files git tracks, `{changes}` as `git status --porcelain` lists them, that are not committed; or a merge begun in it is

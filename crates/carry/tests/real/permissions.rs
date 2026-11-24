@@ -1,8 +1,10 @@
 //! What each line's agents may run reaches the command line of every round, and its system prompt says it.
 
+use std::collections::BTreeMap;
+
 use service::Act;
 
-use crate::{Call, Fake, Real, ended};
+use crate::{Call, DECLARED_VARIABLE, Fake, Real, ended};
 
 /// The values the call was given after each time it was given the flag, up to the next flag.
 fn after<'a>(call: &'a Call, flag: &str) -> Vec<&'a str> {
@@ -33,7 +35,49 @@ async fn a_line_that_writes_and_one_that_only_reads_are_each_given_what_they_may
     let (plan, review) = (&calls[0], &calls[2]);
     assert!(plan.of("Plan") && review.of("Review"));
 
-    // The engineer's line writes: it may update a lock file, and is refused the heavy commands and pushing.
+    // Every round is given what the flows' words say agents may do, turned into the program's own flags, with the
+    // engine's own temporary directory written without a trailing slash, and the arguments that isolate the program
+    // from the owner's tools and settings: the settings hold no argument. Each is what the installation's arguments gave
+    // before they were the engine's. Every round is refused the agents' program the installation names, which here is
+    // the fake program's path and no other name. Reference: the installation's former arguments.
+    let temp = std::env::temp_dir();
+    let temp = temp.to_string_lossy();
+    let temp = temp.trim_end_matches('/');
+    let program = format!("Bash({} *)", real.settings.agents.command);
+    for call in &calls {
+        assert_eq!(
+            after(call, "--tools"),
+            ["Bash,Read,Grep,Glob,Edit,Write,WebSearch,WebFetch,Agent"],
+            "{:?}",
+            call.args
+        );
+        assert_eq!(
+            after(call, "--allowedTools"),
+            [
+                "Bash".to_string(),
+                "Grep".to_string(),
+                "Glob".to_string(),
+                "Edit(./**)".to_string(),
+                format!("Edit(/{temp}/**)"),
+                "WebSearch".to_string(),
+                "WebFetch".to_string(),
+            ]
+        );
+        assert_eq!(after(call, "--add-dir"), [temp]);
+        assert_eq!(after(call, "--setting-sources"), ["user"]);
+        assert_eq!(call.args.iter().filter(|a| *a == "--setting-sources").count(), 1);
+        for flag in ["--strict-mcp-config", "--disable-slash-commands"] {
+            assert!(call.args.iter().any(|a| a == flag), "{flag}");
+        }
+        let refused = after(call, "--disallowedTools");
+        assert!(refused.contains(&program.as_str()), "{program}: {refused:?}");
+        assert!(
+            !refused.contains(&"Bash(claude *)"),
+            "no program is assumed: {refused:?}"
+        );
+    }
+
+    // The engineer's line writes: it is refused the heavy commands and pushing.
     let refused = after(plan, "--disallowedTools");
     for rule in ["Bash(rustc *)", "Bash(npx *)", "Bash(vitest *)", "Bash(git push *)"] {
         assert!(refused.contains(&rule), "{rule}: {refused:?}");
@@ -42,9 +86,11 @@ async fn a_line_that_writes_and_one_that_only_reads_are_each_given_what_they_may
         !refused.contains(&"Edit") && !refused.contains(&"Bash(git commit *)"),
         "{refused:?}"
     );
-    assert!(after(plan, "--allowedTools").contains(&"Bash(cargo update *)"));
     assert!(told(plan, "Make your changes there and commit them there."));
-    assert!(told(plan, "`cargo update`"));
+    assert!(
+        !told(plan, "To update a lock file"),
+        "no lock command is given any line"
+    );
     assert!(!told(plan, "{your_line}"), "the line's words are put in");
 
     // The reviewer's line only reads: it is refused what edits a file or changes the repository as well.
@@ -59,10 +105,12 @@ async fn a_line_that_writes_and_one_that_only_reads_are_each_given_what_they_may
     ] {
         assert!(refused.contains(&rule), "{rule}: {refused:?}");
     }
-    assert!(after(review, "--allowedTools").is_empty());
+    // What the words let agents do is the same for every line; a line that only reads is refused more.
+    assert_eq!(after(review, "--allowedTools"), after(plan, "--allowedTools"));
+    assert_eq!(after(review, "--tools"), after(plan, "--tools"));
     assert!(told(review, "You only read it"));
     assert!(!told(review, "Make your changes there"));
-    // Every line's system prompt holds the project's files `project.toml` names, each headed by its path, the engine's
+    // Every line's system prompt holds the project's files its declaration names, each headed by its path, the engine's
     // words, and how a cell returns, with each field's words and the owner's language beside its name.
     for call in [plan, review] {
         for (path, text) in crate::PROJECT_FILES {
@@ -117,4 +165,46 @@ async fn a_change_of_the_guide_in_the_worktree_reaches_the_lines_next_round_as_a
         .map(|s| &s.why)
         .collect();
     assert!(matches!(renewed.as_slice(), [work::Why::Changed { .. }]), "{renewed:?}");
+}
+
+// Every round's command line is given the variables the project's declaration names (`[environment]` of the declaration
+// on its main), with the values it gives them: the test repository's declaration gives RUSTUP_AUTO_INSTALL a value of
+// its own, which no value the engine writes could be. A few rounds of the stand-in, with git: about a second; the one
+// test that the declared variables, and not the engine's, reach the command line a round runs.
+#[tokio::test]
+async fn every_round_is_given_the_variables_the_projects_declaration_names_with_the_values_it_gives() {
+    let mut real = Real::trial(Fake::default());
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| ended(&real.decision(work))).await;
+    let calls = real.calls();
+    assert!(!calls.is_empty());
+    for n in 1..=calls.len() {
+        let given =
+            std::fs::read_to_string(real.calls_dir().join(format!("{n}.rustup"))).expect("the stand-in kept it");
+        assert_eq!(given, DECLARED_VARIABLE, "call {n}");
+    }
+}
+
+// A declared value that holds a NUL is refused as the engine starts: a NUL ends a string of a process's environment, and
+// a program is not started with one (here shown with the operating system's own: `Command` fails to start `true` given
+// it), so every round of the project would fail to start the agents' program, with the declaration read and accepted. A
+// value with any other character is none. Milliseconds alone, one process started; the one test of what a declared
+// value may hold.
+#[test]
+fn a_declared_value_that_holds_a_nul_is_refused_as_one_no_program_can_be_started_with() {
+    let started = std::process::Command::new("true").env("SOME_VARIABLE", "a\0b").status();
+    assert!(
+        started.is_err(),
+        "a program is started with a NUL in a variable: {started:?}"
+    );
+    let faults = |value: &str| {
+        let declared = BTreeMap::from([("SOME_VARIABLE".to_string(), value.to_string())]);
+        carry::cli::environment_faults(&declared, &[])
+    };
+    assert_eq!(faults("a b\nc"), Vec::<String>::new());
+    assert_eq!(faults(""), Vec::<String>::new());
+    let said = faults("a\0b");
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(said[0].contains("SOME_VARIABLE"), "{said:?}");
 }

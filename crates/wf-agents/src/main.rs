@@ -2,13 +2,18 @@
 //!
 //! - `reference`: `wf-agents help`, the whole reference of the command line.
 //! - `running`: `wf-agents run`, the engine as a process.
+//! - `carried`: the flows the program carries, which `wf-agents run` takes out to run.
+//! - `repair`: `wf-agents repair-costs`, the one-off correction of costs recorded before a round's cost was what its
+//!   results say it spent.
 //! - `talk`: the commands that talk to a running engine.
 //! - `situations`: `wf-agents flow situations`, what each agent's cell is sent in every situation it can be in.
 //! - `names`, a test: no source names a cell, a line, a group or a block of a flow.
 
+mod carried;
 #[cfg(test)]
 mod names;
 mod reference;
+mod repair;
 mod running;
 mod situations;
 mod talk;
@@ -19,16 +24,20 @@ use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
 use flow::{Fault, FaultKind, Has, Source};
-use web::works::{Act, ChangeAsked, EngineAct, SpokenTo};
+use web::works::{Act, ChangeAsked, EngineAct, NewItem, SpokenTo};
 
 use crate::talk::Asked;
 
 /// The port the engine serves the owner's pages on, on the loopback address, unless another is given.
 const PORT: u16 = 7470;
 
+/// What `wf-agents --version` says: the program's version and the commit it was built from, as the installation gave it
+/// to the build, or `unknown`.
+pub const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("WF_COMMIT"), ")");
+
 /// Runs coding agents through a defined flow.
 #[derive(Parser)]
-#[command(version, disable_help_subcommand = true)]
+#[command(version = VERSION, disable_help_subcommand = true)]
 struct Cli {
     // Required: with none, clap fails with the usage and the names of the subcommands.
     #[command(subcommand)]
@@ -55,9 +64,19 @@ enum Command {
         /// The data directory, which holds the store.
         #[arg(long)]
         data: PathBuf,
-        /// The directory of a flow's definition; given once for each flow.
-        #[arg(long = "flow", required = true)]
+        /// The directory of a flow's definition; given once for each flow. The first is the one the flow page shows.
+        /// Where the program's own flows are run, `--program-flow` is given instead.
+        #[arg(
+            long = "flow",
+            required_unless_present = "program_flows",
+            conflicts_with = "program_flows"
+        )]
         flows: Vec<PathBuf>,
+        /// The name of a flow the program carries, which it takes out into the data directory's `flows/` as it starts
+        /// and runs; given once for each flow, the first being the one the flow page shows. The flows are those of the
+        /// source the program was built from.
+        #[arg(long = "program-flow", value_name = "NAME")]
+        program_flows: Vec<String>,
         /// A script the agents, the engine's acts and the tools follow, in place of the real ones.
         #[arg(long, conflicts_with = "settings")]
         script: Option<PathBuf>,
@@ -67,9 +86,15 @@ enum Command {
         /// The port of the pages; 0 for any free one.
         #[arg(long, default_value_t = PORT)]
         port: u16,
+        /// Makes the data directory's store in it: given where it holds none, and refused where it holds one. Without
+        /// it a directory that holds no store is refused, so that a directory that is no data directory is never made
+        /// into one by being named; the directory itself, and git in it, are the owner's to make.
+        #[arg(long)]
+        new: bool,
     },
     /// Adds an item with its work, which is added paused: it begins nothing until it is let on with `wf-agents
-    /// resume`.
+    /// resume`. Given --why and --waits-for, the pause says why it is kept, and the items it waits for to merge or be
+    /// cancelled, as `wf-agents pause` does.
     Add {
         #[arg(long)]
         title: String,
@@ -88,6 +113,12 @@ enum Command {
         /// A tag it carries, which classifies it; given once for each.
         #[arg(long = "tag", value_name = "TAG")]
         tags: Vec<String>,
+        /// A branch its work continues: the work starts from that branch's head, not from the head of main.
+        #[arg(long = "continue-branch", value_name = "BRANCH", conflicts_with = "continue_pull")]
+        continue_branch: Option<String>,
+        /// A pull request its work continues, by number: the work starts from that pull request's head.
+        #[arg(long = "continue-pull", value_name = "PULL")]
+        continue_pull: Option<u64>,
         /// A block written for it, with this text.
         #[arg(long = "write", value_name = "BLOCK=TEXT")]
         texts: Vec<String>,
@@ -97,13 +128,20 @@ enum Command {
         /// A block that is a choice, written for it with this value.
         #[arg(long = "choose", value_name = "BLOCK=VALUE")]
         choices: Vec<String>,
+        /// Why it is paused as it is added, in a sentence, such as what it waits for.
+        #[arg(long)]
+        why: Option<String>,
+        /// An item its pause waits for to merge or be cancelled, by number; given once for each.
+        #[arg(long = "waits-for", value_name = "ITEM")]
+        waits_for: Vec<u64>,
         #[command(flatten)]
         at: At,
     },
     /// Makes several changes of items at once, for one reason: in the order given, each judged against what those
     /// before it make, all of them or none. Each is ITEM:KIND or ITEM:KIND=VALUE, the kind one of title=TEXT,
-    /// level=LEVEL, depends-on=ITEM, no-longer-depends-on=ITEM, tag=TAG, untag=TAG, cancel and reopen. Every refusal
-    /// is said at once, by the change's place among them.
+    /// level=LEVEL, depends-on=ITEM, no-longer-depends-on=ITEM, tag=TAG, untag=TAG, continue-branch=BRANCH,
+    /// continue-pull=PULL, no-longer-continues, cancel and reopen. Every refusal is said at once, by the change's place
+    /// among them.
     Change {
         #[command(flatten)]
         why: Why,
@@ -208,8 +246,24 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// The items that could be let on now: paused, every item they depend on merged or cancelled. Those more open items
-    /// wait for come first; the choice is yours.
+    /// The pull requests open on the hosts of the projects' repositories, each with its number, title, whether it is a
+    /// draft and when it was last updated, and the work that keeps it, what that work does now and how long ago
+    /// something last happened to it, or that no work keeps it; at most a hundred pull requests, and what is left out
+    /// is said by project, with the command that gives it. A project whose host could not say is said by itself with
+    /// why, and is never taken for one with no pull requests.
+    Pulls {
+        /// Only the pull requests of this project.
+        #[arg(long)]
+        project: Option<String>,
+        /// Only the pull requests numbered this or more.
+        #[arg(long, value_name = "NUMBER")]
+        from: Option<u64>,
+        #[command(flatten)]
+        at: At,
+    },
+    /// The items that could be let on now: paused, every item they depend on merged or cancelled, and every item their
+    /// pause waits for (`wf-agents pause --waits-for`) merged or cancelled. Those more open items wait for come first;
+    /// the choice is yours. How many more paused items wait for items that have not ended is said.
     Candidates {
         #[command(flatten)]
         at: At,
@@ -223,10 +277,11 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// The observations agents reported beyond their works, the newest first: each with its number, whether the owner
-    /// read it, when it was kept, the item and work it came from and the cell, run and round that reported it, then
-    /// its whole text. At most twenty are given; the line after them says how many more there are and the number to
-    /// give next time with --from.
+    /// The observations, the newest first: each with its number, whether the owner read it, when it was kept and where
+    /// it came from (the item, work, cell, run and round of one an agent reported, or the project that reported one an
+    /// architect added), what project it is of, its title, tags and the item that took it in where it has them, then
+    /// its whole text. Those an item that is not cancelled took in are left out unless --all. At most twenty are
+    /// given; the line after them says how many more there are and the command to give them.
     Observations {
         /// The number of the observation to give from, going down to the older ones; the newest where none is given.
         #[arg(long, value_name = "NUMBER")]
@@ -234,6 +289,55 @@ enum Command {
         /// The most observations to give.
         #[arg(long, default_value_t = 20)]
         limit: usize,
+        /// Only the observations that carry this tag.
+        #[arg(long)]
+        tag: Option<String>,
+        /// Only the observations of this project.
+        #[arg(long)]
+        project: Option<String>,
+        /// The observations an item took in as well.
+        #[arg(long)]
+        all: bool,
+        #[command(flatten)]
+        at: At,
+    },
+    /// Adds an observation: what an architect came across, of the project whose items may take it in, and reported
+    /// by the project it came from, which may be the same; both among those the settings name. A fault of the flow or
+    /// the engine found in another project is added as of wf-agents. It is given a title and tags as it is added, or
+    /// later with `wf-agents change-observations`, and has the next number.
+    AddObservation {
+        /// The project it is of.
+        #[arg(long)]
+        project: String,
+        /// The project that reported it.
+        #[arg(long = "reported-by", value_name = "PROJECT")]
+        reported_by: String,
+        /// Its title, in the owner's language, as long as an item's may be.
+        #[arg(long)]
+        title: Option<String>,
+        /// A tag it carries, a name with no space and no comma; given once for each. The same names classify items.
+        #[arg(long = "tag", value_name = "TAG")]
+        tags: Vec<String>,
+        /// What it says.
+        #[arg(long, conflicts_with = "file", required_unless_present = "file")]
+        text: Option<String>,
+        /// A file that holds what it says.
+        #[arg(long)]
+        file: Option<PathBuf>,
+        #[command(flatten)]
+        at: At,
+    },
+    /// Makes several changes of observations at once, for one reason: in the order given, each judged against what
+    /// those before it make, all of them or none. Each is OBSERVATION:KIND or OBSERVATION:KIND=VALUE, the observation
+    /// its number with or without the O, the kind one of title=TEXT, tag=TAG, untag=TAG, taken-in-by=ITEM and delete.
+    /// An item of the project the observation is of, whose work is not cancelled, takes an observation in, whatever
+    /// it is doing; a deleted observation is listed no more, and its text and why stay in the records. Every refusal is
+    /// said at once, by the change's place.
+    ChangeObservations {
+        #[command(flatten)]
+        why: Why,
+        #[arg(required = true, value_name = "OBSERVATION:KIND[=VALUE]")]
+        changes: Vec<String>,
         #[command(flatten)]
         at: At,
     },
@@ -253,7 +357,8 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// The tags items carry, each with how many items carry it and how many of those have not ended.
+    /// The tags items and observations carry, each with how many items carry it and how many of those have not ended,
+    /// and how many observations carry it and how many of those are not handled: one list of the names in use.
     Tags {
         #[command(flatten)]
         at: At,
@@ -292,13 +397,35 @@ enum Command {
         at: At,
     },
     /// Pauses a work: no round of it begins but those of a run that answers a note, a person's words to its cell, and
-    /// the one under way ends. With --all, pauses everything instead, until `wf-agents resume --all`; it holds across a
-    /// stop of the engine, and a work's own pause holds after it is lifted.
+    /// the one under way ends. The pause may say why it is kept, and the items it waits for to merge or be cancelled:
+    /// `wf-agents list`, `show` and `candidates` say them, `wf-agents wait` says once that each has ended, and only
+    /// `wf-agents resume` lets the work on. With --all, pauses everything instead, until `wf-agents resume --all`; it
+    /// holds across a stop of the engine, and a work's own pause holds after it is lifted.
     Pause {
         #[arg(required_unless_present = "all")]
         work: Option<u64>,
         #[arg(long, conflicts_with = "work")]
         all: bool,
+        /// Why the work is paused, in a sentence, such as what it waits for.
+        #[arg(long, conflicts_with = "all")]
+        why: Option<String>,
+        /// An item the pause waits for to merge or be cancelled, by number; given once for each.
+        #[arg(long = "waits-for", value_name = "ITEM", conflicts_with = "all")]
+        waits_for: Vec<u64>,
+        #[command(flatten)]
+        at: At,
+    },
+    /// Stops the engine, as for installing a new build: no round of any work begins from then, and the engine ends,
+    /// with status 0, once the rounds under way have ended and their returns are kept. Says each round it waits for,
+    /// how long it has taken and how much longer it is expected to take. With --now, says the rounds a stop at once
+    /// would cut off and stops nothing; with --now --yes, stops the engine at once, cutting them off.
+    Stop {
+        /// Stop at once, cutting off the rounds under way.
+        #[arg(long)]
+        now: bool,
+        /// Confirms a stop at once.
+        #[arg(long, requires = "now")]
+        yes: bool,
         #[command(flatten)]
         at: At,
     },
@@ -326,7 +453,9 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// Gives a call that waits for a person its result, such as that a run at its limit goes on.
+    /// Gives a call that waits for a person its result: a person's answer to a question put to them. A run at its
+    /// limit is let go on with `wf-agents let-go --call`, and words to a cell are said with `wf-agents say`, which the
+    /// conversation keeps.
     Result {
         work: u64,
         call: u64,
@@ -377,9 +506,10 @@ enum Command {
     },
     /// Waits for what needs whoever plans the work and says it, a line each, most pressing first: a work that ended,
     /// one that waits on the owner, each thing it waits on them for by why, as the engine's one list of what waits on
-    /// the owner says, one that waits for items none of which is going on. It answers as soon as there is something
-    /// since the mark, and says the mark to give next time; nothing that happens between two calls is lost. With no
-    /// mark, it gives what stands now, the works that ended being taken as read.
+    /// the owner says, one that waits for items none of which is going on, and one the owner paused for items
+    /// (`wf-agents pause --waits-for`) each of which has merged or been cancelled. It answers as soon as there is
+    /// something since the mark, and says the mark to give next time; nothing that happens between two calls is lost.
+    /// With no mark, it gives what stands now, the works that ended being taken as read.
     Wait {
         /// The mark the last call gave.
         #[arg(long)]
@@ -391,10 +521,17 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// Lets a cell that reached its limit go on.
+    /// Lets what reached its limit go on: with a cell, the cell, which runs again past its limit; with --call, the
+    /// run whose call at its limit waits for the owner, which the engine gives its own result, so that the run's next
+    /// round begins. `wf-agents show` of the work says which call waits.
     LetGo {
         work: u64,
-        cell: String,
+        /// The cell that reached its limit, by its id.
+        #[arg(conflicts_with = "call", required_unless_present = "call")]
+        cell: Option<String>,
+        /// The call at its limit that waits for the owner, by its number.
+        #[arg(long)]
+        call: Option<u64>,
         #[command(flatten)]
         at: At,
     },
@@ -411,6 +548,22 @@ enum Command {
         limit: usize,
         #[command(flatten)]
         at: At,
+    },
+    /// Corrects, once, the cost recorded of each round and fork whose cost was recorded as the session's total less
+    /// what the session cost before: from the streams kept of them it sets each to what its results say it spent, and
+    /// a round that printed no result, which its engine's restart cut off, to what the totals around it leave, where
+    /// nothing else was done in its session between them. It takes a copy of the database first, writes nothing where
+    /// that fails, and refuses to run while an engine runs on the data directory. It lists what it could not tell,
+    /// leaving it as it was, and says how many rounds still record another cost than their results say. It rewrites
+    /// records in place, the one exception to rows only being added to, and is removed once the owner has run it on the
+    /// installation's data directory.
+    RepairCosts {
+        /// The data directory, which holds the store and the rounds' streams.
+        #[arg(long)]
+        data: PathBuf,
+        /// The most changes and the most that could not be told that are listed.
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
     },
 }
 
@@ -461,7 +614,8 @@ enum FlowCommand {
         /// Only this cell, by its id.
         #[arg(long)]
         cell: Option<String>,
-        /// The project's checkout, whose files the system prompt holds; they are left out where none is given.
+        /// The project's checkout, whose declaration (`wf-agents.toml`) and files the system prompt holds; they are left
+        /// out where none is given.
         #[arg(long)]
         project: Option<PathBuf>,
     },
@@ -515,15 +669,22 @@ fn main() -> ExitCode {
         Command::Run {
             data,
             flows,
+            program_flows,
             script,
             settings,
             port,
+            new,
         } => {
             let carriers = match script {
                 Some(script) => running::With::Script(script),
                 None => running::With::Settings(settings.unwrap_or_else(|| data.join(carry::settings::FILE))),
             };
-            running::run(&data, &flows, carriers, port)
+            let flows = if program_flows.is_empty() {
+                running::Flows::Directories(flows)
+            } else {
+                running::Flows::Program(program_flows)
+            };
+            running::run(&data, &flows, carriers, port, new)
         }
         Command::Add {
             title,
@@ -532,18 +693,29 @@ fn main() -> ExitCode {
             flow,
             depends_on,
             tags,
+            continue_branch,
+            continue_pull,
             texts,
             files,
             choices,
+            why,
+            waits_for,
             at,
         } => {
             let written = talk::Written {
                 texts: &texts,
                 files: &files,
                 choices: &choices,
+                paused: talk::Paused { why, waits_for },
             };
             match talk::new_item(title, level, project, flow, depends_on, tags, written) {
-                Ok(item) => talk::ask(at.port, Asked::Add(item)),
+                Ok(item) => talk::ask(
+                    at.port,
+                    Asked::Add(NewItem {
+                        continues: talk::continues(continue_branch, continue_pull),
+                        ..item
+                    }),
+                ),
                 Err(why) => {
                     eprintln!("{why}");
                     ExitCode::FAILURE
@@ -566,9 +738,42 @@ fn main() -> ExitCode {
         Command::Reopen { item, why, at } => one(at, why, ChangeAsked::Reopen { item }),
         Command::List { tag, from, all, at } => talk::ask(at.port, Asked::List(talk::Listing { tag, from, all })),
         Command::Changes { since, at } => talk::ask(at.port, Asked::Changes { since }),
+        Command::Pulls { project, from, at } => talk::ask(at.port, Asked::Pulls { project, from }),
         Command::Candidates { at } => talk::ask(at.port, Asked::Candidates),
         Command::Search { text, limit, at } => talk::ask(at.port, Asked::Search { text, limit }),
-        Command::Observations { from, limit, at } => talk::ask(at.port, Asked::Observations { from, limit }),
+        Command::Observations {
+            from,
+            limit,
+            tag,
+            project,
+            all,
+            at,
+        } => {
+            let showing = talk::Showing { tag, project, all };
+            talk::ask(at.port, Asked::Observations { from, limit, showing })
+        }
+        Command::AddObservation {
+            project,
+            reported_by,
+            title,
+            tags,
+            text,
+            file,
+            at,
+        } => match talk::new_observation(project, reported_by, title, tags, text, file.as_deref()) {
+            Ok(observation) => talk::ask(at.port, Asked::AddObservation(observation)),
+            Err(why) => {
+                eprintln!("{why}");
+                ExitCode::FAILURE
+            }
+        },
+        Command::ChangeObservations { why, changes, at } => match talk::observation_changes(&changes) {
+            Ok(changes) => talk::ask(at.port, Asked::ChangeObservations { why: why.why, changes }),
+            Err(why) => {
+                eprintln!("{why}");
+                ExitCode::FAILURE
+            }
+        },
         Command::Graph {
             item,
             down,
@@ -590,10 +795,17 @@ fn main() -> ExitCode {
             (Some(work), false) => talk::ask(at.port, Asked::Act(work, Act::Resume {})),
             _ => talk::ask(at.port, Asked::Everything(EngineAct::Resume {})),
         },
-        Command::Pause { work, all, at } => match (work, all) {
-            (Some(work), false) => talk::ask(at.port, Asked::Act(work, Act::Pause {})),
+        Command::Pause {
+            work,
+            all,
+            why,
+            waits_for,
+            at,
+        } => match (work, all) {
+            (Some(work), false) => talk::ask(at.port, Asked::Act(work, Act::Pause { why, waits_for })),
             _ => talk::ask(at.port, Asked::Everything(EngineAct::Pause {})),
         },
+        Command::Stop { now, yes, at } => talk::ask(at.port, Asked::Stop { now, yes }),
         Command::Cancel { work, why, at } => talk::ask(at.port, Asked::Cancel(work, why)),
         Command::Write {
             work,
@@ -673,8 +885,16 @@ fn main() -> ExitCode {
             talk::ask(at.port, Asked::Act(work, Act::Say { to, words }))
         }
         Command::Wait { since, longest, at } => talk::ask(at.port, Asked::Wait { since, longest }),
-        Command::LetGo { work, cell, at } => talk::ask(at.port, Asked::Act(work, Act::LetGo { cell })),
+        Command::LetGo { work, cell, call, at } => {
+            let act = match (cell, call) {
+                (_, Some(call)) => Act::GoOn { call },
+                (Some(cell), None) => Act::LetGo { cell },
+                (None, None) => unreachable!("the command line asks for a cell or a call"),
+            };
+            talk::ask(at.port, Asked::Act(work, act))
+        }
         Command::System { days, limit, at } => talk::ask(at.port, Asked::System { days, limit }),
+        Command::RepairCosts { data, limit } => repair::run(&data, limit),
     }
 }
 
@@ -695,9 +915,11 @@ fn one(at: At, why: Why, change: ChangeAsked) -> ExitCode {
 /// withdrawn and as the owner answers one; `asked`, as the questions and their answers come to stand otherwise;
 /// `handed_in`, written by the engine's loop as the first run of a cell that dealt with something finishes; `main`,
 /// written by the acts' watch of main on the host; `tree` and `head`, read by the carriers of the design tree and of the
-/// work's head on a work's branch, written from outside or handed in with the round that committed them; and `words`,
-/// written by the engine's loop as the owner speaks to a cell, the cell's own words.
-const SOURCES: [&str; 9] = [
+/// work's head on a work's branch, written from outside or handed in with the round that committed them; `test_times`,
+/// written by the engine's driver as a call of `run_tests` of the work ends, from what the work's runs of the project's
+/// CI said of how long its tests took; and `words`, written by the engine's loop as the owner speaks to a cell, the
+/// cell's own words.
+const SOURCES: [&str; 10] = [
     "answer",
     "asked",
     "dependencies",
@@ -705,6 +927,7 @@ const SOURCES: [&str; 9] = [
     "head",
     "main",
     "start",
+    "test_times",
     "tree",
     "words",
 ];
@@ -1046,4 +1269,22 @@ fn page(dir: PathBuf, port: u16) -> ExitCode {
             }
         }
     })
+}
+
+// The build script's own code, which the tests of the program hold to what it should do: it is not part of the program.
+#[cfg(test)]
+#[path = "../build_support/commit.rs"]
+mod commit;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+
+    #[test]
+    fn the_version_says_the_commit_the_build_was_given_or_unknown() {
+        let commit = commit::commit(option_env!("WF_BUILD_COMMIT"));
+        assert_eq!(VERSION, format!("{} ({commit})", env!("CARGO_PKG_VERSION")));
+        assert_eq!(Cli::command().get_version(), Some(VERSION));
+    }
 }

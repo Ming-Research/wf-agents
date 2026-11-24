@@ -34,7 +34,10 @@
 // stronger, and eases back to rest.
 // What stands is drawn once and kept until something in it changes: a tree read again that draws the same makes
 // nothing again, and one that changed makes again only the cards that changed; a frame in which only the lights, the
-// pulses and the ages move draws only those, the cards standing in a group of their own that is drawn as it was.
+// pulses and the ages move draws only those, the cards standing in a group of their own that is drawn as it was. The
+// glow of the lit ways is drawn and blurred on texels coarser than the canvas, a part of its blur's strength wide
+// ([`BLUR_TEXEL`]), and each layer of glow is blurred over the room its lights take in a frame, and not at all in a
+// frame where it has none. Nothing is drawn while the page or the console's view is hidden.
 //
 // A card's second row draws the level the work's cell runs at, the works page's strip of the work's cells, and the
 // lines the work changed; an ended item's one row, the lines its work changed. What the interface has nothing for yet
@@ -57,10 +60,10 @@ import {
 } from 'pixi.js';
 
 import { accentNow, onAccent, turning } from '../accent';
-import { LINES_LOOKS, levelLook, levelWords } from '../marks';
+import { LINES_LOOKS, levelLook, levelPointed, levelWords } from '../marks';
 import { CELL_LOOKS, MARK, pulsing } from '../works/state-marks';
 import type { CellNow, CellState } from '../works-api';
-import { NO_LEVEL, STATE, linesAdded, linesRemoved, stateOf, stoppedAt } from '../works/words';
+import { NO_LEVEL, STATE, itemName, linesAdded, linesRemoved, stateOf, stoppedAt } from '../works/words';
 import { type Fold, STANDINGS, type Shown, type ShownWork, age } from './items';
 import { indexTree, type Tree } from './tree';
 
@@ -285,6 +288,15 @@ export const FLASH_MS = 800;
 /// The room a soft light's blur is drawn in past its fill, in strengths of the blur: wide enough that the blur fades
 /// out before its edge. It is also as far as the light reaches past its fill.
 const BLUR_ROOM = 4;
+/// The glow of a lit way is drawn and blurred on a texture coarser than the canvas: one texel to this part of its
+/// blur's strength, in pixels of the page, and never finer than the canvas. A blur `s` strong spreads a line about
+/// 1.3 `s` either way, and a texel a quarter of `s` wide spreads it under 2% further, which does not show; and as the
+/// texel is a part of the blur and not of the canvas, a glow is drawn on the same texels at a pixel ratio of 1 and of
+/// 2, and looks the same at both. The near glow, 4 strong, is blurred on texels a pixel wide; the far glow, 14
+/// strong, on texels 3.5 pixels wide, so on a twelfth of the texels. The soft lights round the items keep texels a
+/// pixel wide: the flash of the item selected grows its light by a few pixels a frame, which coarser texels would show
+/// in steps.
+const BLUR_TEXEL = 0.25;
 /// The step in pixels by which a texture a kept glow is laid on is made larger than the glow ([`SnapScene.bake`]).
 const TEXTURE_STEP = 128;
 
@@ -303,6 +315,12 @@ function softBlur(strength: number): BlurFilter {
   const blur = new BlurFilter({ strength });
   blur.padding = BLUR_ROOM * strength;
   return blur;
+}
+
+/// Whether `g` draws anything. A layer that is blurred is hidden while it draws nothing: shown, it would be blurred
+/// all the same, over the room of its blur at the corner of the canvas.
+function drawsAny(g: Graphics): boolean {
+  return g.context.instructions.length > 0;
 }
 
 /// A layer of light: its lines, drawn sharp, and the glow round them close in and further out, the same lines drawn
@@ -374,11 +392,21 @@ function waysLayer(): Ways {
   };
 }
 
-/// Blurs `blur` `strength` strong, with its room, where it is not already.
-function blurTo(blur: BlurFilter, strength: number) {
-  if (blur.strength === strength) return;
-  blur.strength = strength;
-  blur.padding = BLUR_ROOM * strength;
+/// How many texels to a pixel of the page the glow of a lit way blurred `strength` strong is drawn on, on a canvas of
+/// `canvas` pixels of the screen to one of the page ([`BLUR_TEXEL`]).
+function glowResolution(strength: number, canvas: number): number {
+  return Math.min(canvas, 1 / (BLUR_TEXEL * strength));
+}
+
+/// Blurs `blur` `strength` strong, with its room, on the texels a glow that strong is drawn on, on a canvas of `canvas`
+/// pixels of the screen to one of the page, where it is not already.
+function blurTo(blur: BlurFilter, strength: number, canvas: number) {
+  if (blur.strength !== strength) {
+    blur.strength = strength;
+    blur.padding = BLUR_ROOM * strength;
+  }
+  const resolution = glowResolution(strength, canvas);
+  if (blur.resolution !== resolution) blur.resolution = resolution;
 }
 
 /// The mark of a cell running pulses: lit most of each beat, it fades out and back in during the last part of it, the
@@ -524,11 +552,16 @@ export function linksStrength(dim: number): number {
 }
 
 /// How strong each of the dashed `ways` is to be drawn, by the item whose link up it is: every one at full strength
-/// while nothing is `lit`; while something is, one whose two ends are both lit at full strength, and the others as dim
-/// as the links once the items are dimmed.
-export function wayAims(ways: Iterable<number>, parent: ArrayLike<number>, lit: Set<number>): Map<number, number> {
+/// while the tree is not `dimming`, as while nothing is `lit`; while it is, as while something is lit or the search is
+/// open, one whose two ends are both lit at full strength, and the others as dim as the links once the items are dimmed.
+export function wayAims(
+  ways: Iterable<number>,
+  parent: ArrayLike<number>,
+  lit: Set<number>,
+  dimming = lit.size > 0,
+): Map<number, number> {
   const aims = new Map<number, number>();
-  for (const i of ways) aims.set(i, lit.size === 0 || (lit.has(i) && lit.has(parent[i])) ? 1 : linksStrength(DIM));
+  for (const i of ways) aims.set(i, !dimming || (lit.has(i) && lit.has(parent[i])) ? 1 : linksStrength(DIM));
   return aims;
 }
 
@@ -548,9 +581,13 @@ const SETTLED = 1e-3;
 const undrawn = (key: string, value: unknown) =>
   key === 'usdMicros' || key === 'last' || key === 'bar' ? undefined : value;
 
+/// Where the level stands on a card, in the card's own coordinates, and what pointing at it says: kept by the card's
+/// view, which the cache of cards keeps with it.
+const LEVEL_SAID = new WeakMap<Container, { x: number; y: number; width: number; height: number; said: string }>();
+
 /// A card as it was made, kept for the next tree that draws one the same ([`show`]): what it draws, its view, the room
-/// of its strip, and what its making set: its age, the pulse of its running cells, its strip and its look, the last two
-/// for the tests.
+/// of its strip, and what its making set: its age, the pulse of its running cells, its strip, its look and the number
+/// it wrote, the last three for the tests.
 type CardMade = {
   sig: string;
   view: Container;
@@ -559,7 +596,11 @@ type CardMade = {
   pulse: Graphics | undefined;
   drawnStrip: DrawnStrip | undefined;
   look: { rows: number; fill: string | number; edge: string | number } | undefined;
+  number: DrawnNumber | undefined;
 };
+
+/// The number a card wrote and where its title begins from the card's left, for the tests ([`drawnNumbers`]).
+type DrawnNumber = { text: string; titleAt: number };
 
 /// The mean, the 95th part and the longest of `times`, in milliseconds to a hundredth; nought for none.
 function timesOf(times: number[]): { meanMs: number; p95Ms: number; maxMs: number } {
@@ -756,6 +797,13 @@ export type Stats = {
   /// How many frames have built again what stands of the lit ways: their lines, glow and strands, and the lights at
   /// rest where they meet the cards and at the dots of folds ([`draw`]).
   wayBuilds: number;
+  /// How many frames the scene's ticker has drawn, as the browser gives them or a bench draws them: none come while
+  /// the page or the view is hidden ([`setShown`]).
+  frames: number;
+  /// How many layers the last frame blurred: the glow of the lit ways close in and further out, the same over the
+  /// cards, and the soft lights round the item selected and the item under the pointer, each only while it draws
+  /// something.
+  blurs: number;
 };
 
 /// The colour a part `k` of the way from `a` to `b`, both `#rrggbb`.
@@ -993,6 +1041,9 @@ const EDGE_RUNNING = 0.9;
 const NOT_BEGUN = 0.7;
 /// How far a card's number and strip stand in from its left edge.
 const CARD_INSET = 10;
+/// The least room a card's number has before its title, and the gap between them.
+const TITLE_AT = 26;
+const TITLE_GAP = 8;
 /// A card's corners: the page's corner (`--corner`), as its buttons and tags have.
 const CARD_CORNER = 3;
 /// The height of the line under a deliverable, which has no card.
@@ -1058,7 +1109,19 @@ type Column = {
 };
 
 export class SnapScene {
-  stats: Stats = { items: 0, drawn: 0, fps: 0, meanMs: 0, p95Ms: 0, made: 0, redraws: 0, redrawn: {}, wayBuilds: 0 };
+  stats: Stats = {
+    items: 0,
+    drawn: 0,
+    fps: 0,
+    meanMs: 0,
+    p95Ms: 0,
+    made: 0,
+    redraws: 0,
+    redrawn: {},
+    wayBuilds: 0,
+    frames: 0,
+    blurs: 0,
+  };
   private app = new Application();
   private world = new Container();
   /// The funnels from each item to the items under it; and the ribbons of the items lit.
@@ -1147,6 +1210,12 @@ export class SnapScene {
   private strips: { k: number; start: number; end: number; count: number; draw: (scale: number) => void }[] = [];
   /// How each card was drawn, by its item's number: its rows, its fill and its edge's colour ([`cardLook`]).
   private cardsDrawn = new Map<number, { rows: number; fill: string | number; edge: string | number }>();
+  /// The number each card wrote, by its place in the tree, and where its title begins ([`drawnNumbers`]); and how far
+  /// from the card's left every title begins: past the widest number the whole tree holds, folded items included, so
+  /// that no fold moves a title ([`show`]).
+  private numbersDrawn = new Map<number, DrawnNumber>();
+  private titleOffset = TITLE_AT;
+  private numberWidths = new Map<number, number>();
   /// What the tree drawn was made from ([`show`]): the roots as the cards draw them, the folds turning and the theme,
   /// which changes each time the theme does; the cards made for it, by what each draws; and the size of the strips'
   /// marks.
@@ -1202,6 +1271,9 @@ export class SnapScene {
   private dim = 1;
   /// The items in focus: the one the pointer last rested on with what joins it, kept while the pointer moves on.
   private inFocus = new Set<number>();
+  /// While the console's search is open, the items it finds, by number: lit as the items in focus are, every other
+  /// item dimmed, all of them while it finds nothing; none while it is closed.
+  private found: number[] | null = null;
   /// The item the pointer was over at the last frame, and since when it has been over it (or over none).
   private hoverWas = -1;
   private hoverAt = 0;
@@ -1245,6 +1317,10 @@ export class SnapScene {
   private shadows: Uint8Array = new Uint8Array(0);
   private ready = false;
   private gone = false;
+  /// Whether the view the scene is in is shown ([`setShown`]): it draws while that and the page are.
+  private viewShown = true;
+  /// What a pixel read back from the canvas is put in, which a bench reads to wait for the GPU ([`waitForGpu`]).
+  private pixel = new Uint8Array(4);
   /// The items as last given to `show`, drawn again in the new colours when the theme changes.
   private roots: Shown[] | null = null;
   /// What follows the size of what holds the canvas, the theme and the accent; let go when the scene is.
@@ -1299,6 +1375,8 @@ export class SnapScene {
       this.marks,
     );
     this.app.stage.addChild(this.world, this.edges, this.map);
+    // Nothing is blurred until a frame draws something to blur ([`draw`]).
+    for (const layer of this.blurred) layer.renderable = false;
     // The cards stand in a group of their own, which is drawn as it was while none of them changes, whatever the lights
     // over and under them do.
     this.layer.enableRenderGroup();
@@ -1318,23 +1396,36 @@ export class SnapScene {
     });
     window.addEventListener('pointermove', this.drag);
     window.addEventListener('pointerup', this.up);
+    document.addEventListener('visibilitychange', this.run);
     this.app.ticker.add(this.tick);
     this.ready = true;
+    this.run();
   }
 
-  /// Draws while the view is shown, and stops while another view hides it; shown again, it draws at the size of what
-  /// holds it, which its observer follows.
+  /// Draws while the view is shown, and stops while another view hides it ([`run`]).
   setShown(shown: boolean): void {
-    if (!this.ready) return;
-    if (shown) {
+    this.viewShown = shown;
+    this.run();
+  }
+
+  /// Draws while the view and the page are both shown, and stops while either is hidden, so that a page the browser
+  /// does not show draws nothing. Shown again, it draws at the size of what holds it, which its observer follows, and
+  /// the time it stood stopped is not counted as a frame in `stats`.
+  private run = () => {
+    if (!this.ready || this.gone) return;
+    const draws = this.viewShown && document.visibilityState !== 'hidden';
+    if (draws === this.app.ticker.started) return;
+    if (draws) {
       this.mark('shown');
       this.app.queueResize();
+      this.last = 0;
       this.app.ticker.start();
     } else this.app.ticker.stop();
-  }
+  };
 
   destroy(): void {
     this.gone = true;
+    document.removeEventListener('visibilitychange', this.run);
     window.removeEventListener('pointermove', this.drag);
     window.removeEventListener('pointerup', this.up);
     this.sized?.disconnect();
@@ -1415,6 +1506,7 @@ export class SnapScene {
     const warmth = this.columns.map((c) => c.warm);
     // One set of text styles for every tree, each made as it is first asked for.
     this.styles ??= makeStyles();
+    this.titleOffset = this.titleOffsetFor(roots);
     // The items under an item folded are not drawn, but while its fold turns; what is under it counts at it, where the
     // tree marks what is under an item.
     const { tree, items } = indexTree(roots, (i) =>
@@ -1502,13 +1594,14 @@ export class SnapScene {
     this.ages = new Map();
     this.strips = [];
     this.cardsDrawn = new Map();
+    this.numbersDrawn = new Map();
     // Each card is made only where no card drawn before draws the same: else the one drawn is kept, with what its
     // making set. What a card draws is its item as the cards draw it, the rows it stands in, whether a work goes on on
     // it or under it, whether one has begun there, and the theme. A card made new comes in as dim as the tree is.
     const reuse = this.cardCache;
     const sigs = items.map((item, k) => {
       const drawn = JSON.stringify({ ...item, children: undefined }, undrawn);
-      return `${this.themed}|${this.base[k]}|${this.lit[k]}|${this.begun[k]}|${drawn}`;
+      return `${this.themed}|${this.titleOffset}|${this.base[k]}|${this.lit[k]}|${this.begun[k]}|${drawn}`;
     });
     const kept: (CardMade | undefined)[] = sigs.map((sig) => reuse.get(sig)?.pop());
     const make = (k: number) => {
@@ -1552,6 +1645,7 @@ export class SnapScene {
       if (c.pulse !== undefined) this.pulses.set(k, c.pulse);
       if (c.drawnStrip !== undefined) this.drawnStrips.set(items[k].id, c.drawnStrip);
       if (c.look !== undefined) this.cardsDrawn.set(items[k].id, c.look);
+      if (c.number !== undefined) this.numbersDrawn.set(k, c.number);
     });
     // The cards no longer drawn are let go; those drawn are kept for the next tree.
     for (const left of reuse.values())
@@ -1569,6 +1663,7 @@ export class SnapScene {
         pulse: this.pulses.get(k),
         drawnStrip: item.shadow ? undefined : this.drawnStrips.get(item.id),
         look: item.shadow ? undefined : this.cardsDrawn.get(item.id),
+        number: this.numbersDrawn.get(k),
       };
       this.cardCache.set(sigs[k], [...(this.cardCache.get(sigs[k]) ?? []), card]);
     });
@@ -1746,6 +1841,30 @@ export class SnapScene {
     return true;
   }
 
+  /// How far from a card's number's left its title begins: past the widest number the whole tree holds, folded items
+  /// and shadows included, so that a fold, which leaves out the items under it, moves no title. The numbers are in
+  /// monospace, so the width follows from the digits alone; it is measured once for each count of them.
+  private titleOffsetFor(roots: Shown[]): number {
+    let widest = 0;
+    const walk = (items: Shown[]) => {
+      for (const i of items) {
+        widest = Math.max(widest, i.id);
+        walk(i.children);
+      }
+    };
+    walk(roots);
+    const digits = String(widest).length;
+    let wide = this.numberWidths.get(digits);
+    if (wide === undefined) {
+      const style = (this.styles as Styles).mono(PALETTE.pale);
+      const probe = new BitmapText({ text: itemName(10 ** digits - 1), style });
+      wide = probe.width;
+      probe.destroy();
+      this.numberWidths.set(digits, wide);
+    }
+    return Math.max(TITLE_AT, wide + TITLE_GAP);
+  }
+
   /// The node of an item: a card, white, or while a work goes on on it a faint tint of the colour of what the work does
   /// with an edge of a deeper shade of it; its edge the accent's tint above a work. On its first row its number in its
   /// state's colour, its title, and at the right how many things its work waits for from the owner, white on red; on
@@ -1760,7 +1879,7 @@ export class SnapScene {
     const h = high(this.base[k]);
     const top = -h / 2;
     const row1 = top + NODE_H / 2;
-    if (item.shadow) return this.shadow(item, view, top, h, row1);
+    if (item.shadow) return this.shadow(item, k, view, top, h, row1);
     const mood = item.work !== null ? moodOf(item.work) : null;
     const card = new Graphics().roundRect(0, top, NODE_W, h, CARD_CORNER);
     // A card whose work is running, or that needs the owner (it waits for the owner, or the engine stopped it), is
@@ -1785,7 +1904,7 @@ export class SnapScene {
     // What is new to the owner is said once, by the number at the card's right; no line at its left.
     const x = CARD_INSET;
     const number = new BitmapText({
-      text: String(item.id),
+      text: itemName(item.id),
       style: s.mono(NUMBER()[item.standing]),
     });
     number.position.set(x, row1 - number.height / 2);
@@ -1797,7 +1916,8 @@ export class SnapScene {
           ? PALETTE.ink
           : between(PALETTE.ink, PALETTE.muted, NOT_BEGUN);
     const title = new BitmapText({ text: item.title, style: s.title(ink) });
-    title.position.set(x + Math.max(26, number.width + 8), row1 - title.height / 2);
+    title.position.set(x + this.titleOffset, row1 - title.height / 2);
+    this.numbersDrawn.set(k, { text: number.text, titleAt: title.x });
     view.addChild(number, title);
     // At the right of the first row: how many things its work waits for from the owner, white on red, the strongest
     // mark a card has, as what the owner looks for first; beside it, how many questions the owner may answer ahead,
@@ -1875,6 +1995,14 @@ export class SnapScene {
     });
     level.position.set(x, row2 - level.height / 2);
     view.addChild(level);
+    // What pointing at it says, as the item's window says it (`levelPointed`), by where it stands on the card.
+    LEVEL_SAID.set(view, {
+      x: level.x,
+      y: level.y,
+      width: level.width,
+      height: level.height,
+      said: levelPointed(w.level, w.raise, w.held, w.cellLevel),
+    });
     // The second row: the work's strip, as the works page draws it, from under the title, so that the number stands
     // alone in a column at the card's left, or from past the level where it is wider than that column; ending short of
     // the lines the work changed. It is drawn once every card is made, at the one size of the tree's marks ([`show`]).
@@ -1981,6 +2109,15 @@ export class SnapScene {
     return this.cardsDrawn.get(id) ?? null;
   }
 
+  /// The number each card of the tree wrote, shadows and deliverables too, in the tree's order, and where its title
+  /// begins from the card's left, for the tests.
+  drawnNumbers(): { id: number; shadow: boolean; text: string; titleAt: number }[] {
+    return this.shownItems.flatMap((item, k) => {
+      const drawn = this.numbersDrawn.get(k);
+      return drawn === undefined ? [] : [{ id: item.id, shadow: item.shadow, ...drawn }];
+    });
+  }
+
   /// What the card of item `id` drew for its work's cells, for the tests: each mark, where it stands from the card's
   /// left and its middle, its measures and colours, and whether it pulses; how many cells were left out, none; where
   /// the room for the strip ends; and the level under the number. None for an item whose card has no work.
@@ -2003,6 +2140,13 @@ export class SnapScene {
     return { x, y, size: m.a[i], drawn: [m.a[i] * x + m.bx[i], m.a[i] * y + m.by[i]] };
   }
 
+  /// How bright the card of item `id` is drawn, for the tests: fully, or dimmed while something else is lit, eased
+  /// between. None for an item the tree does not draw.
+  brightness(id: number): number | null {
+    const i = this.real.get(id);
+    return i === undefined ? null : this.views[i].alpha;
+  }
+
   /// The lit ways drawn at the last frame, each by the number of the item it runs into, from where it began to where
   /// it ended, with its curve and its turns into the cards, for the tests.
   litWays(): LitWay[] {
@@ -2018,7 +2162,7 @@ export class SnapScene {
 
   /// The shadow of an item under another item that depends on it besides its main one: a white card, its edge dashed,
   /// its number and title grey, and at the right an arrow pointing away, to where the item stands.
-  private shadow(item: Shown, view: Container, top: number, h: number, row1: number): Container {
+  private shadow(item: Shown, k: number, view: Container, top: number, h: number, row1: number): Container {
     const s = this.styles as Styles;
     const ground = new Graphics().roundRect(0, top, NODE_W, h, CARD_CORNER).fill(PALETTE.card);
     const edge = new Graphics();
@@ -2037,10 +2181,11 @@ export class SnapScene {
     along(0, top + r, 0, top + h - r);
     along(NODE_W, top + r, NODE_W, top + h - r);
     edge.stroke({ color: PALETTE.pale, width: 1 });
-    const number = new BitmapText({ text: String(item.id), style: s.mono(PALETTE.pale) });
+    const number = new BitmapText({ text: itemName(item.id), style: s.mono(PALETTE.pale) });
     number.position.set(CARD_INSET, row1 - number.height / 2);
     const title = new BitmapText({ text: item.title, style: s.title(PALETTE.faint) });
-    title.position.set(CARD_INSET + Math.max(26, number.width + 8), row1 - title.height / 2);
+    title.position.set(CARD_INSET + this.titleOffset, row1 - title.height / 2);
+    this.numbersDrawn.set(k, { text: number.text, titleAt: title.x });
     fit(title, NODE_W - 24 - title.x);
     // The arrow, drawn: the font may have no such sign.
     const ax = NODE_W - 16;
@@ -2460,6 +2605,13 @@ export class SnapScene {
     return step;
   }
 
+  /// Waits until the GPU has drawn all it was asked to: a pixel read back from the canvas comes only once it has. The
+  /// benches read one rather than call `finish`, which Chromium takes as a flush and does not wait on.
+  private waitForGpu() {
+    const gl = (this.app.renderer as unknown as { gl?: WebGLRenderingContext }).gl;
+    gl?.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, this.pixel);
+  }
+
   /// Draws `frames` frames, every sixth with a scroll of most of a row over a column, waiting for the GPU each; gives
   /// the time of each frame in milliseconds.
   bench(frames: number): {
@@ -2468,17 +2620,48 @@ export class SnapScene {
     maxMs: number;
     drawn: number;
   } {
-    const gl = (this.app.renderer as unknown as { gl?: WebGLRenderingContext }).gl;
     const times: number[] = [];
     for (let k = 0; k < frames; k += 1) {
       const t0 = performance.now();
       if (k % 6 === 0) this.scroll(1 + (k % 4), ROW * 0.7);
       this.tick();
       this.app.renderer.render(this.app.stage);
-      gl?.finish();
+      this.waitForGpu();
       times.push(performance.now() - t0);
     }
     return { ...timesOf(times), drawn: this.stats.drawn };
+  }
+
+  /// Draws `frames` frames of the tree as it stands on a canvas `width` by `height` pixels of the page, the size of a
+  /// window on a large screen, at the screen's own pixel ratio: after one that draws it at that size, frames in which
+  /// nothing but the lights moves, each 16 milliseconds after the one before, as at 60 frames a second, and waited for
+  /// on the GPU. As many frames as the light takes for a run and the dark after it, unless told. Gives the time of
+  /// each frame in milliseconds, how many layers a frame blurred on the mean, and the canvas's size in pixels of the
+  /// screen; then gives the canvas back the size of what holds it.
+  benchLarge(
+    frames = Math.ceil((RUN.beat + RUN.dark) / 16),
+    width = 2560,
+    height = 1440,
+  ): { meanMs: number; p95Ms: number; maxMs: number; blurs: number; canvas: [number, number] } {
+    this.app.renderer.resize(width, height);
+    this.step(16);
+    this.app.renderer.render(this.app.stage);
+    this.waitForGpu();
+    const times: number[] = [];
+    let blurs = 0;
+    for (let k = 0; k < frames; k += 1) {
+      const t0 = performance.now();
+      this.step(16);
+      this.app.renderer.render(this.app.stage);
+      this.waitForGpu();
+      times.push(performance.now() - t0);
+      blurs += this.stats.blurs;
+    }
+    const canvas: [number, number] = [this.app.canvas.width, this.app.canvas.height];
+    this.app.resize();
+    // The time the bench took is no frame of the page's.
+    this.last = 0;
+    return { ...timesOf(times), blurs: Math.round((blurs / Math.max(1, frames)) * 100) / 100, canvas };
   }
 
   /// Draws `frames` frames in which nothing but the lights moves, waiting for the GPU each, after one that draws the
@@ -2491,7 +2674,6 @@ export class SnapScene {
     redrawn: number;
     why: Record<string, number>;
   } {
-    const gl = (this.app.renderer as unknown as { gl?: WebGLRenderingContext }).gl;
     this.tick();
     const before = this.stats.redraws;
     const whyBefore = { ...this.stats.redrawn };
@@ -2500,7 +2682,7 @@ export class SnapScene {
       const t0 = performance.now();
       this.tick();
       this.app.renderer.render(this.app.stage);
-      gl?.finish();
+      this.waitForGpu();
       times.push(performance.now() - t0);
     }
     const why = Object.fromEntries(
@@ -2516,7 +2698,6 @@ export class SnapScene {
   /// after one that draws what stands; gives the time of each frame in milliseconds, and how many of them built what
   /// stands of the lit ways again, which is none while nothing else moves.
   benchLights(frames: number): { meanMs: number; p95Ms: number; maxMs: number; rebuilt: number } {
-    const gl = (this.app.renderer as unknown as { gl?: WebGLRenderingContext }).gl;
     this.tick();
     const still = [this.layer, this.links, this.foldLight, this.dots, this.hoverGlow, this.chosenGlow, this.glowGround];
     const hidden = [...still, this.marks, this.edges, this.map];
@@ -2528,7 +2709,7 @@ export class SnapScene {
       const t0 = performance.now();
       this.tick();
       this.app.renderer.render(this.app.stage);
-      gl?.finish();
+      this.waitForGpu();
       times.push(performance.now() - t0);
     }
     hidden.forEach((c, k) => {
@@ -2689,6 +2870,17 @@ export class SnapScene {
     return this.beside(t, x, y, 0, NODE_W);
   }
 
+  /// What pointing at the level on the card of item `k` says, where the pointer is over it; else nothing.
+  private levelSaid(k: number): string {
+    const p = this.pointer;
+    const view = k < 0 ? undefined : this.views[k];
+    const box = view === undefined ? undefined : LEVEL_SAID.get(view);
+    if (p === null || view === undefined || box === undefined) return '';
+    const x = (p.x - view.x) / view.scale.x;
+    const y = (p.y - view.y) / view.scale.y;
+    return x >= box.x && x <= box.x + box.width && y >= box.y && y <= box.y + box.height ? box.said : '';
+  }
+
   /// The item folded whose dot is under the pointer, by its index in the tree, or none: the room past its card's right
   /// edge as far as [`FOLD_REACH`], as high as the card, where its funnel would be.
   private dotPointed(t: Tree, x: (d: number) => number, y: (d: number, rank: number) => number): number {
@@ -2806,6 +2998,13 @@ export class SnapScene {
     this.dirty.add(why);
   }
 
+  /// Lights the items numbered `ids`, which the console's search finds while it is open, and dims every other, as
+  /// the items in focus do; none, while the search is closed, lights and dims nothing.
+  find(ids: number[] | null): void {
+    this.mark('find');
+    this.found = ids;
+  }
+
   /// Selects the item numbered `id`, or none.
   select(id: number | null): void {
     this.mark('select');
@@ -2832,6 +3031,7 @@ export class SnapScene {
     const mean = sorted.reduce((a, b) => a + b, 0) / Math.max(1, sorted.length);
     this.stats = {
       ...this.stats,
+      frames: this.stats.frames + 1,
       fps: Math.round(this.app.ticker.FPS),
       meanMs: Math.round(mean * 10) / 10,
       p95Ms: Math.round((sorted[Math.floor(sorted.length * 0.95)] ?? 0) * 10) / 10,
@@ -2983,11 +3183,14 @@ export class SnapScene {
         this.funnel(...funnelled.shape, this.foldLight);
         this.foldLight.fill(PALETTE.hoverRibbon);
       }
-      const said = fold == null ? '' : foldWords(fold);
+      // What a click on the fold does, else what the level under the pointer is: a level cannot be pressed, so only a
+      // fold's words turn the pointer to a hand.
+      const foldWordsSaid = fold == null ? '' : foldWords(fold);
+      const said = foldWordsSaid !== '' ? foldWordsSaid : this.levelSaid(this.under);
       if (said !== this.foldSaid) {
         this.foldSaid = said;
         this.app.canvas.title = said;
-        this.app.canvas.style.cursor = said === '' ? '' : 'pointer';
+        this.app.canvas.style.cursor = foldWordsSaid === '' ? '' : 'pointer';
       }
       this.drawnList = drawn;
       this.nowShown = nowShown;
@@ -3035,9 +3238,9 @@ export class SnapScene {
         easing = true;
       }
     }
-    // While the pointer or the selection lights something, every other item drawn is dimmed, more under the pointer
-    // than for the selection alone, so that the lit items and what joins them stand out; it comes and goes over a
-    // moment, so that a pointer passing over the tree does not make it flicker.
+    // While the pointer, the selection or the search lights something, every other item drawn is dimmed, more under
+    // the pointer than for the selection alone, so that the lit items and what joins them stand out; it comes and goes
+    // over a moment, so that a pointer passing over the tree does not make it flicker.
     // What the dimming goes by is not the pointer's every move: an item becomes the one in focus only once the
     // pointer has rested on it a moment, and the focus is let go only once the pointer has been off every item a
     // moment. So a pointer crossing many items changes nothing, and going from one item to the next fades one way
@@ -3050,12 +3253,17 @@ export class SnapScene {
     if (this.under >= 0 && rested > DWELL_ON) this.inFocus = chain;
     else if (this.under < 0 && rested > DWELL_OFF) this.inFocus = new Set();
     const focus = this.inFocus;
-    const aim = focus.size > 0 || chosen.size > 0 ? DIM : 1;
+    // While the search is open, every item is dimmed but those it finds, lit as the items in focus are.
+    const searching = this.found !== null;
+    const finding = new Set(
+      (this.found ?? []).flatMap((id) => (this.real.has(id) ? [this.real.get(id) as number] : [])),
+    );
+    const aim = focus.size > 0 || chosen.size > 0 || searching ? DIM : 1;
     this.dim = eased(this.dim, aim, step);
     if (this.dim !== aim) easing = true;
     for (const i of drawn) {
       const view = this.views[i];
-      const to = aim === 1 || focus.has(i) || chosen.has(i) ? 1 : DIM;
+      const to = aim === 1 || focus.has(i) || chosen.has(i) || finding.has(i) ? 1 : DIM;
       view.alpha = eased(view.alpha, to, step);
       if (view.alpha !== to) easing = true;
     }
@@ -3064,11 +3272,11 @@ export class SnapScene {
     // drawn once, however many running items it is on. While something is lit, the links on its way stand at full
     // strength and the others dim with the items they join; each eases to its strength as the items do, so that none
     // jumps as the light moves or goes out.
-    const shining = new Set([...focus, ...chosen]);
+    const shining = new Set([...focus, ...chosen, ...finding]);
     // Where a way's strength eases, or a dot's changes, what stands of the ways is built again at it. A root's dot is
     // as strong as the ways from it are lit; another's as the way into its item.
     let strengthened = false;
-    for (const [i, to] of wayAims(this.runWays, t.parent, shining)) {
+    for (const [i, to] of wayAims(this.runWays, t.parent, shining, aim !== 1)) {
       const had = this.runStrength.get(i);
       const now = eased(had ?? to, to, step);
       if (now !== had) strengthened = true;
@@ -3077,7 +3285,7 @@ export class SnapScene {
     const dotStrength = (k: number) =>
       t.parent[k] >= 0
         ? (this.runStrength.get(k) ?? 1)
-        : shining.size === 0 || shining.has(k)
+        : aim === 1 || shining.has(k)
           ? 1
           : linksStrength(this.dim);
     const dotsNow = this.litDots.map(dotStrength);
@@ -3098,9 +3306,10 @@ export class SnapScene {
       part.lit = false;
     }
     for (const g of stroked(this.runEdges)) g.clear();
+    const canvas = this.app.renderer.resolution;
     for (const lit of [this.ways, this.waysAtRest, this.runEdges, this.endsAtRest]) {
-      blurTo(lit.nearBlur, RUN.nearBlur);
-      blurTo(lit.farBlur, RUN.farBlur);
+      blurTo(lit.nearBlur, RUN.nearBlur, canvas);
+      blurTo(lit.farBlur, RUN.farBlur, canvas);
     }
     const runColour = mix(PALETTE.card, WORK().running, EDGE_RUNNING);
     const glintColour = mix(between(PALETTE.card, WORK().running, EDGE_RUNNING), PALETTE.glowTo, RUN.core);
@@ -3331,13 +3540,18 @@ export class SnapScene {
     // The ways that begin at the same place across the page are lit together, as the light comes to that place: while
     // it is on any of them, the glow of each is drawn and blurred at each frame with the light's on it, and the glow
     // kept of them is hidden; while it is on none, only that kept is drawn. A layer drawn empty is hidden too, as the
-    // blur would else reach out to take it in.
+    // blur would else reach out to take it in; and while the light is on no way, the glow of the ways is hidden whole,
+    // so that nothing is blurred for it.
     const drawnLights = wayOrder.map((i) => this.wayLights(i));
     const litPlaces = new Set(drawnLights.flatMap((w) => (w.lit ? [w.place] : [])));
     for (const w of drawnLights) {
       w.rest.far.visible = w.rest.near.visible = litPlaces.has(w.place);
       for (const g of stroked(w.light)) g.visible = w.lit;
     }
+    this.ways.far.renderable = this.ways.near.renderable = litPlaces.size > 0;
+    // The glow over the cards is blurred only in a frame that lights an edge or burns where a way meets a card.
+    this.runEdges.far.renderable = drawsAny(this.runEdges.far);
+    this.runEdges.near.renderable = drawsAny(this.runEdges.near);
     const placesDrawn = new Set(drawnLights.map((w) => w.place));
     for (const [key, part] of this.waysAtRest.parts) {
       if (restAgain && !placesDrawn.has(key)) this.dropPart(this.waysAtRest, key);
@@ -3431,6 +3645,9 @@ export class SnapScene {
       }
       for (const [i, a] of this.softLit)
         if (isWhole(i)) softLight(this.hoverGlow, i, SOFT_SPREAD, SOFT_BLUR, this.own[i], a);
+      // A soft light is blurred only while it lights an item.
+      this.chosenGlow.renderable = drawsAny(this.chosenGlow);
+      this.hoverGlow.renderable = drawsAny(this.hoverGlow);
       this.glowGround.clear();
       if (lights.length > 0) {
         for (const j of drawn) {
@@ -3487,6 +3704,13 @@ export class SnapScene {
     this.dirty.clear();
     this.drawnLeft = this.left;
     this.drawnCols = this.columns.map((c) => c.at);
+    this.stats.blurs = this.blurred.filter((layer) => layer.visible && layer.renderable).length;
+  }
+
+  /// The layers blurred at each frame they draw something in: the glow of the lit ways further out and close in, the
+  /// same over the cards, and the soft lights round the item under the pointer and the item selected.
+  private get blurred(): Container[] {
+    return [this.ways.far, this.ways.near, this.runEdges.far, this.runEdges.near, this.hoverGlow, this.chosenGlow];
   }
 
   /// The lights of the way into item `i`, made empty where there are none yet ([`WayLights`]).
@@ -3551,9 +3775,10 @@ export class SnapScene {
     part.glow.renderable = shows;
     if (!shows) return;
     // A texture is kept while the glow fits in it with less than two steps to spare each way, so that a glow moving
-    // across the edge of the screen, its size changing at every frame, does not make one at every frame.
+    // across the edge of the screen, its size changing at every frame, does not make one at every frame. It is as
+    // fine as the finer of the glow's two blurs, as nothing finer is on it ([`BLUR_TEXEL`]).
     const [w, h] = [x1 - x0, y1 - y0];
-    const resolution = this.app.renderer.resolution;
+    const resolution = glowResolution(Math.min(RUN.nearBlur, RUN.farBlur), this.app.renderer.resolution);
     const fits = (has: number, needs: number) => has >= needs && has - needs < 2 * TEXTURE_STEP;
     let texture = part.texture;
     if (

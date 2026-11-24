@@ -179,6 +179,41 @@ async fn a_change_that_leaves_the_design_tree_out_of_its_forms_is_sent_back_unti
     assert_eq!(told.count(), 1, "the build is told once what is wrong with the tree");
 }
 
+// The build hands in its code, which is handed in only with the owner's answer in the design tree, with a change not
+// committed and the tree as main has it, and is sent back for both. Its next return takes the change back and gives
+// nothing else, so that the code it wrote stands as the return before it left it: that return is held to the answer in
+// the tree as the one that wrote the code was, and is sent back for it alone. A look that took only what a return
+// writes itself would take it, and the work would end with the answer nowhere in the tree.
+#[tokio::test]
+async fn a_return_that_completes_one_that_wrote_the_code_is_held_to_the_answer_in_the_tree_for_what_it_carries() {
+    let fake = Fake {
+        question_first: true,
+        tree_question: true,
+        build_leaves_an_edit: true,
+        build_mends_the_edit_and_nothing_else: true,
+        ..Fake::default()
+    };
+    let mut real = Real::trial(fake);
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| real.waited_question(work).is_some()).await;
+    real.answer(work);
+    real.until(|real| ended(&real.decision(work))).await;
+    let kept = real.work(work);
+    let build = real.run_of(work, "build");
+    let unchanged = Unmet::TreeUnchanged {
+        name: "which_name".to_string(),
+    };
+    let Some(Given::SentBack(first)) = kept.given.get(&(build, 2)) else {
+        panic!("the first return was not sent back: {:?}", kept.given.get(&(build, 2)));
+    };
+    let left_edit = first.iter().any(|unmet| matches!(unmet, Unmet::Uncommitted { .. }));
+    assert!(left_edit && first.contains(&unchanged), "{first:?}");
+    // The second wrote nothing, and was sent back for the answer in the tree alone.
+    assert_eq!(kept.given.get(&(build, 3)), Some(&Given::SentBack(vec![unchanged])));
+    assert_eq!(kept.given.get(&(build, 4)), None, "taken at its third round");
+}
+
 // The plan names entries of the design tree with a line that names none, and is sent back for that line alone; its
 // next return is taken. The review, on another line, reads the entries: it is given each named entry whole, under its
 // file, as the tree's latest version has it, the build having rewritten the entry since the plan named it.

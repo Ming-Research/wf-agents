@@ -39,7 +39,7 @@ async fn the_engine_says_its_slots_and_whether_everything_is_paused() {
     let router = &running.router;
     assert_eq!(
         get_json(router, "/api/v1/engine").await,
-        json!({ "slots": 2, "taken": 0, "paused": null, "keepWarm": true })
+        json!({ "slots": 2, "taken": 0, "paused": null, "keepWarm": true, "stopping": null })
     );
     assert_eq!(post(router, "/api/v1/items", &item("First")).await.0, StatusCode::OK);
     let engine = get_json(router, "/api/v1/engine").await;
@@ -155,12 +155,15 @@ async fn started_on_a_work_going_on_the_engine_says_it_holds_everything_until_th
             project: "trial".to_string(),
             depends_on: Vec::new(),
             tags: Vec::new(),
+            continues: None,
             flow: "trial".to_string(),
             writes: vec![driver::FirstWrite {
                 block: decide::BlockId("request".to_string()),
                 content: "Please.".to_string(),
                 value: None,
             }],
+            why: None,
+            waits_for: Vec::new(),
         };
         let (_, work, _) = driver.add(work::Time(START), new).unwrap();
         driver

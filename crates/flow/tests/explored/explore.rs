@@ -433,7 +433,10 @@ impl Explorer<'_> {
         s.logs.insert(
             run,
             run::Log {
-                rounds: vec![run::Round { returned: None }],
+                rounds: vec![run::Round {
+                    returned: None,
+                    sent_back: Vec::new(),
+                }],
                 let_go: 0,
                 let_on: 0,
             },
@@ -577,15 +580,19 @@ impl Explorer<'_> {
             }
             // A return is sent back where it would write over a version its round was not told of: a cell before it
             // ran while the return waited to be taken, and wrote what this one writes; and where it leaves the next
-            // word owed, a maker woken by a point answering nothing, or a judge failing with no point, as a return of
-            // its choices alone may (design document `data-and-context`, 42).
+            // word owed, a maker woken by a point answering nothing, or a judge failing with no point, or where it
+            // deals with the owner's words and answers none, as a return of its choices alone may (design document
+            // `data-and-context`, 35 and 42).
             Step::SendBack { unmet }
                 if variant.is_none()
                     || sent_back
                     || unmet.iter().all(|u| {
                         matches!(
                             u,
-                            run::Unmet::WrittenOver { .. } | run::Unmet::WordOwed { .. } | run::Unmet::NoPoint { .. }
+                            run::Unmet::WrittenOver { .. }
+                                | run::Unmet::WordOwed { .. }
+                                | run::Unmet::NoPoint { .. }
+                                | run::Unmet::NotAnswered { .. }
                         )
                     }) =>
             {
@@ -593,6 +600,8 @@ impl Explorer<'_> {
                 if !sent_back && variant.is_some() {
                     if unmet.iter().any(|u| matches!(u, run::Unmet::WrittenOver { .. })) {
                         self.reach(WRITTEN_OVER.to_string());
+                    } else if unmet.iter().any(|u| matches!(u, run::Unmet::NotAnswered { .. })) {
+                        self.reach(WORDS_UNANSWERED.to_string());
                     } else {
                         self.reach(WORD_OWED.to_string());
                     }
@@ -613,7 +622,13 @@ impl Explorer<'_> {
                         });
                     }
                 }
-                log.rounds.push(run::Round { returned: None });
+                if let Some(last) = log.rounds.last_mut() {
+                    last.sent_back = unmet.clone();
+                }
+                log.rounds.push(run::Round {
+                    returned: None,
+                    sent_back: Vec::new(),
+                });
             }
             Step::AtLimit(limit) => {
                 self.reach("a run reached its limit of returns sent back".to_string());
@@ -1024,7 +1039,12 @@ impl Explorer<'_> {
                         String::new(),
                     );
                 }
-                Cause::Changed { block, was, behind } => {
+                Cause::Changed {
+                    block,
+                    was,
+                    worked,
+                    behind,
+                } => {
                     let trigger = m.watched[i].get(block).cloned();
                     match &trigger {
                         Some(t) => {
@@ -1056,11 +1076,15 @@ impl Explorer<'_> {
                             format!("consumed {:?}", r.consumed(cell, block, NOW)),
                         );
                     }
-                    if *was != r.consumed(cell, block, NOW) || *behind != r.behind(flow, i, block, NOW) {
+                    if *was != r.consumed(cell, block, NOW)
+                        || *worked != r.worked(cell, block, NOW)
+                        || *behind != r.behind(flow, i, block, NOW)
+                    {
                         let name = format!("the walk read what {cell} consumed of {block} otherwise");
                         let what = format!(
-                            "walk: was {was:?}, behind {behind}; reading: was {:?}, behind {}",
+                            "walk: was {was:?}, worked {worked:?}, behind {behind}; reading: was {:?}, worked {:?}, behind {}",
                             r.consumed(cell, block, NOW),
+                            r.worked(cell, block, NOW),
                             r.behind(flow, i, block, NOW)
                         );
                         self.breach(Property::NewToIt, name, trace, what);
@@ -1443,6 +1467,9 @@ pub const WRITTEN_OVER: &str = "a return was sent back as it would write over wh
 
 /// A return of the cell's choices or content that leaves the next word owed, sent back for it.
 pub const WORD_OWED: &str = "a return that leaves the next word owed was sent back";
+
+/// A return that says it dealt with the owner's words and writes no answer to them, sent back for it.
+pub const WORDS_UNANSWERED: &str = "a return that dealt with the owner's words and answered none was sent back";
 
 /// Whether the question of this name stands with no answer to its latest version, as the records say.
 fn unanswered(records: &Records, question: &str) -> bool {

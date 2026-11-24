@@ -372,10 +372,15 @@ pub struct Pause {
     /// pauses, and read so.
     #[serde(default)]
     pub by: Pauser,
-    /// Why the work was paused, where whoever paused it said: the engine always says, the owner does not. None for a
-    /// letting on.
+    /// Why the work was paused, where whoever paused it said: the engine always says, the owner where they will. None
+    /// for a letting on.
     #[serde(default)]
     pub why: Option<String>,
+    /// The items, by their numbers, that the pause waits for: the owner's pause says them where it is made for the
+    /// items' merging or cancelling, and the work waits no more once each has ended. None for the engine's pause and
+    /// for a letting on.
+    #[serde(default)]
+    pub waits_for: Vec<u64>,
 }
 
 /// Who pauses a work: the owner, or the engine itself, as when a round failed or the work spent more than it may.
@@ -397,9 +402,15 @@ pub enum Cause {
     /// consumed, that the cell did not write itself (design document `data-and-context`, 6). `was` is the version the
     /// cell consumed, `None` where it consumed none; the run starts from the latest, as its `basis` says. `behind` says
     /// every such new version was written by a cell after this one: a judging cell's opinion on what it wrote, for one.
+    /// `worked` is the version the cell last worked from as the run began: the latest of the one it consumed, one a run
+    /// of it wrote and one the owner ruled on, which a message and the page name alike (design document
+    /// `data-and-context`, 10). `was` stays the consumed version, the one the walk reads back. A cause recorded before
+    /// `worked` was recorded has none, and is read as the version it names in `was`.
     Changed {
         block: BlockId,
         was: Option<Seq>,
+        #[serde(default)]
+        worked: Option<Seq>,
         behind: bool,
     },
     /// The calls the cell's earlier runs asked for, as their returns were taken, all have their results, which no

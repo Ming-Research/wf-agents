@@ -19,7 +19,7 @@ took_in = "For the check, the engine merged {main} at {head} into the work's bra
 notes = "Also:{notes}"
 note = "\n- {note}"
 
-# What the check says where the project declares no workflows (`[ci]` of its flow/project.toml), so that it has none to run.
+# What the check says where the project declares no workflows (`[ci]` of its declaration), so that it has none to run.
 no_full = "Nothing was run: the project declares no workflows, so the check before the merge has none to run."
 
 # What the check before a merge says where its full workflows failed tests and nothing else, which it runs again by the

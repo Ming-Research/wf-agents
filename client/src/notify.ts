@@ -12,7 +12,7 @@ import { useEffect, useRef } from 'react';
 import { hashOf } from './route';
 import type { Item, Items } from './works-api';
 import { type Wait, targetOf, waitsOf } from './works/waiting';
-import { STATE, firstLine, plain, sentence, stateOf, waitCount } from './works/words';
+import { STATE, firstLine, itemName, plain, sentence, stateOf, waitCount } from './works/words';
 
 /// What a notification of a wait says: the cell the work waits at, as a line names it, then the wait's reason, the
 /// first line of what a question asks, as a sentence, its names bare.
@@ -120,7 +120,12 @@ export function useNotifications(items: Items | null, on: boolean): void {
     for (const i of fresh) {
       const opening = openingOf(i);
       if (opening === null) continue;
-      tell(`${STATE.owner}: #${i.number} ${i.title}`, bodyOf(i, opening.wait), `wf-agents-item-${i.number}`, opening.opens);
+      tell(
+        `${STATE.owner}: ${itemName(i.number)} ${i.title}`,
+        bodyOf(i, opening.wait),
+        `wf-agents-item-${i.number}`,
+        opening.opens,
+      );
     }
   }, [items, on]);
   useEffect(() => {

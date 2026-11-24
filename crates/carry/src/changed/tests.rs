@@ -13,7 +13,9 @@ const MAIN: &str = "refs/heads/main";
 /// A started work.
 async fn started() -> (Repo, Place) {
     let repo = Repo::new("true");
-    let started = git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+    let started = git::start(&repo.project, &repo.place(WORK), "main", "main")
+        .await
+        .unwrap();
     (repo, started.place)
 }
 
@@ -78,9 +80,18 @@ async fn once_its_worktree_and_branch_are_gone_a_merged_work_changed_what_its_ke
     let head = commit(&place.dir, "farewell.txt", "Bye.\n");
     crate::head::keep(&place, &head).await.unwrap();
     // Merged by a commit of the merge, as the local repository merges, after which main moves on.
-    git::merge(&repo.project, &place, "Say goodbye", Some(&head))
-        .await
-        .unwrap();
+    git::merge(
+        &repo.project,
+        &place,
+        "Say goodbye",
+        crate::commit_lines::Whose {
+            item: store::ItemNumber(36),
+            work: WORK,
+        },
+        Some(&head),
+    )
+    .await
+    .unwrap();
     commit(r, "later.txt", "Later.\n");
     git::remove(&repo.project, &place).await.unwrap();
     run(r, &["branch", "-D", &place.branch]);

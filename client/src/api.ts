@@ -16,7 +16,7 @@ export interface Line {
   name: string;
   /// In the order of the walk.
   cells: string[];
-  /// How many levels above its item's its rounds run at, never above the highest an item may be at.
+  /// How many levels above its item's its rounds run at, never above the highest one round may run at.
   levelsAbove: number;
   /// The file it is written in, from the flow's directory.
   file: string;
@@ -90,7 +90,7 @@ export interface Group {
 }
 
 /// What the context of a cell's session must hold of a block the cell is given when the cell runs: its latest
-/// version, the version the cell last consumed and the latest, or every version.
+/// version, the version the cell last worked from and the latest, or every version.
 export type InputKind = 'latest' | 'lastAndLatest' | 'all';
 
 /// One key of a cell's `when` or `requires`: a block or a datum with the value it must have (`deep_needed = "yes"`),
@@ -388,6 +388,8 @@ export type Given =
       /// What each engine's cell's act writes, by the cell's id.
       acts: Record<string, ActWords>;
       unknown: Unknown[];
+      /// What was not checked for want of the project's declaration, and why; none where it was read.
+      unchecked: string | null;
     }
   | { state: 'notCompiled' }
   | { state: 'unread'; why: string };

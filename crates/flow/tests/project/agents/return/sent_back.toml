@@ -4,6 +4,7 @@ earlier = "## Round {round}: sent back"
 item = "- {text}"
 between = ", "
 again = "Return again."
+again_whole = "Return again, all of it."
 
 [faults]
 asks_nothing = "No call is asked for."

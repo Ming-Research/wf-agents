@@ -239,7 +239,7 @@ const START: u64 = 1_800_000_000_000;
 fn spent(n: u64) -> Spent {
     Spent {
         usd_micros: n,
-        input_tokens: 10 * n,
+        uncached_tokens: 10 * n,
         cached_tokens: 100 * n,
         output_tokens: 1000 * n,
         ..Default::default()
@@ -341,6 +341,7 @@ fn changed(block: &str, was: Option<Seq>, behind: bool) -> Cause {
     Cause::Changed {
         block: block.into(),
         was,
+        worked: was,
         behind,
     }
 }

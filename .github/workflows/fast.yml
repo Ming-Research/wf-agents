@@ -1,6 +1,6 @@
 name: fast
 
-# The project's fast workflow (`ci.fast` of flow/project.toml): what an agent's `run_tests` waits for while the code is
+# The project's fast workflow (`ci.fast` of wf-agents.toml): what an agent's `run_tests` waits for while the code is
 # being written, when it names tests or checks. It runs only when the engine asks, by hand, on the commit it gives, and
 # runs only what it is asked for: it compiles and runs the tests named, and runs the lint only when it is named, as
 # while what the full CI's lint found is being fixed. Every other check, the whole set of tests among them, is the
@@ -55,6 +55,12 @@ on:
           gives it only when it names one. Empty or [] for none
         required: false
         default: '[]'
+      test_stop:
+        description: >-
+          How long one test may run before it is stopped, in whole seconds, as the engine's history of the project's
+          tests says; the engine gives it only when that history is long enough. Empty for no stop but the job's limit
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -178,7 +184,9 @@ jobs:
             echo "$lock" > node_modules/.wf-lock
           fi
           kept="$HOME/page-builds/$tree"
-          if [ "$(cat node_modules/.wf-tree 2>/dev/null)" = "$tree" ] && [ -f dist/index.html ]; then
+          # The build on the runner is taken as it is where every file its stamp names is as the stamp says, the check
+          # crates/web/build.rs makes, whatever job of whatever branch built it last.
+          if [ -f dist/index.html ] && sha256sum --check --status --strict dist/source.sha256 2>/dev/null; then
             :
           elif [ -f "$kept/index.html" ]; then
             # With today's times: cargo takes files older than its last build for unchanged, and would read the old list.
@@ -189,10 +197,10 @@ jobs:
             tmp=$(mktemp -d "$HOME/page-builds/.new.XXXXXX") && cp -a dist/. "$tmp" && chmod 755 "$tmp" && { mv -T "$tmp" "$kept" 2>/dev/null || rm -rf "$tmp"; }
             find "$HOME/page-builds" -mindepth 1 -maxdepth 1 -mtime +3 -exec rm -rf {} +
           fi
-          echo "$tree" > node_modules/.wf-tree
-      # With the cargo profile ci (Cargo.toml) and nextest's profile ci (.config/nextest.toml), which stops a test at
-      # 60 s, or at 300 s where it names the test as a slow one, and writes its JUnit: the Rust tests the step Read
-      # the names selected, each to its end.
+      # With the cargo profile ci (Cargo.toml) and nextest's profile ci (.config/nextest.toml), which writes its JUnit:
+      # the Rust tests the step Read the names selected, each to its end. Where the engine gave the line of the history
+      # of tests' times (`test_stop`, in seconds), a test still running at it is stopped and fails under its own name;
+      # the line is put in a copy of nextest's file, which names the profile after it.
       #
       # Nextest builds every test binary in one cargo command, and runs none when one does not compile (its exit code
       # 101). Only then are the units that did compile found, by building again past the failure: `cargo build --tests
@@ -207,8 +215,17 @@ jobs:
       # unit does not compile: whoever changes it makes one fail on a branch and reads the artifact.
       - name: Test
         if: ${{ steps.names.outputs.rust == 'true' }}
+        env:
+          TEST_STOP: ${{ inputs.test_stop }}
         run: |
           set -f
+          config=.config/nextest.toml
+          if [ -n "$TEST_STOP" ]; then
+            [[ $TEST_STOP =~ ^[1-9][0-9]*$ ]] || { echo "test_stop is not a whole number of seconds: $TEST_STOP"; exit 1; }
+            config="$RUNNER_TEMP/nextest.toml"
+            { printf '[profile.ci]\nslow-timeout = { period = "%ss", terminate-after = 1 }\n\n' "$TEST_STOP"
+              cat .config/nextest.toml; } > "$config"
+          fi
           filter=$(cat "$RUNNER_TEMP/names/filter")
           results="$RUNNER_TEMP/test-results"
           junit=target/nextest/ci/junit.xml
@@ -216,7 +233,7 @@ jobs:
           keep() { if [ -f "$junit" ]; then mv "$junit" "$results/$1"; fi; }
           rm -f "$junit"
           code=0
-          cargo nextest run --workspace --locked --cargo-profile ci --profile ci \
+          cargo nextest run --workspace --locked --cargo-profile ci --profile ci --config-file "$config" \
             --no-fail-fast --no-tests=pass -E "$filter" || code=$?
           keep rust.xml
           [ "$code" -eq 101 ] || exit "$code"
@@ -279,8 +296,8 @@ jobs:
             n=$((n + 1))
             echo "The named tests of the units built: ${targets[*]}"
             rm -f "$junit"
-            cargo nextest run --locked --cargo-profile ci --profile ci --no-fail-fast --no-tests=pass -E "$filter" \
-              "${targets[@]}" < /dev/null || true
+            cargo nextest run --locked --cargo-profile ci --profile ci --config-file "$config" --no-fail-fast \
+              --no-tests=pass -E "$filter" "${targets[@]}" < /dev/null || true
             keep "rust-$n.xml"
           done
           exit 101

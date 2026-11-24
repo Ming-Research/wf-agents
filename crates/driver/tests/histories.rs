@@ -317,8 +317,11 @@ impl History {
             project: "one".to_string(),
             depends_on,
             tags: Vec::new(),
+            continues: None,
             flow: flow.to_string(),
             writes,
+            why: None,
+            waits_for: Vec::new(),
         };
         let let_on = self.room.chance(33);
         self.act(Act::Add(new));
@@ -627,7 +630,7 @@ impl History {
     fn spent(&self, run: RunId) -> Spent {
         Spent {
             usd_micros: run.0,
-            input_tokens: self.step as u64,
+            uncached_tokens: self.step as u64,
             cached_tokens: 0,
             output_tokens: 1,
             ..Default::default()
@@ -675,6 +678,7 @@ impl History {
                     Event::Paused {
                         by: Pauser::Owner,
                         why: None,
+                        waits_for: Vec::new(),
                     }
                 }
             }

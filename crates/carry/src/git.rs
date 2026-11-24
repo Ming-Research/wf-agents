@@ -9,12 +9,16 @@ use store::WorkNumber;
 use tokio::process::Command;
 use uuid::Uuid;
 
+use crate::commit_lines::Whose;
 use crate::host::NotMerged;
 use crate::settings::Project;
 use flow::agents::{Commits, fill};
 
 /// The directory in the data directory that holds the works' worktrees.
 pub const WORKTREES: &str = "worktrees";
+
+/// What every work's branch name begins with. The full CI workflow reads it to leave a work's pull request alone.
+pub const BRANCH_PREFIX: &str = "work-";
 
 /// Where a work is done: its branch and its worktree, both named by the work's number and by the installation, so
 /// that an installation with a new data directory never takes up a branch another left.
@@ -33,8 +37,9 @@ impl Place {
     }
 }
 
-/// Where the work is done, the commit of the main branch it started from, and whether its branch was there already, as
-/// a work's that was cancelled and reopened, whose cancel kept its branch, or one whose start was cut off.
+/// Where the work is done, the commit of the main branch it started from (the latest commit of main its branch holds,
+/// whatever the branch was made at), and whether its branch was there already, as a work's that was cancelled and
+/// reopened, whose cancel kept its branch, or one whose start was cut off.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Started {
     pub place: Place,
@@ -51,9 +56,21 @@ pub fn tag(installation: &Uuid) -> String {
 pub fn place(data: &Path, tag: &str, work: WorkNumber) -> Place {
     let name = format!("{}-{tag}", work.0);
     Place {
-        branch: format!("work-{name}"),
+        branch: format!("{BRANCH_PREFIX}{name}"),
         dir: data.join(WORKTREES).join(name),
     }
+}
+
+/// Whether the name is one the engine gives a work's branch, `work-<the work's number>-<an installation's tag>`, of any
+/// installation: a branch of that name is a work's, and what is on it is not the engine's to close.
+pub fn is_a_works_branch(name: &str) -> bool {
+    let Some((number, tag)) = name.strip_prefix("work-").and_then(|rest| rest.split_once('-')) else {
+        return false;
+    };
+    !number.is_empty()
+        && number.chars().all(|c| c.is_ascii_digit())
+        && tag.len() == 8
+        && tag.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 /// What a git command gave: whether it exited with 0, and its standard output and error.
@@ -262,9 +279,17 @@ fn text(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
-/// Makes the work's branch from `from`, the head of main as the host gives it, and its worktree, keeping both where
-/// they are made already.
-pub async fn start(project: &Project, place: &Place, from: &str) -> Result<Started, String> {
+/// Whether the work's branch is made already, as a work's that was cancelled and reopened, or one whose start was cut
+/// off, has it.
+pub(crate) async fn branch_made(project: &Project, place: &Place) -> Result<bool, String> {
+    let found = said(&project.repo, &["rev-parse", "--verify", "--quiet", &place.reference()]).await?;
+    Ok(found.ok)
+}
+
+/// Makes the work's branch at `at`, the commit its work starts from: the head of main as the host gives it, or what its
+/// item continues; and its worktree, keeping both where they are made already. `main` is the head of main, by which
+/// the commit of main the branch started from is worked out.
+pub async fn start(project: &Project, place: &Place, at: &str, main: &str) -> Result<Started, String> {
     configuration(project, place).await?;
     let repo = &project.repo;
     let branch = place.reference();
@@ -290,10 +315,24 @@ pub async fn start(project: &Project, place: &Place, from: &str) -> Result<Start
         if kept {
             git(repo, &["worktree", "add", &dir, &place.branch]).await?;
         } else {
-            git(repo, &["worktree", "add", "-b", &place.branch, &dir, from]).await?;
+            // A branch with no history in common with main could never be merged into it. It is refused before the
+            // branch is made: a branch made is taken as it is by the next start, which reads nothing of what the item
+            // continues, so the work would stay stuck at it.
+            let shared = said(repo, &["merge-base", main, at]).await?;
+            match shared.code {
+                Some(0) => {}
+                Some(1) => {
+                    return Err(format!(
+                        "the commit {at} has no history in common with main, which is {main}: a branch made there \
+                         could never be merged into main, so the work's branch is not made"
+                    ));
+                }
+                _ => return Err(format!("git merge-base {main} {at}: {}", shared.err)),
+            }
+            git(repo, &["worktree", "add", "-b", &place.branch, &dir, at]).await?;
         }
     }
-    let from = git(repo, &["merge-base", from, &branch]).await?;
+    let from = git(repo, &["merge-base", main, &branch]).await?;
     Ok(Started {
         place: place.clone(),
         from,
@@ -449,15 +488,16 @@ pub(crate) async fn untracked(dir: &Path) -> Result<String, String> {
 
 /// The words the check's merge of main into a work's branch is made with, as the project's `commits` says: a run's
 /// merge has words of its own, so that neither takes the other's for its own.
-fn taking_in(project: &Project, main: &str) -> String {
-    fill(&project.commits.check, &[("main", &project.main), ("head", main)])
+fn taking_in(project: &Project, main: &str, whose: Whose) -> String {
+    let words = fill(&project.commits.check, &[("main", &project.main), ("head", main)]);
+    whose.ending(&project.commits, &words)
 }
 
 /// Merges main's head into the branch checked out in the worktree, which merges it without a conflict, as a commit
 /// of the engine's, and gives the branch's head after it and whether the check made that commit; where the branch
 /// holds main's head already, its head as it is, so that a merge done before the engine stopped is not done again.
-pub(crate) async fn take_in(dir: &Path, main: &str, project: &Project) -> Result<(String, bool), String> {
-    let message = taking_in(project, main);
+pub(crate) async fn take_in(dir: &Path, main: &str, project: &Project, whose: Whose) -> Result<(String, bool), String> {
+    let message = taking_in(project, main, whose);
     let commits = &project.commits;
     if said(dir, &["merge-base", "--is-ancestor", main, "HEAD"]).await?.ok {
         // The check's own merge of this main, made by a check that stopped before it was recorded, is still its own.
@@ -468,23 +508,24 @@ pub(crate) async fn take_in(dir: &Path, main: &str, project: &Project) -> Result
 }
 
 /// The head of the branch checked out in the worktree and its first parent, where the head is the engine's merge of
-/// main's head at `main` made with these words, by the address `commits` gives; none where it is not. It says only
-/// that a run, or the check, made the merge before the engine stopped, which what the round is told of it rests on:
-/// whether a merge brings only main's code is known by its content alone (`crate::head`).
+/// main's head at `main` made with this message, whole and not its first line alone, by the address `commits` gives;
+/// none where it is not. It says only that a run, or the check, made the merge before the engine stopped, which what
+/// the round is told of it rests on: whether a merge brings only main's code is known by its content alone
+/// (`crate::head`).
 pub(crate) async fn merged_as(
     dir: &Path,
     main: &str,
     message: &str,
     commits: &Commits,
 ) -> Result<Option<(String, String)>, String> {
-    let head = git(dir, &["log", "-1", "--format=%H%x00%ae%x00%P%x00%s", "HEAD"]).await?;
-    let fields: Vec<&str> = head.split('\0').collect();
-    let [commit, email, parents, subject] = fields.as_slice() else {
+    let head = git(dir, &["log", "-1", "--format=%H%x00%ae%x00%P%x00%B", "HEAD"]).await?;
+    let fields: Vec<&str> = head.splitn(4, '\0').collect();
+    let [commit, email, parents, body] = fields.as_slice() else {
         return Ok(None);
     };
     let parents: Vec<&str> = parents.split(' ').collect();
     Ok(match parents.as_slice() {
-        [first, merged] if *email == commits.email && *merged == main && *subject == message => {
+        [first, merged] if *email == commits.email && *merged == main && body.trim_end() == message.trim_end() => {
             Some((commit.to_string(), first.to_string()))
         }
         _ => None,
@@ -562,13 +603,32 @@ pub(crate) async fn conflicts(project: &Project, main: &str, commit: &str) -> Re
     }
 }
 
+/// The messages of the commits the head holds that `base` does not, oldest first, those that merge excluded: what a
+/// work's own commits say, which the squash that merges the work gathers.
+pub(crate) async fn work_messages(repo: &Path, base: &str, head: &str) -> Result<Vec<String>, String> {
+    let range = format!("{base}..{head}");
+    let log = git(repo, &["log", "--reverse", "--no-merges", "--format=%B%x00", &range]).await?;
+    Ok(log
+        .split('\0')
+        .map(|message| message.trim().to_string())
+        .filter(|message| !message.is_empty())
+        .collect())
+}
+
 /// Merges the work's branch into the main branch in the repository's own checkout, which must be on the main branch,
 /// hold no uncommitted change and no merge under way, by a commit named `name` in the words of the project's
-/// `commits`, and gives the head of the main branch after it: the merge commit, or, where the branch holds nothing the
-/// main branch does not, the head as it was. Where `checked` names the commit the check passed, the branch's head must
-/// be that commit, and it is what is merged. A merge is refused while the repository's own configuration names a
-/// program git could run ([`configuration`]), as every act is. Where the merge fails, the merge it began is taken back.
-pub async fn merge(project: &Project, place: &Place, name: &str, checked: Option<&str>) -> Result<String, NotMerged> {
+/// `commits` and ending with the lines that name the item and the work, and gives the head of the main branch after
+/// it: the merge commit, or, where the branch holds nothing the main branch does not, the head as it was. Where
+/// `checked` names the commit the check passed, the branch's head must be that commit, and it is what is merged. A
+/// merge is refused while the repository's own configuration names a program git could run ([`configuration`]), as
+/// every act is. Where the merge fails, the merge it began is taken back.
+pub async fn merge(
+    project: &Project,
+    place: &Place,
+    name: &str,
+    whose: Whose,
+    checked: Option<&str>,
+) -> Result<String, NotMerged> {
     let repo = &project.repo;
     let on = git(repo, &["symbolic-ref", "--quiet", "--short", "HEAD"]).await?;
     if on != project.main {
@@ -624,7 +684,8 @@ pub async fn merge(project: &Project, place: &Place, name: &str, checked: Option
         let main = git(repo, &["rev-parse", "HEAD"]).await?;
         return Err(NotMerged::Moved { main, checked: head });
     }
-    let message = fill(&project.commits.merge, &[("branch", &place.branch), ("name", name)]);
+    let words = fill(&project.commits.merge, &[("branch", &place.branch), ("name", name)]);
+    let message = whose.ending(&project.commits, &words);
     let args = ["merge", "--no-ff", "-m", &message, &head];
     if let Err(why) = git(repo, &args).await {
         if merging().await? {

@@ -53,7 +53,7 @@ pub fn for_a_note(flow: &Flow, reading: &Reading, cell: &Cell, reasons: &[Reason
         })
     };
     reasons.iter().any(|r| match r {
-        Reason::Changed { block, was } => owners(block, *was),
+        Reason::Changed { block, was, .. } => owners(block, *was),
         Reason::Results { .. } => false,
     })
 }
@@ -87,6 +87,7 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
                 at: Seq(last_place(records).0 + 1),
                 by: Pauser::Owner,
                 why: None,
+                waits_for: Vec::new(),
             });
             let lifted = Room { paused: false, ..room };
             if let Decision::Run { cell, .. } = decide_in(flow, &let_on, lifted) {
@@ -144,9 +145,10 @@ pub fn goes_on(v: &mut Verdict, flow: &Flow, reading: &Reading, run: decide::Run
     }
     let reasons: Vec<Reason> = (s.because.iter())
         .filter_map(|c| match c {
-            decide::Cause::Changed { block, was, .. } => Some(Reason::Changed {
+            decide::Cause::Changed { block, was, worked, .. } => Some(Reason::Changed {
                 block: block.clone(),
                 was: *was,
+                worked: *worked,
             }),
             _ => None,
         })

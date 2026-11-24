@@ -21,15 +21,25 @@ A return asking for no call, from a line that may change the work, is sent back 
 - rejected: an agent proposed that the engine delete every untracked file as a round ends; the owner rejected it, because it would delete a new file the agent forgot to commit, losing work already paid for, and cannot tell a cache from a new file.
 
 ### decision heavy-commands-are-the-projects
-Every agent is refused pushing and the agents' own program, which the files beside the flows refuse to every agent, and the heavy commands its project's declaration names.
+Every agent is refused pushing and the agents' program the installation names, as the file beside the flows says, and the heavy commands its project's declaration names, each whole.
 - replaced: A list of heavy commands written in the engine, other projects' commands among them, with pushing refused in the code, was on main; the owner changed it, because what belongs to a project goes in its own declaration, and only the engine pushes.
+- replaced: The agents' program written by name in the file beside the flows was on main; the owner changed it, because wf-agents is not to assume one agent program, and an installation may name another.
+- replaced: Letting a line that writes run the lock-updating commands its project's declaration named, though a heavy command covers them, was on main; the owner changed it, because the allowed rules give `Bash` whole and a refusal beats an allow, so it could never take effect.
 - replaced: Refusing every agent pushing alone was on main; the owner changed it, because an agent that ran the agents' program itself spent where no work's record or budget counts it.
 - rejected: an agent proposed dropping the agents' rule against heavy work on this machine once their permissions refuse it; the owner rejected it, because an agent may still try to run it locally for convenience, so the rule says it briefly and the permissions refuse it too.
 
-### decision lock-commands-under-heavy-ones
-On a line that writes, the commands that update a lock file, which the installation's settings name, may run even though a heavy command covers them.
-- replaced: The engine's tool `lock_update`, run for an agent under settings of its own, was on main; the owner changed it, because an agent works in its own worktree, where updating its own dependencies harms nothing, and only the host's processor needs guarding.
+### decision a-toolchains-variables-are-the-projects
+A project's declaration names the variables its toolchain reads (`[environment]`), given every round of its works after the engine's own; naming one the engine or the program owns is refused.
+- replaced: The engine setting `RUSTUP_AUTO_INSTALL` to 0 for every round of every project was on main; the owner changed it, because a toolchain's variable written in the engine is a toolchain's word in the engine (Article 1).
+- replaced: Leaving the variable unset was on main; the owner changed it, because then a round does not download hundreds of megabytes unseen, and a missing toolchain is an error the agent sees.
 
 ### decision permissions-are-rules-not-a-mode
-The engine refuses a permission mode or a skip-permissions flag in agents.args and permissions.defaultMode in the program's settings file; permissions are --allowedTools rules.
+The engine refuses `permissions.defaultMode` in the program's settings file; permissions are `--allowedTools` rules.
 - replaced: Accepting --permission-mode in the arguments, and reading bypassPermissions and auto as allowing every command, was on main; the owner changed it, because the program starts in default mode under CLAUDE_CODE_SUBPROCESS_ENV_SCRUB, which the engine always sets.
+
+### decision the-flow-says-what-agents-may-do
+What agents may do is said in one file beside the flows, in words that name no program, which the carrier turns into the agents' program's own arguments each round; the installation gives none.
+- replaced: Giving the program arguments in the installation (`agents.args`) was on main; the owner changed it, because the set is the same on every machine, so each installation copied it, the copies drifted, and one held a machine's path.
+- rejected: an agent proposed a file beside the flows that writes the program's own tool names and rules; the owner rejected it, because the flow would carry one program's way of writing, and an installation that names another program would be wrong (Article 1).
+- rejected: an agent proposed the rules as constants in the carrier's code; the owner rejected it, because it breaks principle agents-get-only-what-the-flow-gives, and the rules could be seen only in code, outside the protected files.
+- rejected: an agent proposed a data file per program that the engine embeds; the owner rejected it, because it breaks the same principle, and there is one agents' program, so a file per program solves a problem that does not exist yet.

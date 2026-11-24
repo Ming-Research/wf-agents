@@ -38,7 +38,7 @@ async fn answered() -> (Trial, store::WorkNumber) {
     let (_, work) = trial.add("Greet the user", &[]);
     trial.act(work, Act::Resume).unwrap();
     trial.to_the_owners_call(work).await;
-    trial.answer(work, "Yes, by name.");
+    trial.let_go_on(work);
     (trial, work)
 }
 
@@ -58,7 +58,12 @@ async fn a_round_that_fails_pauses_its_work_with_the_reason_and_hands_out_nothin
         })
     );
     let pause = decide::pause(&kept.records).expect("the work is paused");
-    assert_eq!((pause.by, pause.why.as_deref()), (Pauser::Engine, Some(WHY)));
+    // A sentence of the files' words, with the failure's own words after a colon.
+    let reason = format!("The round failed. The cause: {WHY}");
+    assert_eq!(
+        (pause.by, pause.why.as_deref()),
+        (Pauser::Engine, Some(reason.as_str()))
+    );
     // The plan's run is at rest, its next round held by the pause: nothing more comes.
     assert_eq!(
         trial.decision(work),
@@ -139,7 +144,7 @@ async fn history_of(script: Script, stops: &[usize]) -> (Work, usize) {
         if decide::pause(&kept.records).is_some_and(|p| p.by == Pauser::Engine) {
             trial.act(work, Act::Resume).unwrap();
         } else if trial.owners_call(work).is_some() {
-            trial.answer(work, "Yes, by name.");
+            trial.let_go_on(work);
         } else {
             assert!(trial.step().await.is_some(), "the work comes to its end");
         }
@@ -180,7 +185,7 @@ async fn a_round_that_fails_in_passing_is_given_again_once_its_wait_is_over_and_
     let (_, work) = trial.add("Greet the user", &[]);
     trial.act(work, Act::Resume).unwrap();
     trial.to_the_owners_call(work).await;
-    trial.answer(work, "Yes, by name.");
+    trial.let_go_on(work);
     let event = trial.step().await.unwrap();
     assert!(matches!(&event, Event::Failed { .. }), "{event:?}");
     let kept = trial.work(work);
@@ -208,6 +213,30 @@ async fn a_round_that_fails_in_passing_is_given_again_once_its_wait_is_over_and_
     assert!(kept.records.pauses.iter().all(|p| p.by == Pauser::Owner));
 }
 
+// The engine's wait before such a round is tried again ends with the result the carriers' words give it, and only
+// theirs.
+#[tokio::test(start_paused = true)]
+async fn the_wait_before_a_failed_round_is_tried_again_ends_with_the_result_the_carriers_words_give_it() {
+    let calls = flow::agents::Calls {
+        waited: "WAITED: another word".to_string(),
+        ..Scripted::calls()
+    };
+    assert_ne!(calls.waited, Scripted::calls().waited);
+    let mut trial = Trial::with_script_and_calls(failing_as("passing", None), calls.clone());
+    let (_, work) = trial.add("Greet the user", &[]);
+    trial.act(work, Act::Resume).unwrap();
+    trial.to_the_owners_call(work).await;
+    trial.let_go_on(work);
+    let event = trial.step().await.unwrap();
+    assert!(matches!(&event, Event::Failed { .. }), "{event:?}");
+    assert_eq!(trial.drive(work).await, Decision::Ended(End::Merged));
+    let kept = trial.work(work);
+    let wait = (kept.calls.iter())
+        .find_map(|(id, call)| matches!(call, Call::Wait { .. }).then_some(*id))
+        .expect("the round's failure made a wait");
+    assert_eq!(kept.results[&wait], calls.waited);
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_stop_at_any_step_of_a_work_whose_round_fails_in_passing_changes_nothing() {
     let (without, steps) = history_of(failing_as("passing", None), &[]).await;
@@ -228,7 +257,7 @@ async fn at_the_usage_limit_no_round_begins_until_it_resets_and_then_the_work_go
     let (_, work) = trial.add("Greet the user", &[]);
     trial.act(work, Act::Resume).unwrap();
     trial.to_the_owners_call(work).await;
-    trial.answer(work, "Yes, by name.");
+    trial.let_go_on(work);
     trial.step().await.unwrap();
     let outage = trial.service.driver().outage().expect("the wait stands");
     assert_eq!(outage.resets, Some(Time(START.0 + hour)));
@@ -291,6 +320,7 @@ async fn a_round_that_ends_with_its_work_to_wait_is_taken_and_no_round_begins_af
         host: Some(Arc::new(scripted)),
         slots: crate::SLOTS,
         tokens: Arc::new(service::KeptTokens::new()),
+        calls: service::Scripted::calls(),
     };
     let clock = Arc::new(TokioClock::new(START));
     let (mut service, mut inbox) = Service::open(Box::new(store), vec![trial_flow()], carriers, clock).unwrap();

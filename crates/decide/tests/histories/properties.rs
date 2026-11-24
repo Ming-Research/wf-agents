@@ -83,6 +83,7 @@ pub const REACHED: &[&str] = &[
     NOTHING_CONSUMED,
     UNCHANGED_RUNS_NONE,
     CAUSES_CHECKED,
+    WORKED_FROM_OWN,
     RESULTS_ENTERED,
     TURNED_TO_WHILE_WAITING,
     HURRIES,
@@ -123,6 +124,7 @@ const PARTLY_DEALT_WITH: &str = "a return deals with part of what ran its round"
 pub const NOTHING_CONSUMED: &str = "a run is stopped or abandoned and its cell consumed nothing by it";
 const UNCHANGED_RUNS_NONE: &str = "a version handed in as changing nothing in meaning runs no cell";
 const CAUSES_CHECKED: &str = "the reasons of a run as it starts";
+const WORKED_FROM_OWN: &str = "a run starts for a block whose latest version its cell last worked from is its own";
 const RESULTS_ENTERED: &str = "a cell is entered for the results of its calls";
 const TURNED_TO_WHILE_WAITING: &str = "a cell waiting for the results of its calls is entered for the owner's words";
 const HURRIES: &str = "a round under way is told to hand in what it has for the owner turning to a cell before it";
@@ -414,9 +416,10 @@ pub fn started(v: &mut Verdict, flow: &Flow, reading: &Reading, s: &Started) {
     let given: Vec<Reason> = (s.because.iter())
         .filter_map(|c| match c {
             Cause::NoRecord => None,
-            Cause::Changed { block, was, .. } => Some(Reason::Changed {
+            Cause::Changed { block, was, worked, .. } => Some(Reason::Changed {
                 block: block.clone(),
                 was: *was,
+                worked: *worked,
             }),
             Cause::Results { calls } => Some(Reason::Results { calls: calls.clone() }),
         })
@@ -433,6 +436,22 @@ pub fn started(v: &mut Verdict, flow: &Flow, reading: &Reading, s: &Started) {
     }
     if given.iter().any(|r| matches!(r, Reason::Results { .. })) {
         v.count(RESULTS_ENTERED);
+    }
+    // The version the cell last worked from is later than the one it consumed where the cell wrote one itself since: that
+    // must be reached, or the agreement of the walk's number with the reading's checks nothing there. No history reaches
+    // one the owner ruled on, which the walk's test of a cause and the context manager's test of the owner's ruling
+    // judge instead.
+    for r in &given {
+        let Reason::Changed { block, was, worked } = r else {
+            continue;
+        };
+        if worked > was
+            && (reading.of(block).iter())
+                .find(|x| Some(x.at) == *worked)
+                .is_some_and(|x| matches!(&x.by, Writer::Cell(c, _) if *c == s.cell))
+        {
+            v.count(WORKED_FROM_OWN);
+        }
     }
     let owed = reading.owed(&s.cell, s.at);
     if owed.iter().any(|c| !reading.done(*c, s.at)) {
@@ -605,8 +624,8 @@ pub fn finished(v: &mut Verdict, reading: &Reading, run: RunId) {
 }
 
 /// After every step (property consumed-only-by-what-a-return-dealt-with, and entered-only-for-what-is-new): of every
-/// cell and every block that runs it, what the walk shows the cell consumed and whether the block is new to it are what
-/// the histories' own reading gives, from the returns that were taken alone.
+/// cell and every block that runs it, what the walk shows the cell consumed and which versions of the block are new to
+/// it are what the histories' own reading gives, from the returns that were taken alone.
 pub fn consumption(v: &mut Verdict, flow: &Flow, reading: &Reading) {
     let now = Seq(u64::MAX);
     let shown = view(flow, reading.records);
@@ -614,13 +633,15 @@ pub fn consumption(v: &mut Verdict, flow: &Flow, reading: &Reading) {
         for input in &seen.runs_on {
             v.count(CONSUMED_CHECKED);
             let consumed = reading.consumed(&cell.id, &input.block, now);
-            let new = !reading.new_to(&cell.id, &input.block, now).is_empty();
-            if input.consumed != consumed || input.new != new {
+            let new: Vec<Seq> = (reading.new_to(&cell.id, &input.block, now).iter())
+                .map(|x| x.at)
+                .collect();
+            if input.consumed != consumed || input.new_versions != new {
                 v.fail(
                     CONSUMED,
                     format!(
-                        "{} shows {} consumed at {:?} and new {}; the returns taken give {consumed:?} and {new}",
-                        cell.id, input.block, input.consumed, input.new
+                        "{} shows {} consumed at {:?} and new at {:?}; the returns taken give {consumed:?} and {new:?}",
+                        cell.id, input.block, input.consumed, input.new_versions
                     ),
                 );
             }
@@ -1232,6 +1253,7 @@ pub fn reaches(v: &mut Verdict, flow: &Flow, records: &Records, rest: &Decision,
                 at: Seq(last_place(records).0 + 1),
                 by: Pauser::Owner,
                 why: None,
+                waits_for: Vec::new(),
             });
             match decide(flow, &let_on) {
                 Decision::Run { cell, .. } | Decision::GoOn { cell, .. } | Decision::Wait { at: cell, .. } => {

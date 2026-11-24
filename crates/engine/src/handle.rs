@@ -14,7 +14,10 @@ use crate::asked;
 use crate::event::{Effect, Event, Gate, Hold, Refused};
 use crate::handed_in;
 use crate::spoken;
-use work::{Ask, Back, Call, Filled, Forked, Given, Measured, Moment, Pinged, Pulled, Ran, Session, Time, Work};
+use work::{
+    Ask, Back, Call, Filled, Forked, Given, Left, LeftBehind, Measured, Moment, Pinged, Pulled, Ran, Session, Time,
+    Timed, Work,
+};
 
 /// Takes one thing that happened to the work, at the time the driver's clock gives, and gives what is to be done for
 /// it outside the engine, were nothing outside the work to hold it back ([`Room::FREE`], [`Gate::Open`]). Where the
@@ -94,14 +97,12 @@ pub fn handle_then(
         let choices = choices(flow);
         let nothing_but = nothing_but(flow);
         let answers = answers(flow, work, run);
+        let log = log(flow, work, run, &told);
         if let Some(requires) = requires(flow, &choices, &nothing_but, &answers, &told, work, run)
-            && let Step::Finish { dealt_with, writes } = run::next(
-                &log(flow, work, run, &told),
-                requires,
-                hold_in(&flow.flow, &work.records, run, room),
-            )
+            && let Step::Finish { dealt_with, writes } =
+                run::next(&log, requires, hold_in(&flow.flow, &work.records, run, room))
         {
-            finish(flow, work, run, dealt_with, writes, &mut effects);
+            finish(flow, work, run, &log, dealt_with, writes, &mut effects);
         }
     }
     for event in then(flow, work) {
@@ -292,8 +293,10 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
         | Event::Ran { .. }
         | Event::Filled { .. }
         | Event::Measured { .. }
+        | Event::LeftBehind { .. }
         | Event::Forked { .. }
         | Event::Pulled { .. }
+        | Event::Timed { .. }
         | Event::NotReleased { .. }
         | Event::Released) => {
             take_kept(&|work| end_of(flow, work), &flow.waits.paused.let_go, work, event)?;
@@ -401,6 +404,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
                 at,
                 by: Pauser::Owner,
                 why: None,
+                waits_for: Vec::new(),
             });
         }
         // A call for a person to answer is one no agent can make: the engine has no one to give it to. The carrier that
@@ -464,6 +468,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
                     engine: came.engine,
                     waits_for: came.waits_for,
                     read: came.read,
+                    protected: came.protected,
                 };
                 work.back.insert((run, number), back);
                 asked::tell(flow, work);
@@ -505,6 +510,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
                         at,
                         by: Pauser::Engine,
                         why: Some(pausing_words(&flow.waits.paused, &pausing, &why)),
+                        waits_for: Vec::new(),
                     });
                 }
             }
@@ -573,7 +579,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
 fn take_kept(end: &dyn Fn(&Work) -> Option<End>, let_go: &str, work: &mut Work, event: Event) -> Result<(), Refused> {
     match event {
         Event::Look => {}
-        Event::Paused { by, why } => {
+        Event::Paused { by, why, waits_for } => {
             // The engine's pause of a work that has ended, as one a carrier asks for as a round of a cancelled work
             // ends, would hold back nothing and say what is not so: it adds nothing.
             if by == Pauser::Engine && end(work).is_some() {
@@ -585,6 +591,7 @@ fn take_kept(end: &dyn Fn(&Work) -> Option<End>, let_go: &str, work: &mut Work, 
                 at,
                 by,
                 why,
+                waits_for,
             });
         }
         Event::Resumed => {
@@ -594,6 +601,7 @@ fn take_kept(end: &dyn Fn(&Work) -> Option<End>, let_go: &str, work: &mut Work, 
                 at,
                 by: Pauser::Owner,
                 why: None,
+                waits_for: Vec::new(),
             });
         }
         Event::Done { call, result } => {
@@ -651,6 +659,36 @@ fn take_kept(end: &dyn Fn(&Work) -> Option<End>, let_go: &str, work: &mut Work, 
                 measures,
             });
         }
+        Event::LeftBehind { of, processes } => {
+            match &of {
+                Left::Try { run, round, .. } | Left::Act { run, round } => {
+                    let number = began(work, *run);
+                    if number == ended(work, *run) || number != *round {
+                        return Err(Refused::NoRoundUnderWay(*run));
+                    }
+                }
+                Left::Call { call } => {
+                    if !work.records.called.iter().any(|c| c.call == *call) {
+                        return Err(Refused::NoSuchCall(*call));
+                    }
+                    if done(work, *call).is_some() {
+                        return Err(Refused::AlreadyDone(*call));
+                    }
+                }
+                Left::Ping { .. } => {}
+                // A round that began, as a fork's cost is kept: a fork is asked of a round that ran, under way or not.
+                Left::Fork { run, round } => {
+                    if *round == 0 || *round > began(work, *run) {
+                        return Err(Refused::NoSuchRound {
+                            run: *run,
+                            round: *round,
+                        });
+                    }
+                }
+            }
+            let at = work.tick();
+            work.left_behind.push(LeftBehind { at, of, processes });
+        }
         Event::Forked { run, round, spent } => {
             // A round that began, at the place its run's entry says; a work that has ended has its fork's cost too.
             if round == 0 || round > began(work, run) {
@@ -662,7 +700,8 @@ fn take_kept(end: &dyn Fn(&Work) -> Option<End>, let_go: &str, work: &mut Work, 
                 run,
                 round,
                 usd_micros: spent.usd_micros,
-                input_tokens: spent.input_tokens,
+                uncached_tokens: spent.uncached_tokens,
+                cache_written_tokens: spent.cache_written_tokens,
                 cached_tokens: spent.cached_tokens,
                 output_tokens: spent.output_tokens,
             });
@@ -674,6 +713,17 @@ fn take_kept(end: &dyn Fn(&Work) -> Option<End>, let_go: &str, work: &mut Work, 
             }
             let at = work.tick();
             work.pulls.push(Pulled { at, number, url });
+        }
+        Event::Timed { reading } => {
+            // Read again after the engine started again, the same run is kept once.
+            if work.timed.iter().any(|t| t.reading.same_run(&reading)) {
+                return Ok(());
+            }
+            let at = work.tick();
+            work.timed.push(Timed {
+                at,
+                reading: reading.normalised(),
+            });
         }
         Event::NotReleased { why } => {
             // The engine's pause of the ended work, with why: the owner sees it where the engine's other reasons are,
@@ -687,6 +737,7 @@ fn take_kept(end: &dyn Fn(&Work) -> Option<End>, let_go: &str, work: &mut Work, 
                 at,
                 by: Pauser::Engine,
                 why: Some(flow::agents::fill(let_go, &[("why", &flow::agents::sentence(&why))])),
+                waits_for: Vec::new(),
             });
         }
         Event::Released => {
@@ -822,11 +873,8 @@ fn step(flow: &Compiled, work: &mut Work, run: RunId, at: At<'_>, effects: &mut 
         decide::Cause::Results { calls } => Some(calls.clone()),
         _ => None,
     });
-    let next = run::next(
-        &log(flow, work, run, &told),
-        requires,
-        hold_in(&flow.flow, &work.records, run, at.room),
-    );
+    let log = log(flow, work, run, &told);
+    let next = run::next(&log, requires, hold_in(&flow.flow, &work.records, run, at.room));
     // While the cell's rounds are held, none begins; the run rests until they may.
     let begins = matches!(next, Step::Begin | Step::Retry | Step::SendBack { .. });
     if begins && at.holds(flow, &cell) {
@@ -865,7 +913,7 @@ fn step(flow: &Compiled, work: &mut Work, run: RunId, at: At<'_>, effects: &mut 
             return true;
         }
         Step::Finish { dealt_with, writes } => {
-            finish(flow, work, run, dealt_with, writes, effects);
+            finish(flow, work, run, &log, dealt_with, writes, effects);
             return true;
         }
         Step::AtLimit(limit) => {
@@ -904,11 +952,14 @@ fn step(flow: &Compiled, work: &mut Work, run: RunId, at: At<'_>, effects: &mut 
 /// first: such a run finishes making none again, or all it asked for where it made none, and its cell is owed those it
 /// made. The run keeps, as it finishes, the observations
 /// its returns said that it keeps (crate `work`, module `observations`). A run that dealt with something writes that
-/// its cell has handed its work in, where the cell has a datum of that ([`handed_in`]).
+/// its cell has handed its work in, where the cell has a datum of that ([`handed_in`]). What the run returns is what
+/// its returns come to taken together (`run::together`): of each block it writes, its content is the latest return's
+/// that wrote it, and so is each question it asks.
 fn finish(
     flow: &Compiled,
     work: &mut Work,
     run: RunId,
+    log: &run::Log,
     dealt_with: Vec<BlockId>,
     writes: Vec<Write>,
     effects: &mut Vec<Effect>,
@@ -916,21 +967,28 @@ fn finish(
     let mut questions = Vec::new();
     let mut waits = None;
     let mut read = Vec::new();
-    let (handed, asks) = match work.back.get(&(run, ended(work, run))) {
+    let round = ended(work, run);
+    let (asks, handed) = match work.back.get(&(run, round)) {
         Some(Back::Returned {
-            handed,
             asks,
-            said,
             waits_for,
             read: on_branch,
             ..
         }) => {
-            questions = said.questions.clone();
+            // What the returns of the run come to taken together (`run::together`): each block it writes as the latest
+            // return that wrote it did, and each question it asks as the latest return that asked it did.
+            let taken = run::together(&log.rounds, questions_block(flow, work, run)).unwrap_or_default();
+            questions = (taken.questions.iter())
+                .filter_map(|asked| work.asked_by(run, round, &asked.name).cloned())
+                .collect();
             waits = waits_for.clone();
             read = on_branch.clone();
-            (handed.clone(), asks.clone())
+            let handed: Vec<work::Handed> = (writes.iter())
+                .filter_map(|w| latest_handed(work, run, round, &w.block))
+                .collect();
+            (asks.clone(), handed)
         }
-        Some(Back::HandedIn(handed)) => (handed.clone(), Vec::new()),
+        Some(Back::HandedIn(handed)) => (Vec::new(), handed.clone()),
         Some(Back::Asked(asks)) => {
             let r = &work.records;
             let ended_at = (r.returned.iter()).filter(|e| e.run == run).map(|e| e.at).max();
@@ -939,7 +997,7 @@ fn finish(
                     && ended_at.is_none_or(|e| c.at > e)
                     && matches!(work.calls.get(&c.call), Some(Call::Asked(_)))
             });
-            (Vec::new(), if made { Vec::new() } else { asks.clone() })
+            (if made { Vec::new() } else { asks.clone() }, Vec::new())
         }
         Some(Back::Failed { .. }) | None => (Vec::new(), Vec::new()),
     };
@@ -970,10 +1028,7 @@ fn finish(
         dealt_with: Some(dealt_with),
         waits_for: waits,
     });
-    let line = (work.records.started.iter().find(|s| s.run == run))
-        .and_then(|s| flow.cells.iter().find(|c| c.id == s.cell))
-        .and_then(|c| c.line.as_deref());
-    let observed = work::observations::kept(work, run, line);
+    let observed = work::observations::kept(work, run);
     work.observed.extend(observed);
     if handed_in && let Some(cell) = &cell {
         handed_in::tell(flow, work, cell);
@@ -984,6 +1039,15 @@ fn finish(
         asked::record(flow, work, run, &cell, false, &questions);
         asked::tell(flow, work);
     }
+}
+
+/// The block as the latest return of the run up to this round that wrote it handed it in: what a return sent back, and
+/// completed by later ones, wrote of it that they did not write again stands.
+fn latest_handed(work: &Work, run: RunId, round: usize, block: &BlockId) -> Option<work::Handed> {
+    (1..=round).rev().find_map(|n| match work.back.get(&(run, n))? {
+        Back::Returned { handed, .. } | Back::HandedIn(handed) => handed.iter().find(|h| &h.block == block).cloned(),
+        _ => None,
+    })
 }
 
 /// Records a call of the run, and gives it to be made.
@@ -1070,6 +1134,20 @@ pub(crate) fn answers(flow: &Compiled, work: &Work, run: RunId) -> BTreeMap<Bloc
     answers
 }
 
+/// What the next return of the run completes, as the deciding code reads it (`run::carried`): what the returns of the
+/// run that came back come to taken together, but for what the faults the last of them was sent back for name. The
+/// carrier reads it to hold what the next return says to what the returns before it said too.
+pub fn carried(flow: &Compiled, work: &Work, run: RunId) -> run::Together {
+    let told = told(&flow.flow, &work.records, run).unwrap_or_default();
+    run::carried(&log(flow, work, run, &told).rounds, questions_block(flow, work, run))
+}
+
+/// The block the questions of the run's cell are written in, where it has its own.
+fn questions_block<'f>(flow: &'f Compiled, work: &Work, run: RunId) -> Option<&'f BlockId> {
+    let started = work.records.started.iter().find(|s| s.run == run)?;
+    asked::questions_of(flow, &started.cell)
+}
+
 /// The run so far, as the deciding code reads it. A return of the form before a return said what it dealt with reads
 /// as one that dealt with nothing where it asked, and with everything that ran its round where it handed in.
 pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run::Log {
@@ -1093,8 +1171,10 @@ pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run:
             found,
             said,
             read,
+            protected,
             ..
         } => run::Return::Came {
+            protected: protected.clone(),
             dealt_with: dealt_with.clone(),
             writes: writes(handed),
             calls: asks.len(),
@@ -1104,6 +1184,7 @@ pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run:
                 .map(|q| run::Asking {
                     name: q.name().to_string(),
                     withdrawn: matches!(q, work::Question::Withdrawn { .. }),
+                    waits: matches!(q, work::Question::Asked { waits: true, .. }),
                 })
                 .collect(),
             // What the round committed, where the block does not say it already.
@@ -1120,6 +1201,7 @@ pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run:
             waits: false,
             questions: Vec::new(),
             read: Vec::new(),
+            protected: BTreeMap::new(),
         },
         Back::HandedIn(handed) => run::Return::Came {
             dealt_with: told.ran_by.clone(),
@@ -1129,6 +1211,7 @@ pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run:
             waits: false,
             questions: Vec::new(),
             read: Vec::new(),
+            protected: BTreeMap::new(),
         },
         Back::Failed { why, failure, .. } => run::Return::Failed {
             failure: *failure,
@@ -1144,6 +1227,12 @@ pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run:
     let rounds = (0..began(work, run))
         .map(|i| run::Round {
             returned: work.back.get(&(run, i + 1)).map(|b| returned(i, b)),
+            // What the round after it was told it was sent back for (`Given::SentBack`), which is what the returns after
+            // it complete.
+            sent_back: match work.given.get(&(run, i + 2)) {
+                Some(Given::SentBack(unmet)) => unmet.clone(),
+                _ => Vec::new(),
+            },
         })
         .collect();
     // How many rounds had ended when the owner last let the run go on at a limit.
@@ -1265,7 +1354,7 @@ fn pausing_words(words: &flow::agents::PausedWords, pausing: &Pausing, why: &str
     };
     match pausing {
         Pausing::Failed(Failure::PromptTooLong) => fill(&words.too_long, None),
-        Pausing::Failed(_) => why.to_string(),
+        Pausing::Failed(_) => fill(&words.failed, None),
         Pausing::Passing { failed } => fill(&words.passing, Some(*failed)),
         Pausing::Outside { failed } => fill(&words.outside, Some(*failed)),
         Pausing::FlaggedAgain => fill(&words.flagged_again, None),

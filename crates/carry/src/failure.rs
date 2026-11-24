@@ -371,7 +371,7 @@ pub fn of(report: &str, said: &Said, spent: Option<&work::Spent>) -> Failure {
     if gave_up(report, said) {
         return Failure::Unread;
     }
-    let reached = spent.is_some_and(|s| s.input_tokens + s.cached_tokens + s.output_tokens > 0);
+    let reached = spent.is_some_and(|s| s.uncached_tokens + s.cached_tokens + s.output_tokens > 0);
     let class = (said.status.and_then(Class::of)).or_else(|| said.limited.then_some(Class::Limit));
     let told = (said.kind()).or_else(|| class.map(|class| class.kind(words)));
     match (told, words) {
@@ -774,7 +774,7 @@ mod tests {
     fn a_round_that_reached_the_service_neither_cannot_run_nor_is_offline() {
         let spent = work::Spent {
             usd_micros: 1000,
-            input_tokens: 10,
+            uncached_tokens: 10,
             cached_tokens: 0,
             output_tokens: 5,
             ..work::Spent::default()
@@ -806,7 +806,7 @@ mod tests {
         );
         assert_eq!(of("Prompt is too long", &began, None), Failure::PromptTooLong);
         let spent = work::Spent {
-            input_tokens: 10,
+            uncached_tokens: 10,
             ..work::Spent::default()
         };
         let none = Said::default();
@@ -928,7 +928,7 @@ mod tests {
         let failed = serde_json::json!({ "type": "result", "is_error": true, "api_error": "connection_failed" });
         let said = said(&[failed]);
         let spent = work::Spent {
-            input_tokens: 10,
+            uncached_tokens: 10,
             output_tokens: 5,
             ..work::Spent::default()
         };

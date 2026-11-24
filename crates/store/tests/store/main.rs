@@ -2,6 +2,7 @@
 //! by driving the engine's loop, so that what is saved is what the engine produces. The tests are kept in modules by
 //! subject, so that a new test goes into the module of what it tests.
 
+mod cache_written;
 mod changes;
 mod diverged;
 mod everything;
@@ -11,6 +12,7 @@ mod items;
 mod observations;
 mod only_added;
 mod opening;
+mod repair;
 mod round_trip;
 mod versions;
 
@@ -164,6 +166,7 @@ fn first(title: &str, level: &str, depends_on: &[store::ItemNumber]) -> store::F
         project: Some("one".to_string()),
         depends_on: depends_on.to_vec(),
         tags: Vec::new(),
+        continues: None,
     }
 }
 
@@ -301,7 +304,9 @@ impl Driver {
         let n = self.ended;
         Spent {
             usd_micros: 7 * n,
-            input_tokens: 11 * n,
+            uncached_tokens: 11 * n,
+            // Told by no round of a file made before this version: the work is read back from such files as written.
+            cache_written_tokens: None,
             cached_tokens: 13 * n,
             output_tokens: 17 * n,
             // Some rounds tell the context they ended with and how often they were compacted, and some do not.
@@ -491,10 +496,12 @@ fn history(d: &mut Driver) {
     d.end(Came::asks(vec![tool("b"), tool("c")]));
     d.answer();
     d.end(hands_in(&[("text", None)]));
-    // The judge asks for a tool during a pause: the call is made, and entering it again waits for the resume.
+    // The judge asks for a tool during a pause that says why and the items it waits for: the call is made, and entering
+    // it again waits for the resume.
     d.on(Event::Paused {
         by: Pauser::Owner,
-        why: None,
+        why: Some("After the base.".to_string()),
+        waits_for: vec![12, 14],
     });
     d.end(Came::asks(vec![tool("f")]));
     d.answer();
@@ -514,6 +521,54 @@ fn history(d: &mut Driver) {
         number: 41,
         url: "https://github.com/o/r/pull/41".to_string(),
     });
+    // It read the run of the project's CI that checked it, which told how long its tests and jobs took, and read it again:
+    // the same run is kept once, its tests named once for every work that reports them.
+    let reading = work::Reading {
+        asking: "run/1/round/1".to_string(),
+        source: work::Source::Full,
+        commit: "0123abc".to_string(),
+        workflow: "ci.yml".to_string(),
+        jobs: vec![
+            work::timed::Job {
+                name: "test 1 of 3".to_string(),
+                millis: 61_000,
+            },
+            work::timed::Job {
+                name: "lint".to_string(),
+                millis: 7_000,
+            },
+        ],
+        tests: vec![
+            work::timed::Test {
+                unit: "carry".to_string(),
+                name: "tools::tests::b".to_string(),
+                passed: false,
+                millis: 2_500,
+            },
+            work::timed::Test {
+                unit: "carry".to_string(),
+                name: "tools::tests::a".to_string(),
+                passed: true,
+                millis: 120,
+            },
+        ],
+    };
+    // The check before the merge asked for another full workflow under the same asking: its run is another reading,
+    // kept beside the first.
+    let other = work::Reading {
+        workflow: "slow.yml".to_string(),
+        jobs: vec![work::timed::Job {
+            name: "slow".to_string(),
+            millis: 90_000,
+        }],
+        tests: Vec::new(),
+        ..reading.clone()
+    };
+    d.on(Event::Timed {
+        reading: reading.clone(),
+    });
+    d.on(Event::Timed { reading });
+    d.on(Event::Timed { reading: other });
     d.wrote("verdict", Outsider::Person, Some("no"));
     d.on(Event::LetGo { cell: "write".into() });
     // Answered, the judge is entered again, and hands in until a run of it finishes, writing a choice; the writer then

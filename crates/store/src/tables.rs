@@ -10,9 +10,10 @@ use decide::{
 use rusqlite::{Connection, Row, params};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use work::timed::{Job, Reading, Source, Test};
 use work::{
-    Filled, Forked, KeptTime, Measured, Measures, Moment, Observed, OnFlow, Pinged, Pulled, Ran, RanOn, Session, Spent,
-    Time, Work,
+    Filled, Forked, KeptTime, LeftBehind, Measured, Measures, Moment, Observed, OnFlow, Pinged, Pulled, Ran, RanOn,
+    Session, Spent, Time, Timed, Work,
 };
 
 use crate::{Divergence, Entry, Fault, WorkNumber};
@@ -264,12 +265,22 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
             ))
         },
     )?;
+    let waits = rows(
+        db,
+        "SELECT at, item FROM pause_waits WHERE work = ?1 ORDER BY at, item",
+        w,
+        |row| Ok((Seq(row.get(0)?), row.get::<_, u64>(1)?)),
+    )?;
     for (at, paused, pauser, why) in pauses {
         r.pauses.push(Pause {
             paused,
             at,
             by: from_name("pauses", pauser)?,
             why,
+            waits_for: (waits.iter())
+                .filter(|(of, _)| *of == at)
+                .map(|(_, item)| *item)
+                .collect(),
         });
     }
     let cancels = rows(
@@ -354,17 +365,18 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
 
     out.spent = rows(
         db,
-        "SELECT run, round, usd_micros, input_tokens, cached_tokens, output_tokens, context_tokens, compactions \
-         FROM spent WHERE work = ?1",
+        "SELECT run, round, usd_micros, uncached_tokens, cache_written_tokens, cached_tokens, output_tokens, \
+         context_tokens, compactions FROM spent WHERE work = ?1",
         w,
         |row| {
             let spent = Spent {
                 usd_micros: row.get(2)?,
-                input_tokens: row.get(3)?,
-                cached_tokens: row.get(4)?,
-                output_tokens: row.get(5)?,
-                context_tokens: row.get(6)?,
-                compactions: row.get(7)?,
+                uncached_tokens: row.get(3)?,
+                cache_written_tokens: row.get(4)?,
+                cached_tokens: row.get(5)?,
+                output_tokens: row.get(6)?,
+                context_tokens: row.get(7)?,
+                compactions: row.get(8)?,
             };
             Ok(((RunId(row.get(0)?), row.get(1)?), spent))
         },
@@ -444,10 +456,22 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
         measured.measures.before = parse("measured", &before)?;
         out.measured.push(measured);
     }
+    for (at, of, processes) in rows(
+        db,
+        "SELECT at, of, processes FROM left_behind WHERE work = ?1 ORDER BY at",
+        w,
+        |row| Ok((row.get::<_, u64>(0)?, row.get::<_, String>(1)?, row.get::<_, usize>(2)?)),
+    )? {
+        out.left_behind.push(LeftBehind {
+            at: Seq(at),
+            of: parse("left_behind", &of)?,
+            processes,
+        });
+    }
     out.pinged = rows(
         db,
-        "SELECT at, line, session, usd_micros, input_tokens, cached_tokens, output_tokens, context_tokens, \
-         compactions, failed FROM pinged WHERE work = ?1 ORDER BY at",
+        "SELECT at, line, session, usd_micros, uncached_tokens, cache_written_tokens, cached_tokens, output_tokens, \
+         context_tokens, compactions, failed FROM pinged WHERE work = ?1 ORDER BY at",
         w,
         |row| {
             Ok(Pinged {
@@ -456,20 +480,21 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
                 session: row.get(2)?,
                 spent: Spent {
                     usd_micros: row.get(3)?,
-                    input_tokens: row.get(4)?,
-                    cached_tokens: row.get(5)?,
-                    output_tokens: row.get(6)?,
-                    context_tokens: row.get(7)?,
-                    compactions: row.get(8)?,
+                    uncached_tokens: row.get(4)?,
+                    cache_written_tokens: row.get(5)?,
+                    cached_tokens: row.get(6)?,
+                    output_tokens: row.get(7)?,
+                    context_tokens: row.get(8)?,
+                    compactions: row.get(9)?,
                 },
-                failed: row.get(9)?,
+                failed: row.get(10)?,
             })
         },
     )?;
     out.forked = rows(
         db,
-        "SELECT at, run, round, usd_micros, input_tokens, cached_tokens, output_tokens FROM forked WHERE work = ?1 \
-         ORDER BY at",
+        "SELECT at, run, round, usd_micros, uncached_tokens, cache_written_tokens, cached_tokens, output_tokens \
+         FROM forked WHERE work = ?1 ORDER BY at",
         w,
         |row| {
             Ok(Forked {
@@ -477,9 +502,10 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
                 run: RunId(row.get(1)?),
                 round: row.get(2)?,
                 usd_micros: row.get(3)?,
-                input_tokens: row.get(4)?,
-                cached_tokens: row.get(5)?,
-                output_tokens: row.get(6)?,
+                uncached_tokens: row.get(4)?,
+                cache_written_tokens: row.get(5)?,
+                cached_tokens: row.get(6)?,
+                output_tokens: row.get(7)?,
             })
         },
     )?;
@@ -495,6 +521,74 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
             })
         },
     )?;
+    let runs = rows(
+        db,
+        "SELECT at, asking, source, commit_id, workflow FROM timed WHERE work = ?1 ORDER BY at",
+        w,
+        |row| {
+            Ok((
+                Seq(row.get(0)?),
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+            ))
+        },
+    )?;
+    let mut jobs: BTreeMap<Seq, Vec<Job>> = BTreeMap::new();
+    for (at, job) in rows(
+        db,
+        "SELECT at, name, millis FROM timed_jobs WHERE work = ?1 ORDER BY at, name",
+        w,
+        |row| {
+            Ok((
+                Seq(row.get(0)?),
+                Job {
+                    name: row.get(1)?,
+                    millis: row.get(2)?,
+                },
+            ))
+        },
+    )? {
+        jobs.entry(at).or_default().push(job);
+    }
+    let mut tests: BTreeMap<Seq, Vec<Test>> = BTreeMap::new();
+    for (at, test) in rows(
+        db,
+        "SELECT t.at, n.unit, n.name, t.passed, t.millis FROM timed_tests t JOIN test_names n ON n.test = t.test \
+         WHERE t.work = ?1 ORDER BY t.at, n.unit, n.name",
+        w,
+        |row| {
+            Ok((
+                Seq(row.get(0)?),
+                Test {
+                    unit: row.get(1)?,
+                    name: row.get(2)?,
+                    passed: row.get(3)?,
+                    millis: row.get(4)?,
+                },
+            ))
+        },
+    )? {
+        tests.entry(at).or_default().push(test);
+    }
+    for (at, asking, source, commit, workflow) in runs {
+        let source = Source::named(&source).ok_or_else(|| Fault::Value {
+            table: "timed",
+            message: format!("{source:?} is no source of a run's times"),
+        })?;
+        out.timed.push(Timed {
+            at,
+            reading: Reading {
+                asking,
+                source,
+                commit,
+                workflow,
+                jobs: jobs.remove(&at).unwrap_or_default(),
+                tests: tests.remove(&at).unwrap_or_default(),
+            },
+        });
+    }
     out.flows = rows(
         db,
         "SELECT at, version FROM on_flow WHERE work = ?1 ORDER BY at",
@@ -605,9 +699,13 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
         round: o.round,
     })?;
     let measured = grown("measured", &held.measured, &given.measured, |m| Entry::At(m.at))?;
+    let left_behind = grown("left_behind", &held.left_behind, &given.left_behind, |l| {
+        Entry::At(l.at)
+    })?;
     let pinged = grown("pinged", &held.pinged, &given.pinged, |p| Entry::At(p.at))?;
     let forked = grown("forked", &held.forked, &given.forked, |f| Entry::At(f.at))?;
     let pulls = grown("pulls", &held.pulls, &given.pulls, |p| Entry::At(p.at))?;
+    let timed = grown("timed", &held.timed, &given.timed, |t| Entry::At(t.at))?;
     let on_flow = grown("on_flow", &held.flows, &given.flows, |f| Entry::At(f.at))?;
     let kept_time = grown("kept_time", &held.kept_time, &given.kept_time, |k| Entry::At(k.at))?;
 
@@ -732,6 +830,12 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
             "INSERT INTO pauses (work, at, paused, pauser, why) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![w, e.at.0, e.paused, pauser, e.why],
         )?;
+        for item in &e.waits_for {
+            db.execute(
+                "INSERT INTO pause_waits (work, at, item) VALUES (?1, ?2, ?3)",
+                params![w, e.at.0, item],
+            )?;
+        }
     }
     for (at, why) in cancels {
         db.execute(
@@ -793,14 +897,15 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     }
     for ((run, round), s) in spent {
         db.execute(
-            "INSERT INTO spent (work, run, round, usd_micros, input_tokens, cached_tokens, output_tokens, \
-             context_tokens, compactions) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            "INSERT INTO spent (work, run, round, usd_micros, uncached_tokens, cache_written_tokens, cached_tokens, \
+             output_tokens, context_tokens, compactions) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 w,
                 run.0,
                 round,
                 s.usd_micros,
-                s.input_tokens,
+                s.uncached_tokens,
+                s.cache_written_tokens,
                 s.cached_tokens,
                 s.output_tokens,
                 s.context_tokens,
@@ -862,18 +967,27 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
             ],
         )?;
     }
+    for l in left_behind {
+        let of = json("left_behind", &l.of)?;
+        db.execute(
+            "INSERT INTO left_behind (work, at, of, processes) VALUES (?1, ?2, ?3, ?4)",
+            params![w, l.at.0, of, l.processes],
+        )?;
+    }
     for p in pinged {
         let s = &p.spent;
         db.execute(
-            "INSERT INTO pinged (work, at, line, session, usd_micros, input_tokens, cached_tokens, output_tokens, \
-             context_tokens, compactions, failed) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            "INSERT INTO pinged (work, at, line, session, usd_micros, uncached_tokens, cache_written_tokens, \
+             cached_tokens, output_tokens, context_tokens, compactions, failed) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 w,
                 p.at.0,
                 p.line,
                 p.session,
                 s.usd_micros,
-                s.input_tokens,
+                s.uncached_tokens,
+                s.cache_written_tokens,
                 s.cached_tokens,
                 s.output_tokens,
                 s.context_tokens,
@@ -884,15 +998,16 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     }
     for f in forked {
         db.execute(
-            "INSERT INTO forked (work, at, run, round, usd_micros, input_tokens, cached_tokens, output_tokens) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT INTO forked (work, at, run, round, usd_micros, uncached_tokens, cache_written_tokens, \
+             cached_tokens, output_tokens) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 w,
                 f.at.0,
                 f.run.0,
                 f.round,
                 f.usd_micros,
-                f.input_tokens,
+                f.uncached_tokens,
+                f.cache_written_tokens,
                 f.cached_tokens,
                 f.output_tokens
             ],
@@ -903,6 +1018,31 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
             "INSERT INTO pulls (work, at, number, url) VALUES (?1, ?2, ?3, ?4)",
             params![w, p.at.0, p.number, p.url],
         )?;
+    }
+    for t in timed {
+        let r = &t.reading;
+        db.execute(
+            "INSERT INTO timed (work, at, asking, source, commit_id, workflow) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![w, t.at.0, r.asking, r.source.as_str(), r.commit, r.workflow],
+        )?;
+        for job in &r.jobs {
+            db.execute(
+                "INSERT INTO timed_jobs (work, at, name, millis) VALUES (?1, ?2, ?3, ?4)",
+                params![w, t.at.0, job.name, job.millis],
+            )?;
+        }
+        for test in &r.tests {
+            db.execute(
+                "INSERT OR IGNORE INTO test_names (unit, name) VALUES (?1, ?2)",
+                params![test.unit, test.name],
+            )?;
+            // A test that a run reports twice (as a run that ran it again) keeps its first reading.
+            db.execute(
+                "INSERT OR IGNORE INTO timed_tests (work, at, test, passed, millis) \
+                 VALUES (?1, ?2, (SELECT test FROM test_names WHERE unit = ?3 AND name = ?4), ?5, ?6)",
+                params![w, t.at.0, test.unit, test.name, test.passed, test.millis],
+            )?;
+        }
     }
     for f in on_flow {
         db.execute(
@@ -1034,7 +1174,8 @@ pub(crate) fn fill_empty(db: &Connection) -> Result<(), Fault> {
         let value: Option<String> = row.get(5)?;
         let content: String = row.get::<_, Option<String>>(7)?.ok_or_else(|| {
             Fault::Database(format!(
-                "migration 18: the content of the version of {block} written at {at} of work {work} is missing"
+                "migration 18: the content of the version of {block} written at {at} of {} is missing",
+                WorkNumber(work.unsigned_abs())
             ))
         })?;
         db.execute(
@@ -1065,12 +1206,14 @@ pub(crate) fn fill_empty(db: &Connection) -> Result<(), Fault> {
         let value: Option<String> = row.get(5)?;
         let at: i64 = row.get::<_, Option<i64>>(6)?.ok_or_else(|| {
             Fault::Database(format!(
-                "migration 18: the write of {block} by run {run} of work {work} has no finished run to take its place from"
+                "migration 18: the write of {block} by run {run} of {} has no finished run to take its place from",
+                WorkNumber(work.unsigned_abs())
             ))
         })?;
         let content: String = row.get::<_, Option<String>>(7)?.ok_or_else(|| {
             Fault::Database(format!(
-                "migration 18: the content of the version of {block} written by run {run} at {at} of work {work} is missing"
+                "migration 18: the content of the version of {block} written by run {run} at {at} of {} is missing",
+                WorkNumber(work.unsigned_abs())
             ))
         })?;
         db.execute(

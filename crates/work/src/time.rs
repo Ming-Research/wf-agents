@@ -19,6 +19,9 @@ pub enum Went {
     Owner,
     /// A pause held the work, its own or the pause of everything.
     Paused,
+    /// A stop of the engine held the work, from when it was asked for to when the engine started again; the bar draws
+    /// it as a pause.
+    Stopping,
     /// The work waited for the items its item depends on.
     Items,
     /// Anything else, a stalled work among it.

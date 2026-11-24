@@ -1,13 +1,13 @@
-//! A fork of a round's session asked through the handle, as the pages and the commands ask it: what it took is kept
-//! with the work, whether it answered or failed having run, and nothing is kept of one that was refused before its
-//! program ran. The agents' carrier is the test's, which answers each fork as the test says; what the real carrier
+//! A fork of a round's session asked through the handle, as the pages and the commands ask it: what it took, and what
+//! its program left running, are kept with the work, whether it answered or failed having run, and nothing is kept of
+//! one that was refused before its program ran. The agents' carrier is the test's, which answers each fork as the test says; what the real carrier
 //! gives is tested in its own crate. Each test runs the loop on the paused clock until a round ran, then asks.
 
 use decide::RunId;
 use engine::Event;
 use service::{Act, ForkFailed, Forked, Message, Refusal};
 use store::WorkNumber;
-use work::Spent;
+use work::{Left, Spent};
 
 use crate::{ACCOUNT, Trial};
 
@@ -77,13 +77,15 @@ fn answered(spent: Spent) -> Forked {
         account: ACCOUNT.to_string(),
         instead: None,
         usage: None,
+        left: 0,
     }
 }
 
 fn took() -> Spent {
     Spent {
         usd_micros: 81_000,
-        input_tokens: 120,
+        uncached_tokens: 120,
+        cache_written_tokens: Some(100),
         cached_tokens: 25_800,
         output_tokens: 30,
         ..Spent::default()
@@ -116,11 +118,12 @@ async fn a_fork_that_answered_is_kept_with_the_work_as_the_round_it_was_asked_of
     assert_eq!(
         (
             kept[0].usd_micros,
-            kept[0].input_tokens,
+            kept[0].uncached_tokens,
+            kept[0].cache_written_tokens,
             kept[0].cached_tokens,
             kept[0].output_tokens
         ),
-        (81_000, 120, 25_800, 30)
+        (81_000, 120, Some(100), 25_800, 30)
     );
 }
 
@@ -133,6 +136,7 @@ async fn a_fork_that_ran_and_gave_no_answer_is_kept_with_what_it_took_and_says_w
     trial.will_answer(Err(ForkFailed {
         why: "The fork wrote no answer.".to_string(),
         spent: Some(took()),
+        left: 2,
     }));
     let asked = trial.fork(work, run, "Which words can be read two ways?").await;
     let Ok(Some(Err(said))) = asked else {
@@ -141,9 +145,16 @@ async fn a_fork_that_ran_and_gave_no_answer_is_kept_with_what_it_took_and_says_w
     assert!(said.starts_with("The fork wrote no answer."), "{said}");
     assert!(said.contains("It cost $0.0810."), "{said}");
     trial.until_forked().await;
-    let kept = trial.work(work).forked;
-    assert_eq!(kept.len(), 1);
-    assert_eq!(kept[0].usd_micros, 81_000);
+    let kept = trial.work(work);
+    assert_eq!(kept.forked.len(), 1);
+    assert_eq!(kept.forked[0].usd_micros, 81_000);
+    // What its program left running is kept with the round it was asked of, before what it took.
+    let left: Vec<_> = (kept.left_behind.iter()).map(|l| (l.of.clone(), l.processes)).collect();
+    assert_eq!(left, [(Left::Fork { run, round: 1 }, 2)]);
+    assert!(
+        kept.left_behind[0].at < kept.forked[0].at,
+        "kept before what the fork took"
+    );
 }
 
 #[tokio::test(start_paused = true)]
@@ -156,6 +167,7 @@ async fn a_fork_refused_before_its_program_ran_is_kept_nowhere_and_the_next_one_
     let refused = trial.fork(work, run, "Which words can be read two ways?").await;
     assert!(matches!(refused, Ok(Some(Err(_)))), "{refused:?}");
     assert!(trial.work(work).forked.is_empty());
+    assert!(trial.work(work).left_behind.is_empty());
     // The next fork's entry is the first the loop is sent of forks: the refused one sent none.
     let next = Spent {
         usd_micros: 7_000,

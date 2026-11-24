@@ -11,6 +11,7 @@
 mod accounts;
 mod budget;
 mod catching_up;
+mod declared;
 mod delivering;
 mod failing;
 mod forms;
@@ -21,6 +22,7 @@ mod permissions;
 mod projects;
 mod protected;
 mod query;
+mod reading;
 mod sessions;
 mod stopping;
 mod testing;
@@ -34,7 +36,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use carry::git::{self, Place};
-use carry::settings::{Agents, Items, Level, Owner, PermissionsAdded, Project};
+use carry::settings::{Agents, Items, Level, Owner, Project};
 use carry::{Settings, session};
 use decide::{CallId, Decision, Pauser, RunId, Who};
 use driver::{FirstWrite, NewItem};
@@ -47,7 +49,8 @@ use work::Work;
 
 /// How the fake command line answers.
 pub struct Fake {
-    /// The session's cost so far that every call reports, in dollars, as JSON.
+    /// What every call says it spent since the one before it, in dollars, as JSON; the session's total it also says is
+    /// the sum of what its calls spent.
     pub cost: &'static str,
     /// Whether its first call fails, saying the prompt is too long, which pauses the work.
     pub fail_first: bool,
@@ -60,6 +63,9 @@ pub struct Fake {
     /// Whether its first call crashes after one call to Opus 5.5, of 100 tokens sent, 1,000 read from the cache and 10
     /// back, printing no result, and exits with 1.
     pub crashes_first: bool,
+    /// Whether every call makes one call to Opus 5.5, of 100 tokens sent, 1,000 read from the cache and 10 back, and
+    /// prints a result that leaves out what the program spent since the result before it.
+    pub omits_cost: bool,
     /// Whether the build asks for the query of the check in its first run, and its run entered for the result, going
     /// on in the session, is told the first time that the session is not found.
     pub lose_session: bool,
@@ -83,6 +89,15 @@ pub struct Fake {
     /// How many seconds the build's first call sleeps once it has said, as its stream begins, that it took its message
     /// in, made one call to the model and committed a file of the design tree, before it answers.
     pub build_sleeps_once_committed: u32,
+    /// How many seconds the build's first call sleeps once it has said, as its stream begins, that it took its message
+    /// in, made one call to the model, and had its hook give it what the owner said to it, as the hook the command line
+    /// was given for each use of a tool does, before it answers.
+    pub build_hears_once_begun: u32,
+    /// Whether the plan's first call starts a process that runs on in its group, its output sent elsewhere, before it
+    /// answers and ends, writing the process's number in `left_running` beside the calls.
+    pub plan_leaves_running: bool,
+    /// How the process the plan's first call leaves running behaves, where it leaves one.
+    pub plan_leftover: Leftover,
     /// The context every call ends with, in tokens, as the prompt of its one call to the model; none where the result
     /// says no call.
     pub context: Option<u64>,
@@ -100,6 +115,9 @@ pub struct Fake {
     /// Whether the build, once, commits a line to the project's guide, which the project protects, saying why only in
     /// a round told its return was sent back for it.
     pub build_changes_guide: bool,
+    /// Whether the build says why at once, in its first round that changes the guide, and in no other round unless it
+    /// is told its return was sent back for that.
+    pub build_explains_the_guide: bool,
     /// Whether the build, once, commits a file of the design tree to main.
     pub moves_main: bool,
     /// Whether the build commits its file beside the project's tests until a round of it is told its return was sent
@@ -134,6 +152,9 @@ pub struct Fake {
     /// Whether the build writes a decision of the design tree that is not in the forms of the tree's rules, until a
     /// round of it is told its return was sent back for that, when it writes it as they say.
     pub ill_formed_tree: bool,
+    /// Whether the build, once told its return was sent back for a change not committed, takes the change back and
+    /// returns nothing else, whatever else it was told: what it returned before is to stand for the rest.
+    pub build_mends_the_edit_and_nothing_else: bool,
 }
 
 /// The file of the design tree that holds the entry the fake's plan names, where it names entries.
@@ -148,6 +169,17 @@ pub const FORMED_FILE: &str = "design/decisions/formed.md";
 /// How much of the account's week every call that says its usage says is used.
 pub const USED: f64 = 0.04;
 
+/// How a process the fake leaves running in its group behaves.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Leftover {
+    /// Its output sent elsewhere, it ends on TERM.
+    Quiet,
+    /// It holds the program's standard output open, and ends on TERM.
+    KeepsOutput,
+    /// Its output sent elsewhere, it ignores TERM.
+    IgnoresTerm,
+}
+
 impl Default for Fake {
     fn default() -> Self {
         Fake {
@@ -156,6 +188,7 @@ impl Default for Fake {
             flag_first: false,
             error_first: false,
             crashes_first: false,
+            omits_cost: false,
             lose_session: false,
             lose_in_result: false,
             question_first: false,
@@ -164,12 +197,16 @@ impl Default for Fake {
             plan_sleeps_once_returned: 0,
             plan_sleeps_once_it_wrote_its_return: 0,
             build_sleeps_once_committed: 0,
+            build_hears_once_begun: 0,
+            plan_leaves_running: false,
+            plan_leftover: Leftover::Quiet,
             context: None,
             compacts: false,
             refuses_first: false,
             plan_edits_guide: false,
             design: false,
             build_changes_guide: false,
+            build_explains_the_guide: false,
             moves_main: false,
             build_beside_tests: false,
             build_then_asks: false,
@@ -182,6 +219,7 @@ impl Default for Fake {
             tree_question: false,
             names_entries: false,
             ill_formed_tree: false,
+            build_mends_the_edit_and_nothing_else: false,
         }
     }
 }
@@ -233,6 +271,7 @@ fn refused_stream() -> String {
     lines.extend(attempt("so-2", &json!({ "outcome": plan }).to_string()));
     let gave_up = json!({ "type": "result", "subtype": "error_max_structured_output_retries", "is_error": true,
         "result": null, "errors": [GAVE_UP], "total_cost_usd": 0.4,
+        "model_usage_since_last_result": { "m": { "costUSD": 0.4 } },
         "usage": { "input_tokens": 1000, "output_tokens": 300 } });
     lines.push(gave_up.to_string());
     lines.push(json!({ "type": "system", "subtype": "task_summary", "detail": null }).to_string());
@@ -306,6 +345,8 @@ pub struct Real {
     _dir: tempfile::TempDir,
     pub data: PathBuf,
     pub repo: PathBuf,
+    /// The command that checks the projects, as their declarations name it.
+    check: String,
     /// Where the fake keeps what it was given.
     calls: PathBuf,
     pub settings: Settings,
@@ -476,6 +517,7 @@ printf '%s\n' "$@" > "$log/$n.args"
 printf '%s' "${{CLAUDE_CODE_OAUTH_TOKEN:-}}" > "$log/$n.token"
 printf '%s' "${{CLAUDE_CONFIG_DIR:-}}" > "$log/$n.profile"
 printf '%s' "${{CLAUDE_CODE_SUBPROCESS_ENV_SCRUB:-}}" > "$log/$n.scrub"
+printf '%s' "${{RUSTUP_AUTO_INSTALL-unset}}" > "$log/$n.rustup"
 prev=''
 for arg in "$@"; do
     [ "$prev" = --json-schema ] && printf '%s' "$arg" > "$log/$n.schema"
@@ -492,7 +534,8 @@ if [ '{refuses}' = yes ] && [ "$n" = 1 ]; then
     exit 1
 fi
 if [ '{error}' = yes ] && [ "$n" = 1 ]; then
-    printf '%s\n' '{{"type":"result","subtype":"error_max_structured_output_retries","is_error":true,"result":null,"errors":["{gave_up}"],"total_cost_usd":0.8,"usage":{{"input_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":300}}}}'
+    printf '%s\n' '{{"type":"result","subtype":"error_max_structured_output_retries","is_error":true,"result":null,"errors":["{gave_up}"],"total_cost_usd":0.8,"model_usage_since_last_result":{{"m":{{"costUSD":0.8}}}},"usage":{{"input_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":300}}}}'
+    printf '0.8' > "$log/total"
     exit 1
 fi
 if [ '{crash}' = yes ] && [ "$n" = 1 ]; then
@@ -500,7 +543,8 @@ if [ '{crash}' = yes ] && [ "$n" = 1 ]; then
     exit 1
 fi
 if [ '{flag}' = yes ] && [ "$n" = 1 ]; then
-    printf '%s\n' '{{"type":"result","subtype":"success","is_error":true,"result":"API Error: the safeguards flagged this message.","total_cost_usd":0.3,"usage":{{"input_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":30}}}}'
+    printf '%s\n' '{{"type":"result","subtype":"success","is_error":true,"result":"API Error: the safeguards flagged this message.","total_cost_usd":0.3,"model_usage_since_last_result":{{"m":{{"costUSD":0.3}}}},"usage":{{"input_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":30}}}}'
+    printf '0.3' > "$log/total"
     exit 1
 fi
 if [ '{fail}' = yes ] && [ "$n" = 1 ]; then
@@ -537,7 +581,10 @@ takes_back() {{
     fi
 }}
 leaves() {{
-    if [ '{leaves_edit}' = yes ] && ! grep -q 'changes to tracked files that are not committed' "$log/$n.stdin"; then
+    # Where the build also mends the edit and nothing else, it leaves the edit only in a round that has the results of
+    # its calls: the rounds before, which ask a question or a call, are not what the test is about.
+    if [ '{leaves_edit}' = yes ] && ! grep -q 'changes to tracked files that are not committed' "$log/$n.stdin" \
+        && {{ [ '{mends_only}' = no ] || grep -q 'The results of what you asked for' "$log/$n.stdin"; }}; then
         echo "$n" >> greeting.txt
     fi
     if [ '{leaves_merge}' = yes ] && ! grep -q 'A merge is under way in the worktree and is not committed' "$log/$n.stdin"; then
@@ -551,6 +598,17 @@ leaves() {{
 }}
 case "$first" in
     Plan)
+        if [ '{leaves_running}' = yes ] && [ ! -f "$log/left_running" ]; then
+            case '{leftover}' in
+                # It writes where the program's standard output goes, as a command a script starts with `&` does,
+                # for twenty seconds.
+                keeps) sleep 20 2>/dev/null & ;;
+                # It ignores TERM, which `exec` keeps for the sleep it becomes.
+                deaf) (trap '' TERM; exec sleep 30) >/dev/null 2>&1 & ;;
+                *) sleep 30 >/dev/null 2>&1 & ;;
+            esac
+            echo $! > "$log/left_running"
+        fi
         if [ '{sleeps}' != 0 ] && [ ! -f "$log/slept" ]; then
             touch "$log/slept"
             sleep '{sleeps}'
@@ -585,6 +643,17 @@ case "$first" in
         fi ;;
     Build)
         takes_back
+        if [ '{hears_sleeps}' != 0 ] && [ ! -f "$log/heard" ]; then
+            touch "$log/heard"
+            printf '%s\n' '{{"type":"system","subtype":"init","claude_code_version":"9.9.9"}}'
+            printf '%s\n' '{{"type":"assistant","parent_tool_use_id":null,"message":{{"id":"msg_1","model":"claude-opus-5-5","usage":{{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":1000,"output_tokens":10}}}}}}'
+            # What the hook for each use of a tool moves and prints: the file of what the owner said, which the
+            # command line's settings name.
+            waiting=$(grep -A1 -x -- --settings "$log/$n.args" | tail -n 1 | sed -n "s/.*if \[ -e '\([^']*\)' \].*/\1/p")
+            while [ ! -e "$waiting" ]; do sleep 0.1; done
+            mv "$waiting" "${{waiting%words.json}}given.1.json"
+            sleep '{hears_sleeps}'
+        fi
         if [ '{committed_sleeps}' != 0 ] && [ ! -f "$log/committed" ]; then
             touch "$log/committed"
             printf '%s\n' '{{"type":"system","subtype":"init","claude_code_version":"9.9.9"}}'
@@ -604,7 +673,14 @@ case "$first" in
         grep -q 'changes to tracked files that are not committed' "$log/$n.stdin" && sent_back=yes
         answered=no
         awk '{{gsub(/\\n/, "\n"); print}}' "$log/$n.stdin" | sed -n '/^## Why you are run$/,$p' | grep -q '^- `build_questions`' && answered=yes
-        if [ '{tree_question}' = yes ] && grep -q 'changes nothing in the design tree' "$log/$n.stdin"; then
+        if [ '{mends_only}' = yes ] && [ "$sent_back" = yes ] && [ ! -f "$log/mended" ] \
+            && grep -q 'changes nothing in the design tree' "$log/$n.stdin"; then
+            # Told its return was sent back for a change not committed and for the answer not being in the tree, it takes
+            # the change back, as every round of it does first, and returns nothing: its earlier return stands for what
+            # it wrote and dealt with, and the answer is left for the round after.
+            touch "$log/mended"
+            dealt=''
+        elif [ '{tree_question}' = yes ] && grep -q 'changes nothing in the design tree' "$log/$n.stdin"; then
             # Told that its change holds nothing of the owner's answer in the design tree, it writes the answer there.
             mkdir -p design
             echo 'The owner chose the first name.' > design/answered.md
@@ -665,6 +741,10 @@ case "$first" in
             if [ '{changes_guide}' = yes ] && grep -q 'is a file the project protects' "$log/$n.stdin"; then
                 protected='"protected_changes":{{"{guide}":"The build needs the line."}},'
             fi
+            if [ '{explains}' = yes ] && [ ! -f "$log/explained" ]; then
+                touch "$log/explained"
+                protected='"protected_changes":{{"{guide}":"The build needs the line."}},'
+            fi
             [ '{then_asks}' = yes ] || built
             head=$(git rev-parse HEAD)
             if [ '{loses_branch}' = yes ]; then
@@ -692,7 +772,14 @@ iterations='{iterations}'
 if [ '{says_usage}' = yes ]; then
     printf '%s\n' '{{"type":"rate_limit_event","rate_limit_info":{{"status":"allowed","unifiedWindows":{{"seven_day":{{"utilization":{used},"resetsAt":1795399200,"status":"allowed"}}}}}}}}'
 fi
-printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":{cost},"usage":{{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":100,"output_tokens":20%s}},"structured_output":%s}}\n' "$iterations" "$structured"
+total=$(awk -v seen="$(cat "$log/total" 2>/dev/null || echo 0)" 'BEGIN {{ printf "%.6f", seen + {cost} }}')
+printf '%s' "$total" > "$log/total"
+since='"model_usage_since_last_result":{{"m":{{"costUSD":{cost}}}}},'
+if [ '{omits_cost}' = yes ]; then
+    printf '%s\n' '{{"type":"assistant","parent_tool_use_id":null,"message":{{"id":"msg_1","model":"claude-opus-5-5","usage":{{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":1000,"output_tokens":10}}}}}}'
+    since=''
+fi
+printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":%s,%s"usage":{{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":100,"output_tokens":20%s}},"structured_output":%s}}\n' "$total" "$since" "$iterations" "$structured"
 if [ '{returned_sleeps}' != 0 ] && [ "$first" = Plan ] && [ ! -f "$log/returned" ]; then
     touch "$log/returned"
     sleep '{returned_sleeps}'
@@ -703,6 +790,7 @@ fi
         flag = yes(fake.flag_first),
         error = yes(fake.error_first),
         crash = yes(fake.crashes_first),
+        omits_cost = yes(fake.omits_cost),
         lose = yes(fake.lose_session),
         lose_in_result = yes(fake.lose_in_result),
         question = yes(fake.question_first),
@@ -711,6 +799,13 @@ fi
         returned_sleeps = fake.plan_sleeps_once_returned,
         wrote_sleeps = fake.plan_sleeps_once_it_wrote_its_return,
         committed_sleeps = fake.build_sleeps_once_committed,
+        hears_sleeps = fake.build_hears_once_begun,
+        leaves_running = yes(fake.plan_leaves_running),
+        leftover = match fake.plan_leftover {
+            Leftover::Quiet => "quiet",
+            Leftover::KeepsOutput => "keeps",
+            Leftover::IgnoresTerm => "deaf",
+        },
         cost = fake.cost,
         compacts = yes(fake.compacts),
         refuses = yes(fake.refuses_first),
@@ -718,6 +813,7 @@ fi
         guide = PROJECT_FILES[0].0,
         design = yes(fake.design),
         changes_guide = yes(fake.build_changes_guide),
+        explains = yes(fake.build_explains_the_guide),
         moves = yes(fake.moves_main),
         beside_tests = yes(fake.build_beside_tests),
         then_asks = yes(fake.build_then_asks),
@@ -732,6 +828,7 @@ fi
         names_entries = yes(fake.names_entries),
         ill_formed = yes(fake.ill_formed_tree),
         formed_file = FORMED_FILE,
+        mends_only = yes(fake.build_mends_the_edit_and_nothing_else),
         entry = GREETING_ENTRY,
         no_such_entry = NO_SUCH_ENTRY,
         entry_file = GREETING_FILE,
@@ -759,6 +856,11 @@ impl Rounds for Deaf {
     }
 
     fn stop(&self, _: Round, _: RoundReply) {}
+
+    // What the owner says to a round under way reaches it: only stops are dropped.
+    fn tell(&self, round: Round, told: engine::spoken::Telling) {
+        self.0.tell(round, told);
+    }
 }
 
 /// The loop with the real carriers of the settings, on an empty store or the one in the data directory, the calls of
@@ -772,7 +874,9 @@ fn open(
     tokens: &Arc<service::KeptTokens>,
 ) -> (Service, Inbox) {
     let kept: Arc<dyn service::Tokens> = tokens.clone();
-    let mut carriers = carry::carriers_keeping(settings.clone(), data, beside(), kept).expect("the carriers are made");
+    let flows = std::slice::from_ref(flow);
+    let mut carriers =
+        carry::carriers_keeping(settings.clone(), data, beside(), flows, kept).expect("the carriers are made");
     if deaf {
         carriers.agents = Arc::new(Deaf(carriers.agents));
     }
@@ -789,8 +893,9 @@ pub const ACCOUNT: &str = "tests";
 pub const TOKEN: &str = "sk-ant-oat01-the-tests";
 
 /// Makes a project's repository at `repo`, on its main branch, with a greeting, the project's files and its
-/// declaration: the one beside this repository's flows.
-pub fn made_repository(repo: &Path) {
+/// declaration: this repository's own, with `check` as the command that checks a project hosted in its local
+/// repository.
+pub fn made_repository(repo: &Path, check: &str) {
     std::fs::create_dir_all(repo).unwrap();
     git_in(repo, &["init", "-q", "-b", "main"]);
     git_in(repo, &["config", "user.name", "Tester"]);
@@ -805,8 +910,17 @@ pub fn made_repository(repo: &Path) {
     let declaration = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../")
         .join(flow::agents::DECLARATION);
-    std::fs::create_dir_all(repo.join("flow")).unwrap();
-    std::fs::copy(declaration, repo.join(flow::agents::DECLARATION)).expect("the declaration is copied");
+    // The variable the repository's declaration gives every round's command line is given another value here, so that
+    // a round that is given the value the declaration names is told from one given a value the engine wrote itself.
+    let text = std::fs::read_to_string(declaration).expect("the repository's declaration is read");
+    let named = text.replace(
+        "RUSTUP_AUTO_INSTALL = \"0\"",
+        &format!("RUSTUP_AUTO_INSTALL = \"{DECLARED_VARIABLE}\""),
+    );
+    assert_ne!(named, text, "the declaration names RUSTUP_AUTO_INSTALL");
+    let check = toml::Value::String(check.to_string());
+    let declared = format!("{named}\n[local]\ncheck = {check}\n");
+    std::fs::write(repo.join(flow::agents::DECLARATION), declared).expect("the declaration is written");
     git_in(repo, &["add", "."]);
     git_in(repo, &["commit", "-q", "-m", "Greet"]);
     std::fs::write(repo.join("design/readme.md"), "The tree.\n").unwrap();
@@ -814,19 +928,21 @@ pub fn made_repository(repo: &Path) {
     git_in(repo, &["commit", "-q", "-m", "Design"]);
 }
 
-/// The project's guide and constitution, by their paths in the test repository, which `project.toml`
-/// beside the repository's flows names, with their texts.
+/// The value the test repository's declaration gives `RUSTUP_AUTO_INSTALL`, which is no value the engine gives it.
+pub const DECLARED_VARIABLE: &str = "declared-in-the-test-repository";
+
+/// The project's guide and constitution, by their paths in the test repository, which its declaration names, with
+/// their texts.
 pub const PROJECT_FILES: [(&str, &str); 2] = [
     ("AGENTS.md", "# The test project\n\nWhat its agents need to know.\n"),
     ("design/constitution.md", "# Its constitution\n"),
 ];
 
-/// A project in the repository at `repo`, on its local repository, with this check.
-fn project(repo: &Path, check: &str) -> Project {
+/// A project in the repository at `repo`, hosted in its local repository.
+fn project(repo: &Path) -> Project {
     Project {
         repo: repo.to_path_buf(),
         main: "main".to_string(),
-        check: check.to_string(),
         allowed_config: Vec::new(),
         github: None,
         commits: Default::default(),
@@ -863,13 +979,13 @@ impl Real {
         for made in [&data, &calls] {
             std::fs::create_dir_all(made).unwrap();
         }
-        made_repository(&repo);
+        made_repository(&repo, check);
         let command = fake(&root, &calls, &answers);
         let settings = Settings {
             owner: Owner {
                 language: "Chinese".to_string(),
             },
-            projects: [(PROJECT.to_string(), project(&repo, check))].into(),
+            projects: [(PROJECT.to_string(), project(&repo))].into(),
             agents: Agents {
                 command: command.display().to_string(),
                 levels: [("1", "claude-haiku-5-5"), ("2", "claude-sonnet-5-5")]
@@ -881,15 +997,9 @@ impl Real {
                         (name.to_string(), level)
                     })
                     .into(),
+                highest_level: None,
                 slots: 2,
-                args: Vec::new(),
                 env: Vec::new(),
-                setting_sources: "user".to_string(),
-                // The lock command of a project on Cargo.
-                permissions: PermissionsAdded {
-                    locks: vec!["cargo update".to_string()],
-                    ..Default::default()
-                },
                 subagents: Default::default(),
                 work_budget_usd: budget,
                 // What a letting-on of a work the engine paused for its budget allows it beyond that budget: the
@@ -903,8 +1013,6 @@ impl Real {
             },
             backup: None,
             sessions: Default::default(),
-            history: Default::default(),
-            query: Default::default(),
         };
         let flow = compiled(on);
         let tokens = Arc::new(service::KeptTokens::new());
@@ -913,6 +1021,7 @@ impl Real {
             _dir: dir,
             data,
             repo,
+            check: check.to_string(),
             calls,
             settings,
             flow,
@@ -931,9 +1040,8 @@ impl Real {
     /// the first's, and starts the loop again with it; gives the repository.
     pub fn add_project(&mut self, name: &str) -> PathBuf {
         let repo = self.repo.with_file_name(name);
-        made_repository(&repo);
-        let check = self.settings.projects[PROJECT].check.clone();
-        self.settings.projects.insert(name.to_string(), project(&repo, &check));
+        made_repository(&repo, &self.check);
+        self.settings.projects.insert(name.to_string(), project(&repo));
         self.restart();
         repo
     }
@@ -1058,8 +1166,11 @@ impl Real {
             project: self.project.clone(),
             depends_on: depends_on.to_vec(),
             tags: Vec::new(),
+            continues: None,
             flow: self.flow.name.clone(),
             writes: request.into_iter().collect(),
+            why: None,
+            waits_for: Vec::new(),
         };
         let (reply, mut answer) = oneshot::channel();
         self.service
@@ -1071,7 +1182,7 @@ impl Real {
         if !starts && agents {
             let project = self.settings.projects[&self.project].clone();
             let place = self.place(work);
-            git::start(&project, &place, &project.main)
+            git::start(&project, &place, &project.main, &project.main)
                 .await
                 .expect("the work's place is made");
         }

@@ -1,12 +1,12 @@
 //! What happens to a work, and what is to be done for it.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use decide::run::{Failure, Unmet};
 use decide::{BlockId, CallId, CellId, End, Outsider, Pauser, RunId, Seq};
 use flow::{Compiled, Kind};
 
-use work::{Ask, Call, Fill, Given, Handed, Measures, Question, RanOn, Said, Spent, Time, Why};
+use work::{Ask, Call, Fill, Given, Handed, Left, Measures, Question, RanOn, Reading, Said, Spent, Time, Why};
 
 use crate::spoken::{NoOne, Telling, To};
 
@@ -36,9 +36,14 @@ pub enum Event {
     },
     /// The owner let the cell go on at its limit.
     LetGo { cell: CellId },
-    /// The work was paused: by the owner, who gives no reason, or by the engine itself, for this reason, as when it
-    /// spent more than it may. A round that fails pauses its work by [`Event::Failed`] instead.
-    Paused { by: Pauser, why: Option<String> },
+    /// The work was paused: by the owner, who may say why and the items it waits for, or by the engine itself, for this
+    /// reason, as when it spent more than it may. A round that fails pauses its work by [`Event::Failed`] instead.
+    Paused {
+        by: Pauser,
+        why: Option<String>,
+        /// The items, by their numbers, that the pause waits for ([`decide::Pause::waits_for`]).
+        waits_for: Vec<u64>,
+    },
     /// The work was let on again.
     Resumed,
     /// The work's item was cancelled, for this reason where whoever cancelled it gave one.
@@ -94,6 +99,10 @@ pub enum Event {
         attempt: usize,
         measures: Measures,
     },
+    /// A program run for the work ended by itself and left these many processes running in its group, one or more,
+    /// which its carrier stopped before it gave the program's end: a try of the round under way, the check of an act's
+    /// round under way or of a call with no result yet, or a keep-warm ping.
+    LeftBehind { of: Left, processes: usize },
     /// A keep-warm ping of the session of this number of the line ended, having taken this, or failed for this
     /// reason, as [`Effect::Ping`] asked.
     Pinged {
@@ -108,6 +117,10 @@ pub enum Event {
     /// The host of the work's repository found the work checked through the pull request of this number, at this
     /// address, opening it where the work had none: kept with the work where it is another than the latest kept.
     Pulled { number: u64, url: String },
+    /// The host of the work's repository read a run of the project's CI, which a call of `run_tests` or a round of the
+    /// check asked for, and says how long its tests and jobs took, or that it gives no time: kept with the work where
+    /// the same run is not kept already.
+    Timed { reading: Reading },
     /// What the work held outside the engine was let go, as [`Effect::Release`] asked.
     Released,
     /// What the work held outside the engine could not be let go, for this reason, as whatever carried out
@@ -141,8 +154,13 @@ pub struct Came {
     pub waits_for: Option<BlockId>,
     /// What the carrier read of the work's branch as the round ended, of the blocks a source outside the work writes
     /// from it, where it differs from what each says: what the round committed, which the run writes as it finishes,
-    /// beside its own blocks; nothing of it is written where the return is sent back.
+    /// beside its own blocks; nothing of it is written where the return is sent back or asks for calls, the round that
+    /// ends the cell's work reading it with what that round commits. The carrier reads none of the branch for a round
+    /// while a cell that may change the work waits for the results of calls.
     pub read: Vec<Handed>,
+    /// Why the return says the work changes each file the project protects, by the file's path, as the agent wrote it:
+    /// kept with the return, so that a return after it that is sent back for something else need not say it again.
+    pub protected: BTreeMap<String, String>,
 }
 
 impl Came {

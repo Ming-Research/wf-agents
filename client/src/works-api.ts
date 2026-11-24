@@ -103,9 +103,12 @@ export interface Outage {
   /// The latest check of the outside in the wait, where one was taken.
   checked: Checked | null;
   until: Until;
-  /// Whether it holds rounds now: once a check found the outside well it stands only until a round that began after
-  /// the latest that failed so comes back, and holds nothing meanwhile.
+  /// Whether it holds rounds now: once a check found the outside well, or a look reached the acts' host, it stands until
+  /// a round that began after the latest that failed so comes back, and holds every other round while that one, which
+  /// goes first, is under way.
   holds: boolean;
+  /// The work whose round goes first, while it is under way and the wait holds the others for it.
+  first?: number | null;
   /// Whether the owner has let the engine move to another account at a usage limit and some other account may yet be
   /// moved to in this wait.
   mayMove: boolean;
@@ -133,6 +136,8 @@ export type Waited =
   | { kind: 'slot' }
   /// The wait every work shares: the cell's agent's round does not begin until it is over.
   | { kind: 'agents'; outage: Outage }
+  /// The engine was asked to stop at this time, and no round of any work begins until it has started again.
+  | { kind: 'stopping'; since: number }
   /// The owner's answer to the latest version of this question, which the cell asked and waits for.
   | { kind: 'answer'; question: string }
   /// A source outside the work, as main moving: only this cell can make a precondition hold, and what its latest run
@@ -213,7 +218,13 @@ export interface CellNow {
 export interface Spent {
   /// Millionths of a dollar.
   usdMicros: number;
+  /// Sent fresh, neither read from the cache nor written to it.
   inputTokens: number;
+  /// Written to the cache.
+  cacheWrittenTokens: number;
+  /// Sent and not read from the cache, of rounds, pings and forks kept before the written ones were kept apart: not
+  /// told fresh from written, and counted in neither of the two above.
+  unsplitTokens: number;
   cachedTokens: number;
   outputTokens: number;
   /// How long the rounds were under way.
@@ -267,13 +278,16 @@ export interface Summary {
   /// made-up data, as none.
   level?: string | null;
   /// The level the rounds of the cell it stands at run at, by the same rule: its level raised as far as the cell's line
-  /// says, never above the highest an item may be at; none where it stands at no cell, as a work that ended, at an
+  /// says, never above the highest one round may run at; none where it stands at no cell, as a work that ended, at an
   /// engine cell, whose acts run on no level, or where the rule refuses its level. Absent from made-up data, as none.
   cellLevel?: string | null;
-  /// How many levels the line of the cell it stands at raises that cell above its level, as the line's `levels_above`
-  /// says, whatever the highest level an item may be at holds `cellLevel` to; none where it stands at no agent's cell.
-  /// Absent from made-up data, as none.
+  /// How many levels above its level the cell it stands at really runs: its line's `levels_above`, less what the highest
+  /// level one round may run at took off it; none where it stands at no agent's cell. Absent from made-up data, as none.
   raise?: number | null;
+  /// What held the cell it stands at below what its line asks, where the highest level one round may run at did: how
+  /// many levels above its level the line asks, and the key of the setting. None where nothing did. Absent from made-up
+  /// data, as none.
+  held?: Held | null;
   /// The pull request the host of its repository checks it through: the latest the host found, as the work keeps it; of
   /// a work that merged before works kept theirs, the one the title of the commit its merge made names. None where it
   /// has none, as on a host with no pull requests. Absent from made-up data, as none.
@@ -283,6 +297,13 @@ export interface Summary {
   /// nothing of it is there to tell, as before its branch is made, and where git could not say. Absent from made-up
   /// data, as none.
   changed?: Diffstat | null;
+}
+
+/// What held a cell below the level its line asks it to run at: how many levels above its item's the line asks, and the
+/// key of the setting that holds a round to its highest level, none where the engine names none.
+export interface Held {
+  asks: number;
+  by: string | null;
 }
 
 /// A pull request on the host of a work's repository: its number, and its address.
@@ -349,6 +370,10 @@ export type Ends =
   /// Does what this says, which no control of the page does.
   | { kind: 'outside'; what: string };
 
+/// What an item continues: a branch of its project's repository or a pull request on its host, whose head its work
+/// starts from.
+export type Continues = { kind: 'branch'; name: string } | { kind: 'pull'; number: number };
+
 export interface Item {
   number: number;
   title: string;
@@ -362,6 +387,9 @@ export interface Item {
   dependsOn: number[];
   /// The tags it carries, which classify it; absent from an engine that does not give them yet.
   tags?: string[];
+  /// What its work starts from, where it continues a branch or a pull request and not the head of main; absent from an
+  /// engine that does not give it yet.
+  continues?: Continues | null;
   /// What it was as it was added, and each change made to it since: what it said before, and when it changed.
   history: ItemHistory;
   /// The one work done for it, which was added with it.
@@ -370,7 +398,7 @@ export interface Item {
 
 /// An item as it was added, and each change made to it since, in the order they were made.
 export interface ItemHistory {
-  first: { title: string; level: string | null; dependsOn: number[]; tags?: string[] };
+  first: { title: string; level: string | null; dependsOn: number[]; tags?: string[]; continues?: Continues | null };
   changes: ItemChange[];
 }
 
@@ -389,7 +417,8 @@ export type ItemChanged =
   | { kind: 'dependsOn'; item: number }
   | { kind: 'noLongerDependsOn'; item: number }
   | { kind: 'tagged'; tag: string }
-  | { kind: 'untagged'; tag: string };
+  | { kind: 'untagged'; tag: string }
+  | { kind: 'continues'; continues: Continues | null };
 
 export interface Items {
   items: Item[];
@@ -398,11 +427,11 @@ export interface Items {
   outage?: Outage | null;
 }
 
-/// Why a cell runs: it has no record, or a block has another meaning than the one its record knows (`was`), which a
-/// cell after it gave the block where `behind`.
+/// Why a cell runs: it has no record, or a block has another meaning than the one its record knows (`workedFrom`, the
+/// version the cell last worked from, as a message to it names it), which a cell after it gave the block where `behind`.
 export type Cause =
   | { kind: 'noRecord' }
-  | { kind: 'changed'; block: string; was: number | null; behind: boolean }
+  | { kind: 'changed'; block: string; workedFrom: number | null; behind: boolean }
   | { kind: 'results'; calls: number[] };
 
 /// A block a cell reads, as the cell's record knows it and as it is now.
@@ -448,50 +477,12 @@ export interface Block {
   versions: Version[];
 }
 
-export type Unmet =
-  | { kind: 'asksNothing' }
-  | { kind: 'notAnOutput'; block: string }
-  | { kind: 'writtenTwice'; block: string }
-  | { kind: 'noValue'; block: string }
-  | { kind: 'notAValue'; block: string; value: string }
-  | { kind: 'notAChoice'; block: string }
-  | { kind: 'notHandedIn'; block: string }
-  /// It hands in a choice with a value that stands with nothing but some blocks, and these besides.
-  | { kind: 'nothingBut'; block: string; value: string; besides: string[] }
-  | { kind: 'unreadable'; why: string }
-  | { kind: 'notRunBy'; block: string }
-  | { kind: 'dealtWithTwice'; block: string }
-  | { kind: 'dealtWithNothing' }
-  | { kind: 'writtenOver'; block: string; version: number }
-  | { kind: 'choiceChanged'; block: string }
-  | { kind: 'asksAndWorks' }
-  | { kind: 'notWatched'; name: string }
-  | { kind: 'notATool'; name: string }
-  | { kind: 'unchangedNotWritten'; block: string }
-  | { kind: 'questionTaken'; name: string }
-  | { kind: 'noSuchQuestion'; name: string }
-  | { kind: 'questionTwice'; name: string }
-  | { kind: 'notAnOption'; name: string }
-  | { kind: 'notAnswerable'; name: string }
-  | { kind: 'notAnswered'; name: string }
-  | { kind: 'unexplained'; path: string }
-  | { kind: 'notATest'; path: string }
-  | { kind: 'uncommitted'; changes: string }
-  | { kind: 'merging'; changes: string }
-  /// It hands in the change while the question of this name, marked `tree`, has the owner's answer and the work's
-  /// change changes nothing in the design tree.
-  | { kind: 'treeUnchanged'; name: string }
-  /// A line of a block that names entries of the design tree names none the tree on the work's branch holds.
-  | { kind: 'notAnEntry'; line: string }
-  /// The files of the design tree on the work's branch, which its change against main changes, have these faults in
-  /// their forms, each as a line.
-  | { kind: 'treeForm'; lines: string[] }
-  | { kind: 'unanswered'; block: string }
-  /// It names as dealt with a dialogue it holds as the maker, woken by a point in it, and answers none of its points
-  /// there, changes none of what the other side watches and asks no question the work waits for.
-  | { kind: 'wordOwed'; name: string; watched: string[] }
-  /// It hands in a verdict with the value that does not pass, and no version of its dialogue.
-  | { kind: 'noPoint'; block: string; value: string; name: string };
+/// Why what came back does not meet what the flow requires: the key its words have in `[faults]` of
+/// `agents/return/sent_back.toml`, and what was recorded of it, each value under the name of its field.
+export interface Unmet {
+  key: string;
+  values: { name: string; value: string }[];
+}
 
 /// What a round is given: the cell's task, the results of the calls the round before asked for, or why what the
 /// round before handed in was sent back.
@@ -570,11 +561,13 @@ export type Scope = 'cell' | 'flow' | 'tool' | 'works' | 'line';
 
 /// How a round missed its session's prompt cache: it went on in its session within the cache's lifetime, and its first
 /// call read less than half of what the session held from the cache. `differs` names what comes before the session's
-/// messages and differs from the call before, the cause by design; none where nothing does, a fault of wf-agents.
+/// messages and differs from the call before, the cause by design; none where nothing does, a fault of wf-agents,
+/// unless `unknown`: the records do not say why it missed.
 export interface Missed {
   read: number;
   held: number;
   differs: string[];
+  unknown: boolean;
 }
 
 /// The session of its line a round runs in: which of the line's sessions, as the records count them, the line's first
@@ -815,8 +808,8 @@ export type TryBack =
       durationMs: number | null;
       /// The models it was answered by, by name.
       models: string[];
-      /// The tokens it wrote to the prompt cache, as the program printed them; the records count them among those
-      /// not read from the cache. Absent from an engine that does not give it yet.
+      /// The tokens it wrote to the prompt cache, as the program printed them: a try's own, where a round's are in
+      /// what it took. Absent from an engine that does not give it yet.
       cacheCreationInputTokens?: number | null;
     }
   | { kind: 'failed'; why: string }
@@ -868,6 +861,7 @@ export type ChangeAsked =
   | { kind: 'noLongerDependsOn'; item: number; on: number }
   | { kind: 'tag'; item: number; tag: string }
   | { kind: 'untag'; item: number; tag: string }
+  | { kind: 'continues'; item: number; continues: Continues | null }
   | { kind: 'cancel'; item: number }
   | { kind: 'reopen'; item: number };
 
@@ -920,11 +914,13 @@ export type Act =
   /// Writes a block people write: what the item is about, an opinion for a cell, a choice (with its value).
   | { kind: 'write'; block: string; content: string; value: string | null }
   | { kind: 'letGo'; cell: string }
+  /// Lets the run at its limit go on, as the engine's own result of this call, which takes no words.
+  | { kind: 'goOn'; call: number }
   | { kind: 'pause' }
   | { kind: 'resume' }
   /// Cancels the work's item, saying why where a reason is given, such as the item it was joined into.
   | { kind: 'cancel'; why?: string | null }
-  /// Gives a call that waits for a person its result.
+  /// Gives a call that waits for a person its result: the answer to a question put to them.
   | { kind: 'result'; call: number; result: string }
   /// Answers a version of a question, by its number, taking an option counted from one, and nothing else.
   | { kind: 'answer'; question: string; version: number; option: number }
@@ -947,6 +943,8 @@ export interface NewItem {
   dependsOn: number[];
   /// The tags it carries; none where none is given.
   tags?: string[];
+  /// The branch or pull request its work starts from; none where it starts from the head of main.
+  continues?: Continues | null;
   /// The flow its work runs on.
   flow: string;
   /// What is written for it as it is added, each a block people write.
@@ -961,6 +959,15 @@ export interface Engine {
   paused: EverythingPaused | null;
   /// Whether the sessions of works that wait are kept warm: the engine's own state, which the owner switches.
   keepWarm: boolean;
+  /// The stop the engine was asked for on the command line, while it stands: no round of any work begins, and the engine
+  /// ends once what is under way has, or at once.
+  stopping?: Stopping | null;
+}
+
+/// A stop of the engine that stands: since when it was asked for, and whether at once.
+export interface Stopping {
+  since: number;
+  atOnce: boolean;
 }
 
 /// The pause of everything: when it began, and who set it, the owner, or the engine as it started with works going on,
@@ -988,12 +995,14 @@ export interface Refusal {
 }
 
 /// Something happened: these works grew, the items changed where `items`, the copies of the database may have changed
-/// where `copies`, and the accounts, their usage or their usage limits where `accounts`.
+/// where `copies`, the accounts, their usage or their usage limits where `accounts`, and an observation was added or
+/// changed where `observations`.
 export interface Changed {
   works: number[];
   items: boolean;
   copies: boolean;
   accounts: boolean;
+  observations: boolean;
 }
 
 /// Sends something to the interface; gives why where it is refused.

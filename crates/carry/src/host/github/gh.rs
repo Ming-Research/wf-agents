@@ -13,7 +13,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use tokio::io::AsyncWriteExt;
 
-use super::api::{Api, Check, File, Outcome, Pull, Run, State};
+use super::api::{Api, Check, File, OPEN_PULLS, Outcome, Pull, Run, State};
 use crate::host::Failed;
 
 /// GitHub's REST API, through `gh`, in one repository.
@@ -187,6 +187,20 @@ impl Gh {
 }
 
 impl Api for Gh {
+    async fn pull(&self, number: u64) -> Result<Option<Pull>, Failed> {
+        let path = format!("repos/{}/pulls/{number}", self.repository);
+        let answer = self.ask("GET", &path, None).await?;
+        match answer.status {
+            200 => {
+                let value: Value = serde_json::from_str(&answer.body)
+                    .map_err(|e| format!("GitHub's answer to GET {path} is not JSON: {e}"))?;
+                Ok(Some(pull(&value)?))
+            }
+            404 => Ok(None),
+            _ => Err(refused(&answer)),
+        }
+    }
+
     async fn pulls(&self, branch: &str) -> Result<Vec<Pull>, Failed> {
         let owner = self.repository.split('/').next().unwrap_or_default();
         let path = format!(
@@ -200,13 +214,32 @@ impl Api for Gh {
         Ok(pulls.iter().map(pull).collect::<Result<_, String>>()?)
     }
 
+    async fn open_pulls(&self) -> Result<Vec<Pull>, Failed> {
+        let mut open = Vec::new();
+        for page in 1.. {
+            let path = format!("repos/{}/pulls?state=open&per_page=100&page={page}", self.repository);
+            let listed = self.json("GET", &path, None, &[200]).await?;
+            let listed = listed
+                .as_array()
+                .ok_or("GitHub's list of pull requests is not a list")?;
+            open.extend(listed.iter().map(pull).collect::<Result<Vec<_>, String>>()?);
+            if open.len() > OPEN_PULLS {
+                return Err(format!("the repository holds more than {OPEN_PULLS} open pull requests").into());
+            }
+            if listed.len() < 100 {
+                break;
+            }
+        }
+        Ok(open)
+    }
+
     async fn open(&self, branch: &str, base: &str, title: &str, body: &str) -> Result<Pull, Failed> {
         let (method, path, asked) = opening(&self.repository, branch, base, title, body);
         Ok(pull(&self.json(method, &path, Some(asked), &[201]).await?)?)
     }
 
-    async fn merge(&self, number: u64, head: &str, method: &str, title: &str) -> Result<String, Failed> {
-        let (put, path, asked) = merging(&self.repository, number, head, method, title);
+    async fn merge(&self, number: u64, head: &str, method: &str, title: &str, message: &str) -> Result<String, Failed> {
+        let (put, path, asked) = merging(&self.repository, number, head, method, title, message);
         let merged = self.json(put, &path, Some(asked), &[200]).await?;
         (merged["sha"].as_str())
             .map(str::to_string)
@@ -339,10 +372,11 @@ pub(crate) fn opening(repository: &str, branch: &str, base: &str, title: &str, b
 }
 
 /// The request that merges the pull request by the method, provided its head is the commit, the commit the merge makes
-/// titled so: given no title, GitHub would take one of its own, a commit's of the branch among them.
-pub(crate) fn merging(repository: &str, number: u64, head: &str, method: &str, title: &str) -> Request {
+/// titled so and with this message under its title: given no title or message, GitHub would take its own, which the
+/// repository's settings choose.
+pub(crate) fn merging(repository: &str, number: u64, head: &str, method: &str, title: &str, message: &str) -> Request {
     let path = format!("repos/{repository}/pulls/{number}/merge");
-    let asked = json!({ "sha": head, "merge_method": method, "commit_title": title });
+    let asked = json!({ "sha": head, "merge_method": method, "commit_title": title, "commit_message": message });
     ("PUT", path, asked)
 }
 
@@ -474,6 +508,15 @@ fn pull(value: &Value) -> Result<Pull, String> {
         body: value["body"].as_str().unwrap_or_default().to_string(),
         draft: value["draft"].as_bool().unwrap_or(false),
         node: text(&value["node_id"], "id")?,
+        updated: value["updated_at"]
+            .as_str()
+            .and_then(epoch)
+            .and_then(|seconds| u64::try_from(seconds).ok())
+            .map(|seconds| seconds * 1000)
+            .ok_or("a pull request has no time it was updated")?,
+        branch: text(&value["head"]["ref"], "branch")?,
+        // The head's repository is null where a fork was deleted.
+        from_fork: value["head"]["repo"]["full_name"] != value["base"]["repo"]["full_name"],
     })
 }
 

@@ -19,8 +19,8 @@ use driver::{Along, Found};
 use store::WorkNumber;
 
 use crate::carriers::{
-    CallReply, Carriers, Heard, KeptTokens, Network, Outside, Round, RoundReply, Rounds, Token, ToolCall, Tools,
-    WITHDRAWN,
+    CallReply, Carriers, Heard, KeptTokens, Network, OpenPull, Outside, Round, RoundReply, Rounds, Token, ToolCall,
+    Tools,
 };
 use crate::script::{Ends, Planned, Script};
 
@@ -63,6 +63,17 @@ impl Scripted {
             outside: Arc::new(self.clone()),
             host: Some(Arc::new(self.clone())),
             tokens: Arc::new(KeptTokens::new()),
+            calls: Scripted::calls(),
+        }
+    }
+
+    /// The words a call the engine ends itself has for its result, for the tests: of the shape those beside this
+    /// repository's flows have and unlike them, so that a result in them is read from them and from no text of the code.
+    pub fn calls() -> flow::agents::Calls {
+        flow::agents::Calls {
+            withdrawn: "Dropped before its result.".to_string(),
+            waited: "Waited long enough; the round goes again.".to_string(),
+            no_such_tool: "{name} is no tool; the tools are {tools}.".to_string(),
         }
     }
 
@@ -89,6 +100,24 @@ impl Inner {
 }
 
 impl Rounds for Scripted {
+    // The script's host says its pull requests by the project they are in.
+    fn open_pulls(
+        &self,
+        project: &str,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<Vec<OpenPull>>, String>> + Send + '_>> {
+        let open = (self.inner.script.pulls.iter())
+            .filter(|pull| pull.project == project)
+            .map(|pull| OpenPull {
+                number: pull.number,
+                title: pull.title.clone(),
+                url: format!("https://host.example/pull/{}", pull.number),
+                draft: pull.draft,
+                updated: pull.updated,
+            })
+            .collect();
+        Box::pin(async move { Ok(Some(open)) })
+    }
+
     fn give(&self, round: Round, reply: RoundReply) {
         let planned = self.planned(&round);
         let key = (round.work, round.run, round.number);
@@ -209,7 +238,7 @@ impl Tools for Scripted {
             }
         };
         if let Some(reply) = reply {
-            reply.done(WITHDRAWN.to_string());
+            reply.done(Scripted::calls().withdrawn);
         }
     }
 }

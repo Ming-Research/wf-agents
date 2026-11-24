@@ -6,7 +6,7 @@ use std::path::Path;
 
 use decide::{Answered, Questioned, Returned, RunId, Seq, Started};
 use store::WorkNumber;
-use work::{Back, Way};
+use work::{Back, Said, Way};
 
 use super::*;
 use crate::git::tests::{Repo, run};
@@ -33,7 +33,9 @@ fn remove(dir: &Path, path: &str) -> String {
 /// A started work.
 async fn started() -> (Repo, Place) {
     let repo = Repo::new("true");
-    let started = git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+    let started = git::start(&repo.project, &repo.place(WORK), "main", "main")
+        .await
+        .unwrap();
     (repo, started.place)
 }
 
@@ -236,6 +238,7 @@ pub(crate) fn asked_in(questions: Vec<(Question, bool)>) -> Work {
         engine: Vec::new(),
         waits_for: None,
         read: Vec::new(),
+        protected: Default::default(),
     };
     work.back.insert((run, 1), back);
     work
@@ -258,7 +261,8 @@ pub(crate) fn withdrawn(mut work: Work, name: &str) -> Work {
 /// The questions whose answer the tree does not hold, as a round ends with the work's branch as it is, its return
 /// saying this beside its work, main where the reference `main` holds it.
 async fn unwritten_in(repo: &Repo, place: &Place, work: &Work, said: &Said) -> Result<Vec<String>, String> {
-    unwritten(&repo.project, place, "main", "design/", work, said).await
+    let asked: Vec<String> = said.questions.iter().map(|q| q.name().to_string()).collect();
+    unwritten(&repo.project, place, "main", "design/", work, &asked).await
 }
 
 // The work's own change is held against main where the branch left it: main changing its own tree since is not the
@@ -335,15 +339,7 @@ async fn a_question_kept_before_questions_said_tree_is_read_as_not_marked_and_na
 async fn a_look_that_cannot_be_made_says_why() {
     let (repo, place) = started().await;
     let work = asked_in(vec![(asked("placement", Some(true)), true)]);
-    let looked = unwritten(
-        &repo.project,
-        &place,
-        "no-such-main",
-        "design/",
-        &work,
-        &Said::default(),
-    )
-    .await;
+    let looked = unwritten(&repo.project, &place, "no-such-main", "design/", &work, &[]).await;
     assert!(matches!(&looked, Err(why) if why.contains("merge-base")), "{looked:?}");
 }
 
@@ -678,8 +674,11 @@ fn files_under(root: &Path, dir: &Path, into: &mut Vec<(String, String)>) {
 async fn this_repository_s_tree_format_finds_and_gives_whole_every_entry_of_its_own_design_tree() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let agents = flow::agents::read(&root.join("flow")).expect("the files beside the flows are read");
+    let text = std::fs::read_to_string(root.join(flow::agents::DECLARATION)).expect("the declaration is read");
+    let declaration = flow::agents::Declaration::read(&text, flow::agents::DECLARATION, &agents)
+        .expect("the repository's declaration is one");
     let format = agents.acts.tree.format.clone();
-    let tree = agents.project.tree.clone();
+    let tree = declaration.tree.clone();
     let words = agents.given.entries.clone();
     let design = tree.trim_end_matches('/');
     let readme = std::fs::read_to_string(root.join("flow/agents/tree_rules.md")).expect("the tree's rules are read");

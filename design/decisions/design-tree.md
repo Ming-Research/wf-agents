@@ -49,6 +49,7 @@ A principle is its rule, in one or two sentences of at most 300 characters, and 
 
 ### decision a-decision-comes-from-a-choice-put-to-the-owner
 A decision comes only from a choice put to the owner: an approach against a decision, two or more approaches that would each work, or a change to an important mechanism no decision covers.
+- replaced: Every change no decision covers to what the owner sees or does being the owner's choice was on main; the owner changed it, because agents then asked him about a look the page already had for the same meaning, against an option that did not do what the item asked.
 - replaced: A decision entering when an agent that had read the code and the principles would still change it wrongly was on main; the owner changed it, because that bar, asked of agents in their prompt, failed: agents copied the entries beside them and invented.
 - replaced: Decisions entering through the work that makes them true without the owner's yes, which only principles waited for, was on main; the owner changed it, because questions and the tree become one, so the tree's gate is the gate of questions.
 - rejected: the owner proposed MCTS-Mem's gate, where only what a change modifies enters; the owner rejected it, because it kept out the choices weighed in research.
@@ -121,6 +122,7 @@ The tree's rules set a limit on an entry only where its form or the check enforc
 ### decision the-engine-checks-the-trees-forms
 The engine checks the forms of the tree's files with Rust code that shares the code that finds an entry; no project carries a check of its own.
 - replaced: A Python script beside each project's tree, which its CI ran and agents ran by hand, was on main; the owner changed it, because the check is wf-agents' and must be the same for every project.
+- replaced: The full CI's lint job running the Python script was on main; the owner changed it, because a change of only the tree should run only the checks of the tree, and the lint job compiles Rust.
 - replaced: The tree's forms kept only by its README and the reviews, with no check, was on main; the owner changed it, because a limit holds only under a mechanical check, and CI costs a lot, so an agent checks the tree before CI does.
 - rejected: an agent proposed the Python script carried with the flow and run by the engine; the owner rejected it, because every host would need python3, each check starts a process, the tree is read in two languages kept alike by hand, and its tests stay outside cargo.
 

@@ -250,17 +250,26 @@ impl CellSpec {
         self.watches.iter().filter(move |w| w.ran(ran_by))
     }
 
-    /// What a return that names these as dealt with dealt with, in the records' terms, in the order it names them:
-    /// each a datum the cell watches, a group by the group's name, which the run's check reads as the group's blocks
-    /// (`decide::flow::stands_on`). A name written twice stands twice, which the run's check finds. Beside them, each
-    /// name that is none of what the cell watches, in the order written.
+    /// Whether the cell is given the datum or group of this name: it watches it, reads it, or it is a block among what
+    /// the cell is given, as every agent cell is given the flow's own.
+    pub fn is_given(&self, name: &str) -> bool {
+        self.watches.iter().any(|w| w.name == name)
+            || self.reads.iter().any(|t| t.name == name)
+            || self.given.iter().any(|g| g.block.0 == name)
+    }
+
+    /// What a return that names these as dealt with named, in the records' terms, in the order it names them: each a
+    /// datum or group the cell is given ([`CellSpec::is_given`]), a group by the group's name. The run's check keeps of
+    /// them those that ran the round, each once (`decide::run`), so that a name the cell was given and that did not run
+    /// the round, or is written twice, changes nothing. Beside them, each name that is none of what the cell is given,
+    /// in the order written.
     pub fn dealt_with(&self, names: &[String]) -> (Vec<BlockId>, Vec<String>) {
         let mut blocks: Vec<BlockId> = Vec::new();
         let mut none = Vec::new();
         for name in names {
-            match self.watches.iter().find(|w| &w.name == name) {
-                Some(watched) => blocks.push(BlockId(watched.name.clone())),
-                None => none.push(name.clone()),
+            match self.is_given(name) {
+                true => blocks.push(BlockId(name.clone())),
+                false => none.push(name.clone()),
             }
         }
         (blocks, none)
@@ -292,6 +301,9 @@ pub struct Block {
     /// What a cell that writes the block is told of writing it, after the list of what it returns; none where its
     /// file says nothing.
     pub words: Option<String>,
+    /// What a cell that writes the block is told after `words`, where it also has a block it must hand in every
+    /// time; none where its file says nothing.
+    pub words_if_marked: Option<String>,
     /// The shape a return holds the block to, where its file gives one: neither a text nor a choice.
     pub shape: Option<Shape>,
     /// Of a block a source of the engine's writes, what it writes: each text by its name, in the order written, as the
@@ -1045,6 +1057,7 @@ fn own_block(file: &LaidOutBlockFile, placeholder: &str, small: &str) -> BlockFi
     let mut block = file.clone();
     block.what = block.what.as_ref().map(fill);
     block.words = block.words.as_ref().map(fill);
+    block.words_if_marked = block.words_if_marked.as_ref().map(fill);
     block.writes = Texts(
         (block.writes.0.iter())
             .map(|(name, text)| (name.clone(), fill(text)))
@@ -2613,6 +2626,7 @@ impl<'a> Definition<'a> {
                     default: declared.default.clone(),
                     what: declared.what.clone(),
                     words: declared.words.clone(),
+                    words_if_marked: declared.words_if_marked.clone(),
                     shape: declared.shape.clone().map(|shape| Shape(toml::Value::Table(shape))),
                     writes: declared.writes.clone(),
                     with_nothing_but: (declared.with_nothing_but.iter())

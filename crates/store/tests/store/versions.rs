@@ -6,7 +6,7 @@ use decide::{BlockId, CellId, Reading};
 use store::{KeptFlow, KeptOutline, SCHEMA_VERSION};
 use work::{KeptTime, OnFlow, Stretch, Went};
 
-use super::opening::{columns, versions};
+use super::opening::{before_pauses_waited_for_items, columns, versions};
 use super::*;
 
 /// A version of the judged flow as the store is given it: these files, each with a digest of its own making, and an
@@ -111,7 +111,9 @@ fn a_work_s_moves_and_what_its_time_went_to_read_back_as_written_its_records_as_
 fn a_file_of_version_21_is_migrated_with_no_version_kept_no_work_on_one_and_no_time_kept() {
     let mut d = Driver::new();
     history(&mut d);
-    let (old, new) = kept_in_21(&d.work);
+    let mut work = d.work;
+    before_pauses_waited_for_items(&mut work);
+    let (old, new) = kept_in_21(&work);
     let store = old.open();
     // The file ends at the schema of this build, whichever migrations follow the one that makes the tables below.
     assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
@@ -120,7 +122,9 @@ fn a_file_of_version_21_is_migrated_with_no_version_kept_no_work_on_one_and_no_t
         columns(&new.path),
         "the migrated file has other tables than a new one"
     );
-    assert_eq!(store.load(WorkNumber(1)), Ok(d.work));
+    // A file of version 21 kept no times of the runs of the CI, which version 30 keeps.
+    work.timed.clear();
+    assert_eq!(store.load(WorkNumber(1)), Ok(work));
     for table in ["flow_files", "flows", "on_flow", "kept_time"] {
         assert_eq!(count(&old.path, table), 0, "{table} holds rows");
     }
@@ -136,7 +140,9 @@ fn kept_in_21(work: &Work) -> (Db, Db) {
 fn a_file_of_version_23_is_migrated_with_no_fork_kept() {
     let mut d = Driver::new();
     history(&mut d);
-    let (old, new) = super::opening::kept_in(23, &d.work);
+    let mut work = d.work;
+    before_pauses_waited_for_items(&mut work);
+    let (old, new) = super::opening::kept_in(23, &work);
     let store = old.open();
     assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
     assert_eq!(
@@ -144,7 +150,9 @@ fn a_file_of_version_23_is_migrated_with_no_fork_kept() {
         columns(&new.path),
         "the migrated file has other tables than a new one"
     );
-    assert_eq!(store.load(WorkNumber(1)), Ok(d.work));
+    // A file of version 23 kept no times of the runs of the CI, which version 30 keeps.
+    work.timed.clear();
+    assert_eq!(store.load(WorkNumber(1)), Ok(work));
     assert_eq!(count(&old.path, "forked"), 0, "a work kept before has no fork");
 }
 
@@ -158,7 +166,8 @@ fn the_forks_of_a_work_read_back_as_written_each_with_its_round_and_what_it_took
     let run = d.work.records.rounds[0].run;
     let spent = |usd_micros| Spent {
         usd_micros,
-        input_tokens: 120,
+        uncached_tokens: 120,
+        cache_written_tokens: Some(100),
         cached_tokens: 18_100,
         output_tokens: 30,
         ..Spent::default()

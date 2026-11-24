@@ -63,3 +63,38 @@ async fn a_build_that_changes_the_guide_is_sent_back_until_it_says_why_and_the_o
         .count();
     assert_eq!(asked, 1, "nothing is asked again");
 }
+
+// A return sent back for something else completes with what the one before said and was not told was wrong, the reason
+// for the guide included: the next says only what was wrong, and is not sent back again for the guide.
+#[tokio::test]
+async fn a_return_sent_back_for_another_fault_keeps_the_reason_it_gave_for_the_guide_and_is_not_sent_back_for_it() {
+    let fake = Fake {
+        build_changes_guide: true,
+        build_explains_the_guide: true,
+        build_leaves_an_edit: true,
+        ..Fake::default()
+    };
+    let mut real = Real::trial(fake);
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| real.unanswered_question(work).is_some()).await;
+    real.answer(work);
+    real.until(|real| ended(&real.decision(work))).await;
+    let kept = real.work(work);
+    let build = real.run_of(work, "build");
+    // The first return said why and left an edit uncommitted: it was sent back for the edit alone.
+    let left = Unmet::Uncommitted {
+        changes: " M greeting.txt".to_string(),
+    };
+    assert_eq!(kept.given.get(&(build, 2)), Some(&Given::SentBack(vec![left])));
+    // The second said nothing of the guide, and its reason stood: it was taken.
+    assert_eq!(
+        kept.given.get(&(build, 3)),
+        None,
+        "the second return was sent back again"
+    );
+    let asked = (kept.records.questions.iter())
+        .filter(|q| q.name == "protected_files")
+        .count();
+    assert_eq!(asked, 1, "asked once");
+}

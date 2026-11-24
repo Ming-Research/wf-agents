@@ -1,13 +1,13 @@
-//! What reaches the carriers of each project, and what a work whose item has no project the settings name is answered:
-//! its round fails or ends with nothing, its call is answered in the words beside the flows, and, where its item has no
-//! project at all, it is let go of.
+//! What reaches the carriers of each project, and what a work whose item has no project the settings name, or a project
+//! held for its declaration, is answered: its round fails or ends with nothing, its call is answered in the words
+//! beside the flows or with why the project is held, and, where its item has no project at all, it is let go of.
 
 use std::sync::{Arc, Mutex};
 
 use decide::{CallId, End, RunId};
 use engine::Event;
 use flow::Compiled;
-use service::{CallReply, Message, Release, ReleaseReply, Round, RoundReply, Rounds, ToolCall, Tools};
+use service::{CallReply, Message, OfWork, Release, ReleaseReply, Round, RoundReply, Rounds, ToolCall, Tools};
 use store::{First, Item, ItemNumber, WorkNumber};
 use tokio::sync::mpsc;
 use work::{Given, Spent, Work};
@@ -58,11 +58,23 @@ fn said() -> NoProject {
     }
 }
 
-/// The carriers of the one project `one`, and what reaches them.
+/// Why the project `held` is held.
+const HELD: &str =
+    "refs/heads/main:wf-agents.toml, the project's declaration on main where works branch from, cannot be read";
+
+/// Words, unlike the files' own, for the result of a call withdrawn.
+const WITHDRAWN: &str = "Dropped, no answer came.";
+
+/// The carriers of the one project `one`, and what reaches them, and the project `held`, which is held.
 fn by_project<T: ?Sized>(reached: Arc<T>) -> ByProject<T> {
     ByProject {
-        of: [("one".to_string(), reached)].into(),
+        of: [
+            ("one".to_string(), Ok(reached)),
+            ("held".to_string(), Err(HELD.to_string())),
+        ]
+        .into(),
         said: said(),
+        withdrawn: WITHDRAWN.to_string(),
     }
 }
 
@@ -87,6 +99,7 @@ fn item(number: u64, project: Option<&str>) -> Item {
         project: project.map(str::to_string),
         depends_on: Vec::new(),
         tags: Vec::new(),
+        continues: None,
     };
     Item::new(ItemNumber(number), work::Time(0), first, Vec::new())
 }
@@ -117,6 +130,7 @@ fn call(item: Item) -> ToolCall {
         input: String::new(),
         item,
         kept: Arc::new(Work::default()),
+        test_time: None,
     }
 }
 
@@ -238,7 +252,7 @@ fn a_call_of_an_item_of_no_project_named_is_answered_in_the_words_beside_the_flo
         [
             "Nothing was run: two is not named.",
             "Nothing was run: no project.",
-            service::WITHDRAWN
+            WITHDRAWN
         ]
     );
 }
@@ -251,4 +265,133 @@ fn the_words_beside_the_flows_say_a_call_of_no_project_named() {
     let said = &beside.installation.no_project;
     assert!(said.unnamed.contains("{project}"), "{}", said.unnamed);
     assert!(!said.none.contains('{'), "{}", said.none);
+}
+
+// A project held for its declaration carries nothing out: a round of its works fails with why, and stopped ends with
+// nothing; a work of it is not let go of, saying why; a call of it is answered with why, and withdrawn has the result of
+// a call withdrawn; and what the loop gives the project that is not held reaches it all the same.
+#[test]
+fn a_held_project_carries_nothing_out_and_says_why_its_works_stop() {
+    let reached = Arc::new(Reached::default());
+    let rounds = by_project::<dyn Rounds>(reached.clone());
+    let tools = by_project::<dyn Tools>(reached.clone());
+    let (to, from) = mpsc::unbounded_channel();
+    rounds.give(
+        round(item(5, Some("held"))),
+        RoundReply::new(WORK, RunId(1), to.clone()),
+    );
+    rounds.stop(
+        round(item(5, Some("held"))),
+        RoundReply::new(WORK, RunId(1), to.clone()),
+    );
+    rounds.release(release(item(5, Some("held"))), ReleaseReply::new(WORK, to.clone()));
+    tools.call(call(item(5, Some("held"))), CallReply::new(WORK, CallId(2), to.clone()));
+    tools.withdraw(call(item(5, Some("held"))), CallReply::new(WORK, CallId(2), to.clone()));
+    rounds.give(round(item(1, Some("one"))), RoundReply::new(WORK, RunId(1), to.clone()));
+    drop(to);
+    assert_eq!(
+        *reached.0.lock().unwrap(),
+        ["give #1"],
+        "nothing reaches a project that is held"
+    );
+    let events = said_down(from);
+    assert_eq!(events.len(), 5, "{events:?}");
+    let Event::Failed { why, spent, .. } = &events[0] else {
+        panic!("the round failed: {events:?}");
+    };
+    assert_eq!(
+        *why,
+        format!("the item #5 belongs to the project held, which is held: {HELD}")
+    );
+    assert_eq!(*spent, Spent::default());
+    assert!(matches!(&events[1], Event::Returned { .. }), "{events:?}");
+    let Event::NotReleased { why } = &events[2] else {
+        panic!("it is not let go of: {events:?}");
+    };
+    assert!(why.contains(HELD), "{why}");
+    let Event::Done { result, .. } = &events[3] else {
+        panic!("the call has a result: {events:?}");
+    };
+    assert_eq!(
+        *result,
+        format!("the item #5 belongs to the project held, which is held: {HELD}")
+    );
+    assert!(
+        matches!(&events[4], Event::Done { result, .. } if result == WITHDRAWN),
+        "{events:?}"
+    );
+}
+
+// What the page asks of a held project's work is answered with why, not with nothing: its worktree and its changes may
+// be there. A work of no project, or of one the settings do not name, has none, and is answered with nothing.
+#[tokio::test]
+async fn the_page_is_told_why_a_held_projects_work_cannot_be_read_and_nothing_where_there_is_none() {
+    let rounds = by_project::<dyn Rounds>(Arc::new(Reached::default()));
+    let of = |project: Option<&str>| OfWork {
+        work: WORK,
+        item: item(5, project),
+        merged: None,
+        place: decide::Seq::default(),
+        under_way: false,
+    };
+    let said = |why: Result<(), String>| why.expect_err("it is said why");
+    let held = of(Some("held"));
+    assert!(said(rounds.seen(held.clone()).await.map(|_| ())).contains(HELD));
+    assert!(said(rounds.changes(held.clone()).await.map(|_| ())).contains(HELD));
+    assert!(said(rounds.diff(held, "a.txt".to_string()).await.map(|_| ())).contains(HELD));
+    for project in [None, Some("two")] {
+        assert!(rounds.seen(of(project)).await.is_ok(), "{project:?}");
+        assert_eq!(rounds.changes(of(project)).await, Ok(None), "{project:?}");
+        assert_eq!(
+            rounds.diff(of(project), "a.txt".to_string()).await,
+            Ok(None),
+            "{project:?}"
+        );
+    }
+}
+
+/// Carriers whose host says one pull request is open, by the project it is asked of.
+struct Hosted;
+
+impl Rounds for Hosted {
+    fn give(&self, _: Round, _: RoundReply) {}
+
+    fn stop(&self, _: Round, _: RoundReply) {}
+
+    fn open_pulls(
+        &self,
+        project: &str,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<Vec<OpenPull>>, String>> + Send + '_>> {
+        let title = project.to_string();
+        Box::pin(async move {
+            Ok(Some(vec![OpenPull {
+                number: 7,
+                title,
+                url: "https://host.example/pull/7".to_string(),
+                draft: false,
+                updated: 0,
+            }]))
+        })
+    }
+}
+
+// The pull requests open on a project's host are asked of that project's carriers alone; a project the settings do not
+// name, or one held for its declaration, is said not to be asked, with why, which says nothing of there being none.
+#[tokio::test]
+async fn the_open_pull_requests_are_asked_of_the_named_projects_host_and_one_not_named_says_so() {
+    let rounds = by_project::<dyn Rounds>(Arc::new(Hosted));
+    let open = rounds
+        .open_pulls("one")
+        .await
+        .expect("the host says")
+        .expect("it has pull requests");
+    assert_eq!((open[0].number, open[0].title.as_str()), (7, "one"));
+    assert_eq!(
+        rounds.open_pulls("two").await,
+        Err("the installation's settings do not name the project two".to_string())
+    );
+    assert_eq!(
+        rounds.open_pulls("held").await,
+        Err(format!("the project held is held: {HELD}"))
+    );
 }

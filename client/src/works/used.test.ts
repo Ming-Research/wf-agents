@@ -17,6 +17,8 @@ const FLOW = flowOf(
 const spent = (usd: number, minutes: number): Spent => ({
   usdMicros: usd * 1_000_000,
   inputTokens: 100,
+  cacheWrittenTokens: 0,
+  unsplitTokens: 0,
   cachedTokens: 300,
   outputTokens: 10,
   workingMs: minutes * MINUTE,

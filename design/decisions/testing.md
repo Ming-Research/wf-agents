@@ -3,15 +3,32 @@
 How wf-agents itself is tested: its own CI workflows, the machines they run on and how they stay within their time.
 
 ### decision wf-agents-ci-runs-on-the-owners-machine
-The jobs of wf-agents' own workflows run on the owner's machine, on the runners labelled `14900k`, except one that builds nothing.
+The jobs of wf-agents' own workflows that build or test run on the owner's machine, on the runners labelled `14900k`; the jobs that build nothing run on GitHub's.
+- replaced: One job that built nothing off the owner's machine, the job that sums the run up, was on main; the owner changed it, because the job that says what changed and the job that checks the tree build nothing and need none of the eight runners.
 - replaced: The fast CI on GitHub's hosted runners was on main; the owner changed it, because a runner on his build machine changes nothing in the engine, keeps one definition of how tests run, and stays separate from his laptop.
 - replaced: The full CI on GitHub's runners was on main; the owner changed it, because his machine runs it faster, as the old system came to do.
 - rejected: an agent proposed checking several works together in one run of the full CI; the owner rejected it, because he chose to move the full CI to his machine instead, which is faster.
 - rejected: an agent proposed not using the machine's runners until the owner narrowed them to this repository in GitHub's settings; the owner rejected it, because a pull request from outside runs only with his approval.
 
+### decision wf-agents-ci-runs-only-where-someone-reads-it
+wf-agents' full workflow runs when the engine asks for it by hand and on each pull request into main that is neither a work's nor a fork's; no push to main and no work's pull request starts it.
+- replaced: Running the full workflow on every pull request into main and on every push to main was on main; the owner changed it, because nothing reads a push, nor the run of a work's pull request, which repeats the run the engine asks for (data: `research/ci-unread-runs.md`).
+- rejected: an agent proposed running it only when the engine asks, with no pull request trigger at all; the owner rejected it, because the owner reads the run of a pull request opened in a session before it merges (data: `research/ci-unread-runs.md`).
+
+### decision wf-agents-ci-runs-only-the-trees-check-for-a-change-of-only-the-tree
+The full workflow runs only `scope`, `tree` and `check` where every changed file, and the old path of each rename, is under `design/`; where `scope` cannot tell, it runs every job.
+- replaced: Every job on every change, the tree's checks among the lint job's steps, was on main; the owner changed it, because 21 of 247 merges of a stretch of main changed only the tree and no test reads its files (data: `research/ci-job-split-measured.md`).
+- rejected: an agent proposed no job at the start, each job of the code deciding for itself in its first steps; the owner rejected it, because each would take a runner and carry its own copy of the rule.
+
+### decision wf-agents-ci-keeps-the-pages-tests-in-a-job-of-their-own
+The full workflow runs the page's type-check, lint and build in the job `page` and its tests in the job `page tests`.
+- replaced: The page in one job was on main; the owner changed it, because the page job took 99 to 149 s and was the longest job in 9 of 16 runs of main (data: `research/ci-job-split-measured.md`).
+
 ### decision wf-agents-ci-bounds-each-test-and-job
-wf-agents' workflows stop and fail a test still running after 60 seconds, except the walks of random histories, and a job past its limit, which is 15 minutes for the Rust tests.
+wf-agents' workflows stop and fail a test still running at the line the engine gives them from the history of the tests' times, and a job past its limit, which is 15 minutes for the Rust tests.
 - replaced: A 30-minute limit on a job, and no limit on a single test, was on main; the owner changed it, because the flow's gates limited only single tests, and nothing limited the whole run.
+- replaced: A stop of 60 seconds for a test, and of 300 seconds for the walks of random histories, was on main; the owner changed it, because a test that runs too long is judged by its own history, not by a number written in.
+- rejected: an agent proposed no stop for a single test, the job's limit its only bound; the owner rejected it, because a test that hung would hold its job for up to 15 minutes and the job is cancelled with no JUnit, so the test is found only from the log.
 
 ### decision wf-agents-tests-build-dependencies-optimized
 wf-agents' CI builds its tests with the dependencies fully optimized and its own crates unoptimized, except the flow crate, which is built at level 1.
@@ -22,3 +39,4 @@ wf-agents' CI builds its tests with the dependencies fully optimized and its own
 wf-agents' CI runs its Rust tests in three jobs, each running a third of every binary's tests by nextest's count, not by any list kept by hand.
 - replaced: One machine running the groups of tests one after another was on main; the owner changed it, because CI took about 23 minutes, and slow CI makes the iterations endless.
 - rejected: an agent proposed four jobs, each first running its share of a hand-kept list of the long tests; the owner rejected it, because it was about ten seconds faster on two runs, and the list goes stale as the tests change.
+- rejected: an agent proposed dividing the Rust jobs by the time of their tests; the owner rejected it, because the longest test alone took 101 s in a run, and a job that holds it cannot take less (data: `research/ci-job-split-measured.md`).

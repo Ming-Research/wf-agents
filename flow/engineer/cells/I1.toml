@@ -42,7 +42,7 @@ watches = [
   "i1_questions",
   "i1_words",
 ]
-reads = ["background", "tree", "tree_entries"]
+reads = ["background", "tree", "tree_entries", "test_times"]
 outputs = [
   "code",
   "title",
@@ -77,6 +77,7 @@ tree = "last_and_latest"
 # The entries of the design tree the plan was worked from, whole.
 tree_entries = "latest"
 background = "latest"
+test_times = "latest"
 plan_owner = "last_and_latest"
 plan_doubts = "all"
 plan_agent = "last_and_latest"

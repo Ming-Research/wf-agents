@@ -11,6 +11,8 @@ fn spent(rounds: u64) -> Value {
     json!({
         "usdMicros": 21000 * rounds,
         "inputTokens": 3200 * rounds,
+        "cacheWrittenTokens": 0,
+        "unsplitTokens": 0,
         "cachedTokens": 14000 * rounds,
         "outputTokens": 450 * rounds,
         "workingMs": 1500 * rounds,
@@ -46,7 +48,7 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
     let input =
         |block: &str, current: Value| json!({ "block": block, "current": current, "known": null, "changed": false });
     // The request is new to the plan, whose run has dealt with nothing yet.
-    let for_the_request = json!([{ "kind": "changed", "block": "request", "was": null, "behind": false }]);
+    let for_the_request = json!([{ "kind": "changed", "block": "request", "workedFrom": null, "behind": false }]);
     let flow = get_json(&running.router, "/api/v1/flow").await["flow"].clone();
     // Each of the plan's three rounds hands in nothing and asks for nothing, so that the next is given why it was sent
     // back.
@@ -54,7 +56,7 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
         .map(|number| {
             let given = match number {
                 1 => json!({ "kind": "task" }),
-                _ => json!({ "kind": "sentBack", "unmet": [{ "kind": "dealtWithNothing" }] }),
+                _ => json!({ "kind": "sentBack", "unmet": [{ "key": "dealt_with_nothing", "values": [] }] }),
             };
             json!({
                 "number": number,
@@ -98,9 +100,9 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                 ],
                 "spent": spent(3),
                 // No ping of its sessions was sent.
-                "pinged": { "usdMicros": 0, "inputTokens": 0, "cachedTokens": 0, "outputTokens": 0, "workingMs": 0, "rounds": 0 },
+                "pinged": { "usdMicros": 0, "inputTokens": 0, "cacheWrittenTokens": 0, "unsplitTokens": 0, "cachedTokens": 0, "outputTokens": 0, "workingMs": 0, "rounds": 0 },
                 // No fork of a round's session was asked.
-                "forked": { "usdMicros": 0, "inputTokens": 0, "cachedTokens": 0, "outputTokens": 0, "workingMs": 0, "rounds": 0 },
+                "forked": { "usdMicros": 0, "inputTokens": 0, "cacheWrittenTokens": 0, "unsplitTokens": 0, "cachedTokens": 0, "outputTokens": 0, "workingMs": 0, "rounds": 0 },
                 "last": asked,
                 // Its first round began as it was resumed, and an agent has run the whole of its time since.
                 "from": resumed,
@@ -114,6 +116,8 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                 "level": "2",
                 "cellLevel": "2",
                 "raise": 0,
+                // The plan's line asks for nothing above its item's level, so nothing held the cell below it.
+                "held": null,
                 // The trial's host keeps no pull request, and its acts' carrier no repository to say what it changed.
                 "pull": null,
                 "changed": null,
@@ -272,12 +276,12 @@ async fn a_version_a_round_and_a_call_are_given_with_their_content() {
         json!({ "call": 2, "what": at_limit(), "result": null })
     );
 
-    let answer = json!({ "kind": "result", "call": 2, "result": "Yes, by name." });
+    let answer = json!({ "kind": "goOn", "call": 2 });
     assert_eq!(
         post(router, "/api/v1/works/1/acts", &answer).await.0,
         StatusCode::NO_CONTENT
     );
-    let answered = json!({ "call": 2, "what": at_limit(), "result": "Yes, by name." });
+    let answered = json!({ "call": 2, "what": at_limit(), "result": service::GO_ON });
     assert_eq!(get_json(router, "/api/v1/works/1/calls/2").await, answered);
     // The plan's run goes on, its fourth round given why the third was sent back, and hands in the plan a second and a
     // half later.
@@ -301,23 +305,23 @@ async fn what_there_is_none_of_is_refused_with_why() {
     let none = StatusCode::NOT_FOUND;
     assert_eq!(
         refused(router, "/api/v1/works/9").await,
-        (none, "There is no work 9.".to_string())
+        (none, "There is no work W9.".to_string())
     );
     assert_eq!(
         refused(router, "/api/v1/works/9/calls/2").await,
-        (none, "There is no work 9.".to_string())
+        (none, "There is no work W9.".to_string())
     );
     assert_eq!(
         refused(router, "/api/v1/works/1/versions/request/2").await,
-        (none, "Work 1 has no version 2 of request.".to_string())
+        (none, "W1 has no version 2 of request.".to_string())
     );
     assert_eq!(
         refused(router, "/api/v1/works/1/runs/1/rounds/7").await,
-        (none, "Work 1 has no round 7 of run 1.".to_string())
+        (none, "W1 has no round 7 of run 1.".to_string())
     );
     assert_eq!(
         refused(router, "/api/v1/works/1/calls/3").await,
-        (none, "Work 1 has no call 3.".to_string())
+        (none, "W1 has no call 3.".to_string())
     );
     let (status, words) = refused(router, "/api/v1/works/one").await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
