@@ -8,8 +8,10 @@
 // Save, the one action the view is for, writes what changed into the file, its comments and layout kept, and commits
 // it where the file's directory keeps it in git; what the engine would refuse is refused before anything is written,
 // in the engine's words. What the owner typed and did not save is kept in the browser, key by key, through a reload, a
-// read of the file anew and a save refused. Last, once the file is read or could not be, the accent the page is drawn
-// in, which is no setting of the file: kept in this browser as light or dark is, and taken as it is picked.
+// read of the file anew and a save refused. After the installation's, a section for each project: its tables of the
+// file, then its own declaration, which the page does not change, as the engine holds it. Last, once the file is read
+// or could not be, the accent the page is drawn in, which is no setting of the file: kept in this browser as light or
+// dark is, and taken as it is picked.
 
 import { type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -34,6 +36,7 @@ import {
   type AccountsPage,
   type AccountUsage,
   type Change,
+  type ProjectSettings,
   type Saved,
   type SettingsPage,
   type SettingsTable,
@@ -234,6 +237,7 @@ function SettingsForm({ page, failed, said, onSaid, reread }: {
   const fileOnly = page.tables
     .map((t) => ({ ...t, keys: t.keys.filter((k) => k.change === null) }))
     .filter((t) => t.keys.length > 0);
+  const fileName = page.file.split('/').pop() ?? page.file;
   return (
     <>
       <div className="view-line">
@@ -306,11 +310,14 @@ function SettingsForm({ page, failed, said, onSaid, reread }: {
           <h4 className="view-sub label">The accounts the agents run under</h4>
           <Accounts />
         </PanelPart>
-        <PanelPart label={`Changed in ${page.file.split('/').pop() ?? page.file} only`}>
+        <PanelPart label={`Changed in ${fileName} only`}>
           {fileOnly.map((t) => (
             <FileTable key={t.name} table={t} />
           ))}
         </PanelPart>
+        {page.projects.map((p) => (
+          <ProjectPart key={p.name} project={p} file={fileName} declarationFile={page.declarationFile} />
+        ))}
         <AccentPart />
       </main>
     </>
@@ -376,6 +383,56 @@ function FileTable({ table }: { table: SettingsTable }) {
         ))}
       </dl>
     </section>
+  );
+}
+
+/// A project's section, named by the project: what the installation's file holds of it, table by table as the file's
+/// other tables are shown; then, under the name of the file it declares itself in, its declaration as the engine read it
+/// from the project's main as it started, table by table, each key with its value as written; or why the engine holds
+/// the project, in the engine's words; or that the engine read none, the file not naming the project as it started.
+function ProjectPart({ project: p, file, declarationFile }: {
+  project: ProjectSettings;
+  /// The name of the installation's file.
+  file: string;
+  declarationFile: string;
+}) {
+  const d = p.declaration;
+  return (
+    <PanelPart
+      label={
+        <span>
+          Project <span className="mono">{p.name}</span>
+        </span>
+      }
+    >
+      {p.tables.length > 0 && (
+        <>
+          <h4 className="view-sub label">Changed in {file} only</h4>
+          {p.tables.map((t) => (
+            <FileTable key={t.name} table={t} />
+          ))}
+        </>
+      )}
+      <h4
+        className="view-sub label"
+        title={
+          d.kind === 'read'
+            ? `The engine read it from ${d.at} as it started, and runs with it until it starts again`
+            : "The engine reads it from the project's main as it starts, and runs with what it read until it starts again"
+        }
+      >
+        Changed in {declarationFile} only
+      </h4>
+      {d.kind === 'read' ? (
+        d.tables.map((t) => <FileTable key={t.name} table={t} />)
+      ) : d.kind === 'held' ? (
+        <p className="failed">Held, its works paused until the engine starts with its declaration mended: {d.why}</p>
+      ) : (
+        <p className="muted">
+          Not read: the engine reads a project's declaration as it starts, and the file did not name this project then.
+        </p>
+      )}
+    </PanelPart>
   );
 }
 

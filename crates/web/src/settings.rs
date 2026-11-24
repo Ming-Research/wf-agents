@@ -1,7 +1,11 @@
 //! The installation's settings on the page: its file shown as it writes them, table by table, each key with its value,
 //! beside what the engine runs with where that differs; and what the owner changes there written back into the file.
+//! Each project's tables of the file are shown with the project, beside its own declaration (`wf-agents.toml`) as the
+//! engine read it from the project's main as it started, table by table as it writes them, or why the engine holds the
+//! project: the engine reads a declaration only as it starts (decision
+//! a-held-projects-declaration-is-read-as-the-engine-starts), and the page shows what the engine runs with.
 //!
-//! - `GET /api/v1/settings`: the file ([`SettingsPage`]).
+//! - `GET /api/v1/settings`: the file, and each project's declaration ([`SettingsPage`]).
 //! - `POST /api/v1/settings`: the owner's change of a few keys ([`SettingsChange`]), answered with what was changed in
 //!   words ([`Saved`]).
 //! - `GET /api/v1/settings/accounts`: the accounts the agents' program may run under, each with what the service last
@@ -31,6 +35,7 @@
 //! An account's token is taken in once, as it is added, and kept outside the engine; no answer of these routes holds
 //! it, nor do the words of a refusal, a body that cannot be read among them.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
@@ -59,9 +64,19 @@ pub struct Install {
     pub read: ReadSettings,
     /// The settings the engine runs with: those it read as it started.
     pub running: JsonValue,
+    /// Each project's declaration as the engine read it as it started, by the project's name, or why the engine holds
+    /// the project. A project the engine did not start with has none.
+    pub declarations: BTreeMap<String, Result<DeclarationText, String>>,
     /// What every git command is given before its own arguments, so that nothing the repository's configuration names
     /// is run.
     pub git: &'static [&'static str],
+}
+
+/// A project's declaration as the engine read it: where, as `<main>:wf-agents.toml`, and its text.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DeclarationText {
+    pub at: String,
+    pub text: String,
 }
 
 /// The file as it writes the settings.
@@ -75,13 +90,42 @@ pub struct SettingsPage {
     /// Why the file as it is now does not read as settings; none where it does.
     pub unreadable: Option<String>,
     /// The file's tables in the order it writes them, the keys of its own first where it has any; then the tables it
-    /// leaves out of which the engine runs with values.
+    /// leaves out of which the engine runs with values. A project's tables are its own ([`ProjectSettings`]).
     pub tables: Vec<SettingsTable>,
     /// The names of the levels the file gives, for the highest level an item may be at and the highest one round may
     /// run at.
     pub levels: Vec<String>,
     /// How the directory the file is in keeps it in git; none where it does not.
     pub git: Option<Kept>,
+    /// The file each project declares what is its own in, at the root of its repository.
+    pub declaration_file: String,
+    /// The projects, in the order of their first tables among the file's: those the file names, then those the engine
+    /// runs that it leaves out.
+    pub projects: Vec<ProjectSettings>,
+}
+
+/// A project's settings: what the installation's file holds of it, and what it declares itself.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectSettings {
+    /// Its name, as the file names its table.
+    pub name: String,
+    /// Its tables of the file, `[projects.<name>]` and those under it, as the file's others are shown.
+    pub tables: Vec<SettingsTable>,
+    /// What the engine holds of its declaration.
+    pub declaration: DeclarationRead,
+}
+
+/// What the engine holds of a project's declaration, which it reads from the project's main only as it starts.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum DeclarationRead {
+    /// Read: where, and its tables in the order it writes them, each key with its value as written.
+    Read { at: String, tables: Vec<SettingsTable> },
+    /// The engine holds the project, whose works pause: why, in the engine's words.
+    Held { why: String },
+    /// The engine read none: the file did not name the project as the engine started.
+    NotRead,
 }
 
 /// A table of the settings.
@@ -600,6 +644,7 @@ fn shown(install: &Install, slots: usize) -> Result<SettingsPage, Refused> {
         }
     }
     left_out(&running, &mut Vec::new(), &doc, &mut tables);
+    let projects = projects_of(&mut tables, &install.declarations)?;
     let levels = (doc.get("agents").and_then(|agents| agents.get("levels")))
         .and_then(Item::as_table_like)
         .map(|levels| levels.iter().map(|(name, _)| name.to_string()).collect())
@@ -611,6 +656,66 @@ fn shown(install: &Install, slots: usize) -> Result<SettingsPage, Refused> {
         tables,
         levels,
         git: kept(install).map_err(|why| Refused(StatusCode::INTERNAL_SERVER_ERROR, why))?,
+        declaration_file: flow::agents::DECLARATION.to_string(),
+        projects,
+    })
+}
+
+/// The table of the file that names the projects, each by a table of its own under it.
+const PROJECTS: &str = "projects";
+
+/// The projects, their tables taken out of the file's: each in the order of its first table, with its tables and what
+/// the engine holds of its declaration; then each the engine holds a declaration of that no table names.
+fn projects_of(
+    tables: &mut Vec<SettingsTable>,
+    declarations: &BTreeMap<String, Result<DeclarationText, String>>,
+) -> Result<Vec<ProjectSettings>, Refused> {
+    let mut named: Vec<(String, Vec<SettingsTable>)> = Vec::new();
+    let mut rest = Vec::new();
+    for table in tables.drain(..) {
+        match path_of(&table.name).as_slice() {
+            [projects, name, ..] if projects == PROJECTS => match named.iter_mut().find(|(n, _)| n == name) {
+                Some((_, own)) => own.push(table),
+                None => named.push((name.clone(), vec![table])),
+            },
+            _ => rest.push(table),
+        }
+    }
+    *tables = rest;
+    for name in declarations.keys() {
+        if !named.iter().any(|(n, _)| n == name) {
+            named.push((name.clone(), Vec::new()));
+        }
+    }
+    (named.into_iter())
+        .map(|(name, tables)| {
+            let declaration = declaration_read(declarations.get(&name))?;
+            Ok(ProjectSettings {
+                name,
+                tables,
+                declaration,
+            })
+        })
+        .collect()
+}
+
+/// What the engine holds of a project's declaration, the text it read split into its tables as it writes them.
+fn declaration_read(held: Option<&Result<DeclarationText, String>>) -> Result<DeclarationRead, Refused> {
+    Ok(match held {
+        None => DeclarationRead::NotRead,
+        Some(Err(why)) => DeclarationRead::Held { why: why.clone() },
+        Some(Ok(read)) => {
+            let doc: DocumentMut = read.text.parse().map_err(|e| {
+                Refused(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("{} is not TOML: {e}", read.at),
+                )
+            })?;
+            DeclarationRead::Read {
+                at: read.at.clone(),
+                tables: written(&doc),
+            }
+        }
     })
 }
 
