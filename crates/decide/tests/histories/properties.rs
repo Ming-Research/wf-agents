@@ -318,7 +318,14 @@ pub fn next_word(v: &mut Verdict, flow: &Flow, reading: &Reading, s: &Started, c
     // A block the return writes so that what it says changes, by the reading's own rule: one handed in as changing
     // nothing is new to no cell, and answers nothing, changes nothing the other side watches and brings no point (9).
     let wrote = |b: &BlockId| (came.writes.iter()).any(|w| &w.block == b && reading.would_change(s.run, w));
+    // A return that writes over a version its round was not told of is sent back for that, whatever it says (the walk's
+    // own comment on the rule): the word it owes is judged on the return that follows, and the reading's rule of what
+    // changes meaning, which compares the version the round started from, does not hold what it says to account.
+    let stale = |b: &BlockId| (sent.iter()).any(|u| matches!(u, Unmet::WrittenOver { block, .. } if block == b));
     for (dialogue, watched) in &cell.dialogues {
+        if stale(dialogue) || watched.iter().any(&stale) {
+            continue;
+        }
         let woken = reading.point(flow, &s.cell, dialogue, s.at) && came.dealt_with.contains(dialogue);
         let owed = woken && !wrote(dialogue) && !watched.iter().any(&wrote);
         let said = sent
@@ -340,6 +347,9 @@ pub fn next_word(v: &mut Verdict, flow: &Flow, reading: &Reading, s: &Started, c
     // a change of what it judges, by the reading's own reckoning of what was new, or where its fail is new (41, 42).
     let reasons = reading.reasons(cell, s.at);
     for (verdict, of) in &cell.verdicts {
+        if stale(verdict) || stale(&of.dialogue) {
+            continue;
+        }
         let judged = cell.judges.get(&of.dialogue);
         let woken = (reasons.iter()).any(|r| {
             matches!(r, Reason::Changed { block, .. }
