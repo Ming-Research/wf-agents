@@ -149,6 +149,11 @@ impl Sim {
         self.enter_with(round, self.main(round), anew)
     }
 
+    /// The situation the round is entered in, as [`Sim::enter`] has it, with no message made.
+    pub fn situation(&self, round: &Given, anew: bool) -> Entered {
+        self.entered(round, self.main(round), anew, false)
+    }
+
     /// What came of taking main in as the round's run started, where its cell takes main in: by the run's number, each
     /// of the kinds in turn or nothing to take in.
     pub fn main(&self, round: &Given) -> Option<Main> {
@@ -184,6 +189,10 @@ impl Sim {
 
     /// What the round is sent, with this come of taking main in.
     pub fn enter_with(&self, round: &Given, main: Option<Main>, anew: bool) -> Entered {
+        self.entered(round, main, anew, true)
+    }
+
+    fn entered(&self, round: &Given, main: Option<Main>, anew: bool, message: bool) -> Entered {
         let (flow, words, changes) = (&self.flow, &self.words, &self.changes(round));
         let carried = crate::Carried {
             about: FOR,
@@ -195,7 +204,8 @@ impl Sim {
             results: &BTreeMap::new(),
         };
         let (run, number) = (round.run, round.number);
-        crate::enter(flow, words, &self.work, run, number, &carried, anew).expect("the round is entered")
+        let enter = if message { crate::enter } else { crate::situation_of };
+        enter(flow, words, &self.work, run, number, &carried, anew).expect("the round is entered")
     }
 
     /// What changed in the tree from each earlier version to the latest as the round began, as the carrier says it.

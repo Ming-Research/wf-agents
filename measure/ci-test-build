@@ -1,0 +1,14 @@
+# The measurement `ci-test-build`: how long it takes to compile the tests of the crates `context`, `engine`, `decide` and
+# `work` with the profile `ci`, as CI builds them, in the checkout this script is run in (`measure/` of the measure
+# workflow, `.github/workflows/measure.yml`). The measurement `ci-test-build-optimized` runs this with the profile's
+# opt-level of those four crates set to 3, so the two medians differ by what that costs to compile.
+# It serves the question of whether CI optimizes those crates (`research/situations-search-measured.md`), and is deleted
+# when that is answered.
+set -euo pipefail
+export PATH="$HOME/.cargo/bin:$PATH"
+# The dependencies are compiled once for the run and kept in this directory, as CI keeps them; the first pair holds
+# their build, which the median of the pairs does not.
+export CARGO_TARGET_DIR="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/ci-test-build-target"
+# What is timed is the compile of those crates: a checkout run again finds them built otherwise.
+cargo clean --profile ci -p context -p engine -p decide -p work
+cargo test --no-run --locked --profile ci "$@" -p context -p engine -p decide -p work

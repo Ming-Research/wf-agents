@@ -98,6 +98,34 @@ pub fn enter(
     carried: &Carried<'_>,
     anew: bool,
 ) -> Result<Entered, String> {
+    entered(flow, words, work, run, number, carried, anew, true)
+}
+
+/// The situation the round is in as it is entered, as [`enter`] has it, with no message made: what is sent, its text and
+/// what it fills are left empty. For whoever asks only what situation an entry is in, and enters many.
+pub fn situation_of(
+    flow: &Compiled,
+    words: &Agents,
+    work: &Work,
+    run: RunId,
+    number: usize,
+    carried: &Carried<'_>,
+    anew: bool,
+) -> Result<Entered, String> {
+    entered(flow, words, work, run, number, carried, anew, false)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn entered(
+    flow: &Compiled,
+    words: &Agents,
+    work: &Work,
+    run: RunId,
+    number: usize,
+    carried: &Carried<'_>,
+    anew: bool,
+    message: bool,
+) -> Result<Entered, String> {
     let (about, changes) = (carried.about, carried.changes);
     let started = (work.records.started.iter())
         .find(|s| s.run == run)
@@ -343,7 +371,10 @@ pub fn enter(
             situation.holds.push(part);
         }
     }
-    let sent = message::message(flow, words, cell, &situation, Values::Run(&values));
+    let sent = match message {
+        true => message::message(flow, words, cell, &situation, Values::Run(&values)),
+        false => Vec::new(),
+    };
     let mut fills = Vec::new();
     for s in &sent {
         match s.part.as_str() {
@@ -366,7 +397,7 @@ pub fn enter(
         }
     }
     Ok(Entered {
-        text: message::text(&sent),
+        text: if message { message::text(&sent) } else { String::new() },
         situation,
         run: values,
         sent,

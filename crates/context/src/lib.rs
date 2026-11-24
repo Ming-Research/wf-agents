@@ -26,6 +26,6 @@ pub mod situations;
 pub mod text;
 pub mod witness;
 
-pub use manager::{Author, Carried, Changes, Entered, For, author, author_from, enter};
+pub use manager::{Author, Carried, Changes, Entered, For, author, author_from, enter, situation_of};
 pub use message::{Defined, Form, Main, Sent, Situation, Stands, Values, defined, message};
 pub use text::Piece;

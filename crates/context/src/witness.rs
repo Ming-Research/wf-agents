@@ -97,6 +97,10 @@ pub enum Hand {
     All,
     /// What the cell must write and, of the blocks of its outputs it need not, each at the place of a set bit.
     Mask(u32),
+    /// Of the blocks of its outputs, those it must write and then those it need not, each at the place of a set bit:
+    /// what a cell must write may be left out, which the engine takes beside a question the cell waits for the answer
+    /// to and sends back otherwise.
+    Part(u32),
 }
 
 /// Which of what ran the round a return names as dealt with.
@@ -629,6 +633,13 @@ impl Node {
                 let more = optional.iter().enumerate().filter(|(place, _)| set(mask, *place));
                 chosen.extend(more.map(|(_, block)| block.clone()));
             }
+            Hand::Part(mask) => {
+                let all = chosen.iter().chain(optional.iter()).enumerate();
+                chosen = all
+                    .filter(|(place, _)| set(mask, *place))
+                    .map(|(_, b)| b.clone())
+                    .collect();
+            }
         }
         let mut writes = Vec::new();
         for (place, block) in chosen.into_iter().enumerate() {
@@ -733,7 +744,7 @@ impl Node {
                 let spec = self.sim.cell(&round);
                 if spec.line.is_some() {
                     let begins = self.sim.begins(&round);
-                    let entered = self.sim.enter(&round, begins);
+                    let entered = self.sim.situation(&round, begins);
                     format!("{:?}", entered.situation).hash(&mut hasher);
                     // How it enters its session, which what comes after it depends on.
                     self.entry(&round, begins).hash(&mut hasher);
@@ -832,7 +843,7 @@ fn systematic_before(node: &Node, all: &[Action], from: usize) -> Option<Action>
 
 /// Each way a round of the cell under way returns, one thing different in each from the plain return, the plain one
 /// first and then those that reach most of what a state leads to.
-fn carries(cell: &CellSpec, optional: usize) -> Vec<Carry> {
+fn carries(cell: &CellSpec, must: usize, optional: usize) -> Vec<Carry> {
     let plain = Carry::PLAIN;
     let all_of = Carry {
         hand: Hand::All,
@@ -884,6 +895,22 @@ fn carries(cell: &CellSpec, optional: usize) -> Vec<Carry> {
         hand: Hand::Mask(1 << k),
         ..plain
     }));
+    // What the cell must write left out beside a question it waits for the answer to: each block alone, all but each of
+    // those it must write, and what it need not write alone.
+    if cell.line.is_some() && must > 0 {
+        let outputs = (must + optional).min(32);
+        let every = u32::try_from((1u64 << outputs) - 1).unwrap_or(u32::MAX);
+        let musts = u32::try_from((1u64 << must.min(32)) - 1).unwrap_or(u32::MAX);
+        let parts = (0..outputs)
+            .map(|k| 1u32 << k)
+            .chain((0..must.min(32)).map(|k| every & !(1u32 << k)))
+            .chain([every & !musts]);
+        all.extend(parts.map(|mask| Carry {
+            hand: Hand::Part(mask),
+            asks: Asks::Waits,
+            ..plain
+        }));
+    }
     // Every block handed in that was written before as changing nothing in meaning, and each of the first few alone.
     all.extend(
         [u32::MAX, 0b1, 0b10, 0b100, 0b1000, 0b10000]
@@ -934,9 +961,10 @@ fn carries(cell: &CellSpec, optional: usize) -> Vec<Carry> {
 
 /// A return drawn at random.
 fn drawn(rng: &mut Rng, line: bool) -> Carry {
-    let hand = match rng.below(10) {
+    let hand = match rng.below(12) {
         0..=1 => Hand::Must,
         2..=3 => Hand::All,
+        4 if line => Hand::Part(rng.next() as u32),
         _ => Hand::Mask(rng.next() as u32),
     };
     let dealt = match rng.below(10) {
@@ -945,6 +973,7 @@ fn drawn(rng: &mut Rng, line: bool) -> Carry {
         _ => Dealt::Mask(rng.next() as u32),
     };
     let asks = match (line, rng.below(20)) {
+        (true, _) if matches!(hand, Hand::Part(_)) && rng.chance(80) => Asks::Waits,
         (false, _) => Asks::Nothing,
         (_, 0..=11) => Asks::Nothing,
         (_, 12) => Asks::Tool,
@@ -1161,7 +1190,8 @@ impl Search<'_> {
         let how = match node.sim.round() {
             Some(round) => {
                 let cell = node.sim.cell(&round).clone();
-                carries(&cell, outputs_of(&node.sim.flow, &cell).1.len())
+                let (must, optional) = outputs_of(&node.sim.flow, &cell);
+                carries(&cell, must.len(), optional.len())
             }
             None => Vec::new(),
         };

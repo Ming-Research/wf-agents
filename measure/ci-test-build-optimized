@@ -1,0 +1,8 @@
+# The measurement `ci-test-build-optimized`: `ci-test-build` with the opt-level of `context`, `engine`, `decide` and `work`
+# set to 3 in the profile `ci`, in the checkout this script is run in. It serves the same question and is deleted with it.
+set -euo pipefail
+exec bash "$(dirname "$0")/ci-test-build" \
+  --config 'profile.ci.package.context.opt-level=3' \
+  --config 'profile.ci.package.engine.opt-level=3' \
+  --config 'profile.ci.package.decide.opt-level=3' \
+  --config 'profile.ci.package.work.opt-level=3'
