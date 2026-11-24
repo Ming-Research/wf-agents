@@ -175,6 +175,8 @@ struct Reached {
     of_cell: BTreeMap<String, usize>,
     /// The rounds of the last scripted history.
     trace: Vec<String>,
+    /// The directed tests that did not bring the work where they say, and why.
+    stale: Vec<String>,
     /// For each agent's cell, the states of a history at the entry of a round of it, one for each situation it stood in.
     archive: BTreeMap<String, Vec<Kept>>,
 }
@@ -585,6 +587,15 @@ impl History {
         }
     }
 
+    /// A person or the outside writes the choice with this value.
+    fn put_value(&mut self, block: &str, value: &str) {
+        let by = match self.sim.flow.blocks[&BlockId::from(block)].writers.people {
+            true => Outsider::Person,
+            false => Outsider::Outside,
+        };
+        self.sim.wrote(block, value, Some(value), by);
+    }
+
     /// What the work holds changes before its next round, as it does among the random steps: a person or the outside
     /// writes, the owner reopens a line's session or speaks to a cell, a cell is made to ask a question, or the blocks
     /// the next returns hand in are chosen. Each is done nearer the target than the random steps would, where it can be.
@@ -755,12 +766,12 @@ impl History {
         history
     }
 
-    /// Carries what the work gives until the round next is of this cell, which it leaves to be carried. A directed test that
-    /// the work does not bring to the cell is stale: it stops, saying where the work stood.
-    fn until(&mut self, reached: &mut Reached, cell: &str) {
+    /// Carries what the work gives until the round next is of this cell, which it leaves to be carried. Says where the work
+    /// stood where it does not come to one: the directed test is stale.
+    fn until(&mut self, reached: &mut Reached, cell: &str) -> Result<(), String> {
         for _ in 0..300 {
             match self.sim.round() {
-                Some(round) if round.cell.as_str() == cell => return,
+                Some(round) if round.cell.as_str() == cell => return Ok(()),
                 Some(round) => self.carry(&round, reached),
                 None => match self.sim.calls().first() {
                     Some(call) => self.sim.done(*call, "the rows"),
@@ -769,18 +780,19 @@ impl History {
                 },
             }
         }
-        panic!(
-            "a directed test did not bring the work to a round of {cell}: it stands at {:?}; the last rounds carried: {:?}",
-            decide(&self.sim.flow.flow, &self.sim.work.records),
-            self.trace.iter().rev().take(25).collect::<Vec<_>>()
-        );
+        Err(format!(
+            "no round of {cell} came: the work stands at {:.300}; the last rounds carried: {:?}",
+            format!("{:?}", decide(&self.sim.flow.flow, &self.sim.work.records)),
+            self.trace.iter().rev().take(12).collect::<Vec<_>>()
+        ))
     }
 
     /// Carries the round of this cell that comes next.
-    fn carry_next(&mut self, reached: &mut Reached, cell: &str) {
-        self.until(reached, cell);
-        let round = self.sim.round().expect("the round of the cell");
+    fn carry_next(&mut self, reached: &mut Reached, cell: &str) -> Result<(), String> {
+        self.until(reached, cell)?;
+        let round = self.sim.round().ok_or("the round of the cell is gone")?;
         self.carry(&round, reached);
+        Ok(())
     }
 
     /// The owner says some words to the cell.
@@ -1978,12 +1990,134 @@ impl Target {
     }
 }
 
+/// A directed test of the engineer's flow: from the work as it stands after the first pass, it says what happens.
+type Directed = fn(&mut Reached, History) -> Result<(), String>;
+
+/// The blocks the implementation hands in as changing nothing in meaning, so that no review that watches the change is run.
+const UNCHANGED: [&str; 5] = ["code", "title", "decisions", "evidence", "acceptance"];
+
+/// The owner and the outside write, the owner speaks to the cells that wrote the plan and the change and answers what they
+/// asked, and the plan is written anew, which the implementation then answers, in what it hands in with `changed` as
+/// changing its meaning and the rest of the change as changing nothing in it. `head`, a block of the change, is not
+/// written: it runs every review.
+fn after_a_pass(history: &mut History, changed: &[&'static str]) {
+    for block in ["background", "tree", "test_times"] {
+        history.put(block);
+    }
+    history.say_to("R1");
+    history.say_to("I1");
+    history.answers_all();
+    // Each answers the owner's words, which a return that deals with them must.
+    history.says.insert(
+        "R1".to_string(),
+        vec![Say::all(&["plan_owner", "plan_agent", "r1_words"])],
+    );
+    let mut answered = changed.to_vec();
+    answered.push("i1_words");
+    history
+        .says
+        .insert("I1".to_string(), vec![Say::with(&answered, &UNCHANGED)]);
+}
+
+/// The implementation answers one review alone, so that the review's own dialogue runs it with its session lacking what
+/// the cells before it wrote since; and the outside writes the head while its round is under way.
+fn one_review_answered(reached: &mut Reached, passed: History) -> Result<(), String> {
+    for (cell, dialogue) in [("T1", "review"), ("T2", "test_review"), ("T3", "design_review")] {
+        let mut history = passed.clone();
+        after_a_pass(&mut history, &[dialogue]);
+        history.until(reached, cell)?;
+        history.put("head");
+        history.carry_next(reached, cell)?;
+    }
+    Ok(())
+}
+
+/// The implementation answers all three at once: the first fills the session with what the others then stand with as the
+/// latest.
+fn all_three_answered(reached: &mut Reached, mut history: History) -> Result<(), String> {
+    after_a_pass(&mut history, &["review", "test_review", "design_review"]);
+    for cell in ["T1", "T2", "T3"] {
+        history.carry_next(reached, cell)?;
+    }
+    Ok(())
+}
+
+/// The owner rules on the plan before it is written, and the implementation hands in the code and nothing else: the
+/// reviews are run with the plan and the rest of the change unwritten.
+fn no_plan_written(reached: &mut Reached, _: History) -> Result<(), String> {
+    let mut history = History::directed(1);
+    history.force.insert("deep_needed".to_string(), "no".to_string());
+    history.says.insert("I1".to_string(), vec![Say::all(&["code"])]);
+    for block in ["plan_ok", "tree_ok"] {
+        history.put_value(block, "yes");
+    }
+    history.say_to("I1");
+    for cell in ["T1", "T2", "T3"] {
+        history.carry_next(reached, cell)?;
+    }
+    Ok(())
+}
+
+/// The line of the reviews begins a new session after the tester wrote the tests, and the implementation answers one review.
+fn reopened_after_the_tests(reached: &mut Reached, mut history: History) -> Result<(), String> {
+    history.reopen("code_reviewer", reached);
+    after_a_pass(&mut history, &["design_review"]);
+    history.carry_next(reached, "T3")
+}
+
+/// The tests: the tester writes them as changing nothing in meaning and raises a point; the implementation answers it, which
+/// the tester's own dialogue runs it with; then each of the reviews is run by the implementation's answer to its own
+/// dialogue alone, with the session lacking the tests the tester wrote since. The test review's choice of whether the change
+/// needs the tester goes to no and back to yes, so that the tester is run by a choice whose versions between its last
+/// and its latest it was never told.
+fn the_tests_written_between(reached: &mut Reached, mut history: History) -> Result<(), String> {
+    // The reviews are run again, and the tester is not run: the change needs no tester.
+    history.force.insert("needs_testing".to_string(), "no".to_string());
+    history.put("head");
+    for cell in ["T1", "T2", "T3"] {
+        history.carry_next(reached, cell)?;
+    }
+    // And again, with the tester needed: it is run by a version of the choice that follows one it was never told.
+    history.force.insert("needs_testing".to_string(), "yes".to_string());
+    history
+        .says
+        .insert("T4".to_string(), vec![Say::with(&["testing"], &["tests"])]);
+    history.put("head");
+    for cell in ["T1", "T2", "T3", "T4"] {
+        history.carry_next(reached, cell)?;
+    }
+    // Each review in turn is run by the implementation's answer alone after the tester wrote tests the review's session
+    // lacks: the implementation answers the tester's point and the review, the review is run, and the tester is run again.
+    for (cell, dialogue) in [("T1", "review"), ("T2", "test_review"), ("T3", "design_review")] {
+        history.say_to("I1");
+        history.says.insert(
+            "I1".to_string(),
+            vec![Say::with(
+                &["acceptance", "testing", "i1_words"],
+                &["code", "title", "decisions", "evidence"],
+            )],
+        );
+        history
+            .says
+            .insert("T4".to_string(), vec![Say::with(&["testing"], &["tests"])]);
+        history.carry_next(reached, "T4")?;
+        history.says.insert(
+            "I1".to_string(),
+            vec![Say::with(
+                &["testing", dialogue],
+                &["code", "title", "decisions", "evidence", "acceptance"],
+            )],
+        );
+        history.carry_next(reached, cell)?;
+    }
+    Ok(())
+}
+
 /// The directed tests of the engineer's flow, each a history that is brought to a round by what its cells hand in and what
 /// the owner and the outside write between two rounds of one line's session, which the random steps reach only by chance.
-/// Each begins from the work as it stands once the first review of the change has come and every cell after it has run.
+/// Each begins from the work as it stands once the plan is written, the change is made, every review has been run, the
+/// tester has raised a point and the implementation has answered it, and no other point has been raised.
 fn directed_tests(reached: &mut Reached) {
-    // The plan is written and asked about, the change is made and asked about, and the work goes through the code reviewer's
-    // line and the tester's, with no points raised.
     let mut passed = History::directed(0);
     passed.force.insert("deep_needed".to_string(), "no".to_string());
     passed.says.insert(
@@ -1992,44 +2126,26 @@ fn directed_tests(reached: &mut Reached) {
     );
     passed.says.insert(
         "I1".to_string(),
-        vec![Say::all(&["code", "title", "decisions", "evidence"]).asking()],
+        vec![
+            Say::all(&["code", "title", "decisions", "evidence"]).asking(),
+            Say::all(&["testing"]),
+        ],
     );
+    passed
+        .says
+        .insert("T4".to_string(), vec![Say::with(&["testing"], &["tests"])]);
     passed.drain(reached);
-    // What happens before the next review: the outside and the owner write, the owner speaks to the cells that wrote the
-    // plan and the change and answers what they asked, and the plan is written anew, which the implementation then answers
-    // in `dialogue` alone, with what it changed meaning nothing, so that the review is run by its own dialogue and no
-    // cell of its line before it is run.
-    let unchanged = ["code", "title", "decisions", "evidence", "acceptance"];
-    let after = |mut history: History, dialogues: &[&'static str]| {
-        for block in ["background", "tree", "head", "test_times"] {
-            history.put(block);
+    let scripts: [(&str, Directed); 5] = [
+        ("one review answered", one_review_answered),
+        ("all three answered", all_three_answered),
+        ("no plan written", no_plan_written),
+        ("reopened after the tests", reopened_after_the_tests),
+        ("the tests written between", the_tests_written_between),
+    ];
+    for (name, script) in scripts {
+        if let Err(why) = script(reached, passed.clone()) {
+            reached.stale.push(format!("{name}: {why}"));
         }
-        history.say_to("R1");
-        history.say_to("I1");
-        history.answers_all();
-        // Each answers the owner's words, which a return that deals with them must.
-        history
-            .says
-            .entry("R1".to_string())
-            .or_default()
-            .push(Say::all(&["plan_owner", "plan_agent", "r1_words"]));
-        let mut answered = dialogues.to_vec();
-        answered.push("i1_words");
-        history
-            .says
-            .entry("I1".to_string())
-            .or_default()
-            .push(Say::with(&answered, &unchanged));
-        history
-    };
-    for (cell, dialogue) in [("T1", "review"), ("T2", "test_review"), ("T3", "design_review")] {
-        let mut history = after(passed.clone(), &[dialogue]);
-        history.carry_next(reached, cell);
-    }
-    // All three, in a pass: the first fills the session with what the others then stand with as the latest.
-    let mut history = after(passed.clone(), &["review", "test_review", "design_review"]);
-    for cell in ["T1", "T2", "T3"] {
-        history.carry_next(reached, cell);
     }
 }
 
@@ -2257,14 +2373,15 @@ fn every_state_written_for(cells: &[&str], seed: u64) {
         .filter(|line| of_these(line) && line.contains(" holds") && line.ends_with("and ran it"))
         .collect();
     assert!(
-        open.is_empty() && gaps.is_empty(),
+        open.is_empty() && gaps.is_empty() && reached.stale.is_empty(),
         "{} states of a datum that rounds stood in, and the tool does not write:\n{}\n\n{} of the {} states the tool writes \
-         for {cells:?} were stood in by no round:\n{}\n\nthe search: {}\n\nheld states the rounds stood in, and what ran the cell then:\n{}",
+         for {cells:?} were stood in by no round:\n{}\n\ndirected tests that did not bring the work where they say:\n{}\n\nthe search: {}\n\nheld states the rounds stood in, and what ran the cell then:\n{}",
         gaps.len(),
         gaps.join("\n"),
         open.len(),
         wanted.len(),
         by_cell(&open),
+        reached.stale.join("\n"),
         log.join("\n"),
         (held.iter())
             .map(|line| {
