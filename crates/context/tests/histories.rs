@@ -780,10 +780,17 @@ impl History {
                 },
             }
         }
+        // What the last return sent back was sent back for, where a run goes on sending its returns back.
+        let sent_back = (self.sim.work.given.values().rev())
+            .find_map(|given| match given {
+                Given::SentBack(unmet) => Some(format!("{unmet:?}")),
+                _ => None,
+            })
+            .unwrap_or_default();
         Err(format!(
-            "no round of {cell} came: the work stands at {:.300}; the last rounds carried: {:?}",
+            "no round of {cell} came: the work stands at {:.300}; the last return sent back was sent back for {sent_back:.400}; the last rounds carried: {:?}",
             format!("{:?}", decide(&self.sim.flow.flow, &self.sim.work.records)),
-            self.trace.iter().rev().take(12).collect::<Vec<_>>()
+            self.trace.iter().rev().take(4).collect::<Vec<_>>()
         ))
     }
 
@@ -2047,7 +2054,9 @@ fn all_three_answered(reached: &mut Reached, mut history: History) -> Result<(),
 fn no_plan_written(reached: &mut Reached, _: History) -> Result<(), String> {
     let mut history = History::directed(1);
     history.force.insert("deep_needed".to_string(), "no".to_string());
-    history.says.insert("I1".to_string(), vec![Say::all(&["code"])]);
+    history
+        .says
+        .insert("I1".to_string(), vec![Say::all(&["code", "i1_words"])]);
     for block in ["plan_ok", "tree_ok"] {
         history.put_value(block, "yes");
     }
