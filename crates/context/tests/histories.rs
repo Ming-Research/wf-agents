@@ -2007,16 +2007,19 @@ fn directed_tests(reached: &mut Reached) {
         history.say_to("R1");
         history.say_to("I1");
         history.answers_all();
+        // Each answers the owner's words, which a return that deals with them must.
         history
             .says
             .entry("R1".to_string())
             .or_default()
-            .push(Say::all(&["plan_owner", "plan_agent"]));
+            .push(Say::all(&["plan_owner", "plan_agent", "r1_words"]));
+        let mut answered = dialogues.to_vec();
+        answered.push("i1_words");
         history
             .says
             .entry("I1".to_string())
             .or_default()
-            .push(Say::with(dialogues, &unchanged));
+            .push(Say::with(&answered, &unchanged));
         history
     };
     for (cell, dialogue) in [("T1", "review"), ("T2", "test_review"), ("T3", "design_review")] {
