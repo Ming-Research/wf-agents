@@ -272,6 +272,7 @@ fn a_work_changed_at_or_lacking_an_entry_of_its_moves_its_time_or_its_forks_is_r
     d.work.kept_time.push(KeptTime {
         at,
         stretches: vec![stretch],
+        turn: None,
     });
     store.save(number, &d.work).expect("the work is saved");
     let kept = d.work;

@@ -96,8 +96,8 @@ describe('the stream of changes', () => {
     streams[0].send(JSON.stringify({ works: [3] }));
     streams[0].send(JSON.stringify({}));
     expect(heard).toEqual([
-      { works: [3], items: true, copies: true, accounts: true },
-      { works: [], items: true, copies: true, accounts: true },
+      { works: [3], items: true, copies: true, accounts: true, observations: true },
+      { works: [], items: true, copies: true, accounts: true, observations: true },
     ]);
   });
 
