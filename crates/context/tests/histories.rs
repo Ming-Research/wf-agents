@@ -1750,14 +1750,16 @@ fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() 
 fn what_the_search_did(found: &witness::Found, spent: &[(&str, std::time::Duration)]) -> String {
     format!(
         "the search carried out {} rounds, kept {} states and found {} lines, and ended because {}; entries met: {:?}; \
-         rounds of each cell: {:?}; lines found by rounds: {:?}; histories dropped, by why: {:?}; {} reached a state \
-         already kept; its time went to: {:?}",
+         rounds of each cell: {:?}; states kept, chosen to go on from and held at the end, by the cell they are pending \
+         at: {:?}; lines found by rounds: {:?}; histories dropped, by why: {:?}; {} reached a state already kept; its \
+         time went to: {:?}",
         found.rounds,
         found.kept,
         found.lines.len(),
         found.ended,
         found.entries,
         found.cells,
+        found.pending,
         found.curve,
         found.dropped,
         found.repeated,

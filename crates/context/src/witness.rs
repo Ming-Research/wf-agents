@@ -236,6 +236,9 @@ pub struct Found {
     /// many it made that reached a state already kept.
     pub dropped: BTreeMap<String, usize>,
     pub repeated: usize,
+    /// For each cell a state was kept pending at: how many states it kept there, how many times it chose one to go on from,
+    /// and how many of the kept states it ended with.
+    pub pending: BTreeMap<String, (usize, usize, usize)>,
     /// How many lines it had found after each thousand rounds, by the rounds it had carried out.
     pub curve: Vec<(usize, usize)>,
     /// Why it ended: the rounds were spent, no new line came for the stated rounds, or there was nothing left to try.
@@ -1024,6 +1027,9 @@ struct Search<'a> {
     /// How many states it kept in all, and how many times it chose one to go on from.
     born: usize,
     picks: usize,
+    /// What `Found::pending` says, as the search goes: states kept and states chosen, by the cell they are pending at.
+    kept_at: BTreeMap<String, usize>,
+    chosen_at: BTreeMap<String, usize>,
 }
 
 impl Search<'_> {
@@ -1102,6 +1108,7 @@ impl Search<'_> {
             return;
         }
         self.born += 1;
+        *self.kept_at.entry(key.0.clone()).or_default() += 1;
         let kept = Kept {
             node: timed("clone", || node.clone()),
             key,
@@ -1184,6 +1191,7 @@ impl Search<'_> {
     fn go_on(&mut self, at: usize) {
         let turn = self.archive[at].turns;
         let born = self.archive[at].born;
+        *self.chosen_at.entry(self.archive[at].key.0.clone()).or_default() += 1;
         self.archive[at].turns += 1;
         let node = self.archive[at].node.clone();
         let mut rng = Rng::new(SEED ^ key_number(&self.archive[at].key) ^ turn as u64);
@@ -1321,6 +1329,8 @@ pub fn search(
         tried: 0,
         born: 0,
         picks: 0,
+        kept_at: BTreeMap::new(),
+        chosen_at: BTreeMap::new(),
     };
     search.found.faults = faults;
     for root in &roots {
@@ -1332,6 +1342,17 @@ pub fn search(
         };
         search.go_on(at);
     }
+    let mut pending: BTreeMap<String, (usize, usize, usize)> = BTreeMap::new();
+    for (cell, kept) in &search.kept_at {
+        pending.entry(cell.clone()).or_default().0 = *kept;
+    }
+    for (cell, chosen) in &search.chosen_at {
+        pending.entry(cell.clone()).or_default().1 = *chosen;
+    }
+    for kept in &search.archive {
+        pending.entry(kept.key.0.clone()).or_default().2 += 1;
+    }
+    search.found.pending = pending;
     search.found.ended = search.ended().unwrap_or("nothing was left to try");
     search.found
 }
