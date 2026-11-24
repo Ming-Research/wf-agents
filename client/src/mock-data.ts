@@ -15,6 +15,15 @@ function fixturesAsked(search: string): boolean {
   return env?.VITE_FIXTURES === '1' && !asked.has('live');
 }
 
+/// How many projects the fixtures name where the address asks for a number of them, as `?fixtures&projects=12`; none
+/// where it asks for none, or for no whole number above nought, and the fixtures name the projects they name alone.
+export function projectsAsked(search: string): number | null {
+  const asked = new URLSearchParams(search).get('projects');
+  if (asked === null || !/^\d+$/.test(asked)) return null;
+  const n = Number(asked);
+  return n > 0 ? n : null;
+}
+
 // Whether the page fills what the engine does not give yet with made-up content (`console/mock.ts`, `engine-mock.ts`),
 // so that the whole designed page can be looked at; as the fixtures, on the dev server and in the tests only: when the
 // dev server was started with `VITE_MOCKS=1`, or the address has `?mocks`. Off, the page shows only what the engine

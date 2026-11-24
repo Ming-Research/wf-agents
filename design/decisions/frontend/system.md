@@ -41,3 +41,7 @@ The Produced part gives a merge's cost on average as what the whole span spent f
 - replaced: A merge's cost on average as the merged works' own cost alone was on main; the owner changed it, because it left out what was wasted, so the owner could not see what a merge really cost.
 - rejected: an agent proposed keeping the cell and adding a cell Spent per merge; the owner rejected it, because two numbers in two cells read as one number that contradicts itself.
 - rejected: an agent proposed a column Span share in the list of merged works and no average; the owner rejected it, because the overall average could not be seen, and the list has to be unfolded first.
+
+### decision the-spending-is-split-by-project
+The System view's Spent part has a table By project before those by cell and by model, its rounds under way a Project column, and the totals at its top count every project.
+- replaced: Spending split by cell, by model and by work alone, and rounds under way that named no project, was on main; the owner changed it, because the installation names several projects and each item belongs to one.
