@@ -903,6 +903,7 @@ mod tests {
             effort,
             levels_above,
             takes_main: false,
+            takes_turn: false,
             watches: Vec::new(),
         }
     }

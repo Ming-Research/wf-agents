@@ -374,6 +374,7 @@ export function CellPanel(props: {
               ),
           )}
           {cell.takesMain && <StatusLine word={<Attr name="takes_main" value="true" />} />}
+          {cell.takesTurn && <StatusLine word={<Attr name="takes_turn" value="true" />} />}
           <OwnLimits cell={cell} flow={flow} />
         </>
       }

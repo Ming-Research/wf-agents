@@ -39,10 +39,6 @@ impl Rounds for Reached {
         self.note("release", &release.item);
     }
 
-    fn paused(&self, work: WorkNumber, paused: bool) {
-        self.0.lock().unwrap().push(format!("paused W{} {paused}", work.0));
-    }
-
     fn seen(&self, asked: OfWork) -> Pin<Box<dyn Future<Output = Result<Seen, String>> + Send + '_>> {
         self.note("seen", &asked.item);
         Box::pin(async { Ok(Seen::default()) })
@@ -288,29 +284,6 @@ fn the_words_beside_the_flows_say_a_call_of_no_project_named() {
     let said = &beside.installation.no_project;
     assert!(said.unnamed.contains("{project}"), "{}", said.unnamed);
     assert!(!said.none.contains('{'), "{}", said.none);
-}
-
-// A work paused or let on is told to the carriers of every project, which hold no item to tell the work's project by.
-// Well under a millisecond alone; no other test holds a pause to the carriers.
-#[test]
-fn a_pause_of_a_work_is_told_to_the_carriers_of_every_project() {
-    let (one, two) = (Arc::new(Reached::default()), Arc::new(Reached::default()));
-    let rounds = |reached: &Arc<Reached>| -> Arc<dyn Rounds> { reached.clone() };
-    let all: ByProject<dyn Rounds> = ByProject {
-        of: [
-            ("one".to_string(), Ok(rounds(&one))),
-            ("two".to_string(), Ok(rounds(&two))),
-            ("held".to_string(), Err(HELD.to_string())),
-        ]
-        .into(),
-        said: said(),
-        withdrawn: WITHDRAWN.to_string(),
-    };
-    all.paused(WORK, true);
-    all.paused(WORK, false);
-    for reached in [one, two] {
-        assert_eq!(*reached.0.lock().unwrap(), ["paused W4 true", "paused W4 false"]);
-    }
 }
 
 /// The work of this item as the driver gives it to be looked at.

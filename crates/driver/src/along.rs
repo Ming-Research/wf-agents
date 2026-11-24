@@ -1,17 +1,12 @@
-//! Where a round or a call the engine carries out stands as it goes, as what carries it out says: the act of a check
-//! waits for the project's turn, which another work holds; a tool or an act runs as a CI run, at its link. No record
-//! holds it: it is what the outside says at a moment, kept only in memory while the round or the call is under way,
-//! and said again by what carries it out once it is given again after a stop.
+//! Where a round or a call the engine carries out stands as it goes, as what carries it out says: a tool or an act runs
+//! as a CI run, at its link. No record holds it: it is what the outside says at a moment, kept only in memory while the
+//! round or the call is under way, and said again by what carries it out once it is given again after a stop.
 
 use decide::{CallId, Records, RunId};
-use store::WorkNumber;
 
 /// Where a round or a call stands as it goes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Along {
-    /// It waits for the project's turn to check and merge, which this work holds: the works of a project check and
-    /// merge one at a time.
-    Turn { holder: WorkNumber },
     /// It runs as the CI run at this link.
     Runs { at: String },
 }

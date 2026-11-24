@@ -18,8 +18,6 @@ pub(crate) struct Fake {
     verdicts: Mutex<VecDeque<Result<Option<Verdict>, Failed>>>,
     /// Why letting go fails, where it does.
     ending: Mutex<Option<String>>,
-    /// The refusal the merge gives, where it gives one.
-    refusing: Mutex<Option<NotMerged>>,
     asked: Mutex<Vec<Asked>>,
     /// What it says of the tests it is asked to run; its reason for running none where there are none.
     tests: Mutex<Option<String>>,
@@ -61,7 +59,6 @@ impl Fake {
             main: Mutex::new(main.to_string()),
             verdicts: Mutex::new(VecDeque::new()),
             ending: Mutex::new(None),
-            refusing: Mutex::new(None),
             asked: Mutex::new(Vec::new()),
             tests: Mutex::new(None),
             titles: Mutex::new(Vec::new()),
@@ -79,12 +76,6 @@ impl Fake {
     /// Fails to let go, with these words, until it is told otherwise.
     pub(crate) fn ending(&self, refused: Option<&str>) {
         *lock(&self.ending) = refused.map(str::to_string);
-    }
-
-    /// Refuses to merge, for this reason, instead of merging.
-    pub(crate) fn refuses(self, refusal: NotMerged) -> Fake {
-        *lock(&self.refusing) = Some(refusal);
-        self
     }
 
     /// Gives this verdict when it is next asked for one.
@@ -145,9 +136,6 @@ impl Host for Fake {
     async fn merge(&self, branch: &Branch<'_>, checked: Option<&str>) -> Result<String, NotMerged> {
         self.given(branch);
         lock(&self.asked).push(Asked::Merge(checked.map(str::to_string)));
-        if let Some(refusal) = lock(&self.refusing).clone() {
-            return Err(refusal);
-        }
         Ok(lock(&self.main).clone())
     }
 

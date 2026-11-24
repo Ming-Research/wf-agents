@@ -195,8 +195,9 @@ describe('the tokens', () => {
       'track-ground',
       'track-gap',
     ];
-    // The tools' time follows a meaning: it is drawn in the yellow of a call.
-    const meanings = [...(Object.values(MEANINGS).flat() as string[]), 'track-tool'];
+    // The tools' time follows a meaning: it is drawn in the yellow of a call. The wait for the project's turn to check and
+    // merge is a colour of its own, a teal in the band of hues around the green that the accent keeps clear of.
+    const meanings = [...(Object.values(MEANINGS).flat() as string[]), 'track-tool', 'track-turn'];
     // What tells things of one kind apart and says how nothing stands: the lines of the flow in a chart of them, and the
     // kinds of the words of code. The accent keeps clear of the meanings alone (decision
     // an-accent-keeps-clear-of-the-meanings).

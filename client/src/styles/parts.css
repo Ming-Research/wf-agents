@@ -1032,8 +1032,9 @@ textarea:disabled {
 
 /* Where a work's time went: one block for each stretch of a model or of the tools, and one for each stretch nothing
    ran in, on a muted ground; the console's item window and a work's usage draw it alike. A stretch nothing ran in
-   takes, in the console's, the colour of what the work waited for: the owner's red, a pause's muted grey, and the
-   light grey of nothing running for the items it depends on as for anything else. */
+   takes, in the console's, the colour of what the work waited for: the owner's red, a pause's muted grey, a teal of its
+   own for the project's turn to check and merge, and the light grey of nothing running for the items it depends on as
+   for anything else. */
 .us-track {
   position: relative;
   height: var(--space-8);
@@ -1059,6 +1060,10 @@ textarea:disabled {
 .us-gap,
 .us-items {
   background: var(--track-gap);
+}
+
+.us-turn {
+  background: var(--track-turn);
 }
 
 .us-owner {

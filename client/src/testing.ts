@@ -102,6 +102,7 @@ export function cell(id: string, fields: CellIn = {}): Cell {
     act: null,
     effort: 'high',
     takesMain: false,
+    takesTurn: false,
     tools: [],
     when: [],
     requires: [],

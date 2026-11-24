@@ -1,6 +1,6 @@
 //! The test carriers: agents, engine acts and tools that do what a [`Script`] says, each round and each tool taking
-//! the time the script gives it, and saying as it goes where it stands where the script says so (the turn an act waits
-//! for, the CI run it runs as), so that the pages show works under way.
+//! the time the script gives it, and saying as it goes where it stands where the script says so (the CI run an act
+//! runs as), so that the pages show works under way.
 //!
 //! What they return depends on nothing but the round or the call, so that what was under way when the process stopped
 //! is answered again as it would have been. They answer each round and each call once: a round they hold is ended by
@@ -131,20 +131,11 @@ impl Rounds for Scripted {
         }
         let inner = self.inner.clone();
         tokio::spawn(async move {
-            // Where it stands as it goes: waiting for the turn for the first half of its time, then the CI run.
-            let mut waited = 0;
-            if let Some(holder) = planned.turn {
-                saying.say(Some(Along::Turn {
-                    holder: WorkNumber(holder),
-                }));
-                waited = planned.ms / 2;
-                tokio::time::sleep(Duration::from_millis(waited)).await;
-                saying.say(None);
-            }
+            // Where it stands as it goes: the CI run, where its entry says.
             if let Some(at) = &planned.at {
                 saying.say(Some(Along::Runs { at: at.clone() }));
             }
-            tokio::time::sleep(Duration::from_millis(planned.ms - waited)).await;
+            tokio::time::sleep(Duration::from_millis(planned.ms)).await;
             let reply = inner.held().rounds.get_mut(&key).and_then(Option::take);
             if let Some(reply) = reply {
                 end(reply, planned);

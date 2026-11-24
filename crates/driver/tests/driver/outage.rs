@@ -702,3 +702,60 @@ fn a_check_taken_under_another_account_than_the_one_in_use_is_no_check_of_it() {
     let todos = h.tick_under(at, Some("second"), Found::Well);
     assert_eq!(agents_rounds(&todos), vec![(a, "write".to_string(), 2)]);
 }
+
+/// Each wait the driver gives in which the agents' command line could not run, from when and until when.
+fn cannot_runs(h: &H) -> Vec<(Time, Option<Time>)> {
+    (h.d().cannot_runs(&h.d().at_once()).into_iter())
+        .map(|wait| (wait.from, wait.until))
+        .collect()
+}
+
+// A wait in which the agents' command line could not run is read from the records of the rounds once it is over: as it
+// stands it is drawn from the time the round failed so, and once a round of an agent, of any work, has begun, from that
+// time up to the beginning of that round, the same wait that stood, and none stands.
+#[test]
+fn a_wait_in_which_the_command_line_could_not_run_is_kept_in_the_records_once_it_is_over() {
+    let (mut h, a, _) = two();
+    fails(&mut h, a, Failure::CannotRun, None);
+    let failed = Time(h.clock);
+    assert_eq!(cannot_runs(&h), [(failed, None)], "as it stands");
+    let first = next_check(&h);
+    let todos = h.tick(first, Some(Found::Well));
+    assert_eq!(agents_rounds(&todos), vec![(a, "write".to_string(), 2)]);
+    assert_eq!(h.d().at_once().cannot_run(), None);
+    assert_eq!(
+        cannot_runs(&h),
+        [(failed, Some(first))],
+        "once a round of an agent began"
+    );
+    // The same after a restart: what is over is read from the records alone.
+    h.restart();
+    assert!(
+        cannot_runs(&h).contains(&(failed, Some(first))),
+        "after a restart: {:?}",
+        cannot_runs(&h)
+    );
+}
+
+// The rounds of two works that failed so in the one wait, the second while the wait stood, make one wait; a wait of
+// another cause is no wait in which the command line could not run.
+#[test]
+fn failures_in_one_wait_are_one_wait_and_a_cause_that_is_not_the_command_line_s_is_none() {
+    let (mut h, a, b) = two();
+    fails(&mut h, a, Failure::CannotRun, None);
+    let failed = Time(h.clock);
+    fails(&mut h, b, Failure::CannotRun, None);
+    let first = next_check(&h);
+    h.tick(first, Some(down(Failure::CannotRun)));
+    let well = next_check(&h);
+    h.tick(well, Some(Found::Well));
+    let begun = cannot_runs(&h);
+    assert_eq!(begun.len(), 1, "{begun:?}");
+    assert_eq!(begun[0].0, failed);
+    assert_eq!(begun[0].1, Some(well));
+    let (mut h, a, _) = two();
+    fails(&mut h, a, Failure::Offline, None);
+    let first = next_check(&h);
+    h.tick(first, Some(Found::Well));
+    assert_eq!(cannot_runs(&h), []);
+}
