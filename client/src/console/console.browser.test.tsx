@@ -48,6 +48,7 @@ import {
   themed,
   UNFOLD_MS,
 } from './snap';
+import { TRACK_KINDS, TRACK_WORDS } from './track';
 
 const WIDTH = 1000;
 const HEIGHT = 640;
@@ -1306,6 +1307,14 @@ describe('the console page', () => {
     const marks = listed("The console's marks");
     expect(marks).toHaveLength(CONSOLE_MARKS.length);
     CONSOLE_MARKS.forEach((key, k) => expect(marks[k]?.endsWith(` ${MARKS[key].name}`)).toBe(true));
+    // Every colour of the time track is there as a swatch of its own, saying what it is on pointing at it, the wait for
+    // the project's turn to check and merge among them, in a colour no other kind of stretch has.
+    const swatch = (kind: string) =>
+      container.querySelector(`.console-help-panel ul[aria-label="The console's marks"] .legend-track .us-${kind}`);
+    TRACK_KINDS.forEach((kind) => expect(swatch(kind)?.getAttribute('title')).toBe(TRACK_WORDS[kind]));
+    expect(swatch('turn')?.getAttribute('title')).toBe('Waiting for its turn to check and merge');
+    const colour = (kind: string) => getComputedStyle(swatch(kind) as Element).backgroundColor;
+    for (const other of TRACK_KINDS.filter((kind) => kind !== 'turn')) expect(colour('turn')).not.toBe(colour(other));
     // Once the pointer leaves, it takes the pointer no more at once, and is hidden once it has faded.
     await userEvent.unhover(mark);
     await expect.poll(() => panel().classList.contains('shown')).toBe(false);

@@ -59,14 +59,6 @@ pub trait Rounds: Send + Sync {
         let _ = (round, told);
     }
 
-    /// Says whether a pause holds the work back now, its own or the owner's pause of everything: of every work as the
-    /// loop opens, before any round is given, and again whenever it may have changed, the same said again changing
-    /// nothing. What a carrier holds a round back for itself, as the acts the check for the project's turn to check
-    /// and merge, a pause holds back too, as the walk holds back what would begin a round; by default nothing is held.
-    fn paused(&self, work: WorkNumber, paused: bool) {
-        let _ = (work, paused);
-    }
-
     /// What the round of this number of the run was told and what came back of it, each try in order, as far as
     /// this carrier keeps them; no try where it keeps nothing, as by default. Unlike the others, this is called off
     /// the loop, on a thread that may wait on the disk; an error says why what was kept could not be read.
@@ -1065,7 +1057,7 @@ impl Hosting {
 }
 
 impl Saying {
-    /// Where it stands now; none where it no longer stands anywhere it says, as once a turn it waited for is taken.
+    /// Where it stands now; none where it no longer stands anywhere it says, as once the CI run it ran as has ended.
     pub fn say(&self, along: Option<Along>) {
         // Where the loop has ended, the process is stopping: what is given again says it again.
         let _ = self.to.send(Message::Along {

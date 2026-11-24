@@ -293,15 +293,15 @@ mod tests {
         let saying = reply.saying();
         let held: Held<u8, service::CallReply> = Held::new();
         let mut stop = held.hold(1, reply).expect("held").saying(saying);
-        let turn = Along::Turn {
-            holder: store::WorkNumber(3),
-        };
-        let runs = Along::Runs {
+        let first = Along::Runs {
             at: "https://github.example/actions/runs/1".to_string(),
         };
+        let runs = Along::Runs {
+            at: "https://github.example/actions/runs/2".to_string(),
+        };
         for along in [
-            Some(turn.clone()),
-            Some(turn.clone()),
+            Some(first.clone()),
+            Some(first.clone()),
             None,
             Some(runs.clone()),
             Some(runs.clone()),
@@ -314,11 +314,9 @@ mod tests {
                 said.push(along);
             }
         }
-        assert_eq!(said, [Some(turn), None, Some(runs)]);
+        assert_eq!(said, [Some(first.clone()), None, Some(runs)]);
         // Where nobody listens, nothing is said.
-        Stop::never().say(Some(Along::Turn {
-            holder: store::WorkNumber(3),
-        }));
+        Stop::never().say(Some(first));
     }
 
     #[test]

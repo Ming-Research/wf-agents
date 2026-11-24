@@ -131,7 +131,7 @@ describe('what a work does now, in words', () => {
       'Waiting for the engine · plan · a free slot, which the engine gives in its order',
     );
     expect(nowWords(doing({ kind: 'waits', at: 'M2', on: [{ kind: 'turn', holder: 12, since }] }))).toBe(
-      "Waiting for W12 · M2 · the project's turn to check and merge, which W12 holds",
+      "Waiting for W12 · M2 · the project's turn to check and merge, which W12 has",
     );
     expect(nowWords(doing({ kind: 'next', cell: 'plan' }))).toBe('Running · plan');
   });

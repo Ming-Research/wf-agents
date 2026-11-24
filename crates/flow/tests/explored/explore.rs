@@ -1344,7 +1344,7 @@ impl Explorer<'_> {
                         .iter()
                         .any(|maker| matches!(maker, Maker::Owner | Maker::Outside { .. })),
                     Waited::Outside { .. } => true,
-                    Waited::Slot => false,
+                    Waited::Slot | Waited::Turn => false,
                 });
                 (
                     format!("the work waits at {at} for {}", shown.join(" and ")),
@@ -1444,6 +1444,7 @@ fn show_waited(w: &Waited) -> String {
         Waited::Answer { question } => format!("the owner's answer to {question}"),
         Waited::Outside { source, block, .. } => format!("the outside ({source}), of which {block} waits"),
         Waited::Slot => "a slot".to_string(),
+        Waited::Turn => "its turn to check and merge".to_string(),
     }
 }
 

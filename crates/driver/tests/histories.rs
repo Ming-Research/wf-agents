@@ -126,6 +126,10 @@ struct Seen {
     let_on_as_added: usize,
     waited_for_a_slot: usize,
     held_by_everything: usize,
+    /// Steps after which a work waited for the turn of its project to check and merge, and steps after which a work held
+    /// it.
+    waited_for_the_turn: usize,
+    held_the_turn: usize,
     /// Works found waiting at rest, and works found ended.
     rested_waiting: usize,
     rested_ended: usize,
@@ -211,7 +215,67 @@ struct Ending {
 fn every_flow() -> Vec<flow::Compiled> {
     let mut flows = flows();
     flows.push(deliver());
+    flows.push(turning());
     flows
+}
+
+/// A writer that takes no turn, a check that takes the turn of the project to check and merge, and the merge, the
+/// engine's own cell, which takes it too and so keeps it from the check on: the works of one project on it take turns,
+/// whatever each round hands in.
+fn turning() -> flow::Compiled {
+    let flow = r#"
+        name = "turning"
+        order = ["write", "check", "merge"]
+        [limits]
+        runs = 3
+        returns = 2
+        calls = 3
+        [lines.main]
+        [blocks.request]
+        people = true
+        [blocks.text]
+        [blocks.verdict]
+        [blocks.merged]
+        shown = true
+        [blocks.start]
+        outside = "start"
+        writes = { text = "The owner started the work." }
+    "#;
+    let write = r#"
+        title = "Write"
+        kind = "agent"
+        effort = "high"
+        line = "main"
+        task = "Write the text the request asks for."
+        watches = ["start", "request"]
+        outputs = ["text"]
+
+        [kinds]
+        start = "last_and_latest"
+        request = "last_and_latest"
+    "#;
+    let check = r#"
+        title = "Check"
+        kind = "agent"
+        effort = "high"
+        line = "main"
+        task = "Check the text."
+        takes_turn = true
+        watches = ["text"]
+        outputs = ["verdict"]
+
+        [kinds]
+        text = "last_and_latest"
+    "#;
+    let merge = r#"
+        title = "Merge"
+        kind = "engine"
+        act = "merge"
+        takes_turn = true
+        watches = ["verdict"]
+        outputs = ["merged"]
+    "#;
+    support::compiled(flow, &[("write", write), ("check", check), ("merge", merge)])
 }
 
 impl History {
@@ -303,7 +367,7 @@ impl History {
     fn add(&mut self, title: &str) {
         let numbers: Vec<ItemNumber> = self.h.d().works().map(|k| k.head.item).collect();
         let depends_on: Vec<ItemNumber> = numbers.into_iter().filter(|_| self.rng.chance(35)).collect();
-        let flow = ["judged", "short", "plain"][self.rng.below(3)];
+        let flow = ["judged", "short", "plain", "turning"][self.rng.below(4)];
         let flow = if self.delivers.chance(20) { "deliver" } else { flow };
         let has_request = (self.h.d().flows()).any(|f| f.name == flow && f.blocks.contains_key(&block("request")));
         let writes: Vec<FirstWrite> = if self.rng.chance(50) && has_request {
@@ -494,6 +558,16 @@ impl History {
                 }
             }
         }
+        // The works of a project take turns to check and merge: of the works that have not ended, one holds the turn at
+        // most, whatever stopped or failed before, the turn being worked out from the records alone.
+        let holders: Vec<u64> = (d.works())
+            .filter(|kept| decide::holds_turn(&kept.flow.flow, &kept.work.records))
+            .map(|kept| kept.head.number.0)
+            .collect();
+        assert!(
+            holders.len() <= 1,
+            "works {holders:?} hold the turn of their project at once"
+        );
         for kept in d.works() {
             let number = kept.head.number;
             if matches!(self.h.decision(number), Decision::Ended(_)) {
@@ -503,6 +577,12 @@ impl History {
                 Some(decide::Holder::Slot) => self.seen.waited_for_a_slot += 1,
                 Some(decide::Holder::Everything) => self.seen.held_by_everything += 1,
                 _ => {}
+            }
+            if matches!(self.h.decision(number), Decision::Wait { on, .. } if on == [Waited::Turn]) {
+                self.seen.waited_for_the_turn += 1;
+            }
+            if decide::holds_turn(&kept.flow.flow, &kept.work.records) {
+                self.seen.held_the_turn += 1;
             }
             if !self.h.let_on.contains(&number) {
                 self.seen.never_let_on += 1;
@@ -864,6 +944,11 @@ fn one_history(seed: u64, faults: bool, warming: bool, log: &mut Vec<String>) ->
                 Decision::Ended(_) => x.seen.rested_ended += 1,
                 Decision::Wait { on, .. } => {
                     assert!(!on.is_empty(), "work {} waits for nothing", number.0);
+                    assert!(
+                        !on.contains(&Waited::Turn),
+                        "work {} waits at rest for a turn no work holds or has: {on:?}",
+                        number.0
+                    );
                     for waited in &on {
                         if let Waited::Call { on: None, .. } = waited {
                             panic!("work {} waits at rest for the engine: {on:?}", number.0);
@@ -931,6 +1016,8 @@ fn many_works_keep_the_drivers_properties_with_and_without_stops_and_failures() 
                 seen.let_on_as_added += s.let_on_as_added;
                 seen.waited_for_a_slot += s.waited_for_a_slot;
                 seen.held_by_everything += s.held_by_everything;
+                seen.waited_for_the_turn += s.waited_for_the_turn;
+                seen.held_the_turn += s.held_the_turn;
                 seen.rested_waiting += s.rested_waiting;
                 seen.rested_ended += s.rested_ended;
                 seen.given_again += s.given_again;
@@ -981,6 +1068,11 @@ fn many_works_keep_the_drivers_properties_with_and_without_stops_and_failures() 
         ("items let on as they were added", seen.let_on_as_added),
         ("works waiting for a slot", seen.waited_for_a_slot),
         ("works held back by the pause of everything", seen.held_by_everything),
+        (
+            "works waiting for the turn to check and merge",
+            seen.waited_for_the_turn,
+        ),
+        ("works holding the turn to check and merge", seen.held_the_turn),
         ("works waiting at rest", seen.rested_waiting),
         ("works ended at rest", seen.rested_ended),
         ("items changed", seen.changed),
