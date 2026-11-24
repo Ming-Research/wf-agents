@@ -5,7 +5,7 @@
 // the item it points to, brought to the middle; the tree drawn again stands where it stood, the item selected kept; an
 // item revealed comes into the room the panel leaves, or to the middle when it is above or below what is seen; the
 // columns beside the one scrolled follow it, each where what joins it to the next near the middle of the screen is
-// level, only the way the one it follows moves and never faster than half again; the view stands through a change of height or theme; and
+// level, keeping what joins them on the screen and moving only the way the one it follows moves; the view stands through a change of height or theme; and
 // once destroyed, the scene listens to nothing. The pointer and the wheel are events sent to the canvas at the points
 // the test works out from where the columns stand (`place`), so that each lands where the test means; the keys are the
 // browser's own. They pin as well: a click on an item's funnel folds what is under it
@@ -40,7 +40,6 @@ import {
   FOLD_MS,
   KEEP,
   NODE_W,
-  PACE,
   PITCH,
   ROW,
   RUN,
@@ -794,27 +793,33 @@ describe('the tree in columns', () => {
     expect(p.columns[1].at).toBeLessThanOrEqual(slot1(9) + 1 + 1e-9);
   });
 
-  it('leaves the column beside the one scrolled where it is while every want is met, and an item far out wants little', async () => {
-    // One item with ten under it: it wants the column beside it anywhere along the ten, and the further it is from the
-    // middle, the more room it gives.
-    scene.show([card(1, Array.from({ length: 10 }, (_, k) => card(100 + k)))]);
+  it('keeps on the screen what joins the column beside to the items the screen shows, or fills the screen with it', () => {
+    // Twelve items, the first eight with three under each and the last four with none: past the eighth, every item with
+    // items under it stands above the middle, and the blocks under them, three times as tall, ran off the top while the
+    // bottom of the screen stood empty.
+    const under = (k: number) => [0, 1, 2].map((j) => 100 + 3 * k + j);
+    scene.show(Array.from({ length: 12 }, (_, k) => card(k + 1, k < 8 ? under(k).map((id) => card(id)) : [])));
     settle(scene);
-    const before = scene.place();
-    expect(before.columns[0].at).toBe(0.5);
-    expect(before.columns[1].at).toBe(5);
     move(50, line);
-    wheel(0, 0.2 * ROW);
-    settle(scene);
-    expect(scene.place().columns[0].at).toBeCloseTo(0.7, 6);
-    expect(scene.place().columns[1].at).toBe(5);
-    // Six rows off the middle, the item's want is loosened by six rows and more: still met.
-    wheel(0, 5.8 * ROW);
-    settle(scene);
-    expect(scene.place().columns[0].at).toBeCloseTo(6.5, 6);
-    expect(scene.place().columns[1].at).toBe(5);
+    const y = (id: number) => (scene.cardAt(id) as { y: number }).y;
+    for (let step = 0; step < 24; step += 1) {
+      wheel(0, 0.5 * ROW);
+      settle(scene);
+      const shown = Array.from({ length: 8 }, (_, k) => k).filter((k) => y(k + 1) >= 0 && y(k + 1) <= HEIGHT);
+      const ys = shown.flatMap((k) => under(k).map(y));
+      if (ys.length === 0) continue;
+      const [top, bottom] = [Math.min(...ys), Math.max(...ys)];
+      if (bottom - top <= HEIGHT - 4 * ROW) {
+        expect(top).toBeGreaterThanOrEqual(ROW);
+        expect(bottom).toBeLessThanOrEqual(HEIGHT - ROW);
+      } else {
+        expect(top).toBeLessThanOrEqual(2.5 * ROW);
+        expect(bottom).toBeGreaterThanOrEqual(HEIGHT - 2.5 * ROW);
+      }
+    }
   });
 
-  it('brings the column beside the one scrolled after it, the same way, never faster than half again its pace, and stops it when the scroll stops', async () => {
+  it('brings the column beside the one scrolled after it, only the way it moves, and stops it when the scroll stops', async () => {
     scene.show(pairs());
     settle(scene);
     const start = scene.place().columns.map((c) => c.at);
@@ -826,15 +831,14 @@ describe('the tree in columns', () => {
       await frame();
       const now = scene.place().columns.map((c) => c.at);
       const moved = [now[0] - was[0], now[1] - was[1]];
-      // Each frame, the second column moves the way the first does, no further than half again as far.
+      // Each frame, the second column moves the way the first does, and not at all while the first stands.
       expect(moved[1]).toBeGreaterThanOrEqual(-1e-9);
-      expect(Math.abs(moved[1])).toBeLessThanOrEqual(PACE * Math.abs(moved[0]) + 1e-9);
+      if (moved[0] === 0) expect(moved[1]).toBe(0);
       still = moved[0] === 0 && moved[1] === 0 ? still + 1 : 0;
       was = now;
     }
     expect(was[0]).toBeCloseTo(7.5, 3);
     expect(was[1] - start[1]).toBeGreaterThan(0.5);
-    expect(was[1] - start[1]).toBeLessThanOrEqual(PACE * 3 + 1e-6);
   });
 
   it('never moves the column beside the one scrolled against it where the items have none to three under them', () => {
@@ -867,10 +871,9 @@ describe('the tree in columns', () => {
     expect(scene.place().driver).toBe(1);
     settle(scene);
     const p = scene.place();
-    // The column scrolled goes where the scroll took it; the first follows it down, no further than half again.
+    // The column scrolled goes where the scroll took it; the first follows it down.
     expect(p.columns[1].at).toBeCloseTo(start[1] + 6, 3);
     expect(p.columns[0].at - start[0]).toBeGreaterThan(0.5);
-    expect(p.columns[0].at - start[0]).toBeLessThanOrEqual(PACE * 6 + 1e-6);
     // A scroll over the first column makes it the one followed again.
     move(50, line);
     wheel(0, ROW);
