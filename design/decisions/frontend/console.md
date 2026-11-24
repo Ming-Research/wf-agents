@@ -12,7 +12,7 @@ PixiJS draws the console's tree in WebGL on a canvas, only what is on the screen
 - rejected: an agent proposed three.js; the owner rejected it, because it needs glyph atlases for thousands of characters and its own picking and layout, and no test can see into it.
 
 ### decision the-tree-stands-in-columns
-Items stand in columns, one for each level from the roots at the left; each scrolls by itself, and each column next to it glides only enough to keep the items joining the two level near the middle, and only the way the column it follows moves.
+Items stand in columns, one for each level from the roots at the left; each scrolls by itself, and the one beside it glides only its way, enough to keep what joins the two level near the middle.
 - rejected: an agent proposed nested strips, a flame graph; the owner rejected it, because its leaves cannot be seen without zooming.
 - rejected: an agent proposed a magnifier over the room each branch gets; the owner rejected it, because a big screen would show little.
 - rejected: an agent proposed rectangles packed to the screen's shape; the owner rejected it, because the boxes carry no information.
