@@ -1583,6 +1583,69 @@ pub struct Commits {
     pub merge: String,
     /// The name of a work's merge, where the work has written none.
     pub unnamed: String,
+    /// The line that names the item, which every commit of a work ends with: `{item_number}` its number alone.
+    pub item_line: String,
+    /// The line that names the work, which every commit of a work ends with: `{work}` its number as it is written.
+    pub work_line: String,
+}
+
+/// The place in `item_line` that the engine fills with the item's number alone: no other text of the engine's writes an
+/// item's number without its `#`, so no place of [`NUMBER_PLACES`] is it.
+const ITEM_NUMBER: &str = "{item_number}";
+
+/// The place in `work_line` that the engine fills with the work's number as it is written.
+const WORK_NUMBER: &str = "{work}";
+
+impl Commits {
+    /// The line that names the item and the line that names the work, given the numbers as the engine writes each: the
+    /// item's alone and the work's as everywhere.
+    pub fn lines(&self, item: &str, work: &str) -> (String, String) {
+        (
+            fill(&self.item_line, &[("item_number", item)]),
+            fill(&self.work_line, &[("work", work)]),
+        )
+    }
+
+    /// The message with the two lines at its end, set apart from it by a blank line: what every commit the engine makes
+    /// ends with, as the hook gives the agents' commits the same.
+    pub fn ending(&self, message: &str, item: &str, work: &str) -> String {
+        let (item_line, work_line) = self.lines(item, work);
+        format!("{}\n\n{item_line}\n{work_line}", message.trim_end())
+    }
+
+    /// Whether the line is the line that names an item or the line that names a work, of any item or any work: a
+    /// commit copied from another work ends with the lines of that one. What stands in the place of the number is the
+    /// number of an item where `item` says so, and of a work where `work` says so: how each is written is not the
+    /// words' to say.
+    pub fn is_one_of_the_lines(&self, line: &str, item: impl Fn(&str) -> bool, work: impl Fn(&str) -> bool) -> bool {
+        let is = |form: &String, place: &str, number: &dyn Fn(&str) -> bool| {
+            let Some((before, after)) = form.split_once(place) else {
+                return false;
+            };
+            (line.strip_prefix(before))
+                .and_then(|rest| rest.strip_suffix(after))
+                .is_some_and(number)
+        };
+        is(&self.item_line, ITEM_NUMBER, &item) || is(&self.work_line, WORK_NUMBER, &work)
+    }
+
+    /// What is wrong with the two lines, as one sentence for each: each must name its number, or every commit would
+    /// end with a line that names nothing, and be one line, or the trailer block would hold a stray line.
+    fn faults(&self) -> Vec<String> {
+        let mut faults = Vec::new();
+        for (key, line, place) in [
+            ("item_line", &self.item_line, ITEM_NUMBER),
+            ("work_line", &self.work_line, WORK_NUMBER),
+        ] {
+            if !line.contains(place) {
+                faults.push(format!("{key} does not name {place}"));
+            }
+            if line.contains('\n') {
+                faults.push(format!("{key} is not one line"));
+            }
+        }
+        faults
+    }
 }
 
 /// What the engine's acts write into the blocks their cells write: `agents/acts/<act>.toml`.
@@ -1977,8 +2040,18 @@ pub fn writes(root: &Path) -> Result<Writes, String> {
     let at = root.join(AGENTS_DIR);
     Ok(Writes {
         acts: acts(root)?,
-        commits: file(&at.join(COMMITS_FILE))?,
+        commits: commits(&at.join(COMMITS_FILE))?,
     })
+}
+
+/// `agents/commits.toml`, read, and refused where a line it gives names no number.
+fn commits(path: &Path) -> Result<Commits, String> {
+    let commits: Commits = file(path)?;
+    let faults = commits.faults();
+    if !faults.is_empty() {
+        return Err(format!("{}: {}", path.display(), faults.join("; ")));
+    }
+    Ok(commits)
 }
 
 /// The acts' words alone, read from the directory that holds the flows, as [`read`] reads them.

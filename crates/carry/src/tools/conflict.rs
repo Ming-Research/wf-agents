@@ -67,6 +67,7 @@ mod tests {
         let place = repo.place(WORK);
         let branch = Branch {
             work: WORK,
+            item: store::ItemNumber(36),
             title: "Greet the user",
             about: "",
             place: &place,

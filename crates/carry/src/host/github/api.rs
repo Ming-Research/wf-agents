@@ -118,13 +118,14 @@ pub trait Api: Send + Sync + 'static {
     ) -> impl Future<Output = Result<Pull, Failed>> + Send;
 
     /// Merges the pull request by the method (`squash`, `merge` or `rebase`), provided its head is the commit, the
-    /// commit the merge makes titled so; gives the commit the merge made.
+    /// commit the merge makes titled so and with this message under its title; gives the commit the merge made.
     fn merge(
         &self,
         number: u64,
         head: &str,
         method: &str,
         title: &str,
+        message: &str,
     ) -> impl Future<Output = Result<String, Failed>> + Send;
 
     /// Deletes the branch of the repository; a branch that is not there is no fault.
