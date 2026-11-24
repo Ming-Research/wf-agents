@@ -165,6 +165,27 @@ fn of_two_works_due_to_check_at_once_the_lower_number_begins_and_the_other_waits
     assert_eq!(h.d().held(b), None);
 }
 
+// What the page says of a work that waits for the turn is what the driver gives it: whose turn it is, which is none for
+// the holder itself, and since when the work has wanted it, which is when its walk came to the check and goes on
+// through the holder's merge. Fails where the time is the holder's, or the turn is named to the work that holds it.
+#[test]
+fn the_driver_says_whose_turn_a_waiting_work_waits_for_and_since_when_it_has_wanted_it() {
+    let (mut h, works, _) = due(3);
+    let (a, b, c) = (works[0], works[1], works[2]);
+    let wanted = Time(h.clock);
+    let at_once = h.d().at_once();
+    assert_eq!(h.d().turn_waited_at(a, &at_once), None);
+    assert_eq!(h.d().turn_waited_at(b, &at_once), Some((a, wanted)));
+    assert_eq!(h.d().turn_waited_at(c, &at_once), Some((a, wanted)));
+    // The turn passes to the next, and the one after waits for it from the same time.
+    finishes(&mut h, a, "verdict");
+    finishes(&mut h, a, "merged");
+    let at_once = h.d().at_once();
+    assert_eq!(h.d().turn_waited_at(a, &at_once), None);
+    assert_eq!(h.d().turn_waited_at(b, &at_once), None);
+    assert_eq!(h.d().turn_waited_at(c, &at_once), Some((b, wanted)));
+}
+
 #[test]
 fn three_works_take_the_turn_one_after_another_in_the_order_of_their_numbers_where_they_began_to_want_it_together() {
     let (mut h, works, todos) = due(3);

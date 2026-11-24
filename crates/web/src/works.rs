@@ -4846,6 +4846,76 @@ pub(crate) mod tests {
         assert_eq!(live, bar(stored.kept(&flow, &on, &ended), &all, now));
     }
 
+    // What the page says of a work that waits for its project's turn to check and merge: that it waits for it, whose it
+    // is and since when the work has wanted it, as the driver gives them, said at a cell the walk waits at and at one
+    // whose run at rest the engine holds. The stop of the engine, which holds every round, is said in its place. Where
+    // the driver names no turn, the page's data is at fault and the work is not shown as waiting for one. Fails where
+    // the page says the wait as another, drops what the driver gave, or says it before the stop.
+    #[test]
+    fn a_work_that_waits_for_the_turn_is_said_to_wait_for_it_with_whose_it_is_and_since_when_and_the_stop_comes_first()
+    {
+        let flow = flow_with("takes_turn = true\n");
+        let mut work = Work::default();
+        work.records.written.push(Written {
+            block: "request".into(),
+            by: Outsider::Person,
+            matters: true,
+            value: None,
+            empty: false,
+            said_to: None,
+            at: Seq(1),
+        });
+        let stored = Stored::new(&flow.name);
+        let on = driver::On::installed_flow(&flow);
+        // Another work of the project holds the turn: the walk of this one waits for it at the writer.
+        let room = decide::Room {
+            turn: false,
+            ..decide::Room::FREE
+        };
+        let waits = decide::decide_in(&flow.flow, &work.records, room);
+        assert_eq!(
+            waits,
+            Decision::Wait {
+                at: "write".into(),
+                on: vec![WaitedOf::Turn]
+            }
+        );
+        let at_rest = Decision::GoOn {
+            cell: "write".into(),
+            run: RunId(1),
+        };
+        let now = |decision: &Decision, held: Option<Holder>, stopping: Option<u64>, turn| {
+            let outages = Outages {
+                agents: None,
+                host: None,
+                everything: None,
+                stopping,
+            };
+            let others = Others {
+                waited_for: Vec::new(),
+                paused_for: Vec::new(),
+                turn,
+            };
+            Now::of(stored.kept(&flow, &on, &work), decision, held, &outages, &[], &others)
+        };
+        let turn = Some((WorkNumber(7), Time(500)));
+        let waits_for_it = Now::Waits {
+            at: "write".to_string(),
+            on: vec![Waited::Turn { holder: 7, since: 500 }],
+        };
+        assert_eq!(now(&waits, None, None, turn), Ok(waits_for_it.clone()));
+        assert_eq!(now(&at_rest, Some(Holder::Turn), None, turn), Ok(waits_for_it));
+        // The stop of the engine holds every round, and is said instead.
+        let stopped = Now::Waits {
+            at: "write".to_string(),
+            on: vec![Waited::Stopping { since: 900 }],
+        };
+        assert_eq!(now(&waits, None, Some(900), turn), Ok(stopped.clone()));
+        assert_eq!(now(&at_rest, Some(Holder::Turn), Some(900), turn), Ok(stopped));
+        // A work the driver gives no turn that is another's waits for none.
+        assert!(matches!(now(&waits, None, None, None), Err(Broken(_))));
+    }
+
     // A new session begun because what a new one would begin with changed is given to the page with the tokens of
     // context of the session it left, and as null where none was told, never as nothing. Milliseconds; the one test of
     // how this reason reaches the page.
