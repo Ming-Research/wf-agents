@@ -233,8 +233,11 @@ fn two_blank_lines_between_entries_are_a_fault_at_the_second_blank_line() {
 fn entries_with_no_blank_line_between_them_are_one_entry_and_a_fault() {
     let mut principles = entries(&[principle_of("spoken-words")]);
     principles.extend(principle_of("written-words"));
+    // The two are one entry of six lines: it is not a rule and a reason, at its rule, and its second heading line, which
+    // no blank line parts from the entry, is a line of it that names an entry no file holds.
     let faults = faults_with(&[file("principles/extra.md", &principles)], &[]);
-    assert_eq!(faults, [("principles/extra.md".to_string(), 6)]);
+    let expected = [6, 8].map(|line| ("principles/extra.md".to_string(), line));
+    assert_eq!(faults, expected);
     let mut decisions = entries(&[decision_of("spoken-log")]);
     decisions.extend(decision_of("written-log"));
     let faults = faults_with(&[file("decisions/extra.md", &decisions)], &[]);
@@ -800,7 +803,7 @@ fn each_fault_is_told_in_words_whose_places_are_all_filled() {
             entry: Some((text("decision"), text("keep-it"))),
             what,
         };
-        let lines = words(&[fault.clone()], &rules.faults);
+        let lines = words(std::slice::from_ref(&fault), &rules.faults);
         assert_eq!(lines.len(), 1);
         assert!(
             lines[0].starts_with("design/decisions/a.md:7: decision keep-it: ") && !lines[0].contains(['{', '}']),
