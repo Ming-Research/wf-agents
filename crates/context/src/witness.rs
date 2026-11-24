@@ -271,9 +271,6 @@ const SEED: u64 = 0x5EED_0F5E_A2C4;
 /// How many things a draw does before a round is carried out, at most.
 const BEFORE: usize = 2;
 
-/// How many times a cell has finished a run, and a datum been written, tells two states of a work apart.
-const PROGRESS: usize = 2;
-
 /// How many steps the work is let on by itself after what happened to it, at most: the engine's own calls, and a cell
 /// at its limit.
 const GO_ON: usize = 40;
@@ -769,24 +766,8 @@ impl Node {
                 AT_REST.to_string()
             }
         };
-        let records = &self.sim.work.records;
-        // How far the work has come, as each cell has finished a run once or more than once: what a later entry of a cell
-        // is sent depends on it, and two states that are alike in what the next round is sent are not alike in what
-        // follows from them.
-        let cell_of: BTreeMap<RunId, &CellId> = records.started.iter().map(|s| (s.run, &s.cell)).collect();
-        let mut done: BTreeMap<&str, usize> = BTreeMap::new();
-        for finished in &records.finished {
-            if let Some(cell) = cell_of.get(&finished.run) {
-                *done.entry(cell.as_str()).or_default() += 1;
-            }
-        }
-        for (cell, runs) in done {
-            (cell, runs.min(PROGRESS)).hash(&mut hasher);
-        }
-        let versions = decide::versions(records);
+        let versions = decide::versions(&self.sim.work.records);
         for (block, declared) in &self.sim.flow.blocks {
-            // And as each datum has been written once or more than once.
-            versions.get(block).map_or(0, Vec::len).min(PROGRESS).hash(&mut hasher);
             if declared.values.is_none() {
                 continue;
             }
@@ -1015,7 +996,7 @@ fn drawn(rng: &mut Rng, line: bool) -> Carry {
         asks,
         fate,
         unmatters: if rng.chance(30) { rng.next() as u32 } else { 0 },
-        wrong: rng.chance(8),
+        wrong: rng.chance(4),
     }
 }
 
