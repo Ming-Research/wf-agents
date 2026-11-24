@@ -781,12 +781,18 @@ impl History {
             }
         }
         // What the last return sent back was sent back for, where a run goes on sending its returns back.
-        let sent_back = (self.sim.work.given.values().rev())
-            .find_map(|given| match given {
+        let last_run = (self.sim.work.given.iter().rev())
+            .find(|(_, given)| matches!(given, Given::SentBack(_)))
+            .map(|((run, _), _)| *run);
+        let mut sent_back: Vec<String> = (self.sim.work.given.iter())
+            .filter(|((run, _), _)| Some(*run) == last_run)
+            .filter_map(|(_, given)| match given {
                 Given::SentBack(unmet) => Some(format!("{unmet:?}")),
                 _ => None,
             })
-            .unwrap_or_default();
+            .collect();
+        sent_back.dedup();
+        let sent_back = sent_back.join(" | ");
         Err(format!(
             "no round of {cell} came: the work stands at {:.300}; the last return sent back was sent back for {sent_back:.400}; the last rounds carried: {:?}",
             format!("{:?}", decide(&self.sim.flow.flow, &self.sim.work.records)),
@@ -800,6 +806,21 @@ impl History {
         let round = self.sim.round().ok_or("the round of the cell is gone")?;
         self.carry(&round, reached);
         Ok(())
+    }
+
+    /// Brings the work to a round of this cell whose run took main in, which the number of the run decides; where it did not,
+    /// the round is carried, and what runs the cell is done again, which `wake` does, a few times.
+    fn until_with_main(&mut self, reached: &mut Reached, cell: &str, wake: fn(&mut History)) -> Result<(), String> {
+        for _ in 0..8 {
+            wake(self);
+            self.until(reached, cell)?;
+            let round = self.sim.round().ok_or("the round of the cell is gone")?;
+            if self.sim.main(&round).is_some() {
+                return Ok(());
+            }
+            self.carry(&round, reached);
+        }
+        Err(format!("no run of {cell} took main in"))
     }
 
     /// The owner says some words to the cell.
@@ -2122,6 +2143,74 @@ fn the_tests_written_between(reached: &mut Reached, mut history: History) -> Res
     Ok(())
 }
 
+/// The check before the merge fails, the implementation answers, and the check fails again, and then once more as changing
+/// nothing in meaning while the owner's words run the implementation: its session holds the check's earlier version and
+/// lacks the later, as the implementation's own, and not.
+fn the_check_failing_twice(reached: &mut Reached, mut history: History) -> Result<(), String> {
+    history.force.insert("checked".to_string(), "no".to_string());
+    // What was asked is answered, so that the check may run, and the cells it runs are carried.
+    history.answers_all();
+    history.drain(reached);
+    let answered = || vec![Say::with(&["i1_words"], &["code"])];
+    for _ in 0..2 {
+        history
+            .says
+            .insert("M1".to_string(), vec![Say::all(&["check", "checked"])]);
+        history.says.insert("I1".to_string(), vec![Say::with(&[], &["code"])]);
+        history.put("head");
+        history.carry_next(reached, "I1")?;
+    }
+    history
+        .says
+        .insert("M1".to_string(), vec![Say::with(&["checked"], &["check"])]);
+    history.put("head");
+    history.say_to("I1");
+    history.says.insert("I1".to_string(), answered());
+    history.carry_next(reached, "I1")
+}
+
+/// The line of the implementation begins a new session in which a cell that takes main in was read and the other is then run,
+/// by the owner's words or the background, the first cell's return having handed in or having asked for a tool.
+fn main_taken_in(reached: &mut Reached, passed: History) -> Result<(), String> {
+    let tool = || {
+        Forced::Ask(Ask::Tool {
+            name: "query".to_string(),
+            input: "x".to_string(),
+        })
+    };
+    for asks in [false, true] {
+        // The implementation, then the first cell of its line.
+        let mut history = passed.clone();
+        history.says.insert("I1".to_string(), vec![Say::all(&["i1_words"]); 8]);
+        history.until_with_main(reached, "I1", |h| {
+            h.sim.anew("engineer", Why::Owner);
+            h.say_to("I1");
+        })?;
+        if asks {
+            history.forced = Some(vec![tool()]);
+        }
+        let round = history.sim.round().ok_or("the round of I1 is gone")?;
+        history.carry(&round, reached);
+        history.put("background");
+        history.carry_next(reached, "R0")?;
+        // The first cell, then the implementation.
+        let mut history = passed.clone();
+        history.says.insert("I1".to_string(), vec![Say::all(&["i1_words"]); 8]);
+        history.until_with_main(reached, "R0", |h| {
+            h.sim.anew("engineer", Why::Owner);
+            h.put("background");
+        })?;
+        if asks {
+            history.forced = Some(vec![tool()]);
+        }
+        let round = history.sim.round().ok_or("the round of R0 is gone")?;
+        history.carry(&round, reached);
+        history.say_to("I1");
+        history.carry_next(reached, "I1")?;
+    }
+    Ok(())
+}
+
 /// The directed tests of the engineer's flow, each a history that is brought to a round by what its cells hand in and what
 /// the owner and the outside write between two rounds of one line's session, which the random steps reach only by chance.
 /// Each begins from the work as it stands once the plan is written, the change is made, every review has been run, the
@@ -2144,12 +2233,14 @@ fn directed_tests(reached: &mut Reached) {
         .says
         .insert("T4".to_string(), vec![Say::with(&["testing"], &["tests"])]);
     passed.drain(reached);
-    let scripts: [(&str, Directed); 5] = [
+    let scripts: [(&str, Directed); 7] = [
         ("one review answered", one_review_answered),
         ("all three answered", all_three_answered),
         ("no plan written", no_plan_written),
         ("reopened after the tests", reopened_after_the_tests),
         ("the tests written between", the_tests_written_between),
+        ("the check failing twice", the_check_failing_twice),
+        ("main taken in", main_taken_in),
     ];
     for (name, script) in scripts {
         if let Err(why) = script(reached, passed.clone()) {
