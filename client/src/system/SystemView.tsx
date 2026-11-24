@@ -2,10 +2,10 @@
 // owner needs to step in: the engine, its slots, the wait every work shares, the copies of the database, the works by
 // where they stand, and the rounds under way, each with what its calls have come to so far against the lines it is
 // judged by, read again as the engine says it changed. Produced says what got done, Spent where the money and the time
-// went, and Gone wrong what was wasted or failed, each over the span the owner picks in the view's line, as links: the
-// week under way, the four weeks to its end, or all time. Each part sums up first, in numbers that stand alone; a number that counts a
-// list unfolds it under the numbers. Each thing is said once: the engine's pause and its slots in Now, and the rounds
-// under way in their list, not among the numbers of the works.
+// went, by project too, and Gone wrong what was wasted or failed, each over the span the owner picks in the view's
+// line, as links: the week under way, the four weeks to its end, or all time. Each part sums up first, in numbers that
+// stand alone, over every project; a number that counts a list unfolds it under the numbers. Each thing is said once:
+// the engine's pause and its slots in Now, and the rounds under way in their list, not among the numbers of the works.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -31,7 +31,7 @@ import {
 } from '../works/words';
 import { type Figure, type Going, type RanOn, type Rest, type System, type UnderWay, useSystemSource } from './api';
 import { copiesTone, copiesWords } from './copies';
-import { ItemName, Tile, Tiles, ViewTable, WorkLink } from './parts';
+import { ItemName, ProjectName, Tile, Tiles, ViewTable, WorkLink } from './parts';
 import {
   cacheShare,
   mergeAverages,
@@ -189,6 +189,7 @@ function NowPart({ items, engine, copies, copiesFailed, system, going }: {
   const shared = items.outage ? outageWords(items.outage) : null;
   const opened = by.find((b) => b.standing === open);
   const stopping = engine?.stopping ?? null;
+  const heads = ['Work', 'Item', 'Project', 'Cell', 'Since', ...(stopping === null ? [] : ['To go']), ...CALLS];
   // When the engine is expected to end: once the last of the rounds under way has.
   const last = system?.stopping?.rest ?? null;
   const ends =
@@ -270,14 +271,7 @@ function NowPart({ items, engine, copies, copiesFailed, system, going }: {
       {running.length === 0 ? (
         <p className="muted">No round is under way</p>
       ) : (
-        <ViewTable
-          heads={
-            stopping === null
-              ? ['Work', 'Item', 'Cell', 'Since', ...CALLS]
-              : ['Work', 'Item', 'Cell', 'Since', 'To go', ...CALLS]
-          }
-          numbers={[0, 1, 2, 3].map((n) => (stopping === null ? 4 : 5) + n)}
-        >
+        <ViewTable heads={heads} numbers={CALLS.map((_, n) => heads.length - CALLS.length + n)}>
           {running.map((item) => (
             <RunningRow
               key={item.work.number}
@@ -320,6 +314,9 @@ function RunningRow({ item, rests, going }: { item: Item; rests: UnderWay[] | nu
       </td>
       <td className="view-cell-wide">
         <ItemName item={item.number} title={item.title} />
+      </td>
+      <td>
+        <ProjectName project={item.project} />
       </td>
       <td className="mono">{now.cell}</td>
       <td title={fullTime(now.since)}>{clock(now.since)}</td>
@@ -520,8 +517,8 @@ function More({ shown, of }: { shown: number; of: number }) {
 /// A cost's share of the span's.
 const shareOf = (spent: Spent, of: Spent) => (of.usdMicros === 0 ? 'none' : percent(spent.usdMicros / of.usdMicros));
 
-/// Where the span's money and time went: in all, week by week over more than one week, by cell, by model, and by
-/// work, the costliest first.
+/// Where the span's money and time went: in all, week by week over more than one week, by project, by cell, by model,
+/// and by work, the costliest first. The projects together spent what the span did.
 function SpentPart({ s, items }: { s: System; items: Map<number, Item> }) {
   const share = cacheShare(s.spent);
   return (
@@ -564,6 +561,24 @@ function SpentPart({ s, items }: { s: System; items: Map<number, Item> }) {
                 <td className="num">{w.added}</td>
                 <td className="num">{w.sentBack}</td>
                 <td className="num">{w.failed}</td>
+              </tr>
+            ))}
+          </ViewTable>
+        </>
+      )}
+      {s.byProject.length > 0 && (
+        <>
+          <h4 className="view-sub label">By project</h4>
+          <ViewTable heads={['Project', 'Rounds', 'Under way', 'Cost', 'Share']} numbers={[1, 2, 3, 4]}>
+            {s.byProject.map((p) => (
+              <tr key={JSON.stringify(p.project)}>
+                <td>
+                  <ProjectName project={p.project} />
+                </td>
+                <td className="num">{p.spent.rounds}</td>
+                <td className="num">{duration(p.spent.workingMs)}</td>
+                <td className="num">{dollars(p.spent.usdMicros)}</td>
+                <td className="num">{shareOf(p.spent, s.spent)}</td>
               </tr>
             ))}
           </ViewTable>

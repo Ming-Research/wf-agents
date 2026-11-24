@@ -1,5 +1,5 @@
-// The parts the system's and the settings' views share: a number that stands alone, a table of the view's, and the
-// links to a work and to an item.
+// The parts the system's and the settings' views share: a number that stands alone, a table of the view's, the links
+// to a work and to an item, and a project's name.
 
 import type { ReactNode } from 'react';
 import { itemName, workName } from '../works/words';
@@ -87,6 +87,20 @@ export function ItemName({ item, title }: { item: number; title?: string }) {
     <span title={title}>
       <span className="mono muted">{itemName(item)}</span>
       {title !== undefined && <> {title}</>}
+    </span>
+  );
+}
+
+/// A project by the name the installation's settings give it; none, for the items added before items had projects,
+/// which says so on the pointer's tip.
+export function ProjectName({ project }: { project: string | null }) {
+  return project === null ? (
+    <span className="muted" title="Items added before items had projects belong to none">
+      none
+    </span>
+  ) : (
+    <span className="mono" title={project}>
+      {project}
     </span>
   );
 }

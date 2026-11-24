@@ -48,6 +48,7 @@ async fn all_time_gives_the_merge_and_what_was_spent_on_each_cell_and_model() {
     assert_eq!(system["from"], Value::Null);
     assert_eq!(system["spent"], spent, "every round ended in all time: {system}");
     assert_eq!(system["byWork"], json!([{ "work": 1, "item": 1, "spent": spent }]));
+    assert_eq!(system["byProject"], json!([{ "project": "trial", "spent": spent }]));
     let merged = &system["merged"].as_array().unwrap()[..];
     assert_eq!(merged.len(), 1, "{system}");
     assert_eq!(
@@ -181,10 +182,15 @@ fn happened(driver: &mut driver::Driver, at: u64, work: store::WorkNumber, event
 /// model having grown its context by 100 tokens over three calls and cost `usd` millionths of a dollar; the try of
 /// its build, which then begins, begins on the model.
 fn planned(driver: &mut driver::Driver, at: u64, ms: u64, usd: u64) -> store::WorkNumber {
+    planned_in(driver, "trial", at, ms, usd)
+}
+
+/// A work as [`planned`] adds it, of an item of the project of this name.
+fn planned_in(driver: &mut driver::Driver, project: &str, at: u64, ms: u64, usd: u64) -> store::WorkNumber {
     let new = driver::NewItem {
         title: "Plan".to_string(),
         level: "2".to_string(),
-        project: "trial".to_string(),
+        project: project.to_string(),
         depends_on: Vec::new(),
         tags: Vec::new(),
         continues: None,
@@ -432,6 +438,88 @@ fn what_a_work_spent_on_a_fork_is_counted_in_the_system_view_in_its_total_its_we
         "{summary}"
     );
     assert_eq!(usd(&summary["pinged"]), 0, "{summary}");
+}
+
+// What the System view is given by project: what each work's rounds, keep-warm pings and forks of the span took, added
+// to the project of the work's item, the costliest first, so that the projects together took what the span did. Two
+// plans of the project `trial`, costing 1,000 and 2,000 millionths of a dollar, one of `other`, costing 50,000, and a
+// fork of the first, long after them, costing 7,000; over all time, and over the span that begins after the plans
+// ended, which holds the fork alone. Milliseconds.
+#[test]
+fn what_the_span_spent_is_given_by_the_project_of_each_work_and_adds_up_to_the_span() {
+    const S: u64 = 1000;
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path().join("store.sqlite")).unwrap();
+    let flow = flow::compile(
+        &flow::read(&crate::trial_dir().join("flow")).unwrap(),
+        &crate::trial_has(&flow::Source::default()),
+    )
+    .unwrap();
+    let policy = driver::Policy {
+        samples: 2,
+        model: Box::new(|_, _| Some(opus().model)),
+        changed: None,
+        warm: None,
+    };
+    let (mut driver, _) =
+        driver::Driver::open(Box::new(store), vec![flow], 10, Some(policy), work::Time(START)).unwrap();
+    let first = planned_in(&mut driver, "trial", START, 10 * S, 1_000);
+    planned_in(&mut driver, "trial", START + 60 * S, 10 * S, 2_000);
+    planned_in(&mut driver, "other", START + 120 * S, 10 * S, 50_000);
+    let run = driver.work(first).unwrap().work.records.rounds[0].run;
+    let spent = engine::Spent {
+        usd_micros: 7_000,
+        uncached_tokens: 10,
+        cached_tokens: 20,
+        output_tokens: 3,
+        ..engine::Spent::default()
+    };
+    happened(
+        &mut driver,
+        START + 300 * S,
+        first,
+        engine::Event::Forked { run, round: 1, spent },
+    );
+    let now = work::Time(START + 600 * S);
+    let by_project = |system: &Value| -> Vec<(Value, u64, u64)> {
+        (system["byProject"].as_array().unwrap().iter())
+            .map(|p| {
+                let spent = &p["spent"];
+                (
+                    p["project"].clone(),
+                    spent["usdMicros"].as_u64().unwrap(),
+                    spent["rounds"].as_u64().unwrap(),
+                )
+            })
+            .collect()
+    };
+    // Each measure of what the projects took, added up.
+    let summed = |system: &Value| -> Value {
+        let mut sum = serde_json::Map::new();
+        for project in system["byProject"].as_array().unwrap() {
+            for (key, value) in project["spent"].as_object().unwrap() {
+                let before = sum.get(key).and_then(Value::as_u64).unwrap_or(0);
+                sum.insert(key.clone(), json!(before + value.as_u64().unwrap()));
+            }
+        }
+        Value::Object(sum)
+    };
+    let all = serde_json::to_value(web::system::System::of(&driver, now, &[]).unwrap()).unwrap();
+    assert_eq!(
+        by_project(&all),
+        [(json!("other"), 50_000, 1), (json!("trial"), 10_000, 2)],
+        "{all}"
+    );
+    assert_eq!(
+        summed(&all),
+        all["spent"],
+        "the projects together took what the span did: {all}"
+    );
+    // The span that begins after the plans ended holds the fork alone, of the project `trial`, in no round.
+    let span = [START + 200 * S];
+    let late = serde_json::to_value(web::system::System::of(&driver, now, &span).unwrap()).unwrap();
+    assert_eq!(by_project(&late), [(json!("trial"), 7_000, 0)], "{late}");
+    assert_eq!(summed(&late), late["spent"], "{late}");
 }
 
 /// A work of the trial flow added and let on at `at`, whose plan asks for a tool at once and has the result, of this

@@ -1,8 +1,8 @@
 //! `GET /api/v1/system`: how the whole system went over a span of time, for the System view: what was produced (works
-//! merged and cancelled, items added), what was spent and on what (by week, by cell, by model, by work), what was
-//! wasted or went wrong (rounds sent back, rounds failed), and how well it ran: the rounds and the calls of tools that
-//! went past the lines of their history, and what is under way now against its own (crate `driver`, module `judged`).
-//! What else goes on now the view reads from the items and the engine, as the bar and the works do.
+//! merged and cancelled, items added), what was spent and on what (by week, by project, by cell, by model, by work),
+//! what was wasted or went wrong (rounds sent back, rounds failed), and how well it ran: the rounds and the calls of
+//! tools that went past the lines of their history, and what is under way now against its own (crate `driver`, module
+//! `judged`). What else goes on now the view reads from the items and the engine, as the bar and the works do.
 //!
 //! `GET /api/v1/system/under-way` gives, apart from it and light to read, what the calls of each agent's round under way
 //! have come to so far against the lines the run guard judges the round by ([`Going`]): it changes with every call, which
@@ -67,6 +67,10 @@ pub struct System {
     pub pinged: Spent,
     /// Week by week, the latest first, each week the span was given; a week with nothing in it is there with nothing.
     pub weeks: Vec<Week>,
+    /// By the project of the item whose work it was, the costliest first: what each work's rounds, keep-warm pings and
+    /// forks that ended in the span took, so that the projects together took what the span did.
+    #[serde(default)]
+    pub by_project: Vec<ProjectSpent>,
     /// What the span's rounds took, by the cell of the flow they ran, the costliest first.
     pub by_cell: Vec<CellSpent>,
     /// By the model a round ran on, the costliest first: an agent's round's model, the engine's own acts, which run on
@@ -275,6 +279,16 @@ pub struct Week {
     pub added: usize,
     pub sent_back: usize,
     pub failed: usize,
+}
+
+/// What the works of one project's items took: the project by the name the installation's settings give it, none for
+/// the items kept before items had projects.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectSpent {
+    pub project: Option<String>,
+    /// What their rounds, keep-warm pings and forks that ended in the span took: `rounds` counts the rounds alone.
+    pub spent: Spent,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -570,6 +584,7 @@ impl System {
             spent: Spent::default(),
             pinged: Spent::default(),
             weeks: Vec::new(),
+            by_project: Vec::new(),
             by_cell: Vec::new(),
             by_model: Vec::new(),
             by_work: Vec::new(),
@@ -596,6 +611,7 @@ impl System {
                 )
             })
             .collect();
+        let mut by_project: BTreeMap<Option<String>, Spent> = BTreeMap::new();
         let mut by_cell: BTreeMap<(String, String), Spent> = BTreeMap::new();
         let mut by_model: BTreeMap<RanOn, Spent> = BTreeMap::new();
         // What holds every work at once, worked out once for every work's view.
@@ -804,6 +820,8 @@ impl System {
                     item,
                     spent: of_work,
                 });
+                let project = by_project.entry(kept.item.project.clone()).or_default();
+                *project = project.with(of_work);
             }
             match ended(driver, kept, &runs, &at_once)? {
                 Some(Ending::Merged(at)) if within(at) => {
@@ -833,6 +851,10 @@ impl System {
             }
         }
         system.weeks = counted.into_values().rev().collect();
+        system.by_project = (by_project.into_iter())
+            .map(|(project, spent)| ProjectSpent { project, spent })
+            .collect();
+        system.by_project.sort_by_key(|p| std::cmp::Reverse(p.spent.usd_micros));
         system.by_cell = (by_cell.into_iter())
             .map(|((flow, cell), spent)| CellSpent { flow, cell, spent })
             .collect();

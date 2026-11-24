@@ -1,7 +1,9 @@
 // The system and the settings to look at their views by before the interface serves them, opened with `?fixtures`
 // in the page's address (api.ts), and for the tests. The system is worked out from the works' fixtures, so that the two
 // views agree: what each work spent, the one merged, the one cancelled, and a round failed of the work the engine
-// paused. The settings are a file like the sample's, with a value the engine runs at another and a table left out.
+// paused. What was spent by cell, by model and by project is split from what the works spent in all; the projects are
+// those the works' fixtures name, then made-up ones, as many as the address asks for, else three and the items of none.
+// The settings are a file like the sample's, with a value the engine runs at another and a table left out.
 
 import { fixtureItems } from '../works/fixtures';
 import type { Line, Spent } from '../works-api';
@@ -29,7 +31,7 @@ const add = (a: Spent, b: Spent): Spent => ({
   rounds: a.rounds + b.rounds,
 });
 
-/// A part of what was spent, as a cell's or a model's share of it.
+/// A part of what was spent, as a cell's, a model's or a project's share of it.
 const part = (spent: Spent, share: number): Spent => ({
   usdMicros: Math.round(spent.usdMicros * share),
   inputTokens: Math.round(spent.inputTokens * share),
@@ -41,7 +43,48 @@ const part = (spent: Spent, share: number): Spent => ({
   rounds: Math.round(spent.rounds * share),
 });
 
-export function fixtureSystem(starts: number[]): System {
+/// What is left of what was spent once a part of it is taken.
+const less = (spent: Spent, taken: Spent): Spent => ({
+  usdMicros: spent.usdMicros - taken.usdMicros,
+  inputTokens: spent.inputTokens - taken.inputTokens,
+  cacheWrittenTokens: spent.cacheWrittenTokens - taken.cacheWrittenTokens,
+  unsplitTokens: spent.unsplitTokens - taken.unsplitTokens,
+  cachedTokens: spent.cachedTokens - taken.cachedTokens,
+  outputTokens: spent.outputTokens - taken.outputTokens,
+  workingMs: spent.workingMs - taken.workingMs,
+  rounds: spent.rounds - taken.rounds,
+});
+
+/// What was spent, split by these weights into parts that add up to it: each part is what the weights up to its end
+/// take, less what those before it take.
+function split(spent: Spent, weights: number[]): Spent[] {
+  const total = weights.reduce((sum, w) => sum + w, 0);
+  let before = 0;
+  return weights.map((w) => {
+    const from = part(spent, before / total);
+    before += w;
+    return less(part(spent, before / total), from);
+  });
+}
+
+/// The names of the projects: the works' fixtures' own first, the one whose work has a round under way before the
+/// other; then made-up ones.
+const PROJECT_NAMES = ['wf-agents', 'Whitefoot', 'whitefoot-site', 'bench', 'docs', 'installer', 'samples', 'formatter'];
+
+/// What was spent, by `projects` projects, the costliest first; where no count is given, by three projects and, the
+/// least, the items of none.
+function byProject(spent: Spent, projects: number | null): System['byProject'] {
+  const named = Array.from({ length: projects ?? 3 }, (_, n) => PROJECT_NAMES[n] ?? `project-${n + 1}`);
+  const all: (string | null)[] = projects === null ? [...named, null] : named;
+  const parts = split(spent, all.map((project, n) => (project === null ? 0.05 : 1 / (n + 1))));
+  return all
+    .map((project, n) => ({ project, spent: parts[n] }))
+    .sort((a, b) => b.spent.usdMicros - a.spent.usdMicros);
+}
+
+/// How the system went over these weeks, worked out from the works' fixtures, its spending split between as many
+/// projects as `projects` asks for.
+export function fixtureSystem(starts: number[], projects: number | null = null): System {
   const now = Date.now();
   const from = starts[0] ?? null;
   const items = fixtureItems().items;
@@ -64,6 +107,7 @@ export function fixtureSystem(starts: number[]): System {
     from,
     spent,
     weeks: Array.from({ length: weeks }, (_, n) => week(n)).reverse(),
+    byProject: byProject(spent, projects),
     byCell: [
       { flow: 'engineer', cell: 'implement', spent: part(spent, 0.5) },
       { flow: 'engineer', cell: 'review', spent: part(spent, 0.3) },
