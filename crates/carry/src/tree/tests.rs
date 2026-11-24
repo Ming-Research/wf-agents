@@ -864,6 +864,7 @@ async fn data_is_held_by_the_commit_checked_and_not_by_the_worktree() {
         Ok(vec![fault("research/note.md")]),
         "the commit that does not"
     );
+    std::fs::create_dir_all(place.dir.join("research")).expect("the directory is made");
     std::fs::write(place.dir.join("research/untracked.md"), "Not committed.\n").expect("the file is written");
     let commit = write(&place.dir, "design/decisions/extra.md", &text("research/untracked.md"));
     assert!(on_disk("research/untracked.md"));

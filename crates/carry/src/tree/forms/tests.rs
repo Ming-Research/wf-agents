@@ -916,8 +916,12 @@ fn told_of(files: &[(&str, String)], held: &[&str]) -> Vec<String> {
     words(&check(&sources, &rules.format, held), &rules.faults)
 }
 
+/// A case: its name, its files by their paths from the design directory with their texts, the paths the repository holds
+/// besides, and the lines the script printed.
+type Case<'a> = (&'a str, Vec<(&'a str, String)>, Vec<&'a str>, Vec<String>);
+
 /// Each case whose told lines are not the script's, with both, so that one run shows every difference.
-fn assert_as_the_script_said(cases: Vec<(&str, Vec<(&str, String)>, Vec<&str>, Vec<String>)>) {
+fn assert_as_the_script_said(cases: Vec<Case>) {
     let mut differing = Vec::new();
     for (name, files, held, expected) in cases {
         let told = told_of(&files, &held);
