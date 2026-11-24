@@ -444,7 +444,8 @@ export function ConsolePage({
     const found = latestData.current?.items.find((i) => i.number === id);
     if (found === undefined) return;
     if (projectOf(found) !== projectNow.current) showProjectNow.current(projectOf(found));
-    if (scene.current === null) return;
+    // Until the scene of its project is made and draws its tree, which then looks for the item again.
+    if (scene.current === null || projectNow.current === null || !ready.current.has(projectNow.current)) return;
     const standing = standingOf(found);
     if (!showsNow.current.has(standing)) {
       tickNow.current(standing, true);
