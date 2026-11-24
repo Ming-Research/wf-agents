@@ -322,6 +322,10 @@ struct History {
     /// run again.
     nothing_dealt: BTreeSet<String>,
     prefer: BTreeMap<String, u64>,
+    /// The cells whose returns ask a question their cell waits for the answer to, where the cell takes answers.
+    waits: BTreeSet<String>,
+    /// Whether the next round to return compacts its session.
+    compact_next: bool,
     /// The value a return that writes a choice gives it, of some choices.
     force: BTreeMap<String, String>,
     /// What a run of the search is steered at.
@@ -455,6 +459,8 @@ impl History {
             says: BTreeMap::new(),
             nothing_dealt: BTreeSet::new(),
             prefer: BTreeMap::new(),
+            waits: BTreeSet::new(),
+            compact_next: false,
             force: BTreeMap::new(),
             target: None,
         };
@@ -670,7 +676,10 @@ impl History {
 
     /// As [`History::speaks`], where the words go, more often than not, to a cell whose words are one of these blocks.
     fn speaks_near(&mut self, near: &[String]) -> bool {
-        if self.rng.chance(50) && self.answers() {
+        // Where a cell is made to ask a question it waits for, the owner speaks to it first, which enters it by the words
+        // alone, and answers later.
+        let answering = if self.waits.is_empty() { 50 } else { 10 };
+        if self.rng.chance(answering) && self.answers() {
             return true;
         }
         let cells: Vec<CellId> = (self.sim.flow.cells.iter())
@@ -781,6 +790,8 @@ impl History {
         self.says.clear();
         self.nothing_dealt.clear();
         self.prefer.clear();
+        self.waits.clear();
+        self.compact_next = false;
     }
 
     /// Carries what the work gives until the round next is of this cell, which it leaves to be carried. Says where the work
@@ -1101,7 +1112,8 @@ impl History {
             return;
         }
         self.lines.entry(line.clone()).or_default().fill(round.run, &used.fills);
-        let compactions = u32::from(!self.steady && self.rng.chance(10));
+        let compacts = std::mem::take(&mut self.compact_next);
+        let compactions = u32::from(compacts || (!self.steady && self.rng.chance(10)));
         let came = self.came(round);
         self.sim.returns(round, came, compactions);
         if compactions > 0 {
@@ -1267,8 +1279,12 @@ impl History {
                 .unwrap_or_default();
             came.dealt_with = Some(ran_by.into_iter().filter(|_| self.rng.chance(50)).collect());
         }
+        let takes_answers = (cell.watches.iter()).any(|t| t.of_source(&self.sim.flow, flow::ANSWER).is_some());
         came.said.questions = match said.as_ref().is_some_and(|s| s.asks) {
             true => self.question(&cell, false),
+            false if takes_answers && self.waits.contains(cell.id.as_str()) && self.rng.chance(85) => {
+                self.question(&cell, true)
+            }
             false => self.questions(&cell),
         };
         came
@@ -1977,6 +1993,9 @@ struct Target {
     /// Whether the cell runs only until a run of it has dealt with something: its condition names a datum the engine's
     /// source writes once a run that dealt with something has finished.
     one_shot: bool,
+    /// Whether the line says the datum ran the cell, and whether the owner can speak to the cell.
+    ran_it: bool,
+    wordy: bool,
     /// The blocks a return hands in, beside what its cell must, where the run is focused: the datum, what runs the writers
     /// of it and what the owner's ruling is written in, and each block the cell watches by itself, not as one of a group,
     /// which is what runs the cell without running the cells before it that watch the group.
@@ -2071,6 +2090,8 @@ impl Target {
             blocks,
             runs_on,
             one_shot,
+            ran_it: rest.ends_with("and ran it"),
+            wordy: spoken::words_of(&sim.flow, &CellId::from(cell)).is_some(),
             near,
         }
     }
@@ -2292,6 +2313,37 @@ fn main_taken_in(reached: &mut Reached, passed: History) -> Result<(), String> {
     Ok(())
 }
 
+/// The last round of the line of the reviews ends with its session compacted, and the first of the reviews is run again: its
+/// session holds what that return handed in and none of the message. The same of the tester, run again by the
+/// implementation's answer to its point.
+fn compacted_after_a_return(reached: &mut Reached, passed: History) -> Result<(), String> {
+    let mut history = passed.clone();
+    history.put("head");
+    history.until(reached, "T2")?;
+    history.compact_next = true;
+    history.carry_next(reached, "T2")?;
+    history.put("head");
+    history.carry_next(reached, "T1")?;
+    let mut history = passed;
+    history.force.insert("needs_testing".to_string(), "yes".to_string());
+    history
+        .says
+        .insert("T4".to_string(), vec![Say::with(&["testing"], &["tests"]); 2]);
+    history
+        .says
+        .insert("I1".to_string(), vec![Say::with(&["testing", "i1_words"], &UNCHANGED)]);
+    history.put("head");
+    for cell in ["T1", "T2", "T3"] {
+        history.carry_next(reached, cell)?;
+    }
+    history.until(reached, "T4")?;
+    history.compact_next = true;
+    history.carry_next(reached, "T4")?;
+    history.say_to("I1");
+    history.carry_next(reached, "I1")?;
+    history.carry_next(reached, "T4")
+}
+
 /// The work as it stands once the plan is written, the change is made, every review has been run, the tester has raised a
 /// point and the implementation has answered it, and no other point has been raised; with the design cells run too where
 /// `deep` says the plan needs them.
@@ -2322,20 +2374,22 @@ fn first_pass(reached: &mut Reached, deep: bool) -> History {
 /// the owner and the outside write between two rounds of one line's session, which the random steps reach only by chance.
 /// Each begins from the work as it stands after [`first_pass`]. Says, of each, how many lines it reached that no other
 /// reached before it.
-fn directed_tests(reached: &mut Reached, passed: &History) -> Vec<String> {
-    let scripts: [(&str, Directed); 7] = [
-        ("one review answered", one_review_answered),
-        ("all three answered", all_three_answered),
-        ("no plan written", no_plan_written),
-        ("reopened after the tests", reopened_after_the_tests),
-        ("the tests written between", the_tests_written_between),
-        ("the check failing twice", the_check_failing_twice),
-        ("main taken in", main_taken_in),
+fn directed_tests(reached: &mut Reached, passed: &History, deep: &History) -> Vec<String> {
+    let scripts: [(&str, Directed, &History); 9] = [
+        ("one review answered", one_review_answered, passed),
+        ("all three answered", all_three_answered, passed),
+        ("no plan written", no_plan_written, passed),
+        ("reopened after the tests", reopened_after_the_tests, passed),
+        ("the tests written between", the_tests_written_between, passed),
+        ("the check failing twice", the_check_failing_twice, passed),
+        ("main taken in", main_taken_in, passed),
+        ("main taken in, the plan needing deep research", main_taken_in, deep),
+        ("compacted after a return", compacted_after_a_return, passed),
     ];
     let mut log = Vec::new();
-    for (name, script) in scripts {
+    for (name, script, base) in scripts {
         let (lines, rounds) = (reached.real.len(), reached.rounds);
-        let result = script(reached, passed.clone());
+        let result = script(reached, base.clone());
         log.push(format!(
             "directed test {name}: {} lines, {} rounds{}",
             reached.real.len() - lines,
@@ -2576,7 +2630,7 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
         reached.rounds,
         reached.of_cell
     ));
-    log.extend(directed_tests(&mut reached, &passed));
+    log.extend(directed_tests(&mut reached, &passed, &deep));
     log.push(format!(
         "after the directed tests, {:?}: {} lines open",
         begun.elapsed(),
@@ -2695,13 +2749,29 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
         history.focus = rng.chance(25);
         history.unmatter_datum = rng.chance(50);
         history.nothing_dealt.clear();
+        history.waits.clear();
         if target.one_shot && rng.chance(85) {
             history.nothing_dealt.insert(target.cell.clone());
+        }
+        // A version of a datum that the cell never dealt with stands held in its session, new to the cell, where its run
+        // deals with nothing; and, where the owner can turn to the cell while a question it waits for stands unanswered,
+        // the datum need not run it.
+        let held_line = target.state.as_deref().is_some_and(|s| s.starts_with("holds"));
+        if held_line && rng.chance(50) {
+            history.nothing_dealt.insert(target.cell.clone());
+        }
+        if held_line && target.wordy && !target.ran_it && rng.chance(70) {
+            history.nothing_dealt.insert(target.cell.clone());
+            history.waits.insert(target.cell.clone());
         }
         history.scene.passes = Some([60, 85, 100][rng.below(3)]);
         history.scene.puts = [4, 8, 16][rng.below(3)];
         history.scene.reopens = [2, 4, 10][rng.below(3)];
         history.scene.speaks = [6, 20, 40][rng.below(3)];
+        if !history.waits.is_empty() {
+            history.scene.speaks = 40;
+            history.asks = 90;
+        }
         history.scene.nudges = [0, 5, 12][rng.below(3)];
         history.target = Some(target.clone());
         history.prefer.clear();
@@ -2820,10 +2890,20 @@ fn every_state_written_for(cells: &[&str], seed: u64) {
     let held: Vec<&String> = (reached.real.iter())
         .filter(|line| of_these(line) && line.contains(" holds") && line.ends_with("and ran it"))
         .collect();
+    // What the session held, as rounds of the cells with a line of it open stood in, which the open lines are read against.
+    let frames: Vec<&String> = (reached.real.iter())
+        .filter(|line| {
+            let cell = line.split_once(": ").map(|(cell, _)| cell);
+            line.contains(": the session holds")
+                && open
+                    .iter()
+                    .any(|o| o.contains(": the session holds") && o.split_once(": ").map(|(c, _)| c) == cell)
+        })
+        .collect();
     assert!(
         open.is_empty() && gaps.is_empty() && reached.stale.is_empty(),
         "{} states of a datum that rounds stood in, and the tool does not write:\n{}\n\n{} of the {} states the tool writes \
-         for {cells:?} were stood in by no round:\n{}\n\ndirected tests that did not bring the work where they say:\n{}\n\nthe search: {}\n\nheld states the rounds stood in, and what ran the cell then:\n{}",
+         for {cells:?} were stood in by no round:\n{}\n\ndirected tests that did not bring the work where they say:\n{}\n\nthe search: {}\n\nwhat the session held in the rounds of the cells with an open line of it:\n{}\n\nheld states the rounds stood in, and what ran the cell then:\n{}",
         gaps.len(),
         gaps.join("\n"),
         open.len(),
@@ -2831,6 +2911,7 @@ fn every_state_written_for(cells: &[&str], seed: u64) {
         by_cell(&open),
         reached.stale.join("\n"),
         log.join("\n"),
+        frames.iter().map(|line| line.as_str()).collect::<Vec<_>>().join("\n"),
         (held.iter())
             .map(|line| {
                 let example = &reached.examples[*line];
