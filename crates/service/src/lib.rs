@@ -279,6 +279,15 @@ pub struct Changed {
     pub going: bool,
 }
 
+impl Changed {
+    /// Whether it says only that what the agents' rounds under way have come to changed: it names no work and sets no
+    /// other flag, since no record of a work holds it. What reads a work, an item, the copies, the accounts or the
+    /// observations has nothing to read again for it.
+    pub fn only_going(&self) -> bool {
+        self.going && self.works.is_empty() && !self.items && !self.copies && !self.accounts && !self.observations
+    }
+}
+
 /// What stops the loop. Started again, the process goes on from the store.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Fault {
