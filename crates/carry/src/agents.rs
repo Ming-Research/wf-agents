@@ -763,7 +763,7 @@ impl Inner {
                     let mut told_usage = 0;
                     // A try begins with nothing told of its calls, whatever the try before it came to.
                     teller.going(round.number, Going::default());
-                    let mut told_calls = 0;
+                    let mut told_going = Going::default();
                     let ran = {
                         let mut each = |line: &[u8]| {
                             kept.line(line);
@@ -781,12 +781,14 @@ impl Inner {
                                 }
                             }
                             // What the calls have come to so far, against the lines the guard judges the round by, is
-                            // told for each call: no record holds it, and the owner reads it while the round runs.
-                            if kept.calls().count != told_calls {
-                                let calls = kept.calls();
-                                told_calls = calls.count;
-                                let going =
-                                    Going::of(&round.lines, calls.count, calls.last, calls.added, kept.stream.cost().0);
+                            // told as it changes: a call's tokens come as it begins and again as it ends, so its cost
+                            // grows after the count does. No record holds it, and the owner reads it while the round
+                            // runs.
+                            let calls = kept.calls();
+                            let going =
+                                Going::of(&round.lines, calls.count, calls.last, calls.added, kept.stream.cost().0);
+                            if going != told_going {
+                                told_going = going;
                                 teller.going(round.number, going);
                             }
                             if crossed.is_none()

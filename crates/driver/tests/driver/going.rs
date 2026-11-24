@@ -4,7 +4,6 @@
 use driver::{Along, Going, Under};
 
 use super::outage::two;
-use super::*;
 
 fn going(context: u64) -> Going {
     Going {
