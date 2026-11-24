@@ -29,9 +29,12 @@ uuid = { version = "1.26.1", features = ["v4", "v5"] }
 # The profile CI builds the tests with (`cargo nextest run --cargo-profile ci`); no local build uses it. The
 # dependencies are optimized fully, because unoptimized they run the tests many times slower (SQLite, built from
 # source, above all), and the owner's machine keeps them built. The workspace's own crates, rebuilt on every change,
-# are not optimized: most of their compile is LLVM's. The flow crate alone stays at level 1: compiling a flow, which
-# many tests do, is several times slower unoptimized. Line tables are enough for a failing test's backtrace. Brought
-# over from main, where it was measured.
+# are not optimized: most of their compile is LLVM's. Two are not left at that. The crates `context`, `engine`,
+# `decide` and `work` are at level 3: the situations search of `wf-agents flow situations` and its tests run
+# the engine's loop and the context manager tens of thousands of times, which takes 330 s unoptimized and 63 s at level
+# 3, and compiling those four crates at level 3 takes 5 s longer (research/situations-search-measured.md). The flow
+# crate stays at level 1: compiling a flow, which many tests do, is several times slower unoptimized. Line tables are
+# enough for a failing test's backtrace. Brought over from main, where it was measured.
 [profile.ci]
 inherits = "test"
 opt-level = 0
@@ -42,3 +45,15 @@ opt-level = 3
 
 [profile.ci.package.flow]
 opt-level = 1
+
+[profile.ci.package.context]
+opt-level = 3
+
+[profile.ci.package.engine]
+opt-level = 3
+
+[profile.ci.package.decide]
+opt-level = 3
+
+[profile.ci.package.work]
+opt-level = 3
