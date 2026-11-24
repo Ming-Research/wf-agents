@@ -4,7 +4,7 @@
 // from, once for the whole page (works/source.ts).
 
 import { type Heard, listenShared } from '../changes';
-import { usesFixtures } from '../mock-data';
+import { projectsAsked, usesFixtures } from '../mock-data';
 import { type Act, type VersionPage, type WorkPage, act, loadProjects, loadVersion, loadWork } from '../works-api';
 import { INTERFACE, type ItemsFeed } from '../works/source';
 import { fixtureSource } from './fixtures';
@@ -39,8 +39,8 @@ export const interfaceSource: Source = {
 /// The source the page's address asks for: with `?fixtures`, the made-up items, of as many projects as `projects=`
 /// asks.
 export function pageSource(): Source {
-  const asked = Number(new URLSearchParams(window.location.search).get('projects') ?? '1');
-  return usesFixtures(window.location.search) ? fixtureSource(Date.now(), asked) : interfaceSource;
+  const search = window.location.search;
+  return usesFixtures(search) ? fixtureSource(Date.now(), projectsAsked(search) ?? 1) : interfaceSource;
 }
 
 /// Reads of one kind of thing, of which an answer is taken only when it is newer than the one shown: an answer to a read
