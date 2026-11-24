@@ -22,6 +22,8 @@ struct Kept {
     pulls: Vec<(String, Pull)>,
     /// Why a merge is refused, where it is.
     refuses: Option<String>,
+    /// Why the list of every open pull request is refused, where it is.
+    refuses_listing: Option<String>,
     /// How many of the next lists of pull requests leave out those opened already, as a list read just before another
     /// opened one does.
     hidden: usize,
@@ -74,6 +76,7 @@ pub(crate) const ANOTHER_CALLS: &str = "cancelled by another call";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Asked {
     Pulls(String),
+    OpenPulls,
     Open {
         branch: String,
         base: String,
@@ -196,6 +199,11 @@ impl Fake {
         self.kept().pulls.iter().map(|(_, p)| p.clone()).collect()
     }
 
+    /// Refuses the list of every open pull request, with these words.
+    pub(crate) fn refuse_listing(&self, why: &str) {
+        self.kept().refuses_listing = Some(why.to_string());
+    }
+
     /// Refuses every merge, with these words.
     pub(crate) fn refuse_merges(&self, why: &str) {
         self.kept().refuses = Some(why.to_string());
@@ -224,6 +232,7 @@ impl Fake {
             body: String::new(),
             draft: false,
             node: format!("PR_{number}"),
+            updated: 0,
             branch: branch.to_string(),
             from_fork,
         };
@@ -363,6 +372,18 @@ impl Api for Fake {
         Ok(self.of(branch))
     }
 
+    async fn open_pulls(&self) -> Result<Vec<Pull>, Failed> {
+        let mut kept = self.kept();
+        kept.asked.push(Asked::OpenPulls);
+        if let Some(why) = &kept.refuses_listing {
+            return Err(answered(why));
+        }
+        Ok((kept.pulls.iter())
+            .filter(|(_, pull)| pull.state == State::Open)
+            .map(|(_, pull)| pull.clone())
+            .collect())
+    }
+
     async fn open(&self, branch: &str, base: &str, title: &str, body: &str) -> Result<Pull, Failed> {
         let head = self
             .head(branch)
@@ -391,6 +412,7 @@ impl Api for Fake {
             body: body.to_string(),
             draft: true,
             node: format!("PR_{number}"),
+            updated: 0,
             branch: branch.to_string(),
             from_fork: false,
         };

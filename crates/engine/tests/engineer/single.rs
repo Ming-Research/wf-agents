@@ -335,6 +335,7 @@ fn a_version_of_a_block_the_installed_flow_no_longer_has_is_passed_over_and_the_
         w.on(Event::Paused {
             by: Pauser::Owner,
             why: None,
+            waits_for: Vec::new(),
         });
     }
     let plan = [

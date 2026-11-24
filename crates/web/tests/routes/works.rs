@@ -276,12 +276,12 @@ async fn a_version_a_round_and_a_call_are_given_with_their_content() {
         json!({ "call": 2, "what": at_limit(), "result": null })
     );
 
-    let answer = json!({ "kind": "result", "call": 2, "result": "Yes, by name." });
+    let answer = json!({ "kind": "goOn", "call": 2 });
     assert_eq!(
         post(router, "/api/v1/works/1/acts", &answer).await.0,
         StatusCode::NO_CONTENT
     );
-    let answered = json!({ "call": 2, "what": at_limit(), "result": "Yes, by name." });
+    let answered = json!({ "call": 2, "what": at_limit(), "result": service::GO_ON });
     assert_eq!(get_json(router, "/api/v1/works/1/calls/2").await, answered);
     // The plan's run goes on, its fourth round given why the third was sent back, and hands in the plan a second and a
     // half later.

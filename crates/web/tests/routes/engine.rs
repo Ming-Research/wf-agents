@@ -162,6 +162,8 @@ async fn started_on_a_work_going_on_the_engine_says_it_holds_everything_until_th
                 content: "Please.".to_string(),
                 value: None,
             }],
+            why: None,
+            waits_for: Vec::new(),
         };
         let (_, work, _) = driver.add(work::Time(START), new).unwrap();
         driver

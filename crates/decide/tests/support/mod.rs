@@ -69,7 +69,8 @@ fn flow_of(
 }
 
 /// What a run writes of a block: a change that matters to the cells that read it, one that does not, a value a
-/// condition reads (which matters), or a version that holds nothing (which matters).
+/// condition reads (which matters), or a version that holds nothing (which matters only over a version that holds
+/// something, of a block that replaces its versions).
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Says {
     Matters,
@@ -211,6 +212,19 @@ impl World {
         let outsiders = Outsiders {
             outside: Some("words".to_string()),
             interrupts: true,
+            ..Outsiders::default()
+        };
+        self.outsiders.insert(block.into(), outsiders);
+        self.install(self.flow.cells().to_vec());
+    }
+
+    /// Makes the block a dialogue the owner and a cell add to: the owner's words to a cell, each version an entry added
+    /// beside those before it, which replaces none.
+    pub fn dialogue(&mut self, block: &str) {
+        let outsiders = Outsiders {
+            outside: Some("words".to_string()),
+            interrupts: true,
+            entries: true,
             ..Outsiders::default()
         };
         self.outsiders.insert(block.into(), outsiders);
@@ -572,6 +586,7 @@ impl World {
             at,
             by: Pauser::Owner,
             why: None,
+            waits_for: Vec::new(),
         });
     }
 
@@ -583,6 +598,7 @@ impl World {
             at,
             by: Pauser::Engine,
             why: Some(why.to_string()),
+            waits_for: Vec::new(),
         });
     }
 
@@ -601,6 +617,7 @@ impl World {
             at,
             by: Pauser::Owner,
             why: None,
+            waits_for: Vec::new(),
         });
     }
 

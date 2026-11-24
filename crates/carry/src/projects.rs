@@ -1,7 +1,7 @@
 //! The projects of the installation, as the carriers carry their works out. An item belongs to one project, whose
 //! repository its works run in: each project has its own settings, its own host, and its own declaration,
 //! `wf-agents.toml` at the root of its repository, on its main as its host last gave it ([`flow::agents::DECLARATION`]):
-//! its design tree, its files, its settings, its tests, its workflows, its heavy and lock commands, the command that
+//! its design tree, its files, its settings, its tests, its workflows, its heavy commands, the command that
 //! checks it where its repository is the host, and how its pull requests are merged where GitHub is. What is beside the
 //! flows is the same for every project, and read once, what every agent is refused whatever its project
 //! (`agents/refused.toml`) among it.
@@ -24,7 +24,7 @@ use std::sync::Arc;
 use flow::Compiled;
 use flow::agents::{Declaration, NoProject, fill};
 use service::{
-    CallReply, Changes, Diff, OfWork, Release, ReleaseReply, Round, RoundReply, Rounds, Seen, ToolCall, Tools,
+    CallReply, Changes, Diff, OfWork, OpenPull, Release, ReleaseReply, Round, RoundReply, Rounds, Seen, ToolCall, Tools,
 };
 use store::{Item, WorkNumber};
 use work::Spent;
@@ -51,7 +51,7 @@ pub struct Declared {
 ///
 /// A project is held, with every reason at once, where its own declaration is the cause: one that cannot be read from
 /// its project's main (a time limit of its workflows that is no time among it), or lacks what its host needs
-/// ([`needs_of_its_host`]), or does not protect itself, a heavy or lock command of it that names nothing or holds a `*`
+/// ([`needs_of_its_host`]), or does not protect itself, a heavy command of it that names nothing or holds a `*`
 /// or a parenthesis ([`crate::permissions::heavy_faults`]), a variable it names for the agents' command line that the
 /// engine, the installation or the program owns ([`crate::cli::environment_faults`]), a fast workflow that is given less
 /// time than the CI is given to start, a setting the flows' texts name that it lacks, no paths of its tests where a
@@ -92,7 +92,7 @@ pub fn declared(
         }
         let mut why = needs_of_its_host(project, &declaration);
         why.extend(protects_itself(&declaration));
-        why.extend(crate::permissions::heavy_faults(&beside, &declaration));
+        why.extend(crate::permissions::heavy_faults(&declaration));
         why.extend(crate::cli::environment_faults(
             &declaration.environment,
             &settings.agents.env,
@@ -298,6 +298,25 @@ impl Rounds for ByProject<dyn Rounds> {
                 Some(why) => Box::pin(async move { Err::<Option<Diff>, String>(why) }),
                 None => Box::pin(async { Ok(None) }),
             },
+        }
+    }
+
+    // A project the settings do not name, or one held for its declaration, has no host to ask, which is not a host with
+    // no pull requests.
+    fn open_pulls(
+        &self,
+        project: &str,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<Vec<OpenPull>>, String>> + Send + '_>> {
+        match self.of.get(project) {
+            Some(Ok(rounds)) => rounds.open_pulls(project),
+            Some(Err(why)) => {
+                let why = format!("the project {project} is held: {why}");
+                Box::pin(async move { Err(why) })
+            }
+            None => {
+                let why = format!("the installation's settings do not name the project {project}");
+                Box::pin(async move { Err(why) })
+            }
         }
     }
 }

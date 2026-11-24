@@ -115,6 +115,9 @@ pub struct Fake {
     /// Whether the build, once, commits a line to the project's guide, which the project protects, saying why only in
     /// a round told its return was sent back for it.
     pub build_changes_guide: bool,
+    /// Whether the build says why at once, in its first round that changes the guide, and in no other round unless it
+    /// is told its return was sent back for that.
+    pub build_explains_the_guide: bool,
     /// Whether the build, once, commits a file of the design tree to main.
     pub moves_main: bool,
     /// Whether the build commits its file beside the project's tests until a round of it is told its return was sent
@@ -146,6 +149,9 @@ pub struct Fake {
     /// none, [`NO_SUCH_ENTRY`], until a round of it is told its return was sent back for that line; and whether the
     /// build rewrites the entry the plan names, [`GREETING_ENTRY`], committing it with its file.
     pub names_entries: bool,
+    /// Whether the build, once told its return was sent back for a change not committed, takes the change back and
+    /// returns nothing else, whatever else it was told: what it returned before is to stand for the rest.
+    pub build_mends_the_edit_and_nothing_else: bool,
 }
 
 /// The file of the design tree that holds the entry the fake's plan names, where it names entries.
@@ -195,6 +201,7 @@ impl Default for Fake {
             plan_edits_guide: false,
             design: false,
             build_changes_guide: false,
+            build_explains_the_guide: false,
             moves_main: false,
             build_beside_tests: false,
             build_then_asks: false,
@@ -206,6 +213,7 @@ impl Default for Fake {
             says_usage: false,
             tree_question: false,
             names_entries: false,
+            build_mends_the_edit_and_nothing_else: false,
         }
     }
 }
@@ -567,7 +575,10 @@ takes_back() {{
     fi
 }}
 leaves() {{
-    if [ '{leaves_edit}' = yes ] && ! grep -q 'changes to tracked files that are not committed' "$log/$n.stdin"; then
+    # Where the build also mends the edit and nothing else, it leaves the edit only in a round that has the results of
+    # its calls: the rounds before, which ask a question or a call, are not what the test is about.
+    if [ '{leaves_edit}' = yes ] && ! grep -q 'changes to tracked files that are not committed' "$log/$n.stdin" \
+        && {{ [ '{mends_only}' = no ] || grep -q 'The results of what you asked for' "$log/$n.stdin"; }}; then
         echo "$n" >> greeting.txt
     fi
     if [ '{leaves_merge}' = yes ] && ! grep -q 'A merge is under way in the worktree and is not committed' "$log/$n.stdin"; then
@@ -656,7 +667,14 @@ case "$first" in
         grep -q 'changes to tracked files that are not committed' "$log/$n.stdin" && sent_back=yes
         answered=no
         awk '{{gsub(/\\n/, "\n"); print}}' "$log/$n.stdin" | sed -n '/^## Why you are run$/,$p' | grep -q '^- `build_questions`' && answered=yes
-        if [ '{tree_question}' = yes ] && grep -q 'changes nothing in the design tree' "$log/$n.stdin"; then
+        if [ '{mends_only}' = yes ] && [ "$sent_back" = yes ] && [ ! -f "$log/mended" ] \
+            && grep -q 'changes nothing in the design tree' "$log/$n.stdin"; then
+            # Told its return was sent back for a change not committed and for the answer not being in the tree, it takes
+            # the change back, as every round of it does first, and returns nothing: its earlier return stands for what
+            # it wrote and dealt with, and the answer is left for the round after.
+            touch "$log/mended"
+            dealt=''
+        elif [ '{tree_question}' = yes ] && grep -q 'changes nothing in the design tree' "$log/$n.stdin"; then
             # Told that its change holds nothing of the owner's answer in the design tree, it writes the answer there.
             mkdir -p design
             echo 'The owner chose the first name.' > design/answered.md
@@ -706,6 +724,10 @@ case "$first" in
                 git add '{guide}'
             fi
             if [ '{changes_guide}' = yes ] && grep -q 'is a file the project protects' "$log/$n.stdin"; then
+                protected='"protected_changes":{{"{guide}":"The build needs the line."}},'
+            fi
+            if [ '{explains}' = yes ] && [ ! -f "$log/explained" ]; then
+                touch "$log/explained"
                 protected='"protected_changes":{{"{guide}":"The build needs the line."}},'
             fi
             [ '{then_asks}' = yes ] || built
@@ -776,6 +798,7 @@ fi
         guide = PROJECT_FILES[0].0,
         design = yes(fake.design),
         changes_guide = yes(fake.build_changes_guide),
+        explains = yes(fake.build_explains_the_guide),
         moves = yes(fake.moves_main),
         beside_tests = yes(fake.build_beside_tests),
         then_asks = yes(fake.build_then_asks),
@@ -788,6 +811,7 @@ fi
         tree_question = yes(fake.tree_question),
         tree_mark = fake.tree_question,
         names_entries = yes(fake.names_entries),
+        mends_only = yes(fake.build_mends_the_edit_and_nothing_else),
         entry = GREETING_ENTRY,
         no_such_entry = NO_SUCH_ENTRY,
         entry_file = GREETING_FILE,
@@ -959,9 +983,7 @@ impl Real {
                     .into(),
                 highest_level: None,
                 slots: 2,
-                args: Vec::new(),
                 env: Vec::new(),
-                setting_sources: "user".to_string(),
                 subagents: Default::default(),
                 work_budget_usd: budget,
                 // What a letting-on of a work the engine paused for its budget allows it beyond that budget: the
@@ -975,8 +997,6 @@ impl Real {
             },
             backup: None,
             sessions: Default::default(),
-            history: Default::default(),
-            query: Default::default(),
         };
         let flow = compiled(on);
         let tokens = Arc::new(service::KeptTokens::new());
@@ -1133,6 +1153,8 @@ impl Real {
             continues: None,
             flow: self.flow.name.clone(),
             writes: request.into_iter().collect(),
+            why: None,
+            waits_for: Vec::new(),
         };
         let (reply, mut answer) = oneshot::channel();
         self.service

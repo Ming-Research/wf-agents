@@ -55,6 +55,7 @@ async fn an_act_that_cannot_be_taken_is_refused_with_why() {
     let error = |words: &str| json!({ "error": words });
     let unprocessable = StatusCode::UNPROCESSABLE_ENTITY;
     let answer = |call: u64| json!({ "kind": "result", "call": call, "result": "Yes." });
+    let go_on = |call: u64| json!({ "kind": "goOn", "call": call });
     assert_eq!(
         post(router, "/api/v1/works/9/acts", &json!({ "kind": "pause" })).await,
         (StatusCode::NOT_FOUND, error("There is no work W9."))
@@ -91,18 +92,33 @@ async fn an_act_that_cannot_be_taken_is_refused_with_why() {
         "{json}"
     );
 
-    // The owner's call answered, the plan hands in and the build asks for the CI: a tool's call, which no person answers.
-    assert_eq!(post(router, ACTS, &answer(2)).await.0, StatusCode::NO_CONTENT);
+    // The plan's run at its limit is let go on, and takes no words of a person as its result.
     assert_eq!(
         post(router, ACTS, &answer(2)).await,
+        (
+            unprocessable,
+            error("Call 2 is a run at its limit: it is let go on and takes no words, and words are said to its cell.")
+        )
+    );
+    assert_eq!(post(router, ACTS, &go_on(2)).await.0, StatusCode::NO_CONTENT);
+    assert_eq!(
+        post(router, ACTS, &go_on(2)).await,
         (unprocessable, error("Call 2 has its result already."))
     );
+    // The plan hands in and the build asks for the CI: a tool's call, which no person answers and is no run at a limit.
     pass(4000).await;
     assert_eq!(
         post(router, ACTS, &answer(4)).await,
         (
             unprocessable,
             error("Call 4 is a tool's: the tool gives its result, not a person.")
+        )
+    );
+    assert_eq!(
+        post(router, ACTS, &go_on(4)).await,
+        (
+            unprocessable,
+            error("Call 4 is no run at its limit, which is all that is let go on.")
         )
     );
 }

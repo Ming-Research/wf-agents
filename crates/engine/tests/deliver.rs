@@ -248,6 +248,7 @@ impl Part for Deliverable {
                     Event::Paused {
                         by: Pauser::Owner,
                         why: None,
+                        waits_for: Vec::new(),
                     }
                 }
             }
@@ -337,6 +338,7 @@ fn one_history(seed: u64, stops: bool, log: &mut Vec<String>) -> (Work, Seen) {
             d.take(Event::Paused {
                 by: Pauser::Owner,
                 why: None,
+                waits_for: Vec::new(),
             });
         }
         let value = if merged_at_first {

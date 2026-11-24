@@ -1231,6 +1231,7 @@ fn a_judge_s_point_the_owner_ruled_on_is_held_as_no_change_to_its_maker() {
     sim.take(Event::Paused {
         by: decide::Pauser::Owner,
         why: None,
+        waits_for: Vec::new(),
     });
     sim.hands_in(&round, &[("ok", "", Some("no")), ("talk", "Greet warmly.", None)]);
     sim.wrote("ok", "", Some("yes"), Outsider::Person);

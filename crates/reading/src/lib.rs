@@ -7,7 +7,7 @@
 //! crate `decide` and the exploration of the repository's own flow (crate `flow`, `tests/explored`), so it is one crate
 //! they share.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use decide::{
     BlockId, CallId, Cause, Cell, CellId, Condition, Finished, Flow, Outsider, Questioned, Records, RunId, Seq,
@@ -60,6 +60,8 @@ pub enum Reason {
 
 pub struct Reading<'a> {
     pub records: &'a Records,
+    /// The blocks whose versions are entries added to a record, which replace none: the flow says which.
+    pub entries: BTreeSet<BlockId>,
     /// Of each judge of the flow, each verdict it hands in with the dialogue it writes its points in, as the flow pairs
     /// them: (the judge, the verdict, the dialogue).
     pub rulings: Vec<(CellId, BlockId, BlockId)>,
@@ -122,7 +124,11 @@ impl<'a> Reading<'a> {
         for e in entries {
             let of_block = versions.entry(e.block.clone()).or_default();
             let own = Some(e.at);
+            // A write that holds nothing says nothing where no version is before it, where the one before holds nothing
+            // too, and where the block adds entries, which replace none (design document `data-and-context`, 9).
+            let nothing = e.empty && (flow.adds_entries(e.block) || of_block.last().is_none_or(|over| over.empty));
             let meaning = match of_block.last() {
+                _ if nothing => of_block.last().and_then(|over| over.meaning),
                 // Handed in as changing nothing, with no version before it, a version says nothing: a person's prose
                 // and a choice excepted, whose meaning their writer does not tell.
                 None if e.value.is_none() && e.by != Writer::Person && !e.matters => None,
@@ -159,8 +165,14 @@ impl<'a> Reading<'a> {
         let rulings = (flow.cells().iter())
             .flat_map(|c| (c.verdicts.iter()).map(|(verdict, of)| (c.id.clone(), verdict.clone(), of.dialogue.clone())))
             .collect();
+        let entries = (flow.cells().iter())
+            .flat_map(|c| c.outputs.iter().chain(&c.runs_on))
+            .filter(|b| flow.adds_entries(b))
+            .cloned()
+            .collect();
         Self {
             records,
+            entries,
             rulings,
             versions,
             started,
@@ -199,7 +211,13 @@ impl<'a> Reading<'a> {
     /// would write over; and a first version but one handed in as changing nothing, which says nothing (design
     /// document `data-and-context`, 9).
     pub fn would_change(&self, run: RunId, write: &Write) -> bool {
-        let Some(over) = self.current(&write.block) else {
+        let over = self.current(&write.block);
+        // A write that holds nothing says nothing where none is before it, where the one before holds nothing too, and
+        // where the block adds entries.
+        if write.empty && (self.entries.contains(&write.block) || over.is_none_or(|over| over.empty)) {
+            return false;
+        }
+        let Some(over) = over else {
             return write.value.is_some() || !write.meaning_unchanged;
         };
         if write.value.is_some() || over.value.is_some() {

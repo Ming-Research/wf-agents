@@ -367,6 +367,7 @@ fn the_pause_of_everything_holds_across_a_stop_and_the_store_keeps_it() {
         Event::Paused {
             by: Pauser::Owner,
             why: None,
+            waits_for: Vec::new(),
         },
     );
     h.reopen();

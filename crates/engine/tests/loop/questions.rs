@@ -728,6 +728,33 @@ fn an_answer_to_no_question_to_no_version_or_with_no_such_option_is_refused() {
     }
 }
 
+// A return sent back is completed by the next, which gives only what the send-back lists: a question the first asked
+// and the send-back did not name stands, and the owner answers it as the question the finished run asked
+// (decision a-sent-back-return-is-completed-by-what-is-missing).
+#[test]
+fn a_question_asked_in_a_return_sent_back_and_completed_by_the_next_is_answered_as_asked() {
+    let (mut w, run) = researching();
+    // The research hands in a block that is not its own, and asks a question beside the plan.
+    let mut first = hands_in(&[("plan", None), ("code", None)]);
+    first.said.questions = vec![asked("which", false)];
+    let effects = w.returns(run, first);
+    assert_eq!(round(&effects).1, "research", "the return is sent back in its run");
+    assert!(w.work.records.finished.is_empty());
+    // The next return gives nothing the send-back lists: what the first returned of the rest stands.
+    let effects = w.returns(run, Came::works(vec![], vec![]));
+    assert_eq!(round(&effects).1, "implement");
+    let version = w.version("which");
+    let version_asked = (w.work.records.questions.iter())
+        .find(|q| q.name == "which")
+        .expect("the question was asked");
+    assert!(
+        matches!(w.work.question(version_asked), Some(Question::Asked { options, .. }) if options.len() == 2),
+        "the question the finished run asked is the one the first return wrote"
+    );
+    w.answers("which", version, 2);
+    assert_eq!(w.work.records.answers.len(), 1);
+}
+
 #[test]
 fn what_stands_for_the_questions_the_answers_and_the_words_is_the_engine_s_alone_to_write() {
     let (mut w, _) = researched(vec![asked("which", true)]);

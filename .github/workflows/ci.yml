@@ -355,7 +355,9 @@ jobs:
             echo "$lock" > node_modules/.wf-lock
           fi
           kept="$HOME/page-builds/$tree"
-          if [ "$(cat node_modules/.wf-tree 2>/dev/null)" = "$tree" ] && [ -f dist/index.html ]; then
+          # The build on the runner is taken as it is where every file its stamp names is as the stamp says, the check
+          # crates/web/build.rs makes, whatever job of whatever branch built it last.
+          if [ -f dist/index.html ] && sha256sum --check --status --strict dist/source.sha256 2>/dev/null; then
             :
           elif [ -f "$kept/index.html" ]; then
             # With today's times: cargo takes files older than its last build for unchanged, and would read the old list.
@@ -366,7 +368,6 @@ jobs:
             tmp=$(mktemp -d "$HOME/page-builds/.new.XXXXXX") && cp -a dist/. "$tmp" && chmod 755 "$tmp" && { mv -T "$tmp" "$kept" 2>/dev/null || rm -rf "$tmp"; }
             find "$HOME/page-builds" -mindepth 1 -maxdepth 1 -mtime +3 -exec rm -rf {} +
           fi
-          echo "$tree" > node_modules/.wf-tree
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
@@ -422,7 +423,9 @@ jobs:
             echo "$lock" > node_modules/.wf-lock
           fi
           kept="$HOME/page-builds/$tree"
-          if [ "$(cat node_modules/.wf-tree 2>/dev/null)" = "$tree" ] && [ -f dist/index.html ]; then
+          # The build on the runner is taken as it is where every file its stamp names is as the stamp says, the check
+          # crates/web/build.rs makes, whatever job of whatever branch built it last.
+          if [ -f dist/index.html ] && sha256sum --check --status --strict dist/source.sha256 2>/dev/null; then
             :
           elif [ -f "$kept/index.html" ]; then
             # With today's times: cargo takes files older than its last build for unchanged, and would read the old list.
@@ -433,7 +436,6 @@ jobs:
             tmp=$(mktemp -d "$HOME/page-builds/.new.XXXXXX") && cp -a dist/. "$tmp" && chmod 755 "$tmp" && { mv -T "$tmp" "$kept" 2>/dev/null || rm -rf "$tmp"; }
             find "$HOME/page-builds" -mindepth 1 -maxdepth 1 -mtime +3 -exec rm -rf {} +
           fi
-          echo "$tree" > node_modules/.wf-tree
       # With the cargo profile ci (Cargo.toml) and nextest's profile ci (.config/nextest.toml), as fast.yml runs them:
       # where the engine gave the line of the history of tests' times (`test_stop`, in seconds), a test still running at
       # it is stopped and fails under its own name; the line is put in a copy of nextest's file, which names the profile

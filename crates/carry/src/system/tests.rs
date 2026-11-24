@@ -94,7 +94,7 @@ fn of(line: &str) -> String {
     let cell = cell(&flow, line);
     let protected = &declaration.protected.paths;
     let tests = cell.tests_only.then(|| crate::tests_only::paths(&declaration));
-    let permissions = Permissions::of(cell.reads_only, &[], &[], &Default::default());
+    let permissions = Permissions::of(cell.reads_only, &[], std::path::Path::new("/x/T"), &[]);
     let your_line = permissions.told(&beside.your_line, protected, tests);
     let filling = filling(&settings, &beside, &declaration);
     of_line(&beside, &declaration, &filling, &flow, cell, &your_line, project).expect("it is made")
@@ -381,7 +381,7 @@ impl Line {
     /// What a new session of the line begins with now, as a round makes it.
     fn now(&self, what: Begun) -> Result<String, String> {
         let cell = cell(&self.flow, "engineer");
-        let permissions = Permissions::of(cell.reads_only, &[], &[], &Default::default());
+        let permissions = Permissions::of(cell.reads_only, &[], std::path::Path::new("/x/T"), &[]);
         self.of
             .begins_with(&self.flow, cell, &permissions, &self.worktree(), what)
     }
@@ -735,31 +735,24 @@ fn the_project_files_are_looked_for_where_works_branch_from() {
     assert_eq!(project_files(&project, &beside, &declaration), Vec::<String>::new());
 }
 
-// The place `{store}` in the words of `query` is filled by `crate::store`: the file's words that the store is not open
-// where the settings leave it closed, which they do unless the owner opens it, and what is given as the description
-// where it is.
+// The place `{store}` in the words of `query` is filled by `crate::store`, which describes the store as the comments of
+// its schema do: what the filling holds reaches the prompt in that place, and no setting leaves the place unfilled.
 #[test]
-fn the_store_the_words_of_query_name_is_what_the_settings_say_of_it() {
+fn the_store_the_words_of_query_name_is_what_the_schema_says_of_it() {
     let (beside, declaration, flow) = (beside(), declaration(), engineer());
-    let closed = &beside.tools["query"].texts["closed"];
     let cell = cell(&flow, "engineer");
     let prompt =
         |filling: &Filling| of_line(&beside, &declaration, filling, &flow, cell, "", project).expect("it is made");
     let settings = settings();
-    assert!(
-        !settings.query.open,
-        "the store is closed to agents unless the owner opens it"
-    );
-    assert_eq!(&crate::store(&settings, &beside).unwrap(), closed);
-    let shut = prompt(&filling(&settings, &beside, &declaration));
-    assert!(shut.contains(&format!("{{\"sql\": \"...\"}}`. {closed}")), "{shut}");
-    assert!(!shut.contains("{store}"), "{shut}");
-    // What describes the store, as `crate::store` gives it where it is open, reaches the prompt in the same place.
-    let mut open = filling(&settings, &beside, &declaration);
-    open.store = "### `things`\n- `id` INTEGER".to_string();
-    let told = prompt(&open);
+    let made = filling(&settings, &beside, &declaration);
+    assert_eq!(made.store, crate::store(&beside));
+    let told = prompt(&made);
+    assert!(told.contains(&made.store), "{told}");
+    assert!(!told.contains("{store}"), "{told}");
+    let mut other = made;
+    other.store = "### `things`\n- `id` INTEGER".to_string();
+    let told = prompt(&other);
     assert!(told.contains("### `things`\n- `id` INTEGER"), "{told}");
-    assert!(!told.contains(closed.as_str()), "{told}");
 }
 
 /// The five columns of the real schema that hold what agents may not read, each with its table.
@@ -771,23 +764,19 @@ const HIDDEN_COLUMNS: [(&str, &str); 5] = [
     ("calls", "what"),
 ];
 
-// With the store open and the real schema, the description of the store reaches the system prompt, with each table the
-// schema keeps and none of the columns it hides.
+// With the real schema, the description of the store reaches the system prompt, with each table the schema keeps and
+// none of the columns it hides.
 #[test]
 fn the_real_store_opened_to_agents_is_described_in_the_system_prompt_without_the_columns_the_schema_hides() {
     let (beside, declaration, flow) = (beside(), declaration(), engineer());
-    let mut open = settings();
-    open.query.open = true;
+    let open = settings();
     assert_eq!(faults(&open, &beside, &declaration, &flow), Faults::default());
     let cell = cell(&flow, "engineer");
     let filling = filling(&open, &beside, &declaration);
     let told = of_line(&beside, &declaration, &filling, &flow, cell, "", project).expect("it is made");
-    let described = crate::store(&open, &beside).expect("the schema hides what agents may not read");
+    let described = crate::store(&beside);
     assert!(told.contains(&described), "{told}");
-    assert!(
-        !told.contains("{store}") && !told.contains("is not open to agents yet"),
-        "{told}"
-    );
+    assert!(!told.contains("{store}"), "{told}");
     for (table, hidden) in HIDDEN_COLUMNS {
         let section = described
             .split("\n\n")

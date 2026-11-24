@@ -20,13 +20,11 @@ CREATE TABLE secrets (
 
 fn texts() -> BTreeMap<String, String> {
     [
-        ("closed", "The store is not open to agents yet."),
         ("unreadable", "Not read."),
         ("error", "The query failed: {why}"),
         ("timeout", "Stopped after {ms} ms."),
         ("unavailable", "The store could not be read."),
         ("row_too_long", "A row is over {bytes} bytes."),
-        ("hides_nothing", "Nothing is hidden."),
         ("store_table", "### {table}: {comment}\n{columns}"),
         ("store_column", "- {column} {type}"),
         ("store_column_commented", "- {column} {type}: {comment}"),
@@ -51,7 +49,7 @@ struct Kept {
     querying: Querying,
 }
 
-fn kept(rows: usize, limits: settings::Query) -> Kept {
+fn kept(rows: usize, limits: Limits) -> Kept {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join(store::FILE);
     let db = Connection::open(&file).unwrap();
@@ -65,7 +63,7 @@ fn kept(rows: usize, limits: settings::Query) -> Kept {
         .unwrap();
     }
     db.execute("INSERT INTO secrets (value) VALUES ('hush')", []).unwrap();
-    let querying = Querying::new(&limits, Some(&tool("Words. {store}")), dir.path(), SCHEMA).unwrap();
+    let querying = Querying::new(limits, Some(&tool("Words. {store}")), dir.path(), SCHEMA);
     Kept {
         dir,
         _db: db,
@@ -74,11 +72,8 @@ fn kept(rows: usize, limits: settings::Query) -> Kept {
     }
 }
 
-fn on() -> settings::Query {
-    settings::Query {
-        open: true,
-        ..Default::default()
-    }
+fn on() -> Limits {
+    Limits::FIXED
 }
 
 fn ask(querying: &Querying, sql: &str) -> String {
@@ -93,7 +88,7 @@ fn rows(answer: &str) -> Vec<Value> {
 fn open_of(kept: &Kept) -> Open {
     Open {
         store: kept.file.clone(),
-        limits: Limits::of(&on()),
+        limits: on(),
         hidden: vec!["secrets".to_string()],
         hidden_columns: vec![("things".to_string(), "place".to_string())],
     }
@@ -233,7 +228,7 @@ fn a_table_or_a_column_hidden_from_agents_is_not_read_and_nor_is_the_schema() {
 
 #[test]
 fn rows_past_the_row_limit_are_not_kept_and_the_query_for_the_rest_is_given() {
-    let kept = kept(5, settings::Query { max_rows: 2, ..on() });
+    let kept = kept(5, Limits { max_rows: 2, ..on() });
     let answer = ask(&kept.querying, "SELECT id FROM things ORDER BY id;");
     assert_eq!(rows(&answer), [json!({"id": 1}), json!({"id": 2})]);
     let cut: Value = serde_json::from_str(&answer).unwrap();
@@ -244,7 +239,7 @@ fn rows_past_the_row_limit_are_not_kept_and_the_query_for_the_rest_is_given() {
 
 #[test]
 fn the_rest_of_a_query_keys_its_rows_as_the_query_did_and_is_not_undone_by_what_follows_it() {
-    let kept = kept(4, settings::Query { max_rows: 2, ..on() });
+    let kept = kept(4, Limits { max_rows: 2, ..on() });
     let sql = "SELECT a.id, b.id, c.id FROM things a, things b, things c WHERE b.id = 1 AND c.id = 2 ORDER BY a.id";
     let answer = ask(&kept.querying, sql);
     assert_eq!(rows(&answer)[0], json!({"id": 1, "id:1": 1, "id:2": 2}));
@@ -282,7 +277,7 @@ fn the_end_of_a_statement_is_found_past_its_comments_and_semicolons() {
 
 #[test]
 fn rows_past_the_byte_limit_are_not_kept() {
-    let kept = kept(50, settings::Query { max_bytes: 200, ..on() });
+    let kept = kept(50, Limits { max_bytes: 200, ..on() });
     let answer = ask(&kept.querying, "SELECT name FROM things ORDER BY id");
     let kept_rows = rows(&answer).len();
     assert!((1..50).contains(&kept_rows), "{kept_rows}");
@@ -294,7 +289,7 @@ fn rows_past_the_byte_limit_are_not_kept() {
 fn a_row_over_the_byte_limit_is_refused_even_the_first_and_even_of_many_columns() {
     let kept = kept(
         1,
-        settings::Query {
+        Limits {
             max_bytes: 1000,
             ..on()
         },
@@ -310,7 +305,13 @@ fn a_row_over_the_byte_limit_is_refused_even_the_first_and_even_of_many_columns(
 
 #[test]
 fn a_query_that_runs_too_long_is_stopped() {
-    let kept = kept(1, settings::Query { timeout_ms: 50, ..on() });
+    let kept = kept(
+        1,
+        Limits {
+            timeout: Duration::from_millis(50),
+            ..on()
+        },
+    );
     let began = Instant::now();
     let answer = ask(
         &kept.querying,
@@ -322,7 +323,13 @@ fn a_query_that_runs_too_long_is_stopped() {
 
 #[test]
 fn one_call_over_long_values_costs_what_the_value_limit_allows_however_the_values_are_made() {
-    let kept = kept(1, settings::Query { timeout_ms: 50, ..on() });
+    let kept = kept(
+        1,
+        Limits {
+            timeout: Duration::from_millis(50),
+            ..on()
+        },
+    );
     // The progress handler runs between instructions: this is one, over two strings of a megabyte.
     let began = Instant::now();
     let made = "SELECT instr(hex(zeroblob(500000)), substr(hex(zeroblob(500000)), 1, 200000) || '1')";
@@ -356,8 +363,8 @@ fn one_call_over_long_values_costs_what_the_value_limit_allows_however_the_value
 fn a_query_told_to_stop_is_stopped_where_it_runs() {
     let kept = kept(
         1,
-        settings::Query {
-            timeout_ms: 60_000,
+        Limits {
+            timeout: Duration::from_millis(60_000),
             ..on()
         },
     );
@@ -393,7 +400,7 @@ fn a_query_told_to_stop_is_stopped_where_it_runs() {
 fn a_failure_that_is_not_the_querys_is_told_in_the_files_words_never_the_librarys() {
     let dir = tempfile::tempdir().unwrap();
     // No store file is there to open.
-    let querying = Querying::new(&on(), Some(&tool("Words.")), dir.path(), SCHEMA).unwrap();
+    let querying = Querying::new(on(), Some(&tool("Words.")), dir.path(), SCHEMA);
     let said = ask(&querying, "SELECT 1");
     assert_eq!(said, "The store could not be read.");
     assert!(!said.contains(&dir.path().display().to_string()));
@@ -512,42 +519,37 @@ fn the_real_schema_is_read_table_by_table() {
     assert!(all.iter().all(|t| !t.columns.is_empty()));
 }
 
+// The bounds every installation has are fixed: 200 rows, 5 seconds, a megabyte of rows and 64 KiB for one value. They
+// are the bounds the installation's settings gave by default before they were fixed. Reference: those numbers.
 #[test]
-fn the_switch_is_refused_while_the_schema_hides_nothing_from_agents() {
-    let dir = tempfile::tempdir().unwrap();
-    let nothing = "-- The things.\nCREATE TABLE things (\n    id INTEGER PRIMARY KEY\n);\n";
-    let refused = Querying::new(&on(), Some(&tool("Words.")), dir.path(), nothing).unwrap_err();
-    assert_eq!(refused, "Nothing is hidden.");
-    // A hidden column alone is a mark, and a switch off needs none.
-    let column = "CREATE TABLE things (\n    -- Hidden from agents.\n    id INTEGER PRIMARY KEY\n);\n";
-    assert!(Querying::new(&on(), Some(&tool("Words.")), dir.path(), column).is_ok());
-    assert!(Querying::new(&settings::Query::default(), Some(&tool("Words.")), dir.path(), nothing).is_ok());
+fn the_bounds_of_a_query_are_the_same_for_every_installation() {
+    assert_eq!(
+        (
+            Limits::FIXED.max_rows,
+            Limits::FIXED.timeout,
+            Limits::FIXED.max_bytes,
+            Limits::FIXED.max_value_bytes
+        ),
+        (200, Duration::from_millis(5_000), 1_048_576, 65_536)
+    );
 }
 
+// The store is open to the tool as the tool is made: no setting opens it, and it describes the tables the schema does
+// not hide, with the words of the tool's file.
 #[test]
-fn with_the_switch_off_the_request_is_answered_in_the_files_words_and_the_store_is_not_touched() {
+fn the_store_is_always_open_to_the_tool_and_described_without_what_the_schema_hides() {
     let dir = tempfile::tempdir().unwrap();
-    // No store file is there: an open store would fail to be opened, and an opened one would make the file.
-    let off = Querying::new(
-        &settings::Query::default(),
-        Some(&tool("Words. {store}")),
-        dir.path(),
-        SCHEMA,
-    )
-    .unwrap();
-    let said = "The store is not open to agents yet.";
-    let cancel = Arc::new(Cancel::default());
-    assert_eq!(off.answer(&json!({ "sql": "SELECT 1" }).to_string(), &cancel), said);
-    assert_eq!(off.answer("garbage", &cancel), said);
-    assert_eq!(off.words(), format!("Words. {said}"));
-    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0, "nothing was made");
+    let querying = Querying::new(on(), Some(&tool("Words. {store}")), dir.path(), SCHEMA);
+    let said = querying.words();
+    assert!(said.contains("### things") && said.contains("- name "), "{said}");
+    assert!(!said.contains("secrets") && !said.contains("place"), "{said}");
 }
 
 #[test]
 fn a_query_of_the_real_store_naming_a_column_its_schema_hides_is_refused_and_one_of_the_others_is_answered() {
     let dir = tempfile::tempdir().unwrap();
     let store = store::Store::open(dir.path().join(store::FILE)).unwrap();
-    let querying = Querying::new(&on(), Some(&tool("Words.")), dir.path(), store::SCHEMA).unwrap();
+    let querying = Querying::new(on(), Some(&tool("Words.")), dir.path(), store::SCHEMA);
     for (table, column) in [
         ("ran", "directory"),
         ("backup_failures", "why"),
