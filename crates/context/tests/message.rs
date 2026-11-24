@@ -568,6 +568,7 @@ reasons! {
     Merging { changes: "x".into() } => "merging",
     TreeUnchanged { name: "x".into() } => "tree_unchanged",
     NotAnEntry { line: "x".into() } => "not_an_entry",
+    TreeForm { lines: vec![] } => "tree_form",
     Unanswered { block: BlockId::from("b") } => "unanswered",
     WordOwed { name: BlockId::from("b"), watched: vec![] } => "word_owed",
     NoPoint { block: BlockId::from("b"), value: "v".into(), name: BlockId::from("b") } => "no_point",

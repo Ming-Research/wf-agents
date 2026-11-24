@@ -527,7 +527,9 @@ async fn the_forms_are_held_only_where_the_works_change_changes_the_tree() {
         "design/decisions/faulty.md",
         "# Faulty\n\nWhat it covers.\n\n### decision keep-it\nIt holds.\n",
     );
-    let started = git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+    let started = git::start(&repo.project, &repo.place(WORK), "main", "main")
+        .await
+        .unwrap();
     let place = started.place;
     let rules = rules();
     let said = |commit: String, place: Place| {

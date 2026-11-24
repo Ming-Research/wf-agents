@@ -277,7 +277,7 @@ async fn a_job_red_with_no_failed_test_of_its_own_fails_the_commit_beside_a_test
 // second alone, a repository on disk and GitHub in memory; no other test holds a job of no tests to its own file.
 #[tokio::test]
 async fn a_design_tree_check_that_failed_fails_the_commit_by_its_step_and_runs_no_test_again() {
-    let step = r#"<testsuites><testsuite name="tree"><error message="the step Check the design tree's forms of the job failed"/></testsuite></testsuites>"#;
+    let step = r#"<testsuites><testsuite name="tree"><error message="the step Citations of the documents of the job failed"/></testsuite></testsuites>"#;
     let hub = Hub::new();
     hub.with_workflow(CI);
     let head = hub.committed().await;
@@ -297,7 +297,7 @@ async fn a_design_tree_check_that_failed_fails_the_commit_by_its_step_and_runs_n
     assert!(!failed.contains("run again"), "{failed}");
     assert!(failed.contains("- tree: failed (failure)"), "{failed}");
     assert!(
-        failed.contains("tree: the step Check the design tree's forms of the job failed"),
+        failed.contains("tree: the step Citations of the documents of the job failed"),
         "{failed}"
     );
     assert_eq!(runs(&hub).len(), 1, "only the full workflows ran");

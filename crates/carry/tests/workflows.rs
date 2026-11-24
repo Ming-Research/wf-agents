@@ -1124,8 +1124,8 @@ fn the_jobs_that_run_no_tests_say_a_step_that_failed_and_the_tree_job_always_has
     let steps = |failed: Option<&str>| {
         [
             "Check out the commit",
-            "Check the design tree's forms",
-            "Test the design tree's check",
+            "Citations of the documents",
+            "Test the citations' check",
         ]
         .map(|step| format!("{} {step}", if failed == Some(step) { "failure" } else { "success" }))
         .join("\n")
@@ -1147,8 +1147,8 @@ fn the_jobs_that_run_no_tests_say_a_step_that_failed_and_the_tree_job_always_has
     );
     for failed in [
         "Check out the commit",
-        "Check the design tree's forms",
-        "Test the design tree's check",
+        "Citations of the documents",
+        "Test the citations' check",
     ] {
         let error = format!(
             "<testsuites><testsuite name=\"tree\"><error message=\"the step {failed} of the job failed\"/></testsuite></testsuites>\n"
