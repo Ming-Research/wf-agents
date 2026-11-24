@@ -208,8 +208,8 @@ mod tests {
     }
 
     // A work the driver holds at fault, as it does where the deciding code goes round on its records without end, is
-    // decided no more: it holds no turn and wants none, so that the work whose turn comes next is the next one's, and
-    // not the turn of a work that does nothing. Fails where the hold it had before stays.
+    // decided no more: it holds no turn and wants none, so the turn goes to the work that waits for it and not on
+    // standing with a work that does nothing. Fails where the hold it had before stays.
     #[test]
     fn a_work_held_at_fault_holds_the_turn_no_more_and_wants_none() {
         let mut held = holding();
@@ -217,12 +217,17 @@ mod tests {
             held.turned.holds,
             "its round of a cell that takes the turn is under way"
         );
-        assert_eq!(whose([(WorkNumber(1), &held.turned)]), Some(WorkNumber(1)));
+        let waiting = Turned {
+            wants: Some(Time(500)),
+            ..Turned::default()
+        };
+        let works = |held: &Turned| [(WorkNumber(1), held), (WorkNumber(2), &waiting)];
+        assert_eq!(whose(works(&held.turned)), Some(WorkNumber(1)));
         let kept = held.work.clone();
         held.hold_at_fault(kept);
         assert_eq!(held.standing, Standing::AtFault);
         assert!(!held.turned.holds);
         assert_eq!(held.turned.wants, None);
-        assert_eq!(whose([(WorkNumber(1), &held.turned)]), None);
+        assert_eq!(whose(works(&held.turned)), Some(WorkNumber(2)));
     }
 }
