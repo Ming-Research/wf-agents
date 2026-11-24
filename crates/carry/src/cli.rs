@@ -1462,6 +1462,24 @@ mod tests {
         assert_eq!(read.structured["hands_in"][0]["content"], "BANANA");
     }
 
+    // The carrier prices a stream's calls again only for a line the stream keeps ([`Stream::line`]), since pricing each
+    // time grows with the square of the calls. Fails where a line that changes what the calls or the cost come to is
+    // not kept: the carrier would then tell the owner a figure that lags.
+    #[test]
+    fn a_line_the_stream_does_not_keep_changes_neither_its_calls_nor_its_cost() {
+        let mut stream = Stream::default();
+        let mut not_kept = 0;
+        for line in STREAM.lines() {
+            let (cost, own) = (stream.cost(), stream.own.clone());
+            if !stream.line(line.as_bytes()) {
+                not_kept += 1;
+                assert_eq!((stream.cost(), &stream.own), (cost, &own), "{line}");
+            }
+        }
+        assert!(not_kept > 0, "the stream holds partial messages no call depends on");
+        assert_eq!(stream.own.count, 2, "and its calls are still told");
+    }
+
     #[test]
     fn the_stream_tells_each_call_of_the_agents_own_its_tools_and_the_programs_version_and_the_result_what_it_took() {
         let mut stream = Stream::default();

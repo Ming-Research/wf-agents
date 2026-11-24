@@ -776,7 +776,7 @@ impl Inner {
                     let mut told_going = Going::default();
                     let ran = {
                         let mut each = |line: &[u8]| {
-                            kept.line(line);
+                            let changed = kept.line(line);
                             // The service serves the round: a wait every work shares need not wait for its end.
                             if !told_answered && kept.stream.answered() {
                                 told_answered = true;
@@ -793,13 +793,17 @@ impl Inner {
                             // What the calls have come to so far, against the lines the guard judges the round by, is
                             // told as it changes: a call's tokens come as it begins and again as it ends, so its cost
                             // grows after the count does. No record holds it, and the owner reads it while the round
-                            // runs.
-                            let calls = kept.calls();
-                            let going =
-                                Going::of(&round.lines, calls.count, calls.last, calls.added, kept.stream.cost().0);
-                            if going != told_going {
-                                told_going = going;
-                                teller.going(round.number, going);
+                            // runs. A partial message that no call or return depends on changes none of it, and is
+                            // most of a stream's lines: pricing every call again for each would grow with the square
+                            // of the calls.
+                            if changed {
+                                let calls = kept.calls();
+                                let going =
+                                    Going::of(&round.lines, calls.count, calls.last, calls.added, kept.stream.cost().0);
+                                if going != told_going {
+                                    told_going = going;
+                                    teller.going(round.number, going);
+                                }
                             }
                             if crossed.is_none()
                                 && let Some(crossing) = guard.judge(kept.calls())
@@ -2333,13 +2337,16 @@ impl Keeping {
         measures(&self.stream, given, before, crossed, priced)
     }
 
-    /// Takes a line of the stream, without its newline.
-    fn line(&mut self, line: &[u8]) {
+    /// Takes a line of the stream, without its newline, and says whether it is kept with the round: a line that is
+    /// not changes nothing of what the stream holds, calls and cost included.
+    fn line(&mut self, line: &[u8]) -> bool {
         use std::io::Write;
-        if self.stream.line(line) && self.fault.is_none() {
+        let kept = self.stream.line(line);
+        if kept && self.fault.is_none() {
             let written = (self.file.write_all(line)).and_then(|()| self.file.write_all(b"\n"));
             self.fault = written.err();
         }
+        kept
     }
 
     /// The stream as it was read; or why it could not be kept.
