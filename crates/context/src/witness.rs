@@ -914,10 +914,13 @@ fn carries(cell: &CellSpec, must: usize, optional: usize) -> Vec<Carry> {
             ..plain
         }));
     }
-    // Every block handed in that was written before as changing nothing in meaning, and each of the first few alone.
+    // Every block handed in that was written before as changing nothing in meaning, each of the first few alone, and
+    // all but each of the first few.
+    let first = (must + optional).min(12);
     all.extend(
         [u32::MAX, 0b1, 0b10, 0b100, 0b1000, 0b10000]
             .into_iter()
+            .chain((0..first).map(|k| !(1u32 << k)))
             .map(|unmatters| Carry { unmatters, ..all_of }),
     );
     all.extend([
