@@ -26,7 +26,7 @@ The items form one tree by what depends on what: where one item depends on anoth
 - replaced: A grey padlock on a card with the count of the open items it depends on was on main; the owner changed it, because everything an item waits for stands under it, so the count only said again what the tree shows.
 
 ### decision an-item-stands-in-one-place
-An item stands whole in one place, under the lowest-numbered item that depends on it; under each other item that depends on it, a shadow of it points there.
+An item stands whole in one place, under the lowest-numbered item of its own project that depends on it; under each other item that depends on it, a shadow of it points there.
 - rejected: an agent proposed a count, on the item, of the other items that depend on it; the owner rejected it, because a count does not say which they are.
 - rejected: an agent proposed linking the item to the others that depend on it only while the pointer is on it; the owner rejected it, because the link could not be found without pointing at the item.
 - replaced: A main dependent chosen for each item was on main; the owner changed it, because the code takes the lowest-numbered one, and a decision never runs ahead of the code.
@@ -86,8 +86,9 @@ The selected item and the item under the pointer stand in a soft light, a blurre
 - replaced: The same blue round every card that was selected or under the pointer was on main; the owner changed it, because the light should be in the item's own colour, red for red and grey for grey.
 
 ### decision the-boxes-choose-the-items-shown
-Three check boxes over the tree's corner, Open, Done and Cancelled, one under another, choose which items the tree shows: only Open at first, and the choice is kept in the browser.
+Three check boxes right of the map, Open, Done and Cancelled, one under another, choose which items every tree shows: only Open at first, and the choice is kept in the browser.
 - replaced: One switch, Open or All, was on main; the owner changed it, because done or cancelled items alone could not be shown with it.
+- replaced: A place under the map was on main; the owner changed it, because the list of the projects took that place.
 
 ### decision an-item-is-brought-just-into-view
 Selecting an item that is off the screen, or half under the window, moves the tree only until the item is wholly in the part of the view the window leaves free.
@@ -98,7 +99,7 @@ A click on the item's title in its window brings the item into view and flashes 
 - replaced: A click on the title that only moved the tree was on main; the owner changed it, because with the card already in view beside the window the click did nothing he could see.
 
 ### decision an-item-is-found-from-a-box-the-slash-opens
-`/` opens a box over the console's top that finds any item by its number or a part of its title, eight at most; a pick selects it, its kind ticked and the folds over it opened.
+`/` opens a box over the console's top that finds any item of any project by its number or a part of its title, eight at most; a pick shows its project's tree and selects it.
 - replaced: A field always shown under the boxes at the tree's corner was on main; the owner changed it, because what it found had no room under it, and he wanted it only while he searches, as Spotlight is.
 - replaced: Finding an item by its path from its root, as 26-27, was on main; the owner changed it, because with the search he needs no path.
 
@@ -109,10 +110,36 @@ While the search is open the tree is dimmed, as round the item under the pointer
 - replaced: Finding an item only by scrolling the tree was on main; the owner changed it, because once many items were imported he could not find one he looked for.
 
 ### decision the-owner-walks-the-stops-by-keys
-n goes to the next of what the red and orange counts count, N to the one before, in the tree's order and each window's, round from the last; Next, left of Discuss on each but the last, does as n.
+n goes to the next of what the red and orange counts count, N to the one before, tree by tree in the list's order, round from the last; Next, left of Discuss on each but the last, does as n.
 - replaced: A button Next question on a row of its own under Discuss was on main; the owner changed it, because the two buttons go together on one row, and Next is shorter.
 - replaced: Finding each thing to handle by looking for a card with a count and scrolling its window was on main; the owner changed it, because he works by those counts, and wanted to go from one thing he handles to the next by keys.
 
 ### decision the-map-draws-each-item-and-the-screen
 The map draws each item as a piece of its column's bar in the colour of its card's state, and frames in a thin light line the part of the tree the screen shows.
 - replaced: Each column as one light bar, with red marks where works waited for the owner, was on main; the owner changed it, because the map should show how each item stands and where the screen is in the tree.
+
+### decision each-project-has-a-tree-of-its-own
+The console shows the tree of one project at a time, of the items of that project, and the owner goes from one project's tree to another by the list of the projects under the map.
+- replaced: One tree of the items of every project was on main; the owner changed it, because with several projects he wanted a quick way to go from one project to another.
+
+### decision the-projects-are-listed-under-the-map
+Under the map, the projects stand in a list the owner orders by dragging, each name after the key 1 to 9 that shows its tree, and after it what waits for the owner there, as the bar counts it.
+- rejected: an agent proposed the projects as cards in a column at the tree's left, each with its counts, chosen by the up and down keys; the owner rejected it, because he wanted to switch projects by the keys 1 to 9, from a list under the map he can order.
+
+### decision another-projects-tree-grows-out-from-behind
+The projects' trees stand one behind another in the list's order: going on, the next grows out from behind as the one left grows past and fades, and back the other way; each keeps its scroll.
+- rejected: the owner proposed the trees side by side, the next one sliding in from above or below; the owner rejected it, because he wanted the next tree to grow out from behind and the one in front to grow past it and fade.
+
+### decision space-shows-every-projects-tree
+Space shows every project's tree at once, small in a grid as near square as fits, with its key and name, the one shown framed in the accent; a key or a click shows a tree, Space or Escape goes back.
+- rejected: the owner proposed the trees one behind another on a line from the top right to the bottom left, as Vista's switcher, scrolled through; the owner rejected it, because it looked bad and was slow to use.
+- rejected: an agent proposed the tree shown shrinking into its place in the grid as the overview opens; the owner rejected it, because the motion looked strange, and wanted the trees to fade where they stand.
+
+### decision the-overview-draws-every-tree-as-it-stands
+While Space shows every tree, the page draws each in turn, a few milliseconds a frame, as finely as it stands small, so that each shows how its project stands within a moment.
+- rejected: an agent proposed drawing every tree as finely as the screen, so that going to another tree draws it at once; the owner rejected it, because he chose the trees in the overview drawn more often over a quicker going to another tree.
+- rejected: an agent proposed a picture of each tree, drawn once and shown in the overview until its items changed; the owner rejected it, because the overview must show each project's real state with little delay.
+
+### decision what-stands-over-the-tree-stands-still
+The map, the list of the projects and the boxes stand still while the trees move, go at once as Space shows every tree, and come back at once as it closes.
+- rejected: an agent proposed the map moving with its tree, and then fading back in once the tree stood; the owner rejected it, because the map moved or faded while the list and the boxes did not, which looked strange.

@@ -10,7 +10,7 @@ import { type Source, SourceContext, sourceOf } from '../works/source';
 import type { Changed } from '../works-api';
 import type { AccountAsked, AccountDone, AccountsPage, SettingsChange, SettingsPage, SystemSource } from './api';
 import { SystemSourceContext } from './api';
-import { fixtureAccounts, fixtureSettings, fixtureSystem } from './fixtures';
+import { fixtureAccounts, fixtureProjects, fixtureSettings, fixtureSystem } from './fixtures';
 import { SettingsView } from './SettingsView';
 
 let unmounts: (() => void)[] = [];
@@ -144,6 +144,16 @@ const storedText = () =>
     .join('\n');
 const save = (root: ParentNode) =>
   [...root.querySelectorAll('.view-line button')].find((b) => b.textContent === 'Save') as HTMLButtonElement;
+/// The sections of the view, by their labels, in order.
+const parts = (root: ParentNode) => [...root.querySelectorAll<HTMLElement>('section.panel-part')];
+const labels = (root: ParentNode) => parts(root).map((p) => p.querySelector('h3')?.textContent);
+const part = (root: ParentNode, label: string) =>
+  parts(root).find((p) => p.querySelector('h3')?.textContent === label) as HTMLElement;
+/// The heads of a section, its own and its tables', in order.
+const heads = (root: ParentNode) => [...root.querySelectorAll('h4')].map((h) => h.textContent);
+/// Each key of a table, with its value as the table shows it.
+const pairs = (table: Element) =>
+  [...table.querySelectorAll('.pair')].map((p) => [p.querySelector('dt')?.textContent, p.querySelector('dd')?.textContent]);
 
 describe('the Settings view', () => {
   it('shows each key the page changes in a box, and the rest of the file as it writes it, with what the engine runs with', async () => {
@@ -164,17 +174,15 @@ describe('the Settings view', () => {
     expect(slots.lastElementChild?.textContent).toBe('2');
     const limit = box(page, 'sessions.compact_at').closest('tr')!;
     expect(limit.lastElementChild?.textContent).toBe('500000 · left out of the file');
-    const fileOnly = [...page.querySelectorAll('.file-table')];
+    const fileOnly = [...part(page, 'Changed in install.toml only').querySelectorAll('.file-table')];
     expect(fileOnly.map((t) => t.querySelector('h4')?.textContent)).toEqual([
-      '[project]',
       '[agents]',
       '[agents.levels.1]',
       '[agents.levels.2]',
       '[agents.levels.3]',
       '[items]',
-      '[github]',
     ]);
-    const agents = fileOnly[1];
+    const agents = fileOnly[0];
     expect([...agents.querySelectorAll('dt')].map((d) => d.textContent)).toEqual([
       'command',
       'env',
@@ -268,6 +276,101 @@ describe('the Settings view', () => {
     expect(save(page).title).toContain('has changes not committed');
     expect(page.querySelector('.read-failed')).toBeNull();
     expect(page.querySelector('.view-fault')?.textContent).toBe('The file does not read as settings: items.unknown: no such key');
+  });
+
+  it("gives each project a section after the installation's: its tables of the file, then its declaration as the engine read it, key by key as written", async () => {
+    const s = settingsSource();
+    const page = draw(s.source);
+    await settle();
+    expect(labels(page)).toEqual([
+      'Changed here',
+      'Changed in install.toml only',
+      'Project wf-agents',
+      'Project site',
+      'Project notes',
+      'Project drafts',
+      'Accent, kept in this browser',
+    ]);
+    expect(part(page, 'Changed in install.toml only').textContent).not.toContain('projects.');
+    const own = part(page, 'Project wf-agents');
+    expect(own.querySelector('h3 .mono')?.textContent).toBe('wf-agents');
+    expect(heads(own)).toEqual([
+      'Changed in install.toml only',
+      '[projects.wf-agents]',
+      '[projects.wf-agents.github]',
+      'Changed in wf-agents.toml only',
+      'top level',
+      '[files.guide]',
+      '[files.constitution]',
+      '[project]',
+      '[tests]',
+      '[ci.fast]',
+      '[ci.full]',
+      '[pull_request]',
+      '[protected]',
+      '[heavy]',
+      '[environment]',
+    ]);
+    const declared = own.querySelectorAll('h4.label')[1] as HTMLElement;
+    expect(declared.title).toBe(
+      'The engine read it from refs/remotes/origin/main:wf-agents.toml as it started, and runs with it until it starts again',
+    );
+    // The installation's tables of the project as its other tables are shown, a key it leaves out with what the engine
+    // runs with; the declaration's keys each with its value as written, one over lines kept so, and nothing beside it.
+    const tables = [...own.querySelectorAll('.file-table')];
+    expect(pairs(tables[0])).toEqual([
+      ['repo', '"/path/to/wf-agents"'],
+      ['main', '"main"'],
+      ['allowed_config', 'left out · runs with []'],
+    ]);
+    expect(pairs(tables[2])).toEqual([['tree', '"design/"']]);
+    expect(pairs(tables[6])).toEqual([['paths', '[\n  ":(glob)crates/**/tests/**",\n  ":(glob)client/**/*.test.ts",\n]']]);
+    expect(pairs(tables[9])).toEqual([['merge_method', '"squash"'], ['delete_branch', 'true']]);
+    expect(own.querySelector('input, select, button')).toBeNull();
+  });
+
+  it('says why the engine holds a project, in its words, and that it read no declaration of one the file named only since it started', async () => {
+    const s = settingsSource();
+    const page = draw(s.source);
+    await settle();
+    const notes = part(page, 'Project notes');
+    expect(heads(notes)).toEqual(['Changed in install.toml only', '[projects.notes]', 'Changed in wf-agents.toml only']);
+    const held = fixtureProjects().find((p) => p.name === 'notes')!.declaration;
+    if (held.kind !== 'held') throw new Error('The fixtures hold the project notes');
+    expect(notes.querySelector('p.failed')?.textContent).toBe(
+      `Held, its works paused until the engine starts with its declaration mended: ${held.why}`,
+    );
+    expect((notes.querySelectorAll('h4.label')[1] as HTMLElement).title).toBe(
+      "The engine reads it from the project's main as it starts, and runs with what it read until it starts again",
+    );
+    const drafts = part(page, 'Project drafts');
+    expect(heads(drafts)).toEqual(['Changed in install.toml only', '[projects.drafts]', 'Changed in wf-agents.toml only']);
+    expect(pairs(drafts.querySelector('.file-table')!)).toEqual([
+      ['repo', '"/path/to/drafts" · runs with none'],
+      ['main', '"main" · runs with none'],
+    ]);
+    expect(drafts.querySelector('p.failed')).toBeNull();
+    expect(drafts.querySelector('p.muted')?.textContent).toBe(
+      "Not read: the engine reads a project's declaration as it starts, and the file did not name this project then.",
+    );
+  });
+
+  it('shows one project alone, a table its declaration writes with no keys by its head, and none where there is no project', async () => {
+    const site = fixtureProjects().find((p) => p.name === 'site')!;
+    const one = draw(settingsSource({ ...fixtureSettings(), projects: [site] }).source);
+    await settle();
+    expect(labels(one)).toEqual([
+      'Changed here',
+      'Changed in install.toml only',
+      'Project site',
+      'Accent, kept in this browser',
+    ]);
+    const tables = [...part(one, 'Project site').querySelectorAll('.file-table')];
+    expect(tables.map((t) => t.querySelector('h4')?.textContent).slice(-2)).toEqual(['[heavy]', '[environment]']);
+    expect(pairs(tables[tables.length - 1])).toEqual([]);
+    const none = draw(settingsSource({ ...fixtureSettings(), projects: [] }).source);
+    await settle();
+    expect(labels(none)).toEqual(['Changed here', 'Changed in install.toml only', 'Accent, kept in this browser']);
   });
 
   it('lists the accounts: the one in use marked, the usage of each, and a token ending within a month', async () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CellNow, Item, Items, Now, Summary, Wait } from '../works-api';
-import { asksOf, findItems, STANDINGS, shownTree, type Shown } from './items';
+import { asksOf, findItems, NO_PROJECT, projectsIn, STANDINGS, shownTree, type Shown } from './items';
 import { indexTree } from './tree';
 
 const CELLS = ['plan', 'implement', 'merge'];
@@ -154,6 +154,34 @@ describe('the tree the console shows', () => {
       [9, 'open'],
       [10, 'cancelled'],
     ]);
+  });
+});
+
+describe('the projects of the tree', () => {
+  /// Item `number`, open, of `project`, depending on `dependsOn`.
+  const of = (number: number, project: string | null, dependsOn: number[] = []): Item => ({
+    ...item(number, 'open', dependsOn),
+    project,
+  });
+
+  it('lists the projects the installation names and those of the items, in the order kept, the rest by name, the items of no project last', () => {
+    const data: Items = { items: [of(1, 'Halo'), of(2, null), of(3, 'Firn'), of(4, 'wf-agents')] };
+    expect(projectsIn(data, [])).toEqual(['Firn', 'Halo', 'wf-agents', NO_PROJECT]);
+    // A project named with no item yet is listed as well; a project kept that is gone is not.
+    expect(projectsIn(data, ['wf-agents', 'Gone', 'Halo'], ['Snowghost', 'Halo'])).toEqual([
+      'wf-agents',
+      'Halo',
+      'Firn',
+      'Snowghost',
+      NO_PROJECT,
+    ]);
+  });
+
+  it("stands an item in its own project's tree, under the first item of its own project that depends on it, and a shadow of it under an item of another project that does", () => {
+    // 1 (Halo) depends on 3 (Firn); 2 (Firn) and 1 both depend on 4 (Firn).
+    const data: Items = { items: [of(1, 'Halo', [3, 4]), of(2, 'Firn', [4]), of(3, 'Firn'), of(4, 'Firn')] };
+    expect(lines(shownTree(data, ALL, new Map(), 'Halo'))).toEqual(['1', '  3 shadow', '  4 shadow']);
+    expect(lines(shownTree(data, ALL, new Map(), 'Firn'))).toEqual(['2', '  4', '3']);
   });
 });
 

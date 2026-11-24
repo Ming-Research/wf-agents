@@ -1,6 +1,7 @@
 // The console's search, which shows only while it is used: `/` opens it over the middle of the console's top, where
 // what it finds has room under it. It finds an item by its number or a part of its title, over every item, open, done
-// or cancelled (`findItems`), and lists what it finds, each row the item's number, its title and how it stands. While it
+// or cancelled (`findItems`), and lists what it finds, each row the item's number, its title, its project where the
+// items are of more than one, and how it stands; a pick of another project's item shows that project's tree. While it
 // is open the tree is dimmed, but for what it finds, lit as round the item under the pointer. The arrow keys or the
 // pointer move in the list, which changes nothing in the tree, and Enter or a click picks the row they stand on, which
 // the console then shows. A pick, Escape, or a press anywhere else closes it. What is typed and not yet picked is kept in the browser, and shows again
@@ -11,7 +12,7 @@ import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { read, write } from '../kept';
 import type { Items } from '../works-api';
 import { DOT, STANDING_WORDS } from './ItemWindow';
-import { findItems, standingOf } from './items';
+import { findItems, projectOf, standingOf } from './items';
 
 /// The key under which the browser keeps what was typed in the search and not picked from.
 const KEPT = 'wf-agents.console-find';
@@ -39,6 +40,7 @@ export function Find({ data, onPick, onClose, onFound }: {
   // The row of the list the arrow keys stand on.
   const [at, setAt] = useState(0);
   const found = useMemo(() => (data === undefined ? [] : findItems(data, query, MOST)), [data, query]);
+  const many = useMemo(() => new Set(data?.items.map(projectOf)).size > 1, [data]);
   // What the console is told, as the latest render gave it.
   const tell = useRef({ onFound });
   useEffect(() => {
@@ -110,6 +112,7 @@ export function Find({ data, onPick, onClose, onFound }: {
                   >
                     <span className="mono">#{item.number}</span>
                     <span className="console-found-title">{item.title}</span>
+                    {many && <span className="console-found-project">{projectOf(item)}</span>}
                     <span className="console-found-standing">
                       <span className={DOT[standing]} aria-hidden="true" />
                       {STANDING_WORDS[standing]}

@@ -87,6 +87,7 @@ fn install(dir: &Path, text: &str) -> Install {
         file,
         read: Box::new(read),
         running: read(text).unwrap(),
+        declarations: BTreeMap::new(),
         git: &["-c", "core.hooksPath=/dev/null", "-c", "commit.gpgSign=false"],
     }
 }

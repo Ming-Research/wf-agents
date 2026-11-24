@@ -128,12 +128,34 @@ const drawn = (w: Summary) => {
   return started(w) || tone === 'owner' || tone === 'failed';
 };
 
-/// Each item's main dependent, which it stands under in the tree: the first by number of the items that depend on it.
+/// The name the console gives the project of an item added before items had projects.
+export const NO_PROJECT = 'No project';
+
+/// The project an item is of, as the console names it.
+export const projectOf = (i: Item): string => i.project ?? NO_PROJECT;
+
+/// The projects the installation names (`named`) and those the items are of, in the order the owner last put them in
+/// (`kept`), and those not in it after them, by name, the items of no project last.
+export function projectsIn(data: Items, kept: readonly string[], named: readonly string[] = []): string[] {
+  const all = new Set([...named, ...data.items.map(projectOf)]);
+  const known = kept.filter((p, k) => all.has(p) && kept.indexOf(p) === k);
+  const rest = [...all]
+    .filter((p) => !known.includes(p))
+    .sort((a, b) => (a === NO_PROJECT ? 1 : 0) - (b === NO_PROJECT ? 1 : 0) || a.localeCompare(b));
+  return [...known, ...rest];
+}
+
+/// Each item's main dependent, which it stands under in the tree: the first by number of the items of its own project
+/// that depend on it. An item that only items of other projects depend on stands at the top of its own project's tree,
+/// and a shadow of it stands under each of them.
 function mainDependents(data: Items): Map<number, number> {
-  const known = new Set(data.items.map((i) => i.number));
+  const byId = new Map(data.items.map((i) => [i.number, i]));
   const main = new Map<number, number>();
   for (const i of [...data.items].sort((a, b) => a.number - b.number))
-    for (const d of i.dependsOn) if (known.has(d) && !main.has(d)) main.set(d, i.number);
+    for (const d of i.dependsOn) {
+      const of = byId.get(d);
+      if (of !== undefined && !main.has(d) && projectOf(of) === projectOf(i)) main.set(d, i.number);
+    }
   return main;
 }
 
@@ -162,11 +184,13 @@ export function findItems(data: Items, query: string, most = 8): Item[] {
 }
 
 /// The tree of the items that stand as one of `shown` stands, and what stands over them; each item the owner folded or
-/// unfolded in `folds` as he last chose, the others folded where neither they nor anything under them is open.
+/// unfolded in `folds` as he last chose, the others folded where neither they nor anything under them is open. Given
+/// `project`, the tree of that project's items alone.
 export function shownTree(
   data: Items,
   shown: ReadonlySet<ItemStanding> = new Set(['open']),
   folds: ReadonlyMap<number, boolean> = new Map(),
+  project?: string,
 ): Shown[] {
   const byId = new Map(data.items.map((i) => [i.number, i]));
   const standing = (id: number): ItemStanding => standingOf(byId.get(id));
@@ -276,7 +300,7 @@ export function shownTree(
     children: [],
   });
   return data.items
-    .filter((i) => !above.has(i.number) && keep(i.number))
+    .filter((i) => !above.has(i.number) && keep(i.number) && (project === undefined || projectOf(i) === project))
     .sort((a, b) => a.number - b.number)
     .map((i) => make(i.number));
 }

@@ -4,8 +4,8 @@
 // from, once for the whole page (works/source.ts).
 
 import { type Heard, listenShared } from '../changes';
-import { usesFixtures } from '../mock-data';
-import { type Act, type VersionPage, type WorkPage, act, loadVersion, loadWork } from '../works-api';
+import { projectsAsked, usesFixtures } from '../mock-data';
+import { type Act, type VersionPage, type WorkPage, act, loadProjects, loadVersion, loadWork } from '../works-api';
 import { INTERFACE, type ItemsFeed } from '../works/source';
 import { fixtureSource } from './fixtures';
 
@@ -21,6 +21,8 @@ export interface Source {
   act: (work: number, what: Act) => Promise<unknown>;
   /// Calls `on` each time something happened; gives what stops it.
   changes: (on: (heard: Heard) => void) => () => void;
+  /// The projects the installation names, those with no item yet among them; none read where it is not given.
+  projects?: () => Promise<string[]>;
 }
 
 /// The interface: `GET /api/v1/changes` says, as server-sent events, each time something happened, on the stream the
@@ -31,11 +33,14 @@ export const interfaceSource: Source = {
   loadVersion,
   act,
   changes: listenShared,
+  projects: () => loadProjects().then((p) => p.names),
 };
 
-/// The source the page's address asks for.
+/// The source the page's address asks for: with `?fixtures`, the made-up items, of as many projects as `projects=`
+/// asks.
 export function pageSource(): Source {
-  return usesFixtures(window.location.search) ? fixtureSource() : interfaceSource;
+  const search = window.location.search;
+  return usesFixtures(search) ? fixtureSource(Date.now(), projectsAsked(search) ?? 1) : interfaceSource;
 }
 
 /// Reads of one kind of thing, of which an answer is taken only when it is newer than the one shown: an answer to a read
