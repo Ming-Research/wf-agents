@@ -72,11 +72,16 @@ fn research_to_merge() -> World {
 
 /// The same, the check run by main as well, which a source outside the work writes.
 fn checked_on_main() -> World {
+    checked_on_main_by(cell("check", &["code", "main"], &["checked"]))
+}
+
+/// The same, with this cell as the check, which runs on main as well.
+fn checked_on_main_by(check: Cell) -> World {
     let (merge, named) = waiting_for("checked", "checked", cell("merge", &["checked"], &[]));
     let cells = vec![
         cell("research", &["background"], &["deep", "plan"]),
         when("deep", "no", cell("implement", &["plan"], &["code"])),
-        cell("check", &["code", "main"], &["checked"]),
+        check,
         merge,
     ];
     let mut w = World::with_tests(cells, BTreeMap::from([named]));
@@ -144,6 +149,33 @@ fn a_check_that_said_what_it_wrote_waits_for_main_has_the_work_wait_and_without_
 }
 
 #[test]
+fn a_check_that_wrote_no_block_the_merge_waits_on_has_the_work_wait_for_nothing() {
+    // The check says that what it wrote waits for main, but it wrote the report and not the word the merge waits on.
+    let mut w = checked_on_main_by(cell("check", &["code", "main"], &["checked", "report"]));
+    w.outside_writes("main");
+    w.run("research", &[("deep", Value("no")), ("plan", Matters)]);
+    w.run("implement", &[("code", Matters)]);
+    w.run_waiting_for("check", &[("report", Matters)], "main");
+    assert_eq!(rest(&w), stalled_at("merge", &["checked"]));
+}
+
+#[test]
+fn a_work_waits_for_main_only_until_main_has_moved_where_the_check_cannot_run_on_it() {
+    let mut w = checked_on_main_by(when("deep", "no", cell("check", &["code", "main"], &["checked"])));
+    w.outside_writes("main");
+    w.run("research", &[("deep", Value("no")), ("plan", Matters)]);
+    w.run("implement", &[("code", Matters)]);
+    w.run_waiting_for("check", &[("checked", Value("no"))], "main");
+    assert_eq!(rest(&w), Rest::Waiting { at: id("merge") });
+    // The research now says a deeper look is needed, which skips the check, and then main moves: what the check waited
+    // for has come, and the check, skipped, is not run on it.
+    w.person_writes("background");
+    w.run("research", &[("deep", Value("yes")), ("plan", Matters)]);
+    w.outside_writes("main");
+    assert_eq!(rest(&w), stalled_at("merge", &["checked"]));
+}
+
+#[test]
 fn a_call_for_a_person_is_waited_for_and_one_the_engine_makes_is_not() {
     let (gated, named) = waiting_for("ok", "ok", cell("gated", &["ok"], &[]));
     let mut w = World::with_tests(vec![cell("first", &["brief"], &["ok"]), gated], BTreeMap::from([named]));
@@ -181,6 +213,27 @@ fn a_call_for_a_person_keeps_a_work_from_being_stalled_until_it_has_its_result()
     assert_eq!(rest(&w), Rest::Waiting { at: id("gated") });
     w.done(call);
     assert_eq!(rest(&w), stalled_at("gated", &["ok"]));
+}
+
+#[test]
+fn a_cell_owed_the_result_of_a_call_it_asked_for_holds_the_work_at_it_until_the_result_is_in() {
+    let cells = || vec![cell("first", &["brief"], &["b0"]), cell("later", &["b0"], &[])];
+    let mut w = World::with_gate(cells());
+    w.person_writes("brief");
+    w.start("first");
+    // The run asked and finished, dealing with nothing, and nothing runs the cell before the answer comes: the work
+    // waits at the cell, not at the merge after it.
+    let call = w.asks("first", Some(Who::Owner));
+    assert_eq!(rest(&w), Rest::Waiting { at: id("first") });
+    w.done(call);
+    assert_eq!(rest(&w), Rest::Moving { at: id("first") });
+
+    // A call the engine makes is not waited for: the work moves on at the cell as the engine makes it.
+    let mut w = World::with_gate(cells());
+    w.person_writes("brief");
+    w.start("first");
+    w.asks("first", None);
+    assert_eq!(rest(&w), Rest::Moving { at: id("first") });
 }
 
 #[test]
@@ -239,6 +292,17 @@ fn a_round_under_way_is_moving_at_the_cell_of_its_run() {
     w.person_writes("brief");
     w.start("first");
     assert_eq!(rest(&w), Rest::Moving { at: id("first") });
+
+    // A person sets the word its precondition reads to no while the round is under way: the round ends first, and
+    // only then does the work wait at the cell for the person's word.
+    let (gated, named) = waiting_for("ok", "ok", cell("gated", &["ok"], &[]));
+    let mut w = World::with_tests(vec![gated], BTreeMap::from([named]));
+    w.person_sets("ok", "yes");
+    w.start("gated");
+    w.person_sets("ok", "no");
+    assert_eq!(rest(&w), Rest::Moving { at: id("gated") });
+    w.returns("gated");
+    assert_eq!(rest(&w), Rest::Waiting { at: id("gated") });
 }
 
 #[test]

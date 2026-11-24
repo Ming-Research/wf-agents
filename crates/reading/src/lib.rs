@@ -207,9 +207,11 @@ impl<'a> Reading<'a> {
 
     /// Whether this write, handed in by the run, would change what the block says over its current version, by the
     /// reading's own rule of meaning ([`Reading::new`]): a choice where its value differs from the one before; prose
-    /// that the run says matters, or says not where the version it started from has not the meaning of the one it
-    /// would write over; and a first version but one handed in as changing nothing, which says nothing (design
-    /// document `data-and-context`, 9).
+    /// that the run says matters, or says not where the version its round was last told of has not the meaning of the
+    /// one it would write over; and a first version but one handed in as changing nothing, which says nothing (design
+    /// document `data-and-context`, 9). A version put in to the round after it began is told of, as the one it started
+    /// from is: a return sent back for writing over a version it was not told of then says what it says over that
+    /// version.
     pub fn would_change(&self, run: RunId, write: &Write) -> bool {
         let over = self.current(&write.block);
         // A write that holds nothing says nothing where none is before it, where the one before holds nothing too, and
@@ -226,8 +228,8 @@ impl<'a> Reading<'a> {
         if !write.meaning_unchanged {
             return true;
         }
-        let from = self.started[&run].basis.get(&write.block).copied().flatten();
-        let seen = from
+        let seen = self
+            .told(run, &write.block)
             .and_then(|v| self.of(&write.block).iter().find(|x| x.at == v))
             .map(|x| x.meaning);
         seen != Some(over.meaning)
