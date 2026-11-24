@@ -49,6 +49,7 @@ fn after_every_call_the_store_holds_what_the_driver_shows() {
         Event::Paused {
             by: Pauser::Owner,
             why: None,
+            waits_for: Vec::new(),
         },
     );
     let todos = h.returns(wa, Came::asks(vec![tool("b")]));

@@ -36,9 +36,14 @@ pub enum Event {
     },
     /// The owner let the cell go on at its limit.
     LetGo { cell: CellId },
-    /// The work was paused: by the owner, who gives no reason, or by the engine itself, for this reason, as when it
-    /// spent more than it may. A round that fails pauses its work by [`Event::Failed`] instead.
-    Paused { by: Pauser, why: Option<String> },
+    /// The work was paused: by the owner, who may say why and the items it waits for, or by the engine itself, for this
+    /// reason, as when it spent more than it may. A round that fails pauses its work by [`Event::Failed`] instead.
+    Paused {
+        by: Pauser,
+        why: Option<String>,
+        /// The items, by their numbers, that the pause waits for ([`decide::Pause::waits_for`]).
+        waits_for: Vec<u64>,
+    },
     /// The work was let on again.
     Resumed,
     /// The work's item was cancelled, for this reason where whoever cancelled it gave one.

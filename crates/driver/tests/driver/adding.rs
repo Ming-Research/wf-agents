@@ -337,3 +337,30 @@ fn an_add_cut_short_at_any_call_of_the_store_leaves_all_of_it_or_none_and_the_wo
         "the cuts left none {nones} times and all {wholes} times"
     );
 }
+
+// The owner may say, as an item is added paused, why and the items its pause waits for: the work's first pause keeps
+// them, each once in the order of their numbers; an item the driver has none of, or no item at all but an existing
+// one, is refused, and the refusal changes nothing.
+#[test]
+fn an_item_is_added_paused_with_its_reason_and_the_items_the_pause_waits_for() {
+    let mut h = H::new();
+    let (a, _) = h.add(new_item("a", &[], "plain"));
+    let (b, _) = h.add(new_item("b", &[], "plain"));
+    let (_, wc) = h.add(NewItem {
+        why: Some("after a and b".to_string()),
+        waits_for: vec![b, a, b],
+        ..new_item("c", &[], "plain")
+    });
+    let kept = h.d().work(wc).expect("the work is there");
+    let pause = decide::pause(&kept.work.records).expect("the work is paused");
+    assert_eq!(
+        (pause.by, pause.why.as_deref(), pause.waits_for.clone()),
+        (Pauser::Owner, Some("after a and b"), vec![a.0, b.0])
+    );
+    let nowhere = NewItem {
+        waits_for: vec![ItemNumber(9)],
+        ..new_item("d", &[], "plain")
+    };
+    let failed = h.refused(|d, now| d.add(now, nowhere).map(|_| ()));
+    assert_eq!(failed, Failed::NoSuchItem(ItemNumber(9)));
+}

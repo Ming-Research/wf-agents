@@ -265,12 +265,22 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
             ))
         },
     )?;
+    let waits = rows(
+        db,
+        "SELECT at, item FROM pause_waits WHERE work = ?1 ORDER BY at, item",
+        w,
+        |row| Ok((Seq(row.get(0)?), row.get::<_, u64>(1)?)),
+    )?;
     for (at, paused, pauser, why) in pauses {
         r.pauses.push(Pause {
             paused,
             at,
             by: from_name("pauses", pauser)?,
             why,
+            waits_for: (waits.iter())
+                .filter(|(of, _)| *of == at)
+                .map(|(_, item)| *item)
+                .collect(),
         });
     }
     let cancels = rows(
@@ -820,6 +830,12 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
             "INSERT INTO pauses (work, at, paused, pauser, why) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![w, e.at.0, e.paused, pauser, e.why],
         )?;
+        for item in &e.waits_for {
+            db.execute(
+                "INSERT INTO pause_waits (work, at, item) VALUES (?1, ?2, ?3)",
+                params![w, e.at.0, item],
+            )?;
+        }
     }
     for (at, why) in cancels {
         db.execute(

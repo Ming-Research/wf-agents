@@ -71,6 +71,8 @@ An agent reads the engine's records through `query`: one read-only SQL query it 
 - rejected: an agent proposed that the engine give each round everything it might need from the records; the owner rejected it, because SQL is needed: an agent given a query, the store and a short description gets what it wants on the first try, while what the engine gives is a guess.
 - rejected: an agent proposed a few fixed commands for reading the records; the owner rejected it, because fixed commands grow with every question, and a query reads more easily than commands wrapped around it.
 - rejected: an agent proposed giving agents the item's data as files or commands; the owner rejected it, because the engine and the agents may be on different machines, and the way into the store is his to control.
+- replaced: The installation's switch for `query`, off until the owner turned it on, was on main; the owner changed it, because the flow's cells use the tool, so it is always open.
+- replaced: Setting the tool's four bounds in the installation was on main; the owner changed it, because they are the same on every machine.
 - replaced: Giving cells the list of every item as an input was on main; the owner changed it, because the whole flow was to drop the list in favour of the tool, since a list of every item grows with the items.
 - replaced: Giving a query's rows as one escaped JSON string was on main; the owner changed it, because the form belongs to the flow and the engine follows it: the engine once changed it on its own and stopped a work by disagreeing with the flow.
 

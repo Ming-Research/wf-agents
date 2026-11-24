@@ -21,7 +21,7 @@
 - Design judgment: if a design needs work only because of a poor abstraction, that work is a flaw of the design.
 - Design judgment: how often a case appears in a project's own tests and programs is no evidence of how much real use needs it.
 - The repository: put new material in the directory that owns its kind. If none fits, ask the owner; if you cannot ask, say so in what you hand in.
-- The repository: never write a lock file by hand. Change its manifest, and bring the lock file in line with the commands that "Where you work" names. If it names none, ask the owner; if you cannot ask, say so in what you hand in.
+- The repository: never write a lock file by hand. Change its manifest, and bring the lock file in line with its manifest by asking the owner; if you cannot ask, say so in what you hand in.
 - The repository: keep no TODO file. Open work is an item. Code and documents cite an item by its number, and a public repository cites it by its number alone.
 - The repository: create a file, directory, script or document only when you can say whom it serves, where it lives and when it will be removed. Wire a script to a caller, or delete it after its one use. Keep a document current, or delete it. Prefer native tooling. A new script says why the native way cannot do the job.
 - The repository: when new material replaces old material, update, merge or delete the old in the same change. Search for the old wording, numbers and names in comments, READMEs, documents, `project.research` and design nodes, and correct each statement that the change made false. Do not move paths that specifications, tests, scripts and gates name exactly.

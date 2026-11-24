@@ -514,13 +514,8 @@ impl Rounds for Agents {
 impl Inner {
     /// What the program is let run for a round of the cell, of the project.
     fn permissions(&self, of: &Of, cell: &flow::CellSpec) -> Permissions {
-        let refused = permissions::refused_commands(&of.beside, &of.declaration);
-        Permissions::of(
-            cell.reads_only,
-            &self.settings.agents.args,
-            &refused,
-            &of.declaration.heavy,
-        )
+        let refused = permissions::refused_commands(&of.beside, &of.declaration, &self.settings.agents.command);
+        Permissions::of(cell.reads_only, &of.beside.allowed.may, &std::env::temp_dir(), &refused)
     }
 
     /// Whether the line of the cell, in the work, for the item, would begin a new session of it with another system
@@ -1117,18 +1112,7 @@ impl Inner {
         let agents = &self.settings.agents;
         let mut command = crate::programs::command(&agents.command);
         let compact = self.settings.sessions.compact_at;
-        let args = cli::arguments(
-            agents,
-            on,
-            system,
-            form,
-            permissions,
-            compacted,
-            words,
-            compact,
-            session,
-            begin,
-        );
+        let args = cli::arguments(on, system, form, permissions, compacted, words, compact, session, begin);
         let args = if refusing { cli::refusing(args) } else { args };
         let profile = account::profile(&self.data);
         command
@@ -1701,7 +1685,7 @@ impl Inner {
             std::fs::read_to_string(&at)
                 .map_err(|e| NoLine::System(format!("{}: {e}", at.file_name().unwrap_or_default().to_string_lossy())))
         };
-        let refused = permissions::refused_commands(&of.beside, &of.declaration);
+        let refused = permissions::refused_commands(&of.beside, &of.declaration, &self.settings.agents.command);
         Ok(SessionLine {
             session,
             run: last.run,
@@ -1709,7 +1693,7 @@ impl Inner {
             on: last.on.clone(),
             system: began(system::Begun::System)?,
             form: began(system::Begun::Form)?,
-            permissions: Permissions::of(reads_only, &self.settings.agents.args, &refused, &of.declaration.heavy),
+            permissions: Permissions::of(reads_only, &of.beside.allowed.may, &std::env::temp_dir(), &refused),
         })
     }
 
@@ -1931,7 +1915,6 @@ impl Inner {
         write(&at("message.md"), fork.question.as_bytes()).await?;
         let agents = &self.settings.agents;
         let round = cli::arguments(
-            agents,
             &made.on,
             &made.system,
             &made.form,
@@ -2581,6 +2564,7 @@ mod tests {
             at: Seq(at),
             by,
             why: None,
+            waits_for: Vec::new(),
         }
     }
 

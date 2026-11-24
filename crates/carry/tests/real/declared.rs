@@ -128,22 +128,22 @@ fn a_declaration_is_carried_only_where_its_protected_paths_name_it_and_one_that_
     assert!(held("not_text").contains("not UTF-8"), "{}", held("not_text"));
 }
 
-// The declaration of one project says what its agents may run, and no other project's does: two projects in one
-// installation, one naming lock commands and one none, each carried with its own; and the lock commands of one that
-// names a time no clock can count are not read at all, the project being held, with the other going on. Two git
-// repositories: about 0.2 s alone.
+// The declaration of one project says what its agents may not run, and no other project's does: two projects in one
+// installation, each carried with its own heavy commands; and the declaration of one that names a time no clock can
+// count is not read at all, the project being held, with the others going on. Three git repositories: about 0.3 s
+// alone.
 #[test]
-fn each_project_is_carried_with_its_own_lock_commands_and_a_time_no_one_can_count_holds_only_its_project() {
+fn each_project_is_carried_with_its_own_heavy_commands_and_a_time_no_one_can_count_holds_only_its_project() {
     let dir = tempfile::tempdir().expect("a directory");
     let good = base();
-    let locks = "locks = [\"cargo update\", \"cargo add\", \"npm install --package-lock-only --ignore-scripts\"]";
-    assert!(good.contains(locks), "the declaration names its lock commands");
-    let nothing = good.replace(locks, "locks = []");
+    let heavy = "commands = [\"cargo\", \"rustc\", \"rustup\", \"npm\", \"npx\", \"node --test\", \"tsc\", \"vitest\", \"hyperfine\"]";
+    assert!(good.contains(heavy), "the declaration names its heavy commands");
+    let other = good.replace(heavy, "commands = [\"make\"]");
     let huge = good.replacen("too_long = \"2h\"", "too_long = \"213503982334602d\"", 1);
     assert_ne!(huge, good, "the fast workflow's time is written as the test expects");
     let projects = vec![
         ("with", good.into_bytes()),
-        ("without", nothing.into_bytes()),
+        ("other", other.into_bytes()),
         ("huge", huge.into_bytes()),
     ];
     let (found, faults) = found(dir.path(), &projects);
@@ -153,8 +153,8 @@ fn each_project_is_carried_with_its_own_lock_commands_and_a_time_no_one_can_coun
             .as_ref()
             .unwrap_or_else(|why| panic!("{name} is held: {why}"))
     };
-    assert_eq!(carried("with").declaration.heavy.locks.len(), 3);
-    assert!(carried("without").declaration.heavy.locks.is_empty());
+    assert_eq!(carried("with").declaration.heavy.commands.len(), 9);
+    assert_eq!(carried("other").declaration.heavy.commands, ["make"]);
     let why = found["huge"]
         .as_ref()
         .expect_err("a time no one can count holds its project");

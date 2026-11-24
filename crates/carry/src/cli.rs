@@ -281,8 +281,27 @@ pub fn keeping() -> Value {
     json!({ "cleanupPeriodDays": crate::account::KEEP_DAYS })
 }
 
-/// The arguments of a round's command line, after the program: the engine's own, then the installation's, then the
-/// line's permissions, then the session, with the context at which the program compacts it (`compact`). The message
+/// The settings files the program reads, as `--setting-sources`: the user's alone, since a settings file the worktree
+/// holds is one an agent may write.
+pub const SETTING_SOURCES: &str = "user";
+
+/// The arguments of the program that isolate it from what the owner's own tools and settings give, the same for every
+/// round: it reads only the settings files of [`SETTING_SOURCES`], and no MCP server's and no slash command's but
+/// those the engine gives. They are not what an agent may do, which is the flow's ([`Permissions`]).
+pub fn fixed_arguments() -> Vec<String> {
+    [
+        "--setting-sources",
+        SETTING_SOURCES,
+        "--strict-mcp-config",
+        "--disable-slash-commands",
+    ]
+    .iter()
+    .map(|a| a.to_string())
+    .collect()
+}
+
+/// The arguments of a round's command line, after the program: the engine's own, then the line's permissions, then
+/// the session, with the context at which the program compacts it (`compact`). The message
 /// goes in, and the stream comes out, as stream-json; the stream carries each message in pieces as it is written,
 /// which rebuild an attempt at a return the command line refused. The schema is the form of return of the round's
 /// flow, the same for every round of every cell of it, and the system prompt is the same for every round of a line, so
@@ -290,7 +309,6 @@ pub fn keeping() -> Value {
 /// the effort it was given.
 #[allow(clippy::too_many_arguments)]
 pub fn arguments(
-    agents: &Agents,
     ran: &RanOn,
     system: &str,
     schema: &str,
@@ -320,9 +338,8 @@ pub fn arguments(
     }
     args.extend(["--append-system-prompt".to_string(), system.to_string()]);
     args.extend(["--json-schema".to_string(), schema.to_string()]);
-    args.extend(["--setting-sources".to_string(), agents.setting_sources.clone()]);
     args.extend(["--settings".to_string(), settings(compacted, words)]);
-    args.extend(agents.args.iter().cloned());
+    args.extend(fixed_arguments());
     args.extend(permissions.arguments());
     args.extend(["--autocompact".to_string(), compact.to_string()]);
     let flag = match begin {
@@ -419,8 +436,7 @@ pub const SCRUB: &str = "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB";
 
 /// What a refusal of a permission mode says to write instead: the program starts in default permission mode under
 /// [`SCRUB`], so what an agent may do is given as rules.
-pub const PERMISSION_ADVICE: &str =
-    "allow what agents may do with --allowedTools rules in agents.args, such as Edit(./**)";
+pub const PERMISSION_ADVICE: &str = "what agents may do is said in allowed.toml beside the flows";
 
 /// The variables the carrier sets for every round's command line: a round waits for whatever it starts, since a
 /// subagent left in the background has the command line ask for the return before it is back; the service checks each
@@ -1358,9 +1374,7 @@ mod tests {
             levels: Default::default(),
             highest_level: None,
             slots: 2,
-            args: vec!["--strict-mcp-config".to_string()],
             env: Vec::new(),
-            setting_sources: "user".to_string(),
             subagents: Default::default(),
             work_budget_usd: None,
             let_on_allowance_usd: 20.0,
@@ -2262,7 +2276,7 @@ mod tests {
     #[test]
     fn the_command_line_begins_a_session_and_goes_on_in_it() {
         let session = Uuid::parse_str("6a1f3c2e-8d4b-4e7a-9c5f-2b8e1d0a7f43").unwrap();
-        let permissions = Permissions::of(true, &[], &[], &Default::default());
+        let permissions = Permissions::of(true, &[], Path::new("/x/T"), &[]);
         let ran = RanOn {
             level: "1".to_string(),
             model: "claude-haiku-5-5".to_string(),
@@ -2276,7 +2290,6 @@ mod tests {
         };
         let head = |begin| {
             arguments(
-                &agents(),
                 &ran,
                 "SYSTEM",
                 "SCHEMA",
@@ -2308,15 +2321,21 @@ mod tests {
             "SYSTEM",
             "--json-schema",
             "SCHEMA",
-            "--setting-sources",
-            "user",
             "--settings",
             &hooks,
-            "--strict-mcp-config",
         ];
         let mut new: Vec<String> = common.iter().map(|a| a.to_string()).collect();
-        // The line's permissions come after the installation's arguments, which they add to, and the session's own
-        // arguments last: the context the program compacts it at, which the installation gives, then its id.
+        // The arguments that isolate the program, then the line's permissions, and the session's own arguments last: the
+        // context the program compacts it at, which the installation gives, then its id.
+        new.extend(
+            [
+                "--setting-sources",
+                "user",
+                "--strict-mcp-config",
+                "--disable-slash-commands",
+            ]
+            .map(String::from),
+        );
         new.extend(permissions.arguments());
         new.extend(["--autocompact".to_string(), "500000".to_string()]);
         let mut resumed = new.clone();
@@ -2341,9 +2360,8 @@ mod tests {
             marks: PathBuf::from("compacted"),
             again: PathBuf::from("again.md"),
         };
-        let permissions = Permissions::of(false, &[], &[], &Default::default());
+        let permissions = Permissions::of(false, &[], Path::new("/x/T"), &[]);
         let args = arguments(
-            &agents(),
             &ran,
             "SYSTEM",
             "SCHEMA",
@@ -2408,10 +2426,9 @@ mod tests {
             marks: PathBuf::from("compacted"),
             again: PathBuf::from("again.md"),
         };
-        let permissions = Permissions::of(false, &[], &["cargo".to_string()], &Default::default());
+        let permissions = Permissions::of(false, &[], Path::new("/x/T"), &["cargo".to_string()]);
         let session = Uuid::nil();
         let round = arguments(
-            &agents(),
             &ran,
             "SYSTEM",
             "SCHEMA",

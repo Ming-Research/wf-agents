@@ -286,6 +286,7 @@ impl Part for Asking {
             70..=74 => Event::Paused {
                 by: decide::Pauser::Owner,
                 why: None,
+                waits_for: Vec::new(),
             },
             75 => Event::Cancelled { why: None },
             _ => Event::Look,

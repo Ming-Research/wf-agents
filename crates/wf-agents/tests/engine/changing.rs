@@ -42,7 +42,7 @@ fn an_item_not_begun_is_retitled_made_to_wait_cancelled_and_reopened_saying_why_
     assert!(!engine.command(&["set-title", "2", "Other"]).status.success());
     let list = engine.says(&["list"]);
     assert!(
-        list.contains("\n#2 \"Say goodbye by name\" at level 1, project script, W2 on trial, after #1: "),
+        list.contains("\n#2 (project script) \"Say goodbye by name\" at level 1, W2 on trial, after #1: "),
         "{list}"
     );
     let shown = engine.says(&["show", "2"]);
@@ -65,7 +65,7 @@ fn an_item_not_begun_is_retitled_made_to_wait_cancelled_and_reopened_saying_why_
     );
     let list = engine.says(&["list"]);
     assert!(
-        list.contains("\n#2 \"Say goodbye by name\" at level 1, project script, W2 on trial, after #1: "),
+        list.contains("\n#2 (project script) \"Say goodbye by name\" at level 1, W2 on trial, after #1: "),
         "{list}"
     );
     // An item comes to depend on a cancelled one, and its work does not wait for it.
@@ -159,7 +159,7 @@ fn several_changes_are_made_at_once_or_none_and_tags_classify_items() {
     );
     let list = engine.says(&["list"]);
     assert!(
-        list.contains("\n#2 \"B, the page\" at level 1, project script, W2 on trial, tagged page: "),
+        list.contains("\n#2 (project script) \"B, the page\" at level 1, W2 on trial, tagged page: "),
         "{list}"
     );
     let parse = engine.refuses(&["change", "--why", "Tidy", "3:frob"]);
@@ -169,10 +169,10 @@ fn several_changes_are_made_at_once_or_none_and_tags_classify_items() {
     );
     let tagged = engine.says(&["list", "--tag", "parser"]);
     assert!(
-        tagged.contains("\n#3 \"C\" at level 1, project script, W3 on trial, after #1, tagged parser: "),
+        tagged.contains("\n#3 (project script) \"C\" at level 1, W3 on trial, after #1, tagged parser: "),
         "{tagged}"
     );
-    assert!(!tagged.contains("#1 "), "{tagged}");
+    assert!(!tagged.lines().any(|line| line.starts_with("#1 ")), "{tagged}");
     assert_eq!(engine.says(&["tags"]), "page: 1 open of 1\nparser: 1 open of 1\n");
     assert_eq!(
         engine.says(&["untag", "3", "parser", "--why", "Not the parser's."]),
@@ -207,28 +207,29 @@ fn the_plan_is_read_by_what_changed_the_candidates_a_search_a_walk_and_the_text_
     engine.says(&add("Lone", "request=Please."));
     assert_eq!(
         engine.says(&["candidates"]),
-        "0 of 2 slots taken; 2 items could be let on now, those more items wait for first:\n  #1 \"Base\" at level 1, \
-         paused; 1 open item waits for it; let on, it begins: wf-agents resume 1\n  #3 \"Lone\" at level 1, paused; \
-         nothing waits for it; let on, it begins: wf-agents resume 3\n"
+        "0 of 2 slots taken; 2 items could be let on now, those more items wait for first:\n  #1 (project script) \
+         \"Base\" at level 1, paused; 1 open item waits for it; let on, it begins: wf-agents resume 1\n  #3 (project \
+         script) \"Lone\" at level 1, paused; nothing waits for it; let on, it begins: wf-agents resume 3\n"
     );
     // The text around a mention is cut to about 80 characters, each run of white space one space.
     assert_eq!(
         engine.says(&["search", "HEADER"]),
-        "#1 \"Base\", request: # «Header» The header parser drops a byte. Mor… (1 more there)\n"
+        "#1 (project script) \"Base\", request: # «Header» The header parser drops a byte. Mor… (1 more there)\n"
     );
     assert_eq!(engine.says(&["search", "nowhere"]), "Nothing mentions \"nowhere\".\n");
     assert_eq!(
         engine.says(&["graph", "1"]),
-        "#1 \"Base\" at level 1, paused\nIt depends on no item.\nWhat depends on it:\n  #2 \"On base\" at level 1, \
-         paused\n"
+        "#1 (project script) \"Base\" at level 1, paused\nIt depends on no item.\nWhat depends on it:\n  #2 (project \
+         script) \"On base\" at level 1, paused\n"
     );
     assert_eq!(
         engine.says(&["graph", "2", "--down"]),
-        "#2 \"On base\" at level 1, paused\nNo item depends on it.\n"
+        "#2 (project script) \"On base\" at level 1, paused\nNo item depends on it.\n"
     );
     assert_eq!(
         engine.says(&["graph", "2", "--up"]),
-        "#2 \"On base\" at level 1, paused\nIt depends on:\n  #1 \"Base\" at level 1, paused\n"
+        "#2 (project script) \"On base\" at level 1, paused\nIt depends on:\n  #1 (project script) \"Base\" at level 1, \
+         paused\n"
     );
     let text = engine.says(&["text", "1"]);
     assert!(
@@ -250,7 +251,7 @@ fn the_plan_is_read_by_what_changed_the_candidates_a_search_a_walk_and_the_text_
     // What changed: each item added, then nothing more, then a change, with why.
     let first = engine.says(&["changes"]);
     assert!(
-        first.contains("#2 added as \"On base\" at level 1, after #1"),
+        first.contains("#2 (project script) added as \"On base\" at level 1, after #1"),
         "{first}"
     );
     assert!(first.ends_with("Next: wf-agents changes --since 3\n"), "{first}");
@@ -261,7 +262,7 @@ fn the_plan_is_read_by_what_changed_the_candidates_a_search_a_walk_and_the_text_
     engine.says(&["set-title", "3", "Alone", "--why", "Clearer."]);
     let since = engine.says(&["changes", "--since", "3"]);
     assert!(
-        since.contains(": #3 titled \"Alone\", because \"Clearer.\".\n"),
+        since.contains(": #3 (project script) titled \"Alone\", because \"Clearer.\".\n"),
         "{since}"
     );
     assert!(since.ends_with("Next: wf-agents changes --since 3,3.1.0\n"), "{since}");

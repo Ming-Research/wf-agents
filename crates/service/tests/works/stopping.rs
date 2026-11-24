@@ -50,7 +50,7 @@ async fn history(stops: &[usize]) -> (Work, usize) {
             break;
         }
         if trial.owners_call(work).is_some() {
-            trial.answer(work, "Yes, by name.");
+            trial.let_go_on(work);
         } else {
             assert!(trial.step().await.is_some(), "the work comes to its end");
         }

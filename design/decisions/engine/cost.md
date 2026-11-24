@@ -4,6 +4,7 @@ How the engine judges what rounds, tool calls and works take, the size of a tool
 
 ### decision a-line-comes-from-the-history-of-its-kind
 Every threshold line that a round, an act or a tool call is judged by is worked out from the history of its kind on the flow; where there are too few of them, nothing is judged.
+- replaced: The number of values a history needs before it gives a line, set in the installation, was on main; the owner changed it, because it is the same on every machine.
 - rejected: an agent proposed fixed limits on a round, a work and a day, and a session's limit lowered by hand; the owner rejected it, because a number set by hand that pins one point is not a good way.
 - rejected: an agent proposed three fixed limits on what is sent to an agent, on one input, on a round's own content and on a whole message; the owner rejected it, because a fixed threshold misses small faults and flags large sends that are sound.
 

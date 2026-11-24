@@ -26,6 +26,7 @@ use store::WorkNumber;
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::plan::{Candidates, Graph, HITS, Hits, PlanChanges, PlanMark, Tags, Way};
+use crate::pulls::Pulls;
 use crate::works::{
     Act, Added, Broken, CallPage, Changed, ChangesPage, DiffPage, DoingPage, Done, Engine, EngineAct, ForkAsked,
     ForkPage, ItemChanges, Items, ItemsChanged, LevelsPage, NewItem, ProjectsPage, Refusal, RoundPage, Said, Summary,
@@ -39,8 +40,14 @@ pub fn router(handle: Handle, levels: Levels, projects: Projects) -> Router {
     let shown = LevelsPage::of(&levels);
     let named = ProjectsPage::of(&projects);
     let (to_add, projects) = (levels.clone(), std::sync::Arc::new(projects));
-    let (to_list, to_show) = (levels.clone(), levels.clone());
+    let (to_list, to_show, to_pulls) = (levels.clone(), levels.clone(), levels.clone());
     let items = move |handle: State<Handle>| items(handle, to_list.clone());
+    let pulls = {
+        let (levels, projects) = (to_pulls, projects.clone());
+        move |handle: State<Handle>, query: Result<Query<Pulled>, QueryRejection>| {
+            pulls(handle, levels.clone(), projects.clone(), query)
+        }
+    };
     let work = move |handle: State<Handle>, path: Result<Path<u64>, PathRejection>| work(handle, to_show.clone(), path);
     let add = move |handle: State<Handle>, body: Bytes| add(handle, to_add.clone(), projects.clone(), body);
     let change = move |handle: State<Handle>, body: Bytes| change(handle, levels.clone(), body);
@@ -52,6 +59,7 @@ pub fn router(handle: Handle, levels: Levels, projects: Projects) -> Router {
         .route("/api/v1/plan/search", get(search))
         .route("/api/v1/plan/graph/{item}", get(graph))
         .route("/api/v1/plan/tags", get(tags))
+        .route("/api/v1/pulls", get(pulls))
         .route("/api/v1/levels", get(move || async move { Json(shown.clone()) }))
         .route("/api/v1/projects", get(move || async move { Json(named.clone()) }))
         .route("/api/v1/works/{work}", get(work))
@@ -130,6 +138,50 @@ async fn items(State(handle): State<Handle>, levels: std::sync::Arc<Levels>) -> 
         ),
         Err(refusal) => refused(&refusal),
     }
+}
+
+/// The query of the open pull requests: the one project they are asked of, where one is named.
+#[derive(Deserialize)]
+struct Pulled {
+    project: Option<String>,
+}
+
+/// The pull requests open on the host of each project's repository, or of the one project asked, as each host says
+/// them off the loop, each with the work it belongs to as the records say. A project whose host could not say is said
+/// by itself, with why.
+async fn pulls(
+    State(handle): State<Handle>,
+    levels: std::sync::Arc<Levels>,
+    projects: std::sync::Arc<Projects>,
+    query: Result<Query<Pulled>, QueryRejection>,
+) -> Response {
+    let Query(query) = match query {
+        Ok(query) => query,
+        Err(rejection) => {
+            return fail(
+                StatusCode::BAD_REQUEST,
+                format!("The pull requests cannot be asked for: {}.", rejection.body_text()),
+            );
+        }
+    };
+    let asked = match &query.project {
+        Some(project) => match projects.of_item(project) {
+            Ok(project) => vec![project],
+            Err(why) => return fail(StatusCode::UNPROCESSABLE_ENTITY, format!("{why}.")),
+        },
+        None => projects.names().to_vec(),
+    };
+    let items = match handle.read_at(move |driver, now| Items::of(driver, &levels, now)).await {
+        Ok(Ok(items)) => items,
+        Ok(Err(broken)) => {
+            return fail(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("The items cannot be shown: {}.", broken.0),
+            );
+        }
+        Err(refusal) => return refused(&refusal),
+    };
+    Json(Pulls::of(&items, handle.open_pulls(asked).await)).into_response()
 }
 
 async fn add(

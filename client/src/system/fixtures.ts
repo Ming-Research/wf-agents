@@ -158,7 +158,7 @@ export function fixtureSettings(): SettingsPage {
           key('command', '"claude"'),
           key('slots', '3', '2', { kind: 'count' }),
           { key: 'highest_level', written: null, running: null, change: { kind: 'level' } },
-          key('args', '["--allowedTools", "Edit(./**)"]'),
+          key('env', '["HTTPS_PROXY"]'),
           key('work_budget_usd', '5.0'),
         ],
       },
