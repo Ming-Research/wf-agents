@@ -43,7 +43,7 @@ fn blocks(names: &[&str]) -> Option<Vec<BlockId>> {
 fn planned() -> W {
     let mut w = W::started();
     w.hands_in("S1", &[("place", None)], Vec::new());
-    w.hands_in("R0", &[], Vec::new());
+    w.hands_in("R0", &[("tree_entries", None)], Vec::new());
     w.hands_in(
         "R1",
         &[
@@ -168,7 +168,9 @@ fn each_datum_or_group_a_cell_watches_named_as_dealt_with_is_taken_for_any_block
                             waits: false,
                             questions: Vec::new(),
                             read: Vec::new(),
+                            protected: Default::default(),
                         }),
+                        sent_back: Vec::new(),
                     }],
                     ..Log::default()
                 };

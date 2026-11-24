@@ -9,12 +9,16 @@ use store::WorkNumber;
 use tokio::process::Command;
 use uuid::Uuid;
 
+use crate::commit_lines::Whose;
 use crate::host::NotMerged;
 use crate::settings::Project;
 use flow::agents::{Commits, fill};
 
 /// The directory in the data directory that holds the works' worktrees.
 pub const WORKTREES: &str = "worktrees";
+
+/// What every work's branch name begins with. The full CI workflow reads it to leave a work's pull request alone.
+pub const BRANCH_PREFIX: &str = "work-";
 
 /// Where a work is done: its branch and its worktree, both named by the work's number and by the installation, so
 /// that an installation with a new data directory never takes up a branch another left.
@@ -33,8 +37,9 @@ impl Place {
     }
 }
 
-/// Where the work is done, the commit of the main branch it started from, and whether its branch was there already, as
-/// a work's that was cancelled and reopened, whose cancel kept its branch, or one whose start was cut off.
+/// Where the work is done, the commit of the main branch it started from (the latest commit of main its branch holds,
+/// whatever the branch was made at), and whether its branch was there already, as a work's that was cancelled and
+/// reopened, whose cancel kept its branch, or one whose start was cut off.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Started {
     pub place: Place,
@@ -51,9 +56,21 @@ pub fn tag(installation: &Uuid) -> String {
 pub fn place(data: &Path, tag: &str, work: WorkNumber) -> Place {
     let name = format!("{}-{tag}", work.0);
     Place {
-        branch: format!("work-{name}"),
+        branch: format!("{BRANCH_PREFIX}{name}"),
         dir: data.join(WORKTREES).join(name),
     }
+}
+
+/// Whether the name is one the engine gives a work's branch, `work-<the work's number>-<an installation's tag>`, of any
+/// installation: a branch of that name is a work's, and what is on it is not the engine's to close.
+pub fn is_a_works_branch(name: &str) -> bool {
+    let Some((number, tag)) = name.strip_prefix("work-").and_then(|rest| rest.split_once('-')) else {
+        return false;
+    };
+    !number.is_empty()
+        && number.chars().all(|c| c.is_ascii_digit())
+        && tag.len() == 8
+        && tag.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 /// What a git command gave: whether it exited with 0, and its standard output and error.
@@ -109,10 +126,20 @@ pub(crate) struct With {
 
 /// Runs git in the directory as [`said`] does, with what is given beside its arguments.
 pub(crate) async fn said_with(dir: &Path, with: &With, args: &[&str]) -> Result<Said, String> {
-    let kept =
-        std::env::vars().filter(|(name, _)| crate::cli::KEPT.contains(&name.as_str()) || name.starts_with("LC_"));
+    let output = crate::process::output(command(dir, with, args), LIMIT).await?;
+    Ok(Said {
+        ok: output.status.success(),
+        code: output.status.code(),
+        out: String::from_utf8_lossy(&output.stdout).trim_end().to_string(),
+        err: String::from_utf8_lossy(&output.stderr).trim_end().to_string(),
+    })
+}
+
+/// The git command [`said_with`] runs in the directory: git by its path ([`crate::programs`]), given of the engine's
+/// environment only what [`said`] says.
+fn command(dir: &Path, with: &With, args: &[&str]) -> Command {
     let settings = (with.settings.iter()).flat_map(|setting| ["-c", setting.as_str()]);
-    let mut command = Command::new("git");
+    let mut command = crate::programs::command("git");
     command
         .arg("-C")
         .arg(dir)
@@ -120,17 +147,11 @@ pub(crate) async fn said_with(dir: &Path, with: &With, args: &[&str]) -> Result<
         .args(settings)
         .args(args)
         .env_clear()
-        .envs(kept)
+        .envs(crate::programs::kept().iter().cloned())
         .envs(with.env.iter().cloned())
         .env("GIT_TERMINAL_PROMPT", "0")
         .stdin(std::process::Stdio::null());
-    let output = crate::process::output(command, LIMIT).await?;
-    Ok(Said {
-        ok: output.status.success(),
-        code: output.status.code(),
-        out: String::from_utf8_lossy(&output.stdout).trim_end().to_string(),
-        err: String::from_utf8_lossy(&output.stderr).trim_end().to_string(),
-    })
+    command
 }
 
 /// Runs git in the directory and gives its standard output; or says what failed, with what git said.
@@ -149,14 +170,126 @@ pub(crate) async fn git_with(dir: &Path, with: &With, args: &[&str]) -> Result<S
     }
 }
 
+/// The content of each of these files of the commit, in their order, as one run of `git cat-file --batch` in the
+/// directory reads them; none of one the commit does not hold. The paths are given on git's input, never as its
+/// arguments, so that no path is read as an option; one that holds a line break, which that input cannot carry, is
+/// refused.
+pub(crate) async fn blobs(dir: &Path, commit: &str, paths: &[&str]) -> Result<Vec<Option<Vec<u8>>>, String> {
+    let out = cat_file(dir, commit, paths, "--batch").await?;
+    batch(&out, paths.len())
+}
+
+/// Whether the commit holds each of these paths, a file or a directory, in their order, as one run of
+/// `git cat-file --batch-check` in the directory says; the paths are given as [`blobs`] gives its own.
+pub(crate) async fn holds(dir: &Path, commit: &str, paths: &[&str]) -> Result<Vec<bool>, String> {
+    if paths.is_empty() {
+        return Ok(Vec::new());
+    }
+    let out = cat_file(dir, commit, paths, "--batch-check").await?;
+    let text = String::from_utf8_lossy(&out);
+    let lines: Vec<&str> = text.lines().collect();
+    if lines.len() != paths.len() {
+        return Err(format!(
+            "git cat-file --batch-check said {} lines for {} paths",
+            lines.len(),
+            paths.len()
+        ));
+    }
+    Ok(lines
+        .into_iter()
+        .map(|line| !(line.ends_with(" missing") || line.ends_with(" ambiguous")))
+        .collect())
+}
+
+/// What one run of `git cat-file` in `mode` gives for each of these paths of the commit, which it is given on its
+/// input one to a line.
+async fn cat_file(dir: &Path, commit: &str, paths: &[&str], mode: &str) -> Result<Vec<u8>, String> {
+    use tokio::io::AsyncWriteExt;
+    if let Some(path) = paths.iter().find(|p| p.contains('\n')) {
+        return Err(format!(
+            "git cat-file cannot be given the path {path:?}, which holds a line break"
+        ));
+    }
+    let mut command = crate::programs::command("git");
+    command
+        .arg("-C")
+        .arg(dir)
+        .args(SAFE)
+        .args(["cat-file", mode])
+        .env_clear()
+        .envs(crate::programs::kept().iter().cloned())
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
+    let mut child = command.spawn().map_err(|e| format!("git cannot be run: {e}"))?;
+    let mut stdin = child.stdin.take().ok_or("git cat-file was given no input")?;
+    let input: String = paths.iter().map(|path| format!("{commit}:{path}\n")).collect();
+    // The input is written while the output is read: git answers each line as it reads it, and would wait for its
+    // output to be read while its input waits to be written. It is closed once written, so that git ends.
+    let writing = async move {
+        stdin
+            .write_all(input.as_bytes())
+            .await
+            .map_err(|e| format!("git cat-file: {e}"))?;
+        drop(stdin);
+        Ok::<(), String>(())
+    };
+    let (written, output) = tokio::join!(writing, async {
+        match tokio::time::timeout(LIMIT, child.wait_with_output()).await {
+            Ok(output) => output.map_err(|e| format!("git cat-file: {e}")),
+            Err(_) => Err(format!("git cat-file did not end within {} seconds", LIMIT.as_secs())),
+        }
+    });
+    written?;
+    let output = output?;
+    if !output.status.success() {
+        let said = String::from_utf8_lossy(&output.stderr).trim_end().to_string();
+        return Err(format!("git cat-file {mode} failed in {}: {said}", dir.display()));
+    }
+    Ok(output.stdout)
+}
+
+/// The objects a run of `git cat-file --batch` gave for this many lines of its input, in their order: each one's
+/// content after the line `<id> <type> <size>`, and none of one it said was missing.
+fn batch(out: &[u8], count: usize) -> Result<Vec<Option<Vec<u8>>>, String> {
+    let mut objects = Vec::with_capacity(count);
+    let mut rest = out;
+    for _ in 0..count {
+        let end = (rest.iter().position(|b| *b == b'\n')).ok_or("git cat-file --batch ended before its last object")?;
+        let header = String::from_utf8_lossy(&rest[..end]).into_owned();
+        rest = &rest[end + 1..];
+        if header.ends_with(" missing") || header.ends_with(" ambiguous") {
+            objects.push(None);
+            continue;
+        }
+        let size = (header.rsplit(' ').next())
+            .and_then(|size| size.parse::<usize>().ok())
+            .ok_or_else(|| format!("git cat-file --batch said {header:?}, which gives no size"))?;
+        let content = rest.get(..size).ok_or("git cat-file --batch ended within an object")?;
+        objects.push(Some(content.to_vec()));
+        rest = rest.get(size + 1..).unwrap_or_default();
+    }
+    Ok(objects)
+}
+
 /// The path as git is given it: the worktree's path must not be read against the repository's directory.
 fn text(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
-/// Makes the work's branch from `from`, the head of main as the host gives it, and its worktree, keeping both where
-/// they are made already.
-pub async fn start(project: &Project, place: &Place, from: &str) -> Result<Started, String> {
+/// Whether the work's branch is made already, as a work's that was cancelled and reopened, or one whose start was cut
+/// off, has it.
+pub(crate) async fn branch_made(project: &Project, place: &Place) -> Result<bool, String> {
+    let found = said(&project.repo, &["rev-parse", "--verify", "--quiet", &place.reference()]).await?;
+    Ok(found.ok)
+}
+
+/// Makes the work's branch at `at`, the commit its work starts from: the head of main as the host gives it, or what its
+/// item continues; and its worktree, keeping both where they are made already. `main` is the head of main, by which
+/// the commit of main the branch started from is worked out.
+pub async fn start(project: &Project, place: &Place, at: &str, main: &str) -> Result<Started, String> {
     configuration(project, place).await?;
     let repo = &project.repo;
     let branch = place.reference();
@@ -182,10 +315,24 @@ pub async fn start(project: &Project, place: &Place, from: &str) -> Result<Start
         if kept {
             git(repo, &["worktree", "add", &dir, &place.branch]).await?;
         } else {
-            git(repo, &["worktree", "add", "-b", &place.branch, &dir, from]).await?;
+            // A branch with no history in common with main could never be merged into it. It is refused before the
+            // branch is made: a branch made is taken as it is by the next start, which reads nothing of what the item
+            // continues, so the work would stay stuck at it.
+            let shared = said(repo, &["merge-base", main, at]).await?;
+            match shared.code {
+                Some(0) => {}
+                Some(1) => {
+                    return Err(format!(
+                        "the commit {at} has no history in common with main, which is {main}: a branch made there \
+                         could never be merged into main, so the work's branch is not made"
+                    ));
+                }
+                _ => return Err(format!("git merge-base {main} {at}: {}", shared.err)),
+            }
+            git(repo, &["worktree", "add", "-b", &place.branch, &dir, at]).await?;
         }
     }
-    let from = git(repo, &["merge-base", from, &branch]).await?;
+    let from = git(repo, &["merge-base", main, &branch]).await?;
     Ok(Started {
         place: place.clone(),
         from,
@@ -341,15 +488,16 @@ pub(crate) async fn untracked(dir: &Path) -> Result<String, String> {
 
 /// The words the check's merge of main into a work's branch is made with, as the project's `commits` says: a run's
 /// merge has words of its own, so that neither takes the other's for its own.
-fn taking_in(project: &Project, main: &str) -> String {
-    fill(&project.commits.check, &[("main", &project.main), ("head", main)])
+fn taking_in(project: &Project, main: &str, whose: Whose) -> String {
+    let words = fill(&project.commits.check, &[("main", &project.main), ("head", main)]);
+    whose.ending(&project.commits, &words)
 }
 
 /// Merges main's head into the branch checked out in the worktree, which merges it without a conflict, as a commit
 /// of the engine's, and gives the branch's head after it and whether the check made that commit; where the branch
 /// holds main's head already, its head as it is, so that a merge done before the engine stopped is not done again.
-pub(crate) async fn take_in(dir: &Path, main: &str, project: &Project) -> Result<(String, bool), String> {
-    let message = taking_in(project, main);
+pub(crate) async fn take_in(dir: &Path, main: &str, project: &Project, whose: Whose) -> Result<(String, bool), String> {
+    let message = taking_in(project, main, whose);
     let commits = &project.commits;
     if said(dir, &["merge-base", "--is-ancestor", main, "HEAD"]).await?.ok {
         // The check's own merge of this main, made by a check that stopped before it was recorded, is still its own.
@@ -360,23 +508,24 @@ pub(crate) async fn take_in(dir: &Path, main: &str, project: &Project) -> Result
 }
 
 /// The head of the branch checked out in the worktree and its first parent, where the head is the engine's merge of
-/// main's head at `main` made with these words, by the address `commits` gives; none where it is not. It says only
-/// that a run, or the check, made the merge before the engine stopped, which what the round is told of it rests on:
-/// whether a merge brings only main's code is known by its content alone (`crate::head`).
+/// main's head at `main` made with this message, whole and not its first line alone, by the address `commits` gives;
+/// none where it is not. It says only that a run, or the check, made the merge before the engine stopped, which what
+/// the round is told of it rests on: whether a merge brings only main's code is known by its content alone
+/// (`crate::head`).
 pub(crate) async fn merged_as(
     dir: &Path,
     main: &str,
     message: &str,
     commits: &Commits,
 ) -> Result<Option<(String, String)>, String> {
-    let head = git(dir, &["log", "-1", "--format=%H%x00%ae%x00%P%x00%s", "HEAD"]).await?;
-    let fields: Vec<&str> = head.split('\0').collect();
-    let [commit, email, parents, subject] = fields.as_slice() else {
+    let head = git(dir, &["log", "-1", "--format=%H%x00%ae%x00%P%x00%B", "HEAD"]).await?;
+    let fields: Vec<&str> = head.splitn(4, '\0').collect();
+    let [commit, email, parents, body] = fields.as_slice() else {
         return Ok(None);
     };
     let parents: Vec<&str> = parents.split(' ').collect();
     Ok(match parents.as_slice() {
-        [first, merged] if *email == commits.email && *merged == main && *subject == message => {
+        [first, merged] if *email == commits.email && *merged == main && body.trim_end() == message.trim_end() => {
             Some((commit.to_string(), first.to_string()))
         }
         _ => None,
@@ -454,13 +603,32 @@ pub(crate) async fn conflicts(project: &Project, main: &str, commit: &str) -> Re
     }
 }
 
+/// The messages of the commits the head holds that `base` does not, oldest first, those that merge excluded: what a
+/// work's own commits say, which the squash that merges the work gathers.
+pub(crate) async fn work_messages(repo: &Path, base: &str, head: &str) -> Result<Vec<String>, String> {
+    let range = format!("{base}..{head}");
+    let log = git(repo, &["log", "--reverse", "--no-merges", "--format=%B%x00", &range]).await?;
+    Ok(log
+        .split('\0')
+        .map(|message| message.trim().to_string())
+        .filter(|message| !message.is_empty())
+        .collect())
+}
+
 /// Merges the work's branch into the main branch in the repository's own checkout, which must be on the main branch,
 /// hold no uncommitted change and no merge under way, by a commit named `name` in the words of the project's
-/// `commits`, and gives the head of the main branch after it: the merge commit, or, where the branch holds nothing the
-/// main branch does not, the head as it was. Where `checked` names the commit the check passed, the branch's head must
-/// be that commit, and it is what is merged. A merge is refused while the repository's own configuration names a
-/// program git could run ([`configuration`]), as every act is. Where the merge fails, the merge it began is taken back.
-pub async fn merge(project: &Project, place: &Place, name: &str, checked: Option<&str>) -> Result<String, NotMerged> {
+/// `commits` and ending with the lines that name the item and the work, and gives the head of the main branch after
+/// it: the merge commit, or, where the branch holds nothing the main branch does not, the head as it was. Where
+/// `checked` names the commit the check passed, the branch's head must be that commit, and it is what is merged. A
+/// merge is refused while the repository's own configuration names a program git could run ([`configuration`]), as
+/// every act is. Where the merge fails, the merge it began is taken back.
+pub async fn merge(
+    project: &Project,
+    place: &Place,
+    name: &str,
+    whose: Whose,
+    checked: Option<&str>,
+) -> Result<String, NotMerged> {
     let repo = &project.repo;
     let on = git(repo, &["symbolic-ref", "--quiet", "--short", "HEAD"]).await?;
     if on != project.main {
@@ -516,7 +684,8 @@ pub async fn merge(project: &Project, place: &Place, name: &str, checked: Option
         let main = git(repo, &["rev-parse", "HEAD"]).await?;
         return Err(NotMerged::Moved { main, checked: head });
     }
-    let message = fill(&project.commits.merge, &[("branch", &place.branch), ("name", name)]);
+    let words = fill(&project.commits.merge, &[("branch", &place.branch), ("name", name)]);
+    let message = whose.ending(&project.commits, &words);
     let args = ["merge", "--no-ff", "-m", &message, &head];
     if let Err(why) = git(repo, &args).await {
         if merging().await? {

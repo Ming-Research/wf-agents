@@ -30,20 +30,19 @@ export const aheadCount = (summaries: Pick<Summary, 'now' | 'ahead'>[]): number 
 /// passage of the body or a message an agent wrote points to it, or else after the last section's passages, and a
 /// block the owner rules on, at the end of that section. The rest are drawn under the work's state line.
 export const drawnInBody = (w: Wait): boolean =>
-  w.ends.kind === 'answer' || w.ends.kind === 'reply' || w.ends.kind === 'write';
+  w.ends.kind === 'answer' || w.ends.kind === 'write';
 
 /// The act on the work a card's button sends, by what ends the wait; none where the card's options say it (a question,
 /// a ruling), or where nothing on the page does it.
 export function actOf(ends: Ends): Act | null {
   switch (ends.kind) {
     case 'goOn':
-      return { kind: 'result', call: ends.call, result: 'go on' };
+      return { kind: 'goOn', call: ends.call };
     case 'letGo':
       return { kind: 'letGo', cell: ends.cell };
     case 'resume':
       return { kind: 'resume' };
     case 'answer':
-    case 'reply':
     case 'write':
     case 'outside':
       return null;

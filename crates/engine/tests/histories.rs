@@ -24,7 +24,7 @@
 //!
 //! And once people stop, the owner lets the work on if it is paused, for whatever reason, and no round fails any more:
 //! the work then rests within the bound stated on `bound` (property a-work-comes-to-rest), at rest it is not paused and
-//! the walk waits, is stalled, or has ended, and `pending` holds only calls for a person; a work that
+//! the walk waits, is stalled, or has ended, and `pending` holds only calls for the owner; a work that
 //! ended has let go of what it held; a cancelled work ends with nothing pending, and a look at it gives nothing. The
 //! same history ends with the same work run twice, and with its stops as without them, failed rounds among them.
 //!
@@ -34,9 +34,8 @@
 //!   half of them the agent hands in each block its cell may write with a chance of seven in ten, those its cell must
 //!   write each time too, so that it leaves one out at times, and, in one in ten, a block it may not; a choice with one
 //!   of its values in four of five, a wrong value or none otherwise; prose with a value in one in twenty; each
-//!   mattering or not as a coin says. In three in ten it asks for one to three calls, a tool in seven of ten and a
-//!   question for the owner or the architect otherwise; in two in ten it asks for nothing.
-//! - a call has its result: always for a tool; for a person or the owner's call at a limit only while people act.
+//!   mattering or not as a coin says. In three in ten it asks for one to three tools; in two in ten it asks for nothing.
+//! - a call has its result: always for a tool; for the owner's call at a limit only while people act.
 //! - a round given to be stopped ends, what it returns being dropped, or, while people act, fails in half of them; a
 //!   call given to be withdrawn is said to have its result, that it was withdrawn.
 //!
@@ -62,7 +61,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 use std::panic::{self, AssertUnwindSafe};
 
-use decide::{CallId, Decision, Outsider, Pauser, RunId, Who, decide};
+use decide::{CallId, Decision, Outsider, Pauser, RunId, decide};
 use engine::{Ask, Came, Effect, Event, Handed, Spent, Work, pending};
 use flow::{Compiled, Has, Source, compile};
 use support::{Driver, Part, Rng, Seen};
@@ -239,19 +238,9 @@ impl Part for Shape {
             5..=7 => {
                 let n = 1 + d.rng.below(3);
                 let asks = (0..n)
-                    .map(|i| {
-                        if d.rng.chance(70) {
-                            Ask::Tool {
-                                name: format!("tool {i}"),
-                                input: "x".to_string(),
-                            }
-                        } else {
-                            let who = if d.rng.chance(50) { Who::Owner } else { Who::Architect };
-                            Ask::Person {
-                                who,
-                                question: "which?".to_string(),
-                            }
-                        }
+                    .map(|i| Ask::Tool {
+                        name: format!("tool {i}"),
+                        input: "x".to_string(),
                     })
                     .collect();
                 Came::asks(asks)
@@ -289,6 +278,7 @@ impl Part for Shape {
                     Event::Paused {
                         by: Pauser::Owner,
                         why: None,
+                        waits_for: Vec::new(),
                     }
                 }
             }

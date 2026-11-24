@@ -51,7 +51,9 @@ pub const UNSEEN: &str = "nothing is written over unseen";
 pub const CONSUMED: &str = "a datum is consumed only by a return that dealt with it";
 pub const ENTERED: &str = "a cell is entered only for what is new to it";
 pub const FIRST: &str = "the cell entered is the first that something new runs";
-pub const STOPPED: &str = "a round is stopped only for the owner turning to a cell before it";
+pub const STOPPED: &str =
+    "an act of the engine's, or the last cell's round, is stopped only for the owner turning to a cell before it";
+pub const HURRIED: &str = "a round of an agent that is not the last cell's is told to hand in what it has only for the owner turning to a cell before it, once for a version";
 pub const SPOKE: &str = "who wrote what is new is counted right";
 pub const PURE: &str = "the decision is a function of the records";
 pub const REACHES: &str = "a person's write reaches the cells it runs";
@@ -61,7 +63,8 @@ pub const HELD: &str = "a work is held only by a precondition that does not hold
 pub const MAKERS: &str = "a precondition's wait names only those who write a block keeping it from holding";
 pub const STALLED_RIGHT: &str = "a stalled work names what it waits for, who writes it and why none of them runs";
 pub const QUESTION_HOLDS: &str =
-    "a question that waits holds the work at its cell, skipped or not, until it is answered";
+    "a question that waits holds the work at its cell while the cell applies, until it is answered";
+pub const QUESTION_FOLDED: &str = "a question of a skipped cell holds the work at no cell";
 pub const OWED: &str = "a return is sent back for the word it owes exactly where it leaves it owed";
 pub const NO_POINT: &str = "a judge's return is sent back for its points exactly where its fail brings none";
 pub const RULED: &str = "a judge's point the owner ruled on runs no cell";
@@ -80,9 +83,10 @@ pub const REACHED: &[&str] = &[
     NOTHING_CONSUMED,
     UNCHANGED_RUNS_NONE,
     CAUSES_CHECKED,
+    WORKED_FROM_OWN,
     RESULTS_ENTERED,
     TURNED_TO_WHILE_WAITING,
-    STOPS,
+    HURRIES,
     WAY_BACK_FIRST,
     LIMITS_CHECKED,
     CALL_LIMITS_CHECKED,
@@ -103,7 +107,7 @@ pub const REACHED: &[&str] = &[
     FAILED_UNPAUSED,
     UNPAUSED_GOES_ON,
     HELD_BY_A_QUESTION,
-    HELD_WHILE_SKIPPED,
+    FOLDED_WHILE_SKIPPED,
     OWED_SENT_BACK,
     NO_POINT_SENT_BACK,
     RULED_ON,
@@ -120,9 +124,12 @@ const PARTLY_DEALT_WITH: &str = "a return deals with part of what ran its round"
 pub const NOTHING_CONSUMED: &str = "a run is stopped or abandoned and its cell consumed nothing by it";
 const UNCHANGED_RUNS_NONE: &str = "a version handed in as changing nothing in meaning runs no cell";
 const CAUSES_CHECKED: &str = "the reasons of a run as it starts";
+const WORKED_FROM_OWN: &str = "a run starts for a block whose latest version its cell last worked from is its own";
 const RESULTS_ENTERED: &str = "a cell is entered for the results of its calls";
 const TURNED_TO_WHILE_WAITING: &str = "a cell waiting for the results of its calls is entered for the owner's words";
-const STOPS: &str = "a round under way is stopped for the owner turning to a cell before it";
+const HURRIES: &str = "a round under way is told to hand in what it has for the owner turning to a cell before it";
+/// Not required: the histories' cells all take a slot, as an agent's do, so none is an act of the engine's.
+const STOPS: &str = "an act under way is stopped for the owner turning to a cell before it";
 const WAY_BACK_FIRST: &str = "a way back is entered while a cell after it has something of its own to run for";
 const LIMITS_CHECKED: &str = "a work waits at a cell's limit of ways round";
 const CALL_LIMITS_CHECKED: &str = "a work waits at a cell's limit of calls";
@@ -145,7 +152,7 @@ pub const FAILED_IN_PASSING: &str = "a round fails in passing and its run waits 
 pub const FAILED_UNPAUSED: &str = "a round fails for a cause that does not pause its work";
 pub const UNPAUSED_GOES_ON: &str = "a run whose round failed without pausing its work goes on";
 const HELD_BY_A_QUESTION: &str = "a question that waits holds the work at its cell";
-const HELD_WHILE_SKIPPED: &str = "a question that waits holds the work at its cell while the cell is skipped";
+const FOLDED_WHILE_SKIPPED: &str = "a question that waits stands unanswered while its cell is skipped";
 const OWED_SENT_BACK: &str = "a maker's return that leaves the word owed is sent back";
 const NO_POINT_SENT_BACK: &str = "a judge's fail that brings no point is sent back";
 const RULED_ON: &str = "the owner rules on a judge's point a maker has not answered";
@@ -207,6 +214,7 @@ pub fn last_place(r: &Records) -> Seq {
         .chain(r.finished.iter().map(|e| e.at))
         .chain(r.abandoned.iter().map(|e| e.at))
         .chain(r.put_in.iter().map(|e| e.at))
+        .chain(r.hurried.iter().map(|e| e.at))
         .chain(r.written.iter().map(|e| e.at))
         .chain(r.questions.iter().map(|e| e.at))
         .chain(r.answers.iter().map(|e| e.at))
@@ -232,6 +240,7 @@ pub fn as_of(r: &Records, upto: Seq) -> Records {
         finished: kept(&r.finished, |e| e.at, upto),
         abandoned: kept(&r.abandoned, |e| e.at, upto),
         put_in: kept(&r.put_in, |e| e.at, upto),
+        hurried: kept(&r.hurried, |e| e.at, upto),
         written: kept(&r.written, |e| e.at, upto),
         questions: kept(&r.questions, |e| e.at, upto),
         answers: kept(&r.answers, |e| e.at, upto),
@@ -264,6 +273,7 @@ fn shuffled(r: &Records, seed: u64) -> Records {
     }
     shuffle(&mut r.abandoned, &mut rng);
     shuffle(&mut r.put_in, &mut rng);
+    shuffle(&mut r.hurried, &mut rng);
     shuffle(&mut r.written, &mut rng);
     shuffle(&mut r.questions, &mut rng);
     shuffle(&mut r.answers, &mut rng);
@@ -406,9 +416,10 @@ pub fn started(v: &mut Verdict, flow: &Flow, reading: &Reading, s: &Started) {
     let given: Vec<Reason> = (s.because.iter())
         .filter_map(|c| match c {
             Cause::NoRecord => None,
-            Cause::Changed { block, was, .. } => Some(Reason::Changed {
+            Cause::Changed { block, was, worked, .. } => Some(Reason::Changed {
                 block: block.clone(),
                 was: *was,
+                worked: *worked,
             }),
             Cause::Results { calls } => Some(Reason::Results { calls: calls.clone() }),
         })
@@ -425,6 +436,22 @@ pub fn started(v: &mut Verdict, flow: &Flow, reading: &Reading, s: &Started) {
     }
     if given.iter().any(|r| matches!(r, Reason::Results { .. })) {
         v.count(RESULTS_ENTERED);
+    }
+    // The version the cell last worked from is later than the one it consumed where the cell wrote one itself since: that
+    // must be reached, or the agreement of the walk's number with the reading's checks nothing there. No history reaches
+    // one the owner ruled on, which the walk's test of a cause and the context manager's test of the owner's ruling
+    // judge instead.
+    for r in &given {
+        let Reason::Changed { block, was, worked } = r else {
+            continue;
+        };
+        if worked > was
+            && (reading.of(block).iter())
+                .find(|x| Some(x.at) == *worked)
+                .is_some_and(|x| matches!(&x.by, Writer::Cell(c, _) if *c == s.cell))
+        {
+            v.count(WORKED_FROM_OWN);
+        }
     }
     let owed = reading.owed(&s.cell, s.at);
     if owed.iter().any(|c| !reading.done(*c, s.at)) {
@@ -597,8 +624,8 @@ pub fn finished(v: &mut Verdict, reading: &Reading, run: RunId) {
 }
 
 /// After every step (property consumed-only-by-what-a-return-dealt-with, and entered-only-for-what-is-new): of every
-/// cell and every block that runs it, what the walk shows the cell consumed and whether the block is new to it are what
-/// the histories' own reading gives, from the returns that were taken alone.
+/// cell and every block that runs it, what the walk shows the cell consumed and which versions of the block are new to
+/// it are what the histories' own reading gives, from the returns that were taken alone.
 pub fn consumption(v: &mut Verdict, flow: &Flow, reading: &Reading) {
     let now = Seq(u64::MAX);
     let shown = view(flow, reading.records);
@@ -606,13 +633,15 @@ pub fn consumption(v: &mut Verdict, flow: &Flow, reading: &Reading) {
         for input in &seen.runs_on {
             v.count(CONSUMED_CHECKED);
             let consumed = reading.consumed(&cell.id, &input.block, now);
-            let new = !reading.new_to(&cell.id, &input.block, now).is_empty();
-            if input.consumed != consumed || input.new != new {
+            let new: Vec<Seq> = (reading.new_to(&cell.id, &input.block, now).iter())
+                .map(|x| x.at)
+                .collect();
+            if input.consumed != consumed || input.new_versions != new {
                 v.fail(
                     CONSUMED,
                     format!(
-                        "{} shows {} consumed at {:?} and new {}; the returns taken give {consumed:?} and {new}",
-                        cell.id, input.block, input.consumed, input.new
+                        "{} shows {} consumed at {:?} and new at {:?}; the returns taken give {consumed:?} and {new:?}",
+                        cell.id, input.block, input.consumed, input.new_versions
                     ),
                 );
             }
@@ -658,7 +687,11 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
                             v.fail(HELD, format!("the work waits at {at} on {on:?}, which holds"));
                         }
                     }
-                    Waited::Call { .. } | Waited::Slot | Waited::Answer { .. } | Waited::Outside { .. } => {}
+                    Waited::Call { .. }
+                    | Waited::Slot
+                    | Waited::Turn
+                    | Waited::Answer { .. }
+                    | Waited::Outside { .. } => {}
                 }
             }
             first_entered(v, flow, reading, i);
@@ -683,12 +716,21 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
             }
         }
         Decision::Abandon { run, because, .. } => abandoned(v, flow, reading, *run, because),
+        Decision::Hurry {
+            run,
+            turned_to,
+            block,
+            version,
+            ..
+        } => hurried(v, flow, reading, *run, turned_to, block, *version),
         Decision::Stalled { at, on, by } => stalled(v, flow, reading, at, on, by),
         _ => {}
     }
     let merge_begins = match d {
         Decision::Run { cell, .. } => flow.place(cell) == Some(merge),
-        Decision::GoOn { cell, .. } => !paused && room.slot && flow.place(cell) == Some(merge),
+        Decision::GoOn { cell, .. } => {
+            !paused && room.slot && (room.turn || !flow.cells()[merge].turn) && flow.place(cell) == Some(merge)
+        }
         _ => false,
     };
     if merge_begins {
@@ -698,20 +740,34 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
 
 /// Property a-question-holds-its-cell (design document `data-and-context`, 32): while a question that waits holds the
 /// work, by the histories' own reading of the questions and the answers, the decision stands at its cell or before it,
-/// the first such cell in the order, whether that cell applies now or not: nothing after it runs, goes on, has a round
-/// under way or is waited or stalled at, and the work does not merge.
+/// the first such cell in the order whose condition is met now: nothing after it runs, goes on, has a round under way
+/// or is waited or stalled at, and the work does not merge. A question of a cell that is skipped holds the work at no
+/// cell: the work is never waited for its answer.
 fn question_holds(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision) {
     let now = Seq(u64::MAX);
-    let held = (reading.holding(now).iter())
+    let standing = reading.holding(now);
+    let applies = |cell: &decide::CellId| flow.place(cell).is_some_and(|i| reading.applies(flow, i));
+    for (name, cell) in standing.iter().filter(|(_, cell)| !applies(cell)) {
+        v.count(FOLDED_WHILE_SKIPPED);
+        if let Decision::Wait { on, .. } = d
+            && on
+                .iter()
+                .any(|w| matches!(w, Waited::Answer { question } if question == name))
+        {
+            v.fail(
+                QUESTION_FOLDED,
+                format!("the question {name} of {cell}, which is skipped, is waited for, in {d:?}"),
+            );
+        }
+    }
+    let held = (standing.iter())
+        .filter(|(_, cell)| applies(cell))
         .filter_map(|(_, cell)| flow.place(cell))
         .min();
     let Some(q) = held else {
         return;
     };
     v.count(HELD_BY_A_QUESTION);
-    if !reading.applies(flow, q) {
-        v.count(HELD_WHILE_SKIPPED);
-    }
     let at = match d {
         Decision::Run { cell, .. } | Decision::GoOn { cell, .. } | Decision::Busy { cell, .. } => flow.place(cell),
         Decision::Wait { at, .. } | Decision::Stalled { at, .. } => flow.place(at),
@@ -724,9 +780,8 @@ fn question_holds(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision)
         v.fail(
             QUESTION_HOLDS,
             format!(
-                "a question of {} holds the work there, applying {}, and the walk decides {d:?}",
-                flow.cells()[q].id,
-                reading.applies(flow, q)
+                "a question of {} holds the work there, and the walk decides {d:?}",
+                flow.cells()[q].id
             ),
         );
     }
@@ -934,9 +989,54 @@ fn stalled(
     }
 }
 
+/// Property a-round-is-hurried-only-for-the-owner-turning (design document `data-and-context`, 35): a round of an
+/// agent that is not the last cell's, whose finish ends the work, is told to hand in what it has only while it is under way, for a cell before its own that applies and to
+/// which something that interrupts is new, by the latest version of it that the cell did not write itself, and once for
+/// a version.
+fn hurried(
+    v: &mut Verdict,
+    flow: &Flow,
+    reading: &Reading,
+    run: RunId,
+    turned_to: &decide::CellId,
+    block: &BlockId,
+    version: Seq,
+) {
+    v.count(HURRIES);
+    let s = reading.started[&run];
+    let now = Seq(u64::MAX);
+    let place = |c: &decide::CellId| flow.place(c);
+    let before = place(turned_to).zip(place(&s.cell)).is_some_and(|(j, i)| j < i);
+    let new = !reading.new_to(turned_to, block, now).is_empty();
+    let applies = place(turned_to).is_some_and(|j| reading.applies(flow, j));
+    let agent = place(&s.cell).is_some_and(|i| i + 1 < flow.cells().len() && flow.cells()[i].slot);
+    let r = reading.records;
+    let under_way = r.rounds.iter().filter(|x| x.run == run).count()
+        > r.returned.iter().filter(|x| x.run == run).count()
+        && !r.finished.iter().any(|f| f.run == run)
+        && !r.abandoned.iter().any(|a| a.run == run);
+    let theirs = (reading.of(block).iter().rev())
+        .find(|w| !matches!(&w.by, Writer::Cell(c, _) if c == turned_to))
+        .map(|w| w.at);
+    let once = !r
+        .hurried
+        .iter()
+        .any(|h| h.run == run && &h.block == block && h.version == version);
+    if !(before && new && applies && agent && under_way && flow.interrupts(block) && theirs == Some(version) && once) {
+        v.fail(
+            HURRIED,
+            format!(
+                "the round of run {run:?} of {} is told to hand in what it has, for {block} at {version:?} turned to {turned_to}, which the records do not bear out",
+                s.cell
+            ),
+        );
+    }
+}
+
 /// Why a run was abandoned (properties one-round-of-a-work-at-a-time and consumed-only-by-what-a-return-dealt-with): as
 /// cancelled only in a cancelled work; as no longer applying only when its cell is skipped; as stopped only while a
-/// round of it is under way, for a cell before it that applies, to which something that interrupts is new.
+/// round of it, an act of the engine's or the last cell's, is under way, for a cell before it that applies, to which something that
+/// interrupts is new.
 pub fn abandoned(v: &mut Verdict, flow: &Flow, reading: &Reading, run: RunId, because: &Abandoning) {
     let s = reading.started[&run];
     let now = Seq(u64::MAX);
@@ -949,7 +1049,8 @@ pub fn abandoned(v: &mut Verdict, flow: &Flow, reading: &Reading, run: RunId, be
             let before = place(cell).zip(place(&s.cell)).is_some_and(|(j, i)| j < i);
             let new = !reading.new_to(cell, block, now).is_empty();
             let applies = place(cell).is_some_and(|j| reading.applies(flow, j));
-            before && new && applies && flow.interrupts(block)
+            let untold = place(&s.cell).is_some_and(|i| i + 1 == flow.cells().len() || !flow.cells()[i].slot);
+            before && new && applies && untold && flow.interrupts(block)
         }
     };
     if !ok {
@@ -1158,6 +1259,7 @@ pub fn reaches(v: &mut Verdict, flow: &Flow, records: &Records, rest: &Decision,
                 at: Seq(last_place(records).0 + 1),
                 by: Pauser::Owner,
                 why: None,
+                waits_for: Vec::new(),
             });
             match decide(flow, &let_on) {
                 Decision::Run { cell, .. } | Decision::GoOn { cell, .. } | Decision::Wait { at: cell, .. } => {

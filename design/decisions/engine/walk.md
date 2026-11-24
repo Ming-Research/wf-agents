@@ -16,9 +16,11 @@ The walk passes a cell whose condition does not hold, and what it wrote still co
 - rejected: an agent proposed that what a cell wrote no longer counts while the walk passes it; the owner rejected it, because a cell that is not run leaves what it wrote valid, and only a veto, such as his refused approval, voids something.
 
 ### decision meaning-told-by-the-writer
-A choice or a list of names changes its meaning when its value changes; prose changes it only when its writer says the change matters, and a version said not to matter is kept and runs no cell.
+A choice or a list of names changes meaning when its value changes; prose when its writer says it matters; an empty text over none or an empty one, or an empty entry added to a record, says nothing.
 - rejected: an agent proposed taking every new text of a block as a change that runs the cells after it; the owner rejected it, because a mechanical comparison would run everything after a reworded text again.
 - replaced: Writing a version handed in as changing nothing in meaning over the version it mends was on main; the owner changed it, because the cells that had the old version would then be taken to have the new one.
+- replaced: Taking every text written empty as a version with a meaning of its own was on main; the owner changed it, because it woke cells for nothing: a dialogue or words nobody asked for, written empty, ran the cells that watch them.
+- rejected: an agent proposed that the engine not record such an empty write as a version when it takes the return; the owner rejected it, because the record would no longer show that the cell wrote it, and a later reader could not replay it by the rule of that time.
 
 ### decision every-way-round-has-a-limit
 Each of these has a limit at which the work waits for the owner: a cell's runs in a row that are ways round, the returns of its run sent back, and its runs in a row that only ask for calls.
@@ -26,7 +28,8 @@ Each of these has a limit at which the work waits for the owner: a cell's runs i
 - rejected: an agent proposed counting a cell's ways round separately for each cell that sends it back, so that one pair pushing back and forth stops it; the owner rejected it, because a send-back is itself a fault, and three abnormal send-backs are never let go unsolved.
 
 ### decision a-question-that-waits-holds-its-cell
-A question its cell waits for holds the work at that cell, whether or not the cell applies, until its latest version is answered: no later cell runs, and the answer runs the cell again.
+A question its cell waits for holds the work at that cell while the cell applies, until its latest version is answered: no later cell runs, and the answer runs the cell again.
+- replaced: A question its cell waits for holding the work whether or not the cell applied was on main; the owner changed it, because a skipped cell does not run to take the answer, so the work stopped at a cell it would not run.
 - replaced: A cell that asked a question it waits for leaving whatever waited for the answer out of what it dealt with, so that it stayed new, was on main; the owner changed it, because the question itself brings the cell back, which is what its stop flag was set for.
 
 ### decision a-work-no-cell-can-move-is-stalled
@@ -48,3 +51,7 @@ For a paused work, the walk names the cell the work would run once it is let go 
 ### decision dependencies-reach-the-walk-as-a-datum
 The walk learns whether the items a work depends on have merged or been cancelled only from versions of `dependencies`, which the engine writes from outside; no test of the flow reads another work.
 - rejected: an agent proposed a named test that reads in memory whether the items the work depends on merged; the owner rejected it, because then a replay of the work's records could not reach the same decision.
+
+### decision a-run-records-the-version-its-cell-last-worked-from
+The cause a run begins for records, beside the version the cell consumed, the version it last worked from, which the walk works out as the run begins and the page shows; a cause kept before has none.
+- rejected: an agent proposed working the version out on the page, as it is drawn, by today's flow; the owner rejected it, because after the flow changes a past run could show a number different from the one its message had, the past being read by today's flow and not as it ran.

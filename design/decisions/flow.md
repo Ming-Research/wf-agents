@@ -8,14 +8,23 @@ A flow is data in files of wf-agents' own format: the engine's compiler checks t
 - rejected: an agent proposed drawing the changed chart from the Chinese source with the old generator, and copying each change into the repository's English definition; the owner rejected it, because the chart is to be drawn from the repository's definition, the one source.
 
 ### decision what-agents-are-sent-is-in-the-flows-files
-Everything the engine sends agents is in the flow's files, never in the code or the installation's settings: its own words, the words its acts write, and the project's paths it names.
+Everything the engine sends agents, writes on GitHub and says on the owner's cards is in the flow's files, not in the code or the installation's settings; a project's own paths are in its declaration.
 - rejected: an agent proposed keeping the paths of the project's guide, constitution and tree rules, and the owner's language, in the installation's settings; the owner rejected it, because he checks the flow's files for repetition, copies and hard-coding, and the page for what the files lack.
 - replaced: Keeping in the engine's code the words that its acts write into blocks and commits was on main; the owner changed it, because what an agent is sent comes from the flow's files.
+- replaced: Keeping in the engine's code the words it writes on a pull request, in a call's result it ends itself, and as a pause's reason was on main; the owner changed it, because words in the code are ones he can neither see in the flow's files nor change.
+- replaced: The project's paths it names among the flow's files was on main; the owner changed it, because they are the project's, and the flow's files are the same for every project.
+
+### decision the-flows-words-hold-for-every-project
+The flow's words say only what holds for every project; a requirement of one kind of project is in that project's guide, which every agent's session begins with.
+- replaced: Taking a browser, a pull request and CI as holding for every project, in the words of the flow's files, was on main; the owner changed it, because an agent of another project reads them and does what its own project does not have.
+- rejected: an agent proposed a setting in the project's declaration that a cell's words name; the owner rejected it, because every other project's declaration must then define it too, or the flow is refused there, and a project with no such requirement writes a value for nothing.
+- rejected: an agent proposed a kind of setting that a project may leave out; the owner rejected it, because it is a new mechanism in the engine and the compiler, which the guide makes unnecessary.
 
 ### decision the-flows-files-are-a-tree-of-concepts
-The flow's files are laid out by concept, one thing to a file: the project's declaration, what every agent is sent, and each flow's lines, cells, blocks and tests.
+The flow's files are laid out by concept, one thing to a file: what every agent is sent, and each flow's lines, cells, blocks and tests; the project's declaration is not among them.
 - rejected: an agent proposed one file holding everything the flows share; the owner rejected it, because it held too much, including every line's definition.
 - replaced: One directory for the engineer's flow, with all 41 of its blocks in its `flow.toml`, was on main; the owner changed it, because when each name has its own file, nothing can be defined twice, and a repetition shows in the file names.
+- replaced: The project's declaration among the flow's files was on main; the owner changed it, because the declaration is the project's, and the flow's files hold what is the same for every project.
 
 ### decision only-how-the-system-works-is-written-by-hand
 Of what agents are told, only how the system works is written by hand, once for all flows; what each cell may return is built from the definitions of its line and of the cell.
@@ -61,7 +70,7 @@ Besides what its own file names, every agent cell of a flow reads every cell's q
 - replaced: Naming the discussion and the questions in the context of each cell was on main; the owner changed it, because what every cell takes is part of the flow and is named once, so that the whole work knows what was asked, answered and said.
 
 ### decision a-datum-of-a-cell-s-own-is-made-where-a-cell-names-it
-A per-cell or per-line datum, such as a cell's questions, is made for a cell or line only where some cell names it: in what it watches, reads or writes, or in its conditions.
+A per-cell datum, such as a cell's questions, is made for a cell only where some cell names it: in what it watches, reads or writes, or in its conditions.
 - replaced: Making such a datum only where a cell names it in what it watches, reads or writes was on main; the owner changed it, because a datum named only in a condition, such as whether the better way was handed in, must exist too.
 
 ### decision a-cell-names-a-block-once

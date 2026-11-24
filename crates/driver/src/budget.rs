@@ -1,6 +1,6 @@
 //! The most a work may spend: the installation's budget of a work, with what each letting-on of it allows beyond that.
 //!
-//! A work whose rounds and keep-warm pings have spent more than it may waits for the owner as its round ends (crate
+//! A work whose rounds, keep-warm pings and forks have spent more than it may waits for the owner as its round ends (crate
 //! `carry`). Held to its budget alone, such a work ended the round after each letting-on over the budget too and was
 //! paused again, so a letting-on bought one round and no more; so each letting-on of a work the engine paused for its
 //! budget allows it [`Budget::let_on`] beyond what it had spent by then. Counted beyond the bar it was paused at
@@ -49,7 +49,7 @@ impl Budget {
 }
 
 /// What the work had spent by this place, in millionths of a dollar: every round of it that had begun by then, with
-/// every keep-warm ping of it that had ended, which count in its spend as its rounds do. The rounds are counted from
+/// every keep-warm ping and fork of it that had ended, which count in its spend as its rounds do. The rounds are counted from
 /// where each began, not from where it ended: the engine records the pause of a work before the return of the round
 /// whose end pauses it (crate `service`), so the round that took the work over what it might spend ends after that
 /// pause, and counted from its end it would be left out of what the pause was for.
@@ -64,14 +64,14 @@ fn spent_by(work: &Work, at: Seq) -> u64 {
             usd += work.spent.get(&(round.run, k)).map_or(0, |spent| spent.usd_micros);
         }
     }
-    let pinged = (work.pinged.iter()).filter(|ping| ping.at <= at);
-    usd + pinged.map(|ping| ping.spent.usd_micros).sum::<u64>()
+    let beside = (work.spent_beside_rounds().into_iter()).filter(|call| call.at <= at);
+    usd + beside.map(|call| call.spent.usd_micros).sum::<u64>()
 }
 
 #[cfg(test)]
 mod tests {
     use decide::{Pause, Returned, Round};
-    use work::{Pinged, Spent};
+    use work::{Forked, Pinged, Spent};
 
     use super::*;
 
@@ -95,6 +95,7 @@ mod tests {
                 at: Seq(*at),
                 by: *by,
                 why: None,
+                waits_for: Vec::new(),
             });
         }
         work
@@ -174,6 +175,7 @@ mod tests {
             at: Seq(at),
             by,
             why: None,
+            waits_for: Vec::new(),
         };
         work.records.rounds.push(Round { run, at: Seq(1) });
         work.records.pauses.push(pause(true, 2, Pauser::Engine));
@@ -209,5 +211,33 @@ mod tests {
             failed: None,
         });
         assert_eq!(BUDGET.bar(&work), 1_600_000);
+    }
+
+    #[test]
+    fn a_fork_counts_in_what_the_work_had_spent_at_a_pause_as_a_ping_does() {
+        // The same work as with the ping, a fork of twenty cents at the place the ping was at: the same bar, and none
+        // for a fork that ended after the pause.
+        let mut work = work(
+            &[(10, 900_000)],
+            &[(21, Pauser::Engine, true), (22, Pauser::Owner, false)],
+        );
+        let fork = |at, usd_micros| Forked {
+            at: Seq(at),
+            run: RunId(1),
+            round: 1,
+            usd_micros,
+            uncached_tokens: 0,
+            cache_written_tokens: None,
+            cached_tokens: 0,
+            output_tokens: 0,
+        };
+        work.forked.push(fork(20, 200_000));
+        assert_eq!(BUDGET.bar(&work), 1_600_000);
+        work.forked.push(fork(30, 700_000));
+        assert_eq!(
+            BUDGET.bar(&work),
+            1_600_000,
+            "a fork after the letting-on is not in what had been spent"
+        );
     }
 }

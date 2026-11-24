@@ -15,6 +15,9 @@ use flow::{Compiled, Has};
 use support::Sim;
 use work::{Question, Said, Way};
 
+/// The entries of the design tree the reading of the tree hands in, as their names.
+const ENTRIES: &str = "principle lean-agent-input";
+
 /// The directory that holds the repository's flows.
 fn root() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow")
@@ -32,9 +35,9 @@ fn engineer() -> Compiled {
             "dependencies",
             "handed_in",
             "main",
-            "session",
             "start",
             "head",
+            "test_times",
             "tree",
             "words",
         ]),
@@ -59,7 +62,7 @@ fn the_implementation_entered_first_after_the_plan_names_each_datum_its_session_
         let id = sim.cell(&round).id.as_str().to_string();
         let blocks: &[(&str, &str, Option<&str>)] = match id.as_str() {
             "S1" => &[("place", "the branch and its worktree", None)],
-            "R0" => &[],
+            "R0" => &[("tree_entries", ENTRIES, None)],
             "R1" => &[
                 ("deep_needed", "", Some("no")),
                 ("plan_owner", "Greet by name.", None),
@@ -139,9 +142,25 @@ fn deeply_until(id: &str) -> (Sim, support::Given) {
 /// A work of the engineer's flow, carried out until the round of this cell is given, which is not carried out, the plan
 /// written by the deep research where `deep` holds and by the research otherwise: gives the work and that round.
 fn carried_until(id: &str, deep: bool) -> (Sim, support::Given) {
+    carried_on(engineer(), id, deep, None)
+}
+
+/// A work of this flow, carried out until the round of this cell is given, which is not carried out, the plan written by
+/// the deep research where `deep` holds and by the research otherwise, the design tree written at the start where a
+/// version of it is given: gives the work and that round. The reading of the tree hands in the entries where its cell
+/// must write them, and nothing where it need not, as on a flow before the entries were handed in.
+fn carried_on(flow: Compiled, id: &str, deep: bool, tree: Option<&str>) -> (Sim, support::Given) {
     let beside = flow::agents::read(&root()).expect("the files beside the flows are read");
-    let mut sim = Sim::of(engineer(), beside);
+    let must = |cell: &str| (flow.cells.iter()).any(|c| c.id.as_str() == cell && !c.must_write.is_empty());
+    let reading = match must("R0") {
+        true => vec![("tree_entries", ENTRIES, None)],
+        false => vec![],
+    };
+    let mut sim = Sim::of(flow, beside);
     sim.wrote("dependencies", "", Some("merged"), Outsider::Outside);
+    if let Some(tree) = tree {
+        sim.wrote("tree", tree, None, Outsider::Outside);
+    }
     sim.writes("background", "Greet the user by name.");
     let plan = [
         ("plan_owner", "Greet by name.", None),
@@ -156,7 +175,7 @@ fn carried_until(id: &str, deep: bool) -> (Sim, support::Given) {
         }
         let blocks: Vec<(&str, &str, Option<&str>)> = match cell.as_str() {
             "S1" => vec![("place", "the branch and its worktree", None)],
-            "R0" => vec![],
+            "R0" => reading.clone(),
             "R1" if deep => vec![
                 ("deep_needed", "", Some("yes")),
                 ("found", "Where the name comes from is open.", None),
@@ -389,23 +408,65 @@ fn words_to_a_work_that_has_ended_are_refused_and_go_to_no_cell() {
     assert_eq!(sim.versions("i1_words").len(), entries, "nothing is written");
 }
 
+// A compaction of the engineer's session during the implementation's round runs no cell: the round given again in the
+// compacted session, and the implementation's next round in it, are each given the entries of the design tree that the
+// reading of the tree handed in, and the reading does not run again (design document `data-and-context`, 25). Runs in
+// memory in milliseconds; the one test that a reopened session of the engineer flow is given the entries and reads the
+// tree again in no cell of its own.
 #[test]
-fn a_reopened_session_s_reading_of_the_tree_leaves_the_line_where_its_cell_that_takes_words_stands() {
+fn a_compacted_session_of_the_implementation_is_given_the_entries_and_runs_no_reading_of_the_tree() {
     let (mut sim, round) = until("I1");
     tried(&mut sim, &round);
-    // The engineer's session is reopened: R0, which the owner's words do not run, reads the tree again before the
-    // review.
-    sim.anew("engineer", engine::Why::Owner);
-    let new = "A new session of the line `engineer`: the owner asked for one.";
-    sim.wrote("engineer_session", new, None, Outsider::Outside);
-    sim.hands_in(&round, &[("code", "abc", None)]);
-    let reading = sim.round().expect("a round is given");
-    assert_eq!(reading.cell.as_str(), "R0");
-    assert_eq!(receiver(&sim, To::Line("engineer".into())), Ok(CellId::from("I1")));
+    sim.anew("engineer", engine::Why::Compacted);
+    // The round given again in the compacted session, which holds nothing.
+    let again = sim.enter(&round, true);
+    assert_eq!(again.situation.data["tree_entries"], Stands::Lacks);
+    assert!(again.text.contains(ENTRIES), "{}", again.text);
+    // The round asks for a tool, and the run entered for its result is the implementation's, not the reading's.
+    let ask = engine::Ask::Tool {
+        name: "query".to_string(),
+        input: "SELECT 1".to_string(),
+    };
+    sim.returns(&round, Came::asks(vec![ask]), 0);
+    let call = *sim.calls().last().expect("the call");
+    sim.done(call, "1");
+    let next = sim.round().expect("a round is given");
+    assert_eq!(next.cell.as_str(), "I1");
+    let entered = sim.enter(&next, sim.begins(&next));
+    assert_eq!(entered.situation.data["tree_entries"], Stands::Lacks);
+    assert!(entered.text.contains(ENTRIES), "{}", entered.text);
+    let readings = (sim.work.records.started.iter())
+        .filter(|s| s.cell.as_str() == "R0")
+        .count();
+    assert_eq!(readings, 1, "the reading of the tree ran again");
+}
+
+// A work that passed the reading of the tree on a flow before the reading handed in the entries, as one under way as
+// this flow was installed, holds no version of them: each cell that reads the tree, entered in a session that holds
+// nothing, is given the tree as read by none and no entries, and its task has it read the tree as the tree's rules say
+// (design document `data-and-context`, 25). Runs in memory in milliseconds, four short works; what it catches is a
+// change that leaves such a work without the tree, which no test of a work with entries sees.
+#[test]
+fn a_work_with_no_entries_has_each_cell_that_reads_the_tree_read_it_for_itself() {
+    let mut before = engineer();
+    for cell in before.cells.iter_mut().filter(|c| c.id.as_str() == "R0") {
+        cell.must_write.clear();
+    }
+    for (id, deep) in [("R1", false), ("P2", false), ("I1", false), ("D1", true)] {
+        let (sim, round) = carried_on(before.clone(), id, deep, Some("c1 t1"));
+        let entered = sim.enter(&round, true);
+        let text = entered.text.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert_eq!(entered.situation.data["tree_entries"], Stands::Unwritten, "{id}");
+        assert!(!text.contains("## `tree_entries`"), "{id}: {text}");
+        assert_eq!(entered.situation.data["tree"], Stands::Unread, "{id}");
+        assert!(text.contains("this session has read none of it"), "{id}: {text}");
+        let reading = "Read the design tree as its rules say, beyond `tree_entries`";
+        assert!(text.contains(reading), "{id}: {text}");
+    }
 }
 
 #[test]
-fn words_the_hook_gave_a_round_that_was_then_stopped_are_held_by_its_session() {
+fn words_to_an_earlier_cell_tell_the_round_under_way_to_hand_in_what_it_has_and_its_session_holds_them() {
     let (mut sim, implement) = deeply_until("I1");
     tried(&mut sim, &implement);
     // The reviews ask nothing, and none of their cells has words of its own: words to their lines are refused, the
@@ -418,13 +479,11 @@ fn words_the_hook_gave_a_round_that_was_then_stopped_are_held_by_its_session() {
         to: To::Line("engineer".into()),
         words: "Look at the names too.".to_string(),
     });
-    let versions = (effects.into_iter())
-        .find_map(|e| match e {
-            Effect::Tell { telling, .. } => Some(telling.versions),
-            _ => None,
-        })
-        .expect("the implementation under way is told");
-    // Words to the deep research, before the implementation, stop the implementation's round.
+    let own = tellings(&effects);
+    assert_eq!(own.len(), 1, "the implementation under way is told: {effects:?}");
+    assert!(!own[0].hurry, "its own words are no hurry");
+    // Words to the deep research, before the implementation, tell the implementation's round to hand in what it has:
+    // the round is not stopped.
     assert_eq!(
         receiver(&sim, To::Line("deep_researcher".into())),
         Ok(CellId::from("D1"))
@@ -433,45 +492,48 @@ fn words_the_hook_gave_a_round_that_was_then_stopped_are_held_by_its_session() {
         to: To::Line("deep_researcher".into()),
         words: "Shorter, please.".to_string(),
     });
-    assert!(
-        effects
-            .iter()
-            .any(|e| matches!(e, Effect::Stop { run } if *run == implement.run))
-    );
-    // The hook gave the implementation the owner's words before its round ended.
-    sim.take(Event::SaidToRound {
-        run: implement.run,
-        versions,
-    });
-    sim.returns(&implement, Came::default(), 0);
+    assert!(!effects.iter().any(|e| matches!(e, Effect::Stop { .. })), "{effects:?}");
+    let hurry = tellings(&effects);
+    assert_eq!(hurry.len(), 1, "{effects:?}");
+    assert!(hurry[0].hurry);
+    assert_eq!(hurry[0].block.as_str(), "d1_words");
+    // The hook gave the implementation both before its round ended.
+    for versions in [own[0].versions.clone(), hurry[0].versions.clone()] {
+        sim.take(Event::SaidToRound {
+            run: implement.run,
+            versions,
+        });
+    }
+    // It hands in what it has, dealing with none of what ran its round, as it was told to: its own words, which it
+    // does not answer, stay new to it, and nothing more is asked of it now. The deep research is entered for its words
+    // next.
+    let came = Came::works(vec![], vec![handed("code", "abc", None)]);
+    sim.returns(&implement, came, 0);
+    let finished = (sim.work.records.finished.iter()).any(|f| f.run == implement.run);
+    assert!(finished, "the implementation's hand-in is taken, not sent back");
     let rethought = sim.round().expect("a round is given");
     assert_eq!(rethought.cell.as_str(), "D1");
-    tried(&mut sim, &rethought);
-    sim.hands_in(&rethought, &[]);
-    // The implementation runs again for the words it never dealt with; its session holds them, and is given what it
-    // lacks.
-    let again = sim.round().expect("a round is given");
-    assert_eq!(again.cell.as_str(), "I1");
-    let entered = sim.enter(&again, sim.begins(&again));
+    // Its session holds the deep research's words, which the round was told: they were put into it.
+    let put_in = (sim.work.records.put_in.iter())
+        .filter(|p| p.run == implement.run)
+        .map(|p| p.block.as_str())
+        .collect::<Vec<_>>();
     assert!(
-        entered.text.contains("The owner:\n\nShorter, please."),
-        "{}",
-        entered.text
+        put_in.contains(&"d1_words") && put_in.contains(&"i1_words"),
+        "{put_in:?}"
     );
-    assert!(
-        !entered.text.contains("Look at the names too."),
-        "given again:\n{}",
-        entered.text
-    );
-    // Each cell's words hold what was said to it; the implementation is given the deep research's too, which names no
-    // cell.
+    // Each cell's words hold what was said to it.
     assert_eq!((sim.versions("i1_words").len(), sim.versions("d1_words").len()), (1, 1));
-    let given = record_given(&entered.text, "d1_words");
-    assert!(
-        !given.is_empty() && !given.iter().any(|g| names_a_cell(&sim.flow, g)),
-        "{given:?}"
-    );
-    assert!(entered.text.contains("- `i1_words`"), "{}", entered.text);
+}
+
+/// What the effects tell the rounds under way, each telling as the engine gives it.
+fn tellings(effects: &[Effect]) -> Vec<&engine::spoken::Telling> {
+    (effects.iter())
+        .filter_map(|e| match e {
+            Effect::Tell { telling, .. } => Some(&**telling),
+            _ => None,
+        })
+        .collect()
 }
 
 // A cell is told how to write a block, in the words of the block's own file, after the list of what it returns, only
@@ -619,7 +681,7 @@ fn each_question_and_each_answer_is_a_version_of_the_asking_cell_s_questions_giv
     let answer = sim.content("r1_questions", entries[1]).to_string();
     assert_eq!(
         answer,
-        "`naming`, version 1, answered: option 2, The full name: Longer."
+        "`naming`, version 1, answered:\n- option 2, The full name: Longer"
     );
     // The answer is the one version of any cell's questions that changes their meaning, which runs the cell that asked.
     let answered: Vec<&str> = (sim.work.records.written.iter())
@@ -670,16 +732,25 @@ fn each_question_and_each_answer_is_a_version_of_the_asking_cell_s_questions_giv
 fn an_answer_added_while_another_cell_was_spoken_to_in_its_round_is_taken() {
     let (mut sim, implement) = deeply_until("I1");
     tried(&mut sim, &implement);
-    // Words to the deep research stop the implementation, and the deep research is entered for them.
-    sim.take(Event::Said {
+    // Words to the deep research tell the implementation to hand in what it has, and the deep research is entered for
+    // them once it has.
+    let effects = sim.take(Event::Said {
         to: To::Line("deep_researcher".into()),
         words: "Shorter, please.".to_string(),
     });
-    sim.returns(&implement, Came::default(), 0);
+    let versions = tellings(&effects)
+        .first()
+        .map(|t| t.versions.clone())
+        .expect("the round is told");
+    sim.take(Event::SaidToRound {
+        run: implement.run,
+        versions,
+    });
+    sim.hands_in(&implement, &[("code", "abc", None)]);
     let rethought = sim.round().expect("a round is given");
     assert_eq!(rethought.cell.as_str(), "D1");
     tried(&mut sim, &rethought);
-    // While it runs, the owner speaks to the implementation, after it: its round goes on, never told of the words.
+    // While it runs, the owner speaks to the implementation, after it: no round of it is under way to be told.
     assert_eq!(receiver(&sim, To::Line("engineer".into())), Ok(CellId::from("I1")));
     let effects = sim.take(Event::Said {
         to: To::Line("engineer".into()),
@@ -707,8 +778,8 @@ fn an_answer_added_while_another_cell_was_spoken_to_in_its_round_is_taken() {
 }
 
 // What the owner reads is written in the owner's language: a cell whose list of what it returns has a block the owner
-// reads is told so once, with the list; a cell whose list has none, as the reading of the tree, which writes no block, is
-// not told it.
+// reads is told so once, with the list; a cell whose list has none, as the reading of the tree, whose entries the owner
+// does not read, is not told it.
 #[test]
 fn a_cell_that_returns_what_the_owner_reads_is_told_its_language_once_with_the_list() {
     let (sim, reading) = until("R0");
@@ -720,6 +791,103 @@ fn a_cell_that_returns_what_the_owner_reads_is_told_its_language_once_with_the_l
     assert_eq!(entered.text.matches(&told).count(), 1, "{}", entered.text);
     let list = entered.text.find("## What this cell returns").expect("the list");
     assert!(entered.text[list..].contains(&told), "{}", entered.text);
+}
+
+// The engine's words stand around the option's own words and put no stop of its own after them: an option written in
+// the owner's language, which ends in its own full stop, is not followed by a second.
+#[test]
+fn an_answer_to_an_option_written_with_a_full_stop_of_its_own_is_not_given_a_second() {
+    let (mut sim, round) = until("R1");
+    tried(&mut sim, &round);
+    let way = |does: &str, follows: &str| Way {
+        does: does.to_string(),
+        follows: follows.to_string(),
+    };
+    let question = Question::Asked {
+        name: "naming".to_string(),
+        waits: true,
+        tree: None,
+        recommends: Some(1),
+        ask: "\u{7528}\u{54ea}\u{4e2a}\u{540d}\u{5b57}\u{ff1f}".to_string(),
+        options: vec![
+            way("\u{5b8c}\u{6574}\u{540d}\u{5b57}", "\u{66f4}\u{957f}\u{3002}"),
+            way("\u{7b80}\u{79f0}", "\u{66f4}\u{77ed}\u{3002}"),
+        ],
+        about: None,
+        reasons: Default::default(),
+    };
+    let came = Came {
+        said: Said {
+            questions: vec![question],
+            ..Said::default()
+        },
+        ..Came::default()
+    };
+    sim.returns(&round, came, 0);
+    sim.take(Event::Answer {
+        question: "naming".to_string(),
+        version: 1,
+        option: 1,
+    });
+    let entries = sim.versions("r1_questions");
+    let answer = sim.content("r1_questions", entries[1]).to_string();
+    assert_eq!(
+        answer,
+        "`naming`, version 1, answered:\n- option 1, \u{5b8c}\u{6574}\u{540d}\u{5b57}: \u{66f4}\u{957f}\u{3002}"
+    );
+}
+
+// What a block marked "hand it in every time" is is told with the list of a cell that has one, once, and the cell that
+// may ask, or be spoken to, is told besides what that means for a return that only asks or answers; a cell with no
+// such block is told none of it, nor is a cell that asks nothing told of questions.
+#[test]
+fn what_a_marked_block_is_is_told_only_to_a_cell_that_has_one_and_what_it_means_for_a_question_only_to_one_that_asks() {
+    let every_time = |sim: &Sim| sim.words.returns.outputs.every_time.trim().to_string();
+    let mark = "hand it in every time";
+    let (sim, research) = until("R1");
+    let entered = sim.enter(&research, sim.begins(&research));
+    let said = every_time(&sim);
+    assert_eq!(entered.text.matches(&said).count(), 1, "{}", entered.text);
+    let at = |part: &str| {
+        entered
+            .text
+            .find(part)
+            .unwrap_or_else(|| panic!("{part} is not in {}", entered.text))
+    };
+    let (list, every, asks) = (
+        at("## What this cell returns"),
+        at(&said),
+        at("`r1_questions`: what you ask"),
+    );
+    assert!(list < every && every < asks, "{}", entered.text);
+    for leave_out in [
+        "A return with a question you wait for may leave out the blocks marked",
+        "That return may leave out the blocks marked",
+    ] {
+        assert_eq!(
+            entered.text.matches(leave_out).count(),
+            1,
+            "{leave_out}: {}",
+            entered.text
+        );
+    }
+    let (sim, build) = until("I1");
+    let entered = sim.enter(&build, sim.begins(&build));
+    assert!(!entered.text.contains(mark), "{}", entered.text);
+    assert!(!entered.text.contains(&every_time(&sim)), "{}", entered.text);
+    assert!(
+        entered.text.contains("`i1_questions`: what you ask"),
+        "{}",
+        entered.text
+    );
+    let (sim, review) = until("T1");
+    let entered = sim.enter(&review, sim.begins(&review));
+    assert_eq!(entered.text.matches(&every_time(&sim)).count(), 1, "{}", entered.text);
+    assert!(
+        !entered.text.contains("may leave out the blocks marked"),
+        "{}",
+        entered.text
+    );
 }
 
 /// A block as a return hands it in, mattering, with its value where it is a choice.
@@ -768,14 +936,18 @@ fn the_plan_changed_by_the_owner_s_words(sim: &mut Sim, words: &str, plan: &str)
 // since, by the owner's words to the research, and the review fails again with A' and C. The points the review
 // wrote before the ruling are new to no cell from then on, in the walk, in the points a round is told and in what the
 // context manager tells a round is new to it alike (5, 11): the research, which writes the plan and answers in the
-// dialogue, owes a word for A' and C alone, and is told the dialogue is new to it since the points the owner ruled on.
+// dialogue, owes a word for A' and C alone, and is told the dialogue is new to it since the points the owner ruled on,
+// the version the cause recorded for the run names alike, and that the version holding A' and C is the one that
+// changed the dialogue's meaning.
 // The research answers, the review fails a third time with D, the owner rules again, and the review fails a fourth time
 // with E on a plan changed since: the second ruling marks the points before it, D among them, and neither E nor the
-// research's answer, and the research is told the dialogue is new since D.
+// research's answer, and the research is told the dialogue is new since D and that E is the one version that changed
+// its meaning.
 //
 // Every check is made, and each that fails is said, in one run. A round told the dialogue is new since the version its
 // cell last consumed or wrote, none at first and its own answer later, would be told the points the owner ruled on, A
-// and B and then D, as new to it, which 39 says they are to no cell.
+// and B and then D, as new to it, which 39 says they are to no cell, or would name the research's own answer as a
+// version that changed the meaning.
 #[test]
 fn points_the_owner_ruled_on_are_new_to_no_cell_in_the_walk_in_the_points_told_and_in_the_context_alike() {
     let (mut sim, review) = until("P1");
@@ -786,6 +958,7 @@ fn points_the_owner_ruled_on_are_new_to_no_cell_in_the_walk_in_the_points_told_a
     sim.take(Event::Paused {
         by: Pauser::Owner,
         why: None,
+        waits_for: Vec::new(),
     });
     let points = [
         ("plan_ok", "", Some("no")),
@@ -812,8 +985,9 @@ fn points_the_owner_ruled_on_are_new_to_no_cell_in_the_walk_in_the_points_told_a
         ],
     );
     let a_and_c = Seq(sim.version("plan_review"));
-    // What the walk, the round and the context manager each take as new to the research, which runs next.
-    let check = |sim: &Sim, failures: &mut Vec<String>, ruled: &[Seq], unruled: &[Seq], since: Seq| {
+    // What the walk, the round and the context manager each take as new to the research, which runs next: `since` is the
+    // version of the dialogue it last worked from, and `new` the one version of it that is new.
+    let check = |sim: &Sim, failures: &mut Vec<String>, ruled: &[Seq], unruled: &[Seq], since: Seq, new: Seq| {
         let round = sim.round().expect("a round is given");
         assert_eq!(round.cell.as_str(), "R1", "the research takes the review's points");
         let versions = decide::ruled_versions(&sim.flow.flow, &sim.work.records);
@@ -829,20 +1003,58 @@ fn points_the_owner_ruled_on_are_new_to_no_cell_in_the_walk_in_the_points_told_a
         if told.points != [dialogue.clone()] {
             failures.push(format!("the round: told points in {:?}", told.points));
         }
-        let entered = sim.enter(&round, sim.begins(&round));
-        // Told by their numbers among the dialogue's versions.
-        let new = entered.run.new.get("plan_review").map(|n| (n.last, n.latest));
-        let since = sim.number_at("plan_review", since);
-        let expected = (Some(since), sim.number("plan_review"));
-        if new != Some(expected) {
+        // What the walk shows of the research's input: the one version that is new to it, and the one it last worked
+        // from, which the cause recorded as the run began names alike, the ruled versions counting: a run begun when the
+        // owner had ruled a version the cell had not consumed, which the page shows.
+        let research = CellId::from("R1");
+        let shown = decide::view(&sim.flow.flow, &sim.work.records);
+        let input = (shown.cells.iter())
+            .find(|c| c.cell == research)
+            .and_then(|c| c.runs_on.iter().find(|i| i.block == dialogue))
+            .expect("the dialogue runs the research");
+        if input.new_versions != [new] {
             failures.push(format!(
-                "the context: the research is told plan_review is new as {new:?} (last, latest), where the points \
-                 before version {since} are new to no cell: expected {expected:?}"
+                "the walk: the versions new to the research are {:?}, expected {new:?}",
+                input.new_versions
+            ));
+        }
+        if input.worked != Some(since) {
+            failures.push(format!(
+                "the walk: the research last worked from {:?}, expected {since:?}",
+                input.worked
+            ));
+        }
+        let recorded = (sim.work.records.started.iter())
+            .find(|s| s.run == round.run)
+            .and_then(|s| {
+                s.because.iter().find_map(|c| match c {
+                    decide::Cause::Changed { block, worked, .. } if *block == dialogue => Some(*worked),
+                    _ => None,
+                })
+            });
+        if recorded != Some(Some(since)) {
+            failures.push(format!(
+                "the cause: the run began with the dialogue worked from {recorded:?}, where the version the message names \
+                 is {since:?}"
+            ));
+        }
+        let entered = sim.enter(&round, sim.begins(&round));
+        // Told by their numbers among the dialogue's versions: the version the research last worked from, and the one
+        // point that changed the meaning, none of the points the owner ruled on, nor the research's own answer.
+        let told_new = entered.run.new.get("plan_review").map(|n| (n.last, n.changed.clone()));
+        let expected = (
+            Some(sim.number_at("plan_review", since)),
+            vec![sim.number_at("plan_review", new)],
+        );
+        if told_new != Some(expected.clone()) {
+            failures.push(format!(
+                "the context: the research is told plan_review is new as {told_new:?} (last worked from, changed), \
+                 where the points the owner ruled on are new to no cell: expected {expected:?}"
             ));
         }
         round
     };
-    let round = check(&sim, &mut failures, &[a_and_b], &[a_and_c], a_and_b);
+    let round = check(&sim, &mut failures, &[a_and_b], &[a_and_c], a_and_b, a_and_c);
     // The research answers A' and C.
     let entered = sim.enter(&round, sim.begins(&round));
     sim.tries(&round, 1, entered.fills);
@@ -861,6 +1073,7 @@ fn points_the_owner_ruled_on_are_new_to_no_cell_in_the_walk_in_the_points_told_a
     sim.take(Event::Paused {
         by: Pauser::Owner,
         why: None,
+        waits_for: Vec::new(),
     });
     sim.hands_in(
         &review,
@@ -887,8 +1100,133 @@ fn points_the_owner_ruled_on_are_new_to_no_cell_in_the_walk_in_the_points_told_a
         ],
     );
     let e = Seq(sim.version("plan_review"));
-    check(&sim, &mut failures, &[a_and_b, a_and_c, d], &[answer, e], d);
+    check(&sim, &mut failures, &[a_and_b, a_and_c, d], &[answer, e], d, e);
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// A question the work does not wait for, which recommends its first option.
+fn recommended(name: &str) -> Question {
+    Question::Asked {
+        name: name.to_string(),
+        waits: false,
+        tree: None,
+        recommends: Some(1),
+        ask: format!("Which {name}?"),
+        options: vec![
+            Way {
+                does: "The first".to_string(),
+                follows: "Shorter".to_string(),
+            },
+            Way {
+                does: "The second".to_string(),
+                follows: "Longer".to_string(),
+            },
+        ],
+        about: None,
+        reasons: Default::default(),
+    }
+}
+
+/// The research asks three questions it does not wait for; the owner answers them, each by the option given, while the
+/// search for a better way, which runs after the research, has its round; the research is entered for the answers once
+/// that round is handed in: gives what it is sent. The questions are versions 1 to 3 of its questions and the answers
+/// versions 4 to 6; an answer by option 1, which the question recommends, changes nothing in meaning.
+fn entered_for_answers(options: [u64; 3]) -> context::Entered {
+    let (mut sim, round) = until("R1");
+    tried(&mut sim, &round);
+    let mut came = Came::hands_in(vec![
+        handed("deep_needed", "", Some("no")),
+        handed("plan_owner", "Greet by name.", None),
+        handed("plan_agent", "Add the name to the greeting.", None),
+        handed("acceptance", "The greeting names the user.", None),
+    ]);
+    let names = ["naming", "ending", "tone"];
+    came.said.questions = names.iter().map(|name| recommended(name)).collect();
+    sim.returns(&round, came, 0);
+    let better = sim.round().expect("the search for a better way is given a round");
+    assert_eq!(better.cell.as_str(), "R2");
+    tried(&mut sim, &better);
+    // Each question is the next version of the research's questions, the first, second and third.
+    for (i, (name, option)) in names.iter().zip(options).enumerate() {
+        sim.take(Event::Answer {
+            question: name.to_string(),
+            version: i as u64 + 1,
+            option,
+        });
+    }
+    sim.hands_in(&better, &[]);
+    let round = sim.round().expect("the research is entered for the answers");
+    assert_eq!(round.cell.as_str(), "R1");
+    let entered = sim.enter(&round, sim.begins(&round));
+    assert_eq!(
+        sim.number("r1_questions"),
+        6,
+        "the questions and the answers are versions"
+    );
+    entered
+}
+
+// Of several answers that come in at once, only the one by an option the question does not recommend changes the
+// questions in meaning, and the line that says why the research is run names that one, not the latest, which confirms
+// what was recommended.
+#[test]
+fn of_several_answers_in_at_once_the_line_names_the_one_that_changed_the_meaning_and_not_the_latest() {
+    let entered = entered_for_answers([2, 1, 1]);
+    let line = "\n- `r1_questions`, version 4 changed its meaning: ";
+    assert!(entered.text.contains(line), "{}", entered.text);
+    assert!(!entered.text.contains("version 6 changed"), "{}", entered.text);
+    assert_eq!(entered.run.new["r1_questions"].changed, vec![4]);
+}
+
+// Each answer that changed the meaning is named, in order, the one between them that did not being left out.
+#[test]
+fn each_answer_that_changed_the_meaning_is_named_in_order() {
+    let entered = entered_for_answers([2, 1, 2]);
+    let line = "\n- `r1_questions`, versions 4, 6 changed their meaning: ";
+    assert!(entered.text.contains(line), "{}", entered.text);
+    assert_eq!(entered.run.new["r1_questions"].changed, vec![4, 6]);
+}
+
+// A group the cell watches is told by its versions among the group's, each place that wrote any of its blocks being
+// one (design document `data-and-context`, 11, 12): the review never consumed the plan, whose three blocks the research
+// wrote in one return, and is told version 1 changed its meaning; the review fails the plan, the research answers and
+// changes the plan's `plan_agent` alone, and the review is told that it is new since version 1 and that version 2
+// changed its meaning, whatever the dialogue and the other blocks of the plan say.
+#[test]
+fn a_group_is_told_by_its_versions_among_the_groups_with_the_one_that_changed_the_meaning() {
+    let (mut sim, review) = until("P1");
+    let entered = sim.enter(&review, sim.begins(&review));
+    assert!(
+        entered.text.contains("\n- `plan`, version 1 changed its meaning: "),
+        "{}",
+        entered.text
+    );
+    tried(&mut sim, &review);
+    sim.hands_in(
+        &review,
+        &[("plan_ok", "", Some("no")), ("plan_review", "A: the name.", None)],
+    );
+    next(
+        &mut sim,
+        "R1",
+        &[
+            ("deep_needed", "", Some("no")),
+            ("plan_review", "A: done.", None),
+            ("plan_agent", "Add the first name to the greeting.", None),
+        ],
+    );
+    let again = sim.round().expect("the review is entered again");
+    assert_eq!(again.cell.as_str(), "P1");
+    let entered = sim.enter(&again, sim.begins(&again));
+    assert!(
+        entered
+            .text
+            .contains("\n- `plan`, new since version 1, version 2 changed its meaning: "),
+        "{}",
+        entered.text
+    );
+    let new = &entered.run.new["plan"];
+    assert_eq!((new.last, new.changed.clone()), (Some(1), vec![2]));
 }
 
 // The research hands the work to the deep research with what it found and nothing else (decision
@@ -914,11 +1252,50 @@ fn the_research_s_hand_over_holding_a_question_is_sent_back_saying_what_else_it_
     let entered = sim.enter(&again, sim.begins(&again));
     let said = "- `deep_needed` is `yes`, and a return with that value must hold none of `r1_questions`.";
     assert!(entered.text.contains(said), "{}", entered.text);
+    // The return did the cell's work, and the next completes it: what is listed alone is asked of it.
+    assert!(entered.text.contains(ONLY_WHAT_IS_LISTED), "{}", entered.text);
+    assert!(!entered.text.contains(WHOLE_AGAIN), "{}", entered.text);
     sim.tries(&again, 1, entered.fills);
     sim.returns(&again, Came::hands_in(hand_over()), 0);
     let deep = sim.round().expect("the deep research is given a round");
     assert_eq!(deep.cell.as_str(), "D1");
     assert!(!decide::applies(&sim.flow.flow, &sim.work.records, &CellId::from("R1")));
+}
+
+const ONLY_WHAT_IS_LISTED: &str =
+    "Return again with only what is listed here. What you returned before and is not listed stands.";
+const WHOLE_AGAIN: &str = "Return again, with everything this return should say in one return.";
+
+// A return that asks for calls stands alone: the run completes none with it and none with the one after it (decision
+// a-sent-back-return-is-completed-by-what-is-missing), so a return sent back that asked for a call, or that could not be
+// read, is told to be given whole again, and one that did the cell's work to give only what is listed.
+#[test]
+fn a_return_that_asked_for_calls_or_could_not_be_read_is_told_to_be_given_whole_again() {
+    let (mut sim, research) = until("R1");
+    tried(&mut sim, &research);
+    let asks = engine::Ask::Tool {
+        name: "query".to_string(),
+        input: "{}".to_string(),
+    };
+    let mut came = Came::asks(vec![asks]);
+    came.found = vec![decide::run::Unmet::NotATool {
+        name: "query".to_string(),
+    }];
+    sim.returns(&research, came, 0);
+    let again = sim.round().expect("the research is entered again");
+    assert_eq!((again.cell.as_str(), again.run, again.number), ("R1", research.run, 2));
+    let entered = sim.enter(&again, sim.begins(&again));
+    assert!(entered.text.contains(WHOLE_AGAIN), "{}", entered.text);
+    assert!(!entered.text.contains(ONLY_WHAT_IS_LISTED), "{}", entered.text);
+    sim.tries(&again, 1, entered.fills);
+    // What could not be read stands for nothing either, and a return that did the cell's work after it is told so
+    // again only where it is sent back.
+    sim.fails_as(&again, decide::run::Failure::Unread, true);
+    let third = sim.round().expect("the research is entered for the third time");
+    assert_eq!((third.cell.as_str(), third.number), ("R1", 3));
+    let entered = sim.enter(&third, sim.begins(&third));
+    assert!(entered.text.contains(WHOLE_AGAIN), "{}", entered.text);
+    assert!(!entered.text.contains(ONLY_WHAT_IS_LISTED), "{}", entered.text);
 }
 
 // The cell that takes charge from another watches that cell's questions (design document `data-and-context`, 28): the
@@ -928,9 +1305,8 @@ fn the_research_s_hand_over_holding_a_question_is_sent_back_saying_what_else_it_
 // are refused, saying it does not apply now, and go to no other cell (35). The owner's answer by another option than the
 // one it recommends changes the research's questions in meaning (31): the deep research, which took charge from the
 // research and watches its questions, is told that they ran it, and the research does not run. That a question the work
-// waits for holds the work at its cell whether or not the cell applies now (32) is the walk's
-// (crates/decide/tests/walk/questions.rs): no cell of the engineer's flow that asks can be skipped while its question
-// waits, the research handing the work over only in a round its question does not hold.
+// waits for holds the work at its cell only while the cell applies (32) is the walk's
+// (crates/decide/tests/walk/questions.rs): the question of a cell that is skipped holds nothing.
 #[test]
 fn an_answer_to_the_questions_of_a_cell_since_skipped_runs_the_cell_in_charge() {
     let (mut sim, research) = until("R1");
@@ -972,7 +1348,7 @@ fn an_answer_to_the_questions_of_a_cell_since_skipped_runs_the_cell_in_charge() 
     sim.writes("background", "Greet the user by name, warmly.");
     tried(&mut sim, &second);
     sim.hands_in(&second, &[]);
-    next(&mut sim, "R0", &[]);
+    next(&mut sim, "R0", &[("tree_entries", ENTRIES, None)]);
     next(
         &mut sim,
         "R1",

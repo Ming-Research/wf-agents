@@ -5,12 +5,14 @@ use serde_json::{Value, json};
 
 use crate::{START, get_json, greeted, pass, post, refused, running};
 
-const QUESTION: &str = "Should the greeting name the user?";
+const WHY: &str = "The cell's run had 2 returns sent back, its limit.";
 
 fn spent(rounds: u64) -> Value {
     json!({
         "usdMicros": 21000 * rounds,
         "inputTokens": 3200 * rounds,
+        "cacheWrittenTokens": 0,
+        "unsplitTokens": 0,
         "cachedTokens": 14000 * rounds,
         "outputTokens": 450 * rounds,
         "workingMs": 1500 * rounds,
@@ -32,21 +34,49 @@ fn outlined(id: &str, title: &str, line: &str, watches: &[&str]) -> Value {
     })
 }
 
-fn question() -> Value {
-    json!({ "kind": "question", "who": "owner", "question": QUESTION })
+/// The call the plan's run makes at its limit of returns.
+fn at_limit() -> Value {
+    json!({ "kind": "atLimit", "limit": { "of": "returns", "sentBack": 2 } })
 }
 
 #[tokio::test(start_paused = true)]
 async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on() {
     let running = running();
     greeted(&running.router).await;
-    let (resumed, asked) = (START + 1000, START + 2500);
+    let (resumed, asked) = (START + 1000, START + 5500);
     let not_yet = |cell: &str| json!({ "cell": cell, "state": "notYet", "finished": 0, "record": null, "open": null });
     let input =
         |block: &str, current: Value| json!({ "block": block, "current": current, "known": null, "changed": false });
-    // The request is new to the plan, whose run that asked dealt with nothing.
-    let for_the_request = json!([{ "kind": "changed", "block": "request", "was": null, "behind": false }]);
+    // The request is new to the plan, whose run has dealt with nothing yet.
+    let for_the_request = json!([{ "kind": "changed", "block": "request", "workedFrom": null, "behind": false }]);
     let flow = get_json(&running.router, "/api/v1/flow").await["flow"].clone();
+    // Each of the plan's three rounds hands in nothing and asks for nothing, so that the next is given why it was sent
+    // back.
+    let rounds: Vec<Value> = (1..=3_u64)
+        .map(|number| {
+            let given = match number {
+                1 => json!({ "kind": "task" }),
+                _ => json!({ "kind": "sentBack", "unmet": [{ "key": "dealt_with_nothing", "values": [] }] }),
+            };
+            json!({
+                "number": number,
+                "began": resumed + 1500 * (number - 1),
+                "ended": resumed + 1500 * number,
+                "given": given,
+                "back": { "kind": "handedIn", "blocks": [] },
+                "spent": spent(1),
+                "context": null,
+                "compactions": 0,
+                // The engineer's first session, which the records count as none; the script records no try.
+                "session": { "line": "engineer", "number": 0 },
+                "tries": [],
+                "missed": null,
+                "estimated": false,
+                // The engine's loop runs with no policy, which a line is worked out by: nothing is judged.
+                "judged": { "cost": null, "time": null },
+            })
+        })
+        .collect();
     assert_eq!(
         get_json(&running.router, "/api/v1/works/1").await,
         json!({
@@ -60,30 +90,34 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                 "now": {
                     "kind": "waits",
                     "at": "plan",
-                    "on": [{ "kind": "call", "call": 2, "who": "owner", "what": question(), "made": asked, "at": null }],
+                    "on": [{ "kind": "call", "call": 2, "who": "owner", "what": at_limit(), "made": asked, "at": null }],
                 },
                 "cells": [
-                    { "cell": "plan", "state": "again", "finished": 1, "record": 1, "open": null },
+                    { "cell": "plan", "state": "resting", "finished": 0, "record": null, "open": 1 },
                     not_yet("build"),
                     not_yet("review"),
                     not_yet("merge"),
                 ],
-                "spent": spent(1),
+                "spent": spent(3),
                 // No ping of its sessions was sent.
-                "pinged": { "usdMicros": 0, "inputTokens": 0, "cachedTokens": 0, "outputTokens": 0, "workingMs": 0, "rounds": 0 },
+                "pinged": { "usdMicros": 0, "inputTokens": 0, "cacheWrittenTokens": 0, "unsplitTokens": 0, "cachedTokens": 0, "outputTokens": 0, "workingMs": 0, "rounds": 0 },
+                // No fork of a round's session was asked.
+                "forked": { "usdMicros": 0, "inputTokens": 0, "cacheWrittenTokens": 0, "unsplitTokens": 0, "cachedTokens": 0, "outputTokens": 0, "workingMs": 0, "rounds": 0 },
                 "last": asked,
                 // Its first round began as it was resumed, and an agent has run the whole of its time since.
                 "from": resumed,
                 "bar": "m".repeat(96),
-                "sentBack": 0,
-                // The plan's question is a call of the earlier form, answered in words by the result of its call.
-                "waits": [{ "key": "call-2", "why": QUESTION, "ends": { "kind": "reply", "call": 2 } }],
-                // The question holds the work as a call, and no other of its questions stands to be answered ahead.
+                // The plan's second and third rounds were given what the round before handed in, sent back.
+                "sentBack": 2,
+                "waits": [{ "key": "limit", "why": WHY, "ends": { "kind": "goOn", "call": 2 } }],
+                // The call holds the work, and no question of its own stands to be answered ahead.
                 "ahead": 0,
                 // Its rounds run at its item's level, and the plan's line raises it no higher.
                 "level": "2",
                 "cellLevel": "2",
                 "raise": 0,
+                // The plan's line asks for nothing above its item's level, so nothing held the cell below it.
+                "held": null,
                 // The trial's host keeps no pull request, and its acts' carrier no repository to say what it changed.
                 "pull": null,
                 "changed": null,
@@ -197,32 +231,15 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                         { "block": "plan", "version": null },
                         { "block": "request", "version": 1 },
                     ],
-                    "rounds": [{
-                        "number": 1,
-                        "began": resumed,
-                        "ended": asked,
-                        "given": { "kind": "task" },
-                        "back": { "kind": "asked", "asks": [question()] },
-                        "spent": spent(1),
-                        "context": null,
-                        "compactions": 0,
-                        // The engineer's first session, which the records count as none; the script records no
-                        // try.
-                        "session": { "line": "engineer", "number": 0 },
-                        "tries": [],
-                        "missed": null,
-                        "estimated": false,
-                        // The engine's loop runs with no policy, which a line is worked out by: nothing is judged.
-                        "judged": { "cost": null, "time": null },
-                    }],
-                    // A question is no call of a tool, whose time and the size of its result are judged.
-                    "calls": [{ "call": 2, "what": question(), "made": asked, "done": null, "chars": null, "time": null, "size": null }],
-                    // A return that asks ends its run, having dealt with nothing.
-                    "end": { "kind": "finished", "at": 9, "time": asked, "writes": [] },
-                    "spent": spent(1),
+                    "rounds": rounds,
+                    // A call at a limit is no call of a tool, whose time and the size of its result are judged.
+                    "calls": [{ "call": 2, "what": at_limit(), "made": asked, "done": null, "chars": null, "time": null, "size": null }],
+                    // The run is open, at the owner's call.
+                    "end": null,
+                    "spent": spent(3),
                 },
             ],
-            // The plan's question is a call of the earlier form: no question of the work's own is asked.
+            // No question of the work's own is asked.
             "questions": [],
             // No cell of the trial flow has words of its own.
             "speaking": [
@@ -256,25 +273,26 @@ async fn a_version_a_round_and_a_call_are_given_with_their_content() {
     );
     assert_eq!(
         get_json(router, "/api/v1/works/1/calls/2").await,
-        json!({ "call": 2, "what": question(), "result": null })
+        json!({ "call": 2, "what": at_limit(), "result": null })
     );
 
-    let answer = json!({ "kind": "result", "call": 2, "result": "Yes, by name." });
+    let answer = json!({ "kind": "goOn", "call": 2 });
     assert_eq!(
         post(router, "/api/v1/works/1/acts", &answer).await.0,
         StatusCode::NO_CONTENT
     );
-    let answered = json!({ "call": 2, "what": question(), "result": "Yes, by name." });
+    let answered = json!({ "call": 2, "what": at_limit(), "result": service::GO_ON });
     assert_eq!(get_json(router, "/api/v1/works/1/calls/2").await, answered);
-    // The plan, entered again as its second run, is given the answer, and hands in the plan a second and a half later.
+    // The plan's run goes on, its fourth round given why the third was sent back, and hands in the plan a second and a
+    // half later.
     pass(1600).await;
     assert_eq!(
-        get_json(router, "/api/v1/works/1/runs/3/rounds/1").await,
+        get_json(router, "/api/v1/works/1/runs/1/rounds/4").await,
         json!({
-            "run": 3,
-            "number": 1,
-            "results": [answered],
-            "handed": [{ "block": "plan", "content": "The plan as plan wrote it in its run 2, round 1." }],
+            "run": 1,
+            "number": 4,
+            "results": [],
+            "handed": [{ "block": "plan", "content": "The plan as plan wrote it in its run 1, round 4." }],
         })
     );
 }
@@ -287,23 +305,23 @@ async fn what_there_is_none_of_is_refused_with_why() {
     let none = StatusCode::NOT_FOUND;
     assert_eq!(
         refused(router, "/api/v1/works/9").await,
-        (none, "There is no work 9.".to_string())
+        (none, "There is no work W9.".to_string())
     );
     assert_eq!(
         refused(router, "/api/v1/works/9/calls/2").await,
-        (none, "There is no work 9.".to_string())
+        (none, "There is no work W9.".to_string())
     );
     assert_eq!(
         refused(router, "/api/v1/works/1/versions/request/2").await,
-        (none, "Work 1 has no version 2 of request.".to_string())
+        (none, "W1 has no version 2 of request.".to_string())
     );
     assert_eq!(
         refused(router, "/api/v1/works/1/runs/1/rounds/7").await,
-        (none, "Work 1 has no round 7 of run 1.".to_string())
+        (none, "W1 has no round 7 of run 1.".to_string())
     );
     assert_eq!(
         refused(router, "/api/v1/works/1/calls/3").await,
-        (none, "Work 1 has no call 3.".to_string())
+        (none, "W1 has no call 3.".to_string())
     );
     let (status, words) = refused(router, "/api/v1/works/one").await;
     assert_eq!(status, StatusCode::BAD_REQUEST);

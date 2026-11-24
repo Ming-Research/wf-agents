@@ -5,8 +5,7 @@ import type { Shown } from './items';
 // roots and at most ten items side by side under any one. The same count always gives the same tree. From the browser's
 // console, `consoleScene.show(consoleFake(2000))` draws one.
 //
-// Brought over from the console of the engine on `old-main` (`client/src/console/fake.ts`); its made-up items that
-// showed every state the drawing has are `fixtures.ts` now, made as the interface gives items.
+// The made-up items that show every state the drawing has are in `fixtures.ts`, made as the interface gives items.
 
 export type FakeItem = {
   id: number;
@@ -101,10 +100,10 @@ export function fakeShown(count: number): Shown[] {
               : {
                   kind: 'waits',
                   at: 'implement',
-                  on: [{ kind: 'call', call: 1, who: 'owner', what: { kind: 'question', who: 'owner', question: '?' } }],
+                  on: [{ kind: 'call', call: 1, who: 'owner', what: { kind: 'atLimit', limit: { of: 'returns', sentBack: 2 } } }],
                 },
           paused: null,
-          waits: i.state === 'working' ? [] : [{ key: 'call-1', why: '?', ends: { kind: 'reply', call: 1 } }],
+          waits: i.state === 'working' ? [] : [{ key: 'limit', why: '?', ends: { kind: 'goOn', call: 1 } }],
           bar: 'mmmtt..mmm',
           sentBack: i.id % 13 === 0 ? 2 : 0,
           cells: cells.map(
@@ -121,6 +120,8 @@ export function fakeShown(count: number): Shown[] {
           last: Date.now(),
           level: '2',
           raise: i.id % 5 === 0 ? 1 : 0,
+          cellLevel: i.id % 5 === 0 ? '3' : '2',
+          held: null,
           lines: i.id % 3 === 0 ? { added: 210, removed: 40, files: 4 } : null,
         };
   const shown = (i: FakeItem): Shown => ({

@@ -20,13 +20,14 @@ use decide::{Holder, View};
 use driver::Driver;
 use driver::attention::{self as of, Heed, Mark};
 use serde::{Deserialize, Serialize};
-use service::Handle;
+use service::{Changed, Handle};
 use store::WorkNumber;
+use tokio::sync::broadcast;
 use tokio::sync::broadcast::error::RecvError;
 use tokio::time::Instant;
 
 use crate::interface::{fail, refused};
-use crate::works::{Broken, Now, Outage, Outages, Pauser, Wait};
+use crate::works::{Broken, Now, Others, Outage, Outages, Pauser, Wait};
 
 /// What needs the planner since the mark it gave, most pressing first.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -75,6 +76,9 @@ pub enum Line {
         now: Now,
         items: Vec<Idle>,
     },
+    /// The owner's pause of the work waited for these items to merge or be cancelled, and each has: the work is paused
+    /// still, and only the owner lets it on.
+    PauseOver { of: Of, since: u64, items: Vec<u64> },
     /// The work ended, merged or cancelled.
     Ended { of: Of, since: u64, now: Now },
 }
@@ -129,9 +133,8 @@ impl Attention {
         // The work a line is of, with its item, and what it does now; with its view and what holds back its next
         // round, which what it waits on the owner for reads.
         let of_work = |work: WorkNumber| -> Result<(Of, Now, View, Option<Holder>), Broken> {
-            let kept = (driver.work(work)).ok_or_else(|| Broken(format!("there is no work {}", work.0)))?;
-            let view =
-                (driver.view_at(work, &at_once)).ok_or_else(|| Broken(format!("work {} has no view", work.0)))?;
+            let kept = (driver.work(work)).ok_or_else(|| Broken(format!("there is no work {work}")))?;
+            let view = (driver.view_at(work, &at_once)).ok_or_else(|| Broken(format!("{work} has no view")))?;
             let held = driver.held_at(work, &at_once);
             let of = Of {
                 work: work.0,
@@ -144,7 +147,7 @@ impl Attention {
                 held,
                 &outages,
                 &driver.along_of(work),
-                &driver.items_waited_for(work),
+                &Others::of(driver, work, &at_once),
             )?;
             Ok((of, now, view, held))
         };
@@ -188,6 +191,11 @@ impl Attention {
                             })
                             .collect();
                         Line::Idle { of, since, now, items }
+                    }
+                    Heed::PauseOver { work, items } => {
+                        let (of, ..) = of_work(*work)?;
+                        let items = items.iter().map(|item| item.0).collect();
+                        Line::PauseOver { of, since, items }
                     }
                     Heed::Ended { work, .. } => {
                         let (of, now, ..) = of_work(*work)?;
@@ -269,11 +277,35 @@ pub(crate) async fn attention(State(handle): State<Handle>, asked: Result<Query<
         // Read again from where this read left off: with no mark, a work that ends while the request is held would
         // otherwise be taken as read, as every work that ended is where no mark is given.
         mark = Some(read_to);
+        match woken(&mut changes, until).await {
+            Woken::TimedOut => return Json(answer).into_response(),
+            Woken::Changed => {}
+            Woken::Gone => return refused(&service::Refusal::Gone),
+        }
+    }
+}
+
+/// How the wait of a held request ended.
+#[derive(Debug, PartialEq, Eq)]
+enum Woken {
+    /// The time asked for passed.
+    TimedOut,
+    /// Something that the works are read again for happened, or more than the listener keeps.
+    Changed,
+    /// The engine's loop ended.
+    Gone,
+}
+
+/// Waits until `until` for a change the works are read again for. What the rounds under way have come to is no such
+/// change: it comes at every call of every round, and nothing a request is answered with depends on it, so each such
+/// notice would make the engine's loop read every work for nothing.
+async fn woken(changes: &mut broadcast::Receiver<Changed>, until: Instant) -> Woken {
+    loop {
         match tokio::time::timeout_at(until, changes.recv()).await {
-            Err(_) => return Json(answer).into_response(),
-            // Something happened, or more than the listener keeps: either way the works are read again.
-            Ok(Ok(_) | Err(RecvError::Lagged(_))) => {}
-            Ok(Err(RecvError::Closed)) => return refused(&service::Refusal::Gone),
+            Err(_) => return Woken::TimedOut,
+            Ok(Ok(changed)) if changed.only_going() => {}
+            Ok(Ok(_) | Err(RecvError::Lagged(_))) => return Woken::Changed,
+            Ok(Err(RecvError::Closed)) => return Woken::Gone,
         }
     }
 }
@@ -284,14 +316,59 @@ fn not_answered(refusal: &of::Refused) -> Response {
         of::Refused::NotOfTheseRecords { work } => fail(
             StatusCode::UNPROCESSABLE_ENTITY,
             format!(
-                "The mark is not of these records: it names work {} as it has never been. Give no mark to read what \
+                "The mark is not of these records: it names {} as it has never been. Give no mark to read what \
                  stands now.",
-                work.0
+                work
             ),
         ),
         of::Refused::Stopped(fault) => fail(
             StatusCode::SERVICE_UNAVAILABLE,
             format!("The engine stopped: {}.", service::Fault::Driver(fault.clone())),
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn said(going: bool, works: Vec<WorkNumber>, items: bool) -> Changed {
+        Changed {
+            works,
+            items,
+            copies: false,
+            accounts: false,
+            observations: false,
+            going,
+        }
+    }
+
+    // A held request is woken by a change that names a work or sets another flag, also where `going` is set with it,
+    // and by none that says only what the rounds under way have come to, which comes at every call. Fails where such a
+    // notice wakes the wait, which reads every work in the engine's loop for nothing. A paused clock, nothing run.
+    #[tokio::test(start_paused = true)]
+    async fn a_notice_of_only_what_the_rounds_under_way_have_come_to_wakes_no_held_request() {
+        let wait = |seconds| Instant::now() + Duration::from_secs(seconds);
+
+        let (send, mut changes) = broadcast::channel(16);
+        for _ in 0..3 {
+            send.send(said(true, Vec::new(), false)).unwrap();
+        }
+        assert_eq!(woken(&mut changes, wait(5)).await, Woken::TimedOut);
+
+        // What comes after the notices of figures still wakes it, whatever it names.
+        for (after, what) in [
+            (said(false, vec![WorkNumber(1)], false), "a work"),
+            (said(true, vec![WorkNumber(1)], false), "a work, with figures"),
+            (said(false, Vec::new(), true), "an item"),
+            (said(true, Vec::new(), true), "an item, with figures"),
+        ] {
+            send.send(said(true, Vec::new(), false)).unwrap();
+            send.send(after).unwrap();
+            assert_eq!(woken(&mut changes, wait(600)).await, Woken::Changed, "{what}");
+        }
+
+        drop(send);
+        assert_eq!(woken(&mut changes, wait(600)).await, Woken::Gone);
     }
 }

@@ -1,5 +1,7 @@
 //! What each thing that happens does to the records, and what comes back to be done.
 
+use work::Forked;
+
 use super::*;
 
 #[test]
@@ -118,6 +120,7 @@ fn the_owner_letting_a_cell_go_on_pausing_resuming_and_cancelling_are_each_recor
     w.on(Event::Paused {
         by: Pauser::Owner,
         why: None,
+        waits_for: Vec::new(),
     });
     w.on(Event::Resumed);
     w.on(Event::Cancelled { why: None });
@@ -136,7 +139,8 @@ fn a_paused_work_is_given_nothing_and_when_let_on_is_given_its_next_round() {
     assert_eq!(
         w.on(Event::Paused {
             by: Pauser::Owner,
-            why: None
+            why: None,
+            waits_for: Vec::new(),
         }),
         vec![]
     );
@@ -277,4 +281,62 @@ fn a_pull_request_the_host_found_is_kept_once_for_each_and_starts_nothing() {
         ]
     );
     assert_eq!(w.work.records.started.len(), started, "no cell runs for it");
+}
+
+// A fork of a round's session that ended is kept with the run and the round it was asked of and what it took, at a place
+// and a moment of its own, and runs no cell: for a work under way and for one that has ended, whose fork cost as much.
+// A fork of a round that never began, or of no run, is refused and changes nothing.
+#[test]
+fn a_fork_of_a_round_is_kept_with_what_it_took_for_a_work_under_way_and_for_one_that_has_ended() {
+    let (mut w, write, _) = W::requested();
+    let spent = Spent {
+        usd_micros: 400_000,
+        uncached_tokens: 120,
+        cache_written_tokens: Some(100),
+        cached_tokens: 18_100,
+        output_tokens: 30,
+        context_tokens: Some(9_100),
+        compactions: 1,
+    };
+    let fork = |run: RunId, round: usize| Event::Forked { run, round, spent };
+    let started = w.work.records.started.len();
+    let moments = w.work.moments.len();
+    assert_eq!(w.on(fork(write, 1)), vec![]);
+    let first = w.work.tick().0 - 1;
+    assert_eq!(w.work.moments.len(), moments + 1, "kept as a moment of its own");
+    assert_eq!(w.work.records.started.len(), started, "no cell runs for it");
+    // What is kept of what it took is its cost and its counts of tokens: the rest of what a round keeps is not a
+    // fork's.
+    assert_eq!(
+        w.work.forked,
+        [Forked {
+            at: Seq(first),
+            run: write,
+            round: 1,
+            usd_micros: 400_000,
+            uncached_tokens: 120,
+            cache_written_tokens: Some(100),
+            cached_tokens: 18_100,
+            output_tokens: 30,
+        }]
+    );
+
+    let before = w.work.clone();
+    assert_eq!(w.refused(fork(write, 2)), Refused::NoSuchRound { run: write, round: 2 });
+    assert_eq!(
+        w.refused(fork(RunId(99), 1)),
+        Refused::NoSuchRound {
+            run: RunId(99),
+            round: 1
+        }
+    );
+    assert_eq!(w.work, before);
+
+    w.on(Event::Cancelled { why: None });
+    w.on(fork(write, 1));
+    let kept = &w.work.forked;
+    assert_eq!(kept.len(), 2, "kept for a work that has ended too");
+    assert!(kept[1].at > kept[0].at, "at a place after the first's");
+    assert_eq!(kept[1].run, write);
+    assert_eq!(kept[1].usd_micros, 400_000);
 }

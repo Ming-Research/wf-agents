@@ -18,17 +18,16 @@
 //! taken away, and the host closes what it holds open for a work that did not merge, its pull request; the branch
 //! stays, with the work's commits. What fails is tried again, waiting longer each time, until it is done.
 
-use std::collections::BTreeSet;
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use decide::{BlockId, End, Finished, RunId};
 use engine::Came;
 use flow::Compiled;
-use service::{Along, Changes, Diff, OfWork, Pull, Release, ReleaseReply, Round, RoundReply, Rounds, Seen, Teller};
+use service::{Changes, Diff, OfWork, OpenPull, Pull, Release, ReleaseReply, Round, RoundReply, Rounds, Seen, Teller};
 use store::{ItemNumber, WorkNumber};
 use tokio::sync::{Mutex, Notify};
 use work::{Handed, Question, Said, Spent, Work};
@@ -88,13 +87,6 @@ pub struct Checked {
     pub asks: Option<Question>,
 }
 
-impl Checked {
-    /// Whether the work passed: nothing failed, and nothing holds it.
-    pub fn passed(&self) -> bool {
-        self.failed.is_none() && self.held.is_none()
-    }
-}
-
 /// The paths the project protects, and the words of the question the engine asks of a change to them: none protected
 /// where the acts were not told of any.
 #[derive(Clone, Debug, Default)]
@@ -122,9 +114,6 @@ struct Inner<H> {
     /// Told after each merge, so that the watch of main looks at once.
     merged: Notify,
     protecting: Protecting,
-    /// Whose turn it is to check and merge, and what is told when it is let go.
-    turn: std::sync::Mutex<Turn>,
-    turn_freed: Notify,
     /// The look at the network to the host; none where no network reaches it.
     look: Option<Arc<dyn service::Network>>,
     /// What was worked out of what the works changed, by their heads.
@@ -153,8 +142,6 @@ impl<H: Host> Acts<H> {
                 held: Held::new(),
                 merged: Notify::new(),
                 protecting: Protecting::default(),
-                turn: std::sync::Mutex::new(Turn::default()),
-                turn_freed: Notify::new(),
                 look: None,
                 known: changed::Known::default(),
             }),
@@ -230,7 +217,7 @@ impl<H: Host> Rounds for Acts<H> {
         let Some(stop) = self.inner.held.hold(key, reply) else {
             return;
         };
-        let mut stop = stop.saying(saying).hosting(hosting);
+        let mut stop = stop.saying(saying).hosting(hosting).test_time(round.lines.test_time);
         let inner = self.inner.clone();
         tokio::spawn(async move {
             let done = inner.act(&round, &teller, &mut stop).await;
@@ -276,10 +263,6 @@ impl<H: Host> Rounds for Acts<H> {
         }
     }
 
-    fn paused(&self, work: WorkNumber, paused: bool) {
-        self.inner.pause(work, paused);
-    }
-
     fn release(&self, release: Release, reply: ReleaseReply) {
         let inner = self.inner.clone();
         tokio::spawn(async move {
@@ -293,6 +276,11 @@ impl<H: Host> Rounds for Acts<H> {
 
     fn seen(&self, of: OfWork) -> Pin<Box<dyn Future<Output = Result<Seen, String>> + Send + '_>> {
         Box::pin(self.inner.seen(of))
+    }
+
+    // The acts keep one project's repository, whatever name the loop asks by.
+    fn open_pulls(&self, _: &str) -> Pin<Box<dyn Future<Output = Result<Option<Vec<OpenPull>>, String>> + Send + '_>> {
+        Box::pin(self.inner.host.open_pulls())
     }
 
     fn changes(&self, of: OfWork) -> Pin<Box<dyn Future<Output = Result<Option<Changes>, String>> + Send + '_>> {
@@ -335,35 +323,41 @@ impl<H: Host> Inner<H> {
         let name = name(&round.flow, &round.kept, round.work, &project.commits);
         let branch = Branch {
             work: round.work,
+            item: round.item.number,
             title: &name,
             about: &about,
             place: &place,
+            continues: round.item.continues.as_ref(),
         };
         // What an act reads of the work's branch is no round's commit: it is written from outside.
         let read_with = branch::Reading {
             tree: project.tree.clone(),
             main: self.host.kept_main(),
         };
-        let looking = || Looking::of(&round.flow, &round.kept, read_with.clone());
+        let looking = || Looking::of(&round.flow, &round.kept, read_with.clone(), Some(round.run));
         match act {
             "start" => {
                 let started = start(project, &self.host, &branch, &self.repository).await?;
                 looking().tell(&started.place, teller, false).await;
-                let content = fill(
-                    &words.start.text,
-                    &[
-                        ("branch", &started.place.reference()),
-                        ("worktree", &started.place.dir.display().to_string()),
-                        ("from", &started.from),
-                        ("main", &project.main),
-                    ],
-                );
+                let (reference, worktree) = (started.place.reference(), started.place.dir.display().to_string());
+                let mut parts = vec![
+                    ("branch", reference.as_str()),
+                    ("worktree", worktree.as_str()),
+                    ("from", started.from.as_str()),
+                    ("main", project.main.as_str()),
+                ];
+                let continues = branch.continues.map(store::Continues::said);
+                let text = match &continues {
+                    Some(continues) => {
+                        parts.push(("continues", continues.as_str()));
+                        &words.start.continued
+                    }
+                    None => &words.start.text,
+                };
+                let content = fill(text, &parts);
                 Ok(Done::HandsIn(Box::new(Came::hands_in(prose(&outputs, &content)))))
             }
             "check" => {
-                if !self.take_turn(round.work, stop).await {
-                    return Ok(Done::Stopped);
-                }
                 // The check reads the branch for its round, and holds the work's head to what the judges that take it
                 // dealt with, as the flow's graph finds them.
                 let mut looking = looking();
@@ -375,6 +369,7 @@ impl<H: Host> Inner<H> {
                     reviewed: reviewed.as_deref(),
                     protecting: &self.protecting,
                     work: &round.kept,
+                    tree: &words.tree,
                 };
                 let asking = Asking::Round(round.run, round.number);
                 // The round reads main at the head the check takes in, which it is told of, so that main's block at
@@ -396,12 +391,6 @@ impl<H: Host> Inner<H> {
                 );
                 match checked.await {
                     Ok(Some(checked)) => {
-                        // A work that passed keeps its turn for its merge.
-                        if checked.passed() {
-                            self.passed_turn(round.work);
-                        } else {
-                            self.end_turn(round.work);
-                        }
                         // The check may have taken main in.
                         looking.tell(&place, teller, false).await;
                         let handed = checked_in(&outputs, &checked, &project.main, &words.check)?;
@@ -417,56 +406,27 @@ impl<H: Host> Inner<H> {
                             ..Came::hands_in(handed)
                         })))
                     }
-                    Ok(None) => {
-                        self.end_turn(round.work);
-                        Ok(Done::Stopped)
-                    }
-                    Err(why) => {
-                        self.end_turn(round.work);
-                        Err(why)
-                    }
+                    Ok(None) => Ok(Done::Stopped),
+                    Err(why) => Err(why),
                 }
             }
             "merge" => {
-                // A work that gave its turn up since its check passed, paused or past its time, waits for it again.
-                if !self.take_turn(round.work, stop).await {
-                    return Ok(Done::Stopped);
-                }
                 // A commit made since the check passed moves the work's head: no round made it, and it is written from
                 // outside, so that the review and the check run on it before the merge is tried again. A read that
                 // fails fails the round, as the check's does: nothing merges past a head that could not be read.
                 let mut looking = looking();
-                let new = match looking.read(&place).await {
-                    Ok(new) => new,
-                    Err(why) => {
-                        self.end_turn(round.work);
-                        return Err(why.into());
-                    }
-                };
+                let new = looking.read(&place).await?;
                 let moved = looking.head_in(&new).map(str::to_string);
                 for (block, content) in new {
                     teller.outside_wrote(block, content);
                 }
                 if let Some(head) = moved {
-                    self.end_turn(round.work);
                     return Err(Failed::passing(fill(&words.merge.unreviewed, &[("head", &head)])));
                 }
-                let checked = match passed(&round.flow, &round.kept, &words.check) {
-                    Ok(checked) => checked,
-                    Err(why) => {
-                        self.end_turn(round.work);
-                        return Err(why.into());
-                    }
-                };
+                let checked = passed(&round.flow, &round.kept, &words.check)?;
                 let merged = merge(&self.host, &branch, checked.as_deref(), &self.repository).await;
                 // Merged or refused for a moved main, the watch looks at main at once.
                 self.merged.notify_one();
-                // A work refused for a moved main keeps its turn, for its check on main's new head, as after a check
-                // that passed.
-                match &merged {
-                    Err(NotMerged::Moved { .. }) => self.passed_turn(round.work),
-                    _ => self.end_turn(round.work),
-                }
                 let merged = merged_or_failed(merged, &project.main, &words.merge);
                 let merged = merged?;
                 let content = fill(
@@ -499,7 +459,8 @@ impl<H: Host> Inner<H> {
     async fn seen(&self, of: OfWork) -> Result<Seen, String> {
         let (repo, main) = (&self.project.repo, self.host.kept_main());
         let place = git::place(&self.data, &self.tag, of.work);
-        let changed = self.known.changed(repo, &main, of.work, &place).await?;
+        let at = (of.place, of.under_way);
+        let changed = self.known.stat(repo, &main, (of.work, &place), at).await?;
         let merged = (of.merged.as_deref()).and_then(|said| changed::merged_commit(said, &self.words.merge.text));
         let named = match merged {
             Some(commit) => self.known.pull_named(repo, &commit).await?,
@@ -511,10 +472,7 @@ impl<H: Host> Inner<H> {
                 url: self.host.pull_at(number)?,
             })
         });
-        Ok(Seen {
-            changed: changed.map(|changed| changed.stat()),
-            pull,
-        })
+        Ok(Seen { changed, pull })
     }
 
     /// Lets go of what the acts made for the work, which has ended, holding the repository: the host lets go of what it
@@ -524,162 +482,15 @@ impl<H: Host> Inner<H> {
         let name = name(&release.flow, &release.kept, release.work, &self.project.commits);
         let branch = Branch {
             work: release.work,
+            item: release.item.number,
             title: &name,
             about: "",
             place: &place,
+            continues: None,
         };
-        self.end_turn(release.work);
         let _held = self.repository.lock().await;
         self.host.end(&branch, release.end == End::Merged).await?;
         git::remove(&self.project, &place).await
-    }
-}
-
-/// How long a work whose check passed keeps the project's turn for its merge, where its merge does not come: a merge
-/// begins at once after a check that passed, and a work paused gives the turn up at once, so that only a merge held
-/// for something else holds the other works back, and no longer than this.
-const TURN_LEFT: Duration = Duration::from_secs(15 * 60);
-
-/// Whether a work whose check passed at `passed` has kept the turn past [`TURN_LEFT`] by `now`.
-fn left(passed: Instant, now: Instant) -> bool {
-    now.saturating_duration_since(passed) > TURN_LEFT
-}
-
-/// Whose turn it is to check and merge in the project: one work at a time catches up with main, is checked and merges,
-/// so that works checked side by side do not each find main moved by another's merge, check again and go round. The
-/// works whose checks wait for it have it in the order they began to wait. A work a pause holds neither takes it nor
-/// keeps it once its check passed, since it cannot merge, and its wait stands aside, keeping its place, until it is
-/// let on. Kept in memory: after a stop, whichever work is checked first takes it.
-#[derive(Debug, Default)]
-struct Turn {
-    /// The work whose turn it is, and when its check passed, where it has.
-    holder: Option<(WorkNumber, Option<Instant>)>,
-    /// The works whose checks wait for the turn, in the order they began to wait.
-    waiting: Vec<WorkNumber>,
-    /// The works a pause holds, as the loop last said ([`Rounds::paused`]).
-    paused: BTreeSet<WorkNumber>,
-}
-
-impl Turn {
-    /// Whether the work takes the turn now: it is not paused; and it has the turn already, or nobody has it, or the
-    /// work that has it passed its check and is paused or has kept it past [`TURN_LEFT`], and every work that began to
-    /// wait before it is paused.
-    fn takes(&self, work: WorkNumber, now: Instant) -> bool {
-        if self.paused.contains(&work) {
-            return false;
-        }
-        let free = match self.holder {
-            Some((holder, _)) if holder == work => return true,
-            None => true,
-            Some((holder, Some(passed))) => self.paused.contains(&holder) || left(passed, now),
-            Some((_, None)) => false,
-        };
-        free && (self.waiting.iter())
-            .take_while(|waiting| **waiting != work)
-            .all(|before| self.paused.contains(before))
-    }
-}
-
-/// A work's place among those whose checks wait for the turn, which it leaves as this is dropped: it took the turn, its
-/// round was told to stop, or the wait was dropped.
-struct Waiting<'a> {
-    turn: &'a std::sync::Mutex<Turn>,
-    freed: &'a Notify,
-    work: WorkNumber,
-}
-
-impl Drop for Waiting<'_> {
-    fn drop(&mut self) {
-        let mut turn = self.turn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        turn.waiting.retain(|waiting| *waiting != self.work);
-        // The works that waited behind it may come first now.
-        self.freed.notify_waiters();
-    }
-}
-
-impl<H: Host> Inner<H> {
-    /// The turn, held.
-    fn turn(&self) -> std::sync::MutexGuard<'_, Turn> {
-        self.turn.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-    }
-
-    /// Waits for the work's turn to check and merge, and takes it, as [`Turn::takes`] says. While it waits, it says
-    /// which work has the turn. Says false where the round was told to stop meanwhile.
-    async fn take_turn(&self, work: WorkNumber, stop: &mut Stop) -> bool {
-        let _waiting = {
-            let mut turn = self.turn();
-            if !turn.waiting.contains(&work) {
-                turn.waiting.push(work);
-            }
-            Waiting {
-                turn: &self.turn,
-                freed: &self.turn_freed,
-                work,
-            }
-        };
-        loop {
-            let freed = self.turn_freed.notified();
-            {
-                let mut turn = self.turn();
-                if turn.takes(work, Instant::now()) {
-                    turn.holder = Some((work, None));
-                    drop(turn);
-                    stop.say(None);
-                    return true;
-                }
-                if let Some((holder, _)) = turn.holder {
-                    drop(turn);
-                    stop.say(Some(Along::Turn { holder }));
-                }
-            }
-            // Told when the turn is let go, a wait ends or a pause changes; looked at again now and then, as a turn
-            // left grows old by itself.
-            tokio::select! {
-                () = freed => {}
-                () = tokio::time::sleep(Duration::from_secs(60)) => {}
-                () = stop.told() => return false,
-            }
-        }
-    }
-
-    /// The work that has the turn passed its check: it keeps the turn for its merge, unless a pause holds it, when it
-    /// gives the turn up.
-    fn passed_turn(&self, work: WorkNumber) {
-        let mut turn = self.turn();
-        if turn.paused.contains(&work) {
-            drop(turn);
-            self.end_turn(work);
-            return;
-        }
-        if let Some((holder, passed)) = turn.holder.as_mut()
-            && *holder == work
-        {
-            *passed = Some(Instant::now());
-        }
-    }
-
-    /// The work lets go of the turn, where it has it.
-    fn end_turn(&self, work: WorkNumber) {
-        let mut turn = self.turn();
-        if turn.holder.is_some_and(|(holder, _)| holder == work) {
-            turn.holder = None;
-            self.turn_freed.notify_waiters();
-        }
-    }
-
-    /// Whether a pause holds the work back now: a work paused gives up the turn it keeps after its check passed.
-    fn pause(&self, work: WorkNumber, paused: bool) {
-        let mut turn = self.turn();
-        let changed = match paused {
-            true => turn.paused.insert(work),
-            false => turn.paused.remove(&work),
-        };
-        if paused && matches!(turn.holder, Some((holder, Some(_))) if holder == work) {
-            turn.holder = None;
-        }
-        if changed {
-            self.turn_freed.notify_waiters();
-        }
     }
 }
 
@@ -746,21 +557,28 @@ pub(crate) async fn merge(
     host.merge(branch, checked).await
 }
 
-/// Makes the work's branch from the head of main the host gives, and its worktree, holding the repository. Where the
-/// branch was there already, as a work's that was cancelled and reopened, what the host held for it that the cancel let
-/// go is taken up again ([`Host::reopen`]), on every start, worktree or not: a start that failed after the branch was
-/// made, or a cancel whose letting go failed after the pull request was closed, leaves it to the next.
+/// Makes the work's branch, and its worktree, holding the repository: from the head of main the host gives, or, where
+/// the work's item continues a branch or a pull request and the branch is not made yet, from the head of that
+/// ([`Host::continued`]), which is asked of the host only then, so that a start given again finds the branch it made
+/// whatever became of what it continued. Where the branch was there already, as a work's that was cancelled and
+/// reopened, what the host held for it that the cancel let go is taken up again ([`Host::reopen`]), on every start,
+/// worktree or not: a start that failed after the branch was made, or a cancel whose letting go failed after the pull
+/// request was closed, leaves it to the next.
 pub(crate) async fn start(
     project: &Project,
     host: &impl Host,
     branch: &Branch<'_>,
     repository: &Mutex<()>,
-) -> Result<Started, String> {
+) -> Result<Started, Failed> {
     let _held = repository.lock().await;
     let place = branch.place;
     git::configuration(project, place).await?;
     let main = host.main().await?;
-    let started = git::start(project, place, &main).await?;
+    let at = match branch.continues {
+        Some(continues) if !git::branch_made(project, place).await? => host.continued(continues).await?,
+        _ => main.clone(),
+    };
+    let started = git::start(project, place, &at, &main).await?;
     if started.kept {
         host.reopen(branch).await?;
     }
@@ -777,13 +595,15 @@ pub(crate) type Wrote<'a> = &'a (dyn Fn(BlockId, String) + Sync);
 /// told to `wrote` as it now stands, against what each cell that judges the work by its head dealt with last
 /// ([`branch::reviewed`]), none where the flow has no head; for its change under the protected paths, the paths and
 /// the question's words; and the work as it is kept, which says what the owner answered, of that change and of the
-/// questions whose answers go into the design tree.
+/// questions whose answers go into the design tree; and the tree's rules the check holds the design tree to.
 pub(crate) struct Gate<'a> {
     pub(crate) branch: &'a mut Looking,
     pub(crate) wrote: Wrote<'a>,
     pub(crate) reviewed: Option<&'a [Option<String>]>,
     pub(crate) protecting: &'a Protecting,
     pub(crate) work: &'a Work,
+    /// The tree's rules, which the files of the design tree are held to.
+    pub(crate) tree: &'a flow::agents::Tree,
 }
 
 /// The work's head, where the check holds it to what the judges dealt with and one of them dealt last with another
@@ -806,7 +626,9 @@ fn unreviewed<'g>(gate: &'g Gate<'_>) -> Option<&'g str> {
 /// so that the judge runs first on the new head and the check is taken again after it; all found holding the
 /// repository. Then main's head is merged into the branch, where it does not hold it, as a commit of the engine's, so
 /// that what is judged is what a merge would land, which fails the check where it changes nothing against main, there
-/// being nothing to merge; then that commit's own change under the paths the project protects is empty or one the owner
+/// being nothing to merge; then that, where the work's change changes the design tree, that commit holds the tree's
+/// files in their forms ([`crate::tree::unformed`]), so that a fault only main and the work together make is found;
+/// then that commit's own change under the paths the project protects is empty or one the owner
 /// let merge, which fails the check otherwise, with what the engine asks of it, and fails it too where it cannot be
 /// looked at ([`crate::protected`]); then the host's verdict on the commit, waited for without the repository, as the
 /// round of the check that asks finds it, which may hold the work where what failed fails on main as well, and may
@@ -869,8 +691,7 @@ pub(crate) async fn check(
         }
         // An answer that takes the recommended option to a question that does not wait runs no cell, so one given after
         // the change was handed in is found only here. The check has no return that says anything beside its work.
-        let said = Said::default();
-        let unwritten = crate::tree::unwritten(project, place, &main, &project.tree, gate.work, &said).await?;
+        let unwritten = crate::tree::unwritten(project, place, &main, &project.tree, gate.work, &[]).await?;
         if !unwritten.is_empty() {
             let questions = unwritten.join("\n");
             let slots = [("main", project.main.as_str()), ("questions", questions.as_str())];
@@ -888,7 +709,7 @@ pub(crate) async fn check(
         if let Some(head) = unreviewed(gate) {
             return Err(Failed::passing(fill(&words.found.unreviewed, &[("head", head)])));
         }
-        let (commit, took_in) = git::take_in(&dir, &main, project).await?;
+        let (commit, took_in) = git::take_in(&dir, &main, project, branch.whose()).await?;
         let tree = |of: &str| format!("{of}^{{tree}}");
         let ours = git::git(&project.repo, &["rev-parse", &tree(&commit)]).await?;
         let theirs = git::git(&project.repo, &["rev-parse", &tree(&main)]).await?;
@@ -898,6 +719,22 @@ pub(crate) async fn check(
                 commit,
                 took_in,
                 ..found(empty)
+            }));
+        }
+        // The commit that would merge, with main taken in, is what holds the files of the design tree in their forms
+        // where the work's change changes the tree: a name that main and the work each added, or an entry main took
+        // out that the work names, is a fault of neither alone.
+        let unformed = crate::tree::unformed(project, place, &main, &project.tree, gate.tree, &commit).await?;
+        if !unformed.is_empty() {
+            let faults = unformed.join("\n");
+            let text = fill(
+                &words.found.tree_form,
+                &[("main", project.main.as_str()), ("faults", &faults)],
+            );
+            return Ok(Some(Checked {
+                commit,
+                took_in,
+                ..found(text)
             }));
         }
         (commit, took_in, main)
@@ -1028,7 +865,7 @@ pub fn faults(flow: &Compiled, values: &CheckValues) -> Vec<String> {
 
 /// What `deliver` writes: that the item is delivered, and the items it was made of, by their numbers in order.
 fn delivered(made_of: &[ItemNumber], words: &Deliver) -> String {
-    let numbers: Vec<String> = made_of.iter().map(|item| item.0.to_string()).collect();
+    let numbers: Vec<String> = made_of.iter().map(ToString::to_string).collect();
     match numbers.as_slice() {
         [] => words.none.clone(),
         [one] => fill(&words.one, &[("item", one)]),
@@ -1193,7 +1030,7 @@ pub(crate) fn name(flow: &Compiled, work: &Work, number: WorkNumber, commits: &f
     let written = described(&named, work);
     let line = written.lines().map(str::trim).find(|line| !line.is_empty());
     line.map_or_else(
-        || fill(&commits.unnamed, &[("work", &number.0.to_string())]),
+        || fill(&commits.unnamed, &[("work", &number.to_string())]),
         str::to_string,
     )
 }
@@ -1234,7 +1071,7 @@ mod tests {
     use crate::git::Place;
     use crate::git::tests::{Repo, commit, marking, run};
     use crate::host::fake::{Asked, Fake};
-    use crate::host::{Local, Verdict};
+    use crate::host::{Local, Named, Verdict};
     use crate::tree::tests::{asked, asked_in, withdrawn};
 
     fn outputs() -> Vec<(BlockId, Option<Vec<String>>)> {
@@ -1419,15 +1256,15 @@ mod tests {
         );
         assert_eq!(
             delivered(&items(&[4]), &words().deliver),
-            "Delivered, made of the item 4."
+            "Delivered, made of the item #4."
         );
         assert_eq!(
             delivered(&items(&[2, 4]), &words().deliver),
-            "Delivered, made of the items 2 and 4."
+            "Delivered, made of the items #2 and #4."
         );
         assert_eq!(
             delivered(&items(&[2, 4, 7]), &words().deliver),
-            "Delivered, made of the items 2, 4 and 7."
+            "Delivered, made of the items #2, #4 and #7."
         );
     }
 
@@ -1446,9 +1283,11 @@ mod tests {
     fn branch(place: &git::Place) -> Branch<'_> {
         Branch {
             work: WORK,
+            item: store::ItemNumber(36),
             title: "Greet the user",
             about: "",
             place,
+            continues: None,
         }
     }
 
@@ -1461,6 +1300,7 @@ mod tests {
     async fn check_failing(repo: &Repo, host: &impl Host, stop: &mut Stop) -> Result<Option<Checked>, Failed> {
         let place = repo.place(WORK);
         let (protecting, work) = (Protecting::default(), Work::default());
+        let tree = words().tree;
         let mut looking = Looking::nothing();
         let mut gate = Gate {
             branch: &mut looking,
@@ -1468,6 +1308,7 @@ mod tests {
             reviewed: None,
             protecting: &protecting,
             work: &work,
+            tree: &tree,
         };
         check(
             &repo.project,
@@ -1506,6 +1347,7 @@ mod tests {
             reviewed: Some(reviewed),
             protecting: &protecting,
             work: &work,
+            tree: &words.tree,
         };
         let checked = check(
             &repo.project,
@@ -1541,147 +1383,6 @@ mod tests {
         assert_eq!(
             merged_or_failed(Ok("head".to_string()), "main", &words),
             Ok("head".to_string())
-        );
-    }
-
-    // The works of a project check and merge one at a time: another's check waits until the one whose turn it is has
-    // merged, or failed its check; a work whose check passed and whose merge does not come keeps it no longer than
-    // [`TURN_LEFT`].
-    #[tokio::test]
-    async fn the_works_of_a_project_check_and_merge_one_at_a_time() {
-        let repo = Repo::new("true");
-        let main = run(&repo.project.repo, &["rev-parse", "main"]);
-        let acts = Acts::new(
-            Fake::new(&main),
-            repo.project.clone(),
-            repo.data.clone(),
-            "0a1b2c3d".to_string(),
-            words(),
-        );
-        let inner = acts.inner.clone();
-        let (one, other) = (WorkNumber(1), WorkNumber(2));
-        assert!(inner.take_turn(one, &mut Stop::never()).await);
-        // The one's own check again, as after main moved, has it still.
-        assert!(inner.take_turn(one, &mut Stop::never()).await);
-        let waiting = {
-            let inner = inner.clone();
-            tokio::spawn(async move { inner.take_turn(other, &mut Stop::never()).await })
-        };
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        assert!(!waiting.is_finished(), "the other checks while the one has its turn");
-        inner.passed_turn(one);
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        assert!(!waiting.is_finished(), "the other checks before the one merges");
-        inner.end_turn(one);
-        let came = tokio::time::timeout(Duration::from_secs(5), waiting).await;
-        assert!(
-            came.expect("it comes").expect("it waits"),
-            "the other's turn comes once the one has merged"
-        );
-        // A turn kept past its time by a work whose check passed is the next one's.
-        let passed = std::time::Instant::now();
-        assert!(!left(passed, passed + TURN_LEFT));
-        assert!(left(passed, passed + TURN_LEFT + Duration::from_secs(1)));
-    }
-
-    /// The acts in the repository, for their turn to check and merge.
-    fn turning(repo: &Repo) -> Arc<Inner<Fake>> {
-        let main = run(&repo.project.repo, &["rev-parse", "main"]);
-        let acts = Acts::new(
-            Fake::new(&main),
-            repo.project.clone(),
-            repo.data.clone(),
-            "0a1b2c3d".to_string(),
-            words(),
-        );
-        acts.inner.clone()
-    }
-
-    /// The work's check, waiting for the turn beside the test.
-    fn waits(inner: &Arc<Inner<Fake>>, work: WorkNumber) -> tokio::task::JoinHandle<bool> {
-        let inner = inner.clone();
-        tokio::spawn(async move { inner.take_turn(work, &mut Stop::never()).await })
-    }
-
-    /// Whether the work's check takes the turn at once, without waiting for it.
-    async fn takes_at_once(inner: &Inner<Fake>, work: WorkNumber) -> bool {
-        let mut stop = Stop::never();
-        let taking = inner.take_turn(work, &mut stop);
-        tokio::time::timeout(Duration::ZERO, taking).await.unwrap_or(false)
-    }
-
-    /// Lets the checks that wait look at the turn: on the test's one thread, each that was woken runs before the test
-    /// goes on, and a few yields let those that one wakes run too, with no time spent waiting.
-    async fn settle() {
-        for _ in 0..8 {
-            tokio::task::yield_now().await;
-        }
-    }
-
-    // The turn goes to the works in the order their checks began to wait for it, and a check that comes as it frees
-    // waits behind those that waited before it: given to whichever waiting check looked first, it went to three works
-    // in turn whose checks began to wait after work 10's, which went on waiting.
-    #[tokio::test]
-    async fn the_turn_goes_to_the_works_in_the_order_their_checks_began_to_wait() {
-        let repo = Repo::new("true");
-        let inner = turning(&repo);
-        let [one, two, three, four] = [1, 2, 3, 4].map(WorkNumber);
-        assert!(takes_at_once(&inner, one).await);
-        let second = waits(&inner, two);
-        settle().await;
-        let third = waits(&inner, three);
-        settle().await;
-        inner.end_turn(one);
-        assert!(
-            !takes_at_once(&inner, four).await,
-            "a check that comes as the turn frees waits behind those that waited"
-        );
-        settle().await;
-        assert!(!third.is_finished(), "the third waits while the second has the turn");
-        assert!(second.await.expect("it waits"), "the turn is the second's");
-        inner.end_turn(two);
-        assert!(third.await.expect("it waits"), "and then the third's");
-        inner.end_turn(three);
-        assert!(
-            takes_at_once(&inner, four).await,
-            "the last comes once those before it had theirs"
-        );
-    }
-
-    // A work a pause holds neither takes the turn nor keeps it once its check passed, since it cannot merge: its
-    // check's wait stands aside, in its place, until it is let on, and the works behind it go on. Paused works took the
-    // turn, ran the full CI for a merge that could not come and kept it from the others for a quarter of an hour (works
-    // 6, 7 and 9).
-    #[tokio::test]
-    async fn a_paused_work_neither_takes_the_turn_nor_keeps_it_once_its_check_passed() {
-        let repo = Repo::new("true");
-        let inner = turning(&repo);
-        let [one, two, three] = [1, 2, 3].map(WorkNumber);
-        inner.pause(one, true);
-        assert!(
-            !takes_at_once(&inner, one).await,
-            "a paused check takes no turn, though nobody has it"
-        );
-        let first = waits(&inner, one);
-        settle().await;
-        assert!(
-            takes_at_once(&inner, two).await,
-            "a check behind a paused one goes first"
-        );
-        // The second, paused once its check passed, gives the turn up at once: the first, let on, has it.
-        inner.passed_turn(two);
-        inner.pause(two, true);
-        inner.pause(one, false);
-        assert!(
-            first.await.expect("it waits"),
-            "the first, let on, has the turn in its place"
-        );
-        // The first, paused while its check is under way, gives the turn up as its check passes.
-        inner.pause(one, true);
-        inner.passed_turn(one);
-        assert!(
-            takes_at_once(&inner, three).await,
-            "a check passed while paused keeps no turn"
         );
     }
 
@@ -1760,7 +1461,7 @@ mod tests {
 
     /// Checks the work in the repository with the local host, which must give a verdict.
     async fn checked_locally(repo: &Repo) -> Checked {
-        let host = Local::new(repo.project.clone());
+        let host = Local::new(repo.project.clone(), repo.check.clone());
         check_with(repo, &host, &mut Stop::never())
             .await
             .expect("the work is checked")
@@ -1782,6 +1483,7 @@ mod tests {
     /// paths to what the owner answered in the work, and its head to nothing.
     async fn check_held(repo: &Repo, host: &impl Host, protecting: &Protecting, work: &Work) -> Checked {
         let place = repo.place(WORK);
+        let tree = words().tree;
         let mut looking = Looking::nothing();
         let mut gate = Gate {
             branch: &mut looking,
@@ -1789,6 +1491,7 @@ mod tests {
             reviewed: None,
             protecting,
             work,
+            tree: &tree,
         };
         let (repository, mut stop) = (Mutex::new(()), Stop::never());
         check(
@@ -1933,7 +1636,7 @@ mod tests {
     }
 
     /// Starts the work in the repository with the host.
-    async fn start_with(repo: &Repo, host: &impl Host) -> Result<git::Started, String> {
+    async fn start_with(repo: &Repo, host: &impl Host) -> Result<git::Started, Failed> {
         let place = repo.place(WORK);
         start(&repo.project, host, &branch(&place), &Mutex::new(())).await
     }
@@ -1977,6 +1680,114 @@ mod tests {
             .filter(|a| matches!(a, Asked::Reopen(_)))
             .collect();
         assert_eq!(reopened, [Asked::Reopen(name.clone()), Asked::Reopen(name)]);
+    }
+
+    /// Starts the work in the repository with the host, its item continuing what is given.
+    async fn start_continuing(
+        repo: &Repo,
+        host: &impl Host,
+        continues: &store::Continues,
+    ) -> Result<git::Started, Failed> {
+        let place = repo.place(WORK);
+        let branch = Branch {
+            continues: Some(continues),
+            ..branch(&place)
+        };
+        start(&repo.project, host, &branch, &Mutex::new(())).await
+    }
+
+    #[tokio::test]
+    async fn a_work_whose_item_continues_a_branch_starts_from_its_head_and_leaves_that_branch_as_it_was() {
+        let repo = Repo::new("true");
+        let main = run(&repo.project.repo, &["rev-parse", "main"]);
+        let old = aside(&repo, "old.txt", "Old.\n");
+        let continues = store::Continues::Branch("aside".to_string());
+        let host = Fake::new(&main).continued_at(Ok(old.clone()));
+        let started = start_continuing(&repo, &host, &continues)
+            .await
+            .expect("the work starts");
+        assert_eq!(run(&repo.project.repo, &["rev-parse", &started.place.reference()]), old);
+        assert_eq!(started.from, main);
+        assert!(started.place.dir.join("old.txt").is_file());
+        assert_eq!(run(&repo.project.repo, &["rev-parse", "refs/heads/aside"]), old);
+        assert_eq!(host.asked(), [Asked::Main, Asked::Continued(continues)]);
+    }
+
+    #[tokio::test]
+    async fn a_start_given_again_asks_the_host_for_what_the_item_continues_no_more() {
+        let repo = Repo::new("true");
+        let main = run(&repo.project.repo, &["rev-parse", "main"]);
+        let old = aside(&repo, "old.txt", "Old.\n");
+        let continues = store::Continues::Pull(226);
+        let host = Fake::new(&main).continued_at(Ok(old.clone()));
+        let started = start_continuing(&repo, &host, &continues)
+            .await
+            .expect("the work starts");
+        // Whatever became of what it continued, the branch is the one made.
+        let host = Fake::new(&main);
+        let again = start_continuing(&repo, &host, &continues)
+            .await
+            .expect("it starts again");
+        assert!(again.kept);
+        assert_eq!(run(&repo.project.repo, &["rev-parse", &again.place.reference()]), old);
+        assert_eq!(host.asked(), [Asked::Main, Asked::Reopen(started.place.branch)]);
+    }
+
+    #[tokio::test]
+    async fn a_start_whose_continued_branch_is_refused_fails_with_the_refusal_and_makes_no_branch_nor_starts_from_main()
+    {
+        let repo = Repo::new("true");
+        let main = run(&repo.project.repo, &["rev-parse", "main"]);
+        let continues = store::Continues::Branch("gone".to_string());
+        let host = Fake::new(&main).continued_at(Err(Failed::refused("neither side has the branch gone")));
+        let refused = start_continuing(&repo, &host, &continues)
+            .await
+            .expect_err("it is refused");
+        assert_eq!(
+            (refused.why.as_str(), refused.kind),
+            ("neither side has the branch gone", Some(decide::run::Failure::Other))
+        );
+        let place = repo.place(WORK);
+        assert!(
+            !git::branch_made(&repo.project, &place).await.unwrap(),
+            "no branch is made"
+        );
+        assert!(!place.dir.exists(), "no worktree is made");
+        // Corrected, the item continues what is there, and the same work starts from it.
+        let old = aside(&repo, "old.txt", "Old.\n");
+        let host = Fake::new(&main).continued_at(Ok(old.clone()));
+        let started = start_continuing(&repo, &host, &store::Continues::Branch("aside".to_string()))
+            .await
+            .expect("it starts");
+        assert_eq!(run(&repo.project.repo, &["rev-parse", &started.place.reference()]), old);
+    }
+
+    #[tokio::test]
+    async fn a_failure_to_reach_the_host_for_what_the_item_continues_keeps_the_kind_it_was_given() {
+        let repo = Repo::new("true");
+        let main = run(&repo.project.repo, &["rev-parse", "main"]);
+        let continues = store::Continues::Branch("aside".to_string());
+        let host = Fake::new(&main).continued_at(Err(Failed::passing("GitHub did not answer")));
+        let failed = start_continuing(&repo, &host, &continues).await.expect_err("it fails");
+        assert_eq!(failed.kind, Some(decide::run::Failure::Passing));
+        assert!(!git::branch_made(&repo.project, &repo.place(WORK)).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn the_local_host_continues_a_branch_of_the_repository_and_no_pull_request() {
+        let repo = Repo::new("true");
+        let old = aside(&repo, "old.txt", "Old.\n");
+        let host = Local::new(repo.project.clone(), repo.check.clone());
+        assert_eq!(
+            host.continued(&store::Continues::Branch("aside".to_string())).await,
+            Ok(old)
+        );
+        let missing = (host.continued(&store::Continues::Branch("gone".to_string())).await).expect_err("refused");
+        assert_eq!(missing.kind, Some(decide::run::Failure::Other));
+        assert!(missing.why.contains("no branch gone"), "{}", missing.why);
+        let pull = host.continued(&store::Continues::Pull(3)).await.expect_err("refused");
+        assert_eq!(pull.kind, Some(decide::run::Failure::Other));
+        assert!(pull.why.contains("no pull requests"), "{}", pull.why);
     }
 
     #[tokio::test]
@@ -2107,6 +1918,90 @@ mod tests {
             assert_eq!(checked.failed, None, "{checked:?}");
             assert_eq!(host.asked(), [Asked::Main, Asked::Verdict(checked.commit.clone())]);
         }
+    }
+
+    /// What the check says where the commit that would merge holds files of the design tree that are not in their
+    /// forms: these faults, a line each.
+    fn not_in_form(faults: &[&str]) -> String {
+        let faults = faults.join("\n");
+        fill(&words().check.found.tree_form, &[("main", "main"), ("faults", &faults)])
+    }
+
+    /// A file of the design tree of one decision, in the forms of the tree's rules, named `name`.
+    fn formed(title: &str, name: &str) -> String {
+        format!(
+            "# {title}\n\nCovers {title}.\n\n### decision {name}\nIt holds.\n- rejected: an agent proposed dropping it; \
+             the owner rejected it, because it is needed.\n"
+        )
+    }
+
+    // The work's change changes the design tree and a file of it is not in the forms of the tree's rules: the check
+    // names each fault and asks the host for no verdict; once the work puts it right, it goes on to the host. Well
+    // under a second alone: a repository on disk and the fake host; no other test holds the check to the forms.
+    #[tokio::test]
+    async fn a_design_tree_the_works_change_leaves_out_of_its_forms_fails_the_check_until_it_is_in_them() {
+        let repo = Repo::new("true");
+        let (place, main) = building(&repo).await;
+        std::fs::create_dir_all(place.dir.join("design/decisions")).unwrap();
+        commit(
+            &place.dir,
+            "design/decisions/x.md",
+            "# X\n\nCovers X.\n\n### decision keep-it\nIt holds.\n",
+        );
+        let host = Fake::new(&main).judges(Ok(Some(passes())));
+        let checked = check_held(&repo, &host, &Protecting::default(), &Work::default()).await;
+        let fault = "design/decisions/x.md:6: decision keep-it: a decision has a `rejected` or a `replaced` line, or \
+                     more, under its first line";
+        assert_eq!(checked.failed, Some(not_in_form(&[fault])), "{checked:?}");
+        assert_eq!(host.asked(), [Asked::Main], "the host is not asked for a verdict");
+        commit(&place.dir, "design/decisions/x.md", &formed("X", "keep-it"));
+        let host = Fake::new(&main).judges(Ok(Some(passes())));
+        let checked = check_held(&repo, &host, &Protecting::default(), &Work::default()).await;
+        assert_eq!(checked.failed, None, "{checked:?}");
+        assert_eq!(host.asked(), [Asked::Main, Asked::Verdict(checked.commit.clone())]);
+    }
+
+    // Main and the work each add an entry of one name, each file in its forms and each branch clean: it is the commit
+    // that would merge, with main taken in, that holds two of the name, which only the check on it finds. Well under a
+    // second alone: a repository on disk and the fake host; it catches a check made on the work's head alone.
+    #[tokio::test]
+    async fn a_fault_only_main_and_the_work_together_make_in_the_design_tree_fails_the_check() {
+        let repo = Repo::new("true");
+        let local = run(&repo.project.repo, &["rev-parse", "main"]);
+        let started = start_with(&repo, &Fake::new(&local)).await.unwrap();
+        std::fs::create_dir_all(started.place.dir.join("design/decisions")).unwrap();
+        commit(&started.place.dir, "design/decisions/b.md", &formed("B", "keep-it"));
+        std::fs::create_dir_all(repo.project.repo.join("design/decisions")).unwrap();
+        let main = aside(&repo, "design/decisions/a.md", &formed("A", "keep-it"));
+        let host = Fake::new(&main).judges(Ok(Some(passes())));
+        let checked = check_held(&repo, &host, &Protecting::default(), &Work::default()).await;
+        let fault = "design/decisions/b.md:5: decision keep-it: the name is taken by design/decisions/a.md:5";
+        assert_eq!(checked.failed, Some(not_in_form(&[fault])), "{checked:?}");
+        assert!(
+            checked.took_in,
+            "it is the commit with main taken in that was looked at"
+        );
+        assert_eq!(host.asked(), [Asked::Main]);
+    }
+
+    // The work's change leaves the design tree alone, though main's holds a fault: nothing is said of what main holds,
+    // and the check goes on to the host. Well under a second alone: a repository on disk and the fake host.
+    #[tokio::test]
+    async fn a_fault_in_the_design_tree_the_work_does_not_change_holds_nothing_back() {
+        let repo = Repo::new("true");
+        let local = run(&repo.project.repo, &["rev-parse", "main"]);
+        let started = start_with(&repo, &Fake::new(&local)).await.unwrap();
+        commit(&started.place.dir, "farewell.txt", "Bye.\n");
+        std::fs::create_dir_all(repo.project.repo.join("design/decisions")).unwrap();
+        let main = aside(
+            &repo,
+            "design/decisions/a.md",
+            "# A\n\nCovers A.\n\n### decision keep-it\nIt holds.\n",
+        );
+        let host = Fake::new(&main).judges(Ok(Some(passes())));
+        let checked = check_held(&repo, &host, &Protecting::default(), &Work::default()).await;
+        assert_eq!(checked.failed, None, "{checked:?}");
+        assert_eq!(host.asked(), [Asked::Main, Asked::Verdict(checked.commit.clone())]);
     }
 
     // A conflict with main and answers missing from the tree are both said, a blank line between, so that one commit
@@ -2407,14 +2302,16 @@ mod tests {
     #[tokio::test]
     async fn a_work_with_no_worktree_is_not_checked() {
         let repo = Repo::new("true");
-        let host = Local::new(repo.project.clone());
+        let host = Local::new(repo.project.clone(), repo.check.clone());
         assert!(check_with(&repo, &host, &mut Stop::never()).await.is_err());
     }
 
     #[tokio::test]
     async fn the_local_check_passes_a_committed_work_that_merges_and_passes_the_command() {
         let repo = Repo::new("test -f greeting.txt");
-        let started = start_with(&repo, &Local::new(repo.project.clone())).await.unwrap();
+        let started = start_with(&repo, &Local::new(repo.project.clone(), repo.check.clone()))
+            .await
+            .unwrap();
         let head = commit(&started.place.dir, "farewell.txt", "Bye.\n");
         let checked = checked_locally(&repo).await;
         assert_eq!(checked.failed, None);
@@ -2428,7 +2325,9 @@ mod tests {
     #[tokio::test]
     async fn the_local_check_runs_on_a_checkout_of_the_commit_alone_and_takes_it_away() {
         let repo = Repo::new("test -f new.txt");
-        let started = start_with(&repo, &Local::new(repo.project.clone())).await.unwrap();
+        let started = start_with(&repo, &Local::new(repo.project.clone(), repo.check.clone()))
+            .await
+            .unwrap();
         let dir = &started.place.dir;
         commit(dir, "farewell.txt", "Bye.\n");
         std::fs::write(dir.join("new.txt"), "Forgotten.\n").unwrap();
@@ -2458,13 +2357,13 @@ mod tests {
         let mut repo = Repo::new("true");
         let files = ["started", "release", "ended"].map(|name| repo.data.join(name));
         let [started, release, ended] = &files;
-        repo.project.check = format!(
+        repo.check = format!(
             "touch '{}'; while [ ! -f '{}' ]; do sleep 0.02; done; touch '{}'",
             started.display(),
             release.display(),
             ended.display()
         );
-        let host = Local::new(repo.project.clone());
+        let host = Local::new(repo.project.clone(), repo.check.clone());
         let work = start_with(&repo, &host).await.unwrap();
         let commit = commit(&work.place.dir, "farewell.txt", "Bye.\n");
         (repo, host, work.place, commit, files)
@@ -2479,6 +2378,89 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
         panic!("{} did not appear", file.display());
+    }
+
+    // What the project's check leaves running as it ends is stopped, and said through the way of saying what the host
+    // found of what ran it, before its verdict or its result is given: for the act's round that ran it as the check
+    // before the merge, and for the call of `run_tests` that ran it on the worktree. Nobody reads what it does once the
+    // check has ended. Under a second alone, most of it the two leftovers ending on TERM; no other test holds a check of
+    // the local host that leaves something running.
+    #[tokio::test]
+    async fn what_the_local_check_leaves_running_is_stopped_and_said_for_its_round_or_call() {
+        let mut repo = Repo::new("true");
+        let left = repo.data.join("left");
+        repo.check = format!("sleep 30 >/dev/null 2>&1 & echo $! > '{}'", left.display());
+        let text = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../flow/agents/tools/run_tests.toml"
+        ));
+        let tool: flow::agents::Tool = toml::from_str(text).expect("the file of run_tests reads");
+        let host = Local::new(repo.project.clone(), repo.check.clone()).saying(Some(&tool));
+        let work = start_with(&repo, &host).await.unwrap();
+        let commit = commit(&work.place.dir, "farewell.txt", "Bye.\n");
+        let main = run(&repo.project.repo, &["rev-parse", "main"]);
+        let (to, mut said) = tokio::sync::mpsc::unbounded_channel();
+        let reply = service::CallReply::new(WorkNumber(1), decide::CallId(1), to);
+        let stopped = || {
+            let process = std::fs::read_to_string(&left).expect("the check wrote what it left");
+            let running = std::process::Command::new("kill")
+                .args(["-0", process.trim()])
+                .stderr(std::process::Stdio::null())
+                .status()
+                .expect("kill runs")
+                .success();
+            let _ = std::process::Command::new("kill")
+                .args(["-s", "KILL", process.trim()])
+                .status();
+            !running
+        };
+        let mut heard = || {
+            let mut events = Vec::new();
+            while let Ok(message) = said.try_recv() {
+                if let service::Message::Happened { event, .. } = message {
+                    events.push(event);
+                }
+            }
+            events
+        };
+
+        let mut stop = Stop::never().hosting(reply.hosting());
+        let lock = Mutex::new(());
+        let verdict = host
+            .verdict(&branch(&work.place), &commit, &main, ROUND, &lock, &mut stop)
+            .await;
+        assert_eq!(verdict.unwrap().expect("judged").failed, None);
+        assert!(stopped(), "what the check left runs on after its verdict was given");
+        let of = work::Left::Act {
+            run: RunId(1),
+            round: 1,
+        };
+        assert_eq!(heard(), [engine::Event::LeftBehind { of, processes: 1 }]);
+
+        let call = decide::CallId(4);
+        let mut stop = Stop::never().hosting(reply.hosting());
+        let ran = host
+            .run_tests(&branch(&work.place), &Named::default(), Asking::Call(call), &mut stop)
+            .await;
+        assert!(ran.expect("it ran").is_some(), "nothing stopped it");
+        assert!(stopped(), "what the check left runs on after its result was given");
+        let of = work::Left::Call { call };
+        // The local host reads no JUnit, so it says the run of its command with no job and no test before it ends.
+        let reading = work::Reading {
+            asking: Asking::Call(call).name(),
+            source: work::Source::Command,
+            commit: String::new(),
+            workflow: String::new(),
+            jobs: Vec::new(),
+            tests: Vec::new(),
+        };
+        assert_eq!(
+            heard(),
+            [
+                engine::Event::Timed { reading },
+                engine::Event::LeftBehind { of, processes: 1 }
+            ]
+        );
     }
 
     // The checkout registers a worktree in the repository, as the acts' own worktrees are, so it is made holding the
@@ -2558,7 +2540,9 @@ mod tests {
     #[tokio::test]
     async fn a_checkout_a_stopped_engine_left_is_taken_away_before_the_next_is_made_and_with_the_work() {
         let repo = Repo::new("test -f farewell.txt");
-        let started = start_with(&repo, &Local::new(repo.project.clone())).await.unwrap();
+        let started = start_with(&repo, &Local::new(repo.project.clone(), repo.check.clone()))
+            .await
+            .unwrap();
         commit(&started.place.dir, "farewell.txt", "Bye.\n");
         let left = git::checking(&started.place);
         run(
@@ -2586,7 +2570,9 @@ mod tests {
     #[tokio::test]
     async fn the_local_check_fails_a_failing_command_with_the_end_of_what_it_said() {
         let repo = Repo::new("echo the greeting is wrong >&2; exit 3");
-        let started = start_with(&repo, &Local::new(repo.project.clone())).await.unwrap();
+        let started = start_with(&repo, &Local::new(repo.project.clone(), repo.check.clone()))
+            .await
+            .unwrap();
         commit(&started.place.dir, "farewell.txt", "Bye.\n");
         let failed = checked_locally(&repo).await.failed.expect("the check fails");
         assert!(failed.contains("the greeting is wrong"), "{failed}");
@@ -2595,7 +2581,9 @@ mod tests {
     #[tokio::test]
     async fn the_local_check_fails_a_conflict_with_main_and_merges_nothing() {
         let repo = Repo::new("true");
-        let started = start_with(&repo, &Local::new(repo.project.clone())).await.unwrap();
+        let started = start_with(&repo, &Local::new(repo.project.clone(), repo.check.clone()))
+            .await
+            .unwrap();
         commit(&started.place.dir, "greeting.txt", "Hello, you.\n");
         commit(&repo.project.repo, "greeting.txt", "Good day.\n");
         let failed = checked_locally(&repo).await.failed.expect("the check fails");
@@ -2609,7 +2597,7 @@ mod tests {
     #[tokio::test]
     async fn a_stopped_local_check_gives_nothing() {
         let repo = Repo::new("sleep 30");
-        let host = Local::new(repo.project.clone());
+        let host = Local::new(repo.project.clone(), repo.check.clone());
         let started = start_with(&repo, &host).await.unwrap();
         commit(&started.place.dir, "farewell.txt", "Bye.\n");
         let held: Held<u8, ()> = Held::new();
@@ -2628,7 +2616,9 @@ mod tests {
         let mut repo = Repo::new("true");
         // Allowed, so that the check goes on to run its commands, none of which runs it.
         repo.project.allowed_config = vec!["core.fsmonitor".to_string()];
-        let started = start_with(&repo, &Local::new(repo.project.clone())).await.unwrap();
+        let started = start_with(&repo, &Local::new(repo.project.clone(), repo.check.clone()))
+            .await
+            .unwrap();
         commit(&started.place.dir, "farewell.txt", "Bye.\n");
         let marked = repo.data.join("monitor-ran");
         let monitor = repo.data.join("monitor");
@@ -2644,11 +2634,13 @@ mod tests {
     #[tokio::test]
     async fn the_check_refuses_what_the_works_own_worktree_configuration_names() {
         let mut repo = Repo::new("true");
-        start_with(&repo, &Local::new(repo.project.clone())).await.unwrap();
+        start_with(&repo, &Local::new(repo.project.clone(), repo.check.clone()))
+            .await
+            .unwrap();
         run(&repo.project.repo, &["config", "extensions.worktreeConfig", "true"]);
         run(&repo.place(WORK).dir, &["config", "--worktree", "core.editor", "vim"]);
         repo.project.allowed_config = vec!["extensions.worktreeconfig".to_string()];
-        let host = Local::new(repo.project.clone());
+        let host = Local::new(repo.project.clone(), repo.check.clone());
         let refused = check_with(&repo, &host, &mut Stop::never()).await.expect_err("refused");
         assert!(refused.contains("core.editor (worktree)"), "{refused}");
         assert!(!refused.contains("extensions"), "an allowed key is let be: {refused}");
@@ -2657,7 +2649,7 @@ mod tests {
     #[tokio::test]
     async fn the_merge_refuses_a_main_that_moved_since_the_check() {
         let repo = Repo::new("true");
-        let host = Local::new(repo.project.clone());
+        let host = Local::new(repo.project.clone(), repo.check.clone());
         let started = start_with(&repo, &host).await.unwrap();
         let checked = commit(&started.place.dir, "farewell.txt", "Bye.\n");
         let moved = commit(&repo.project.repo, "weather.txt", "Sunny.\n");
@@ -2682,7 +2674,7 @@ mod tests {
     #[tokio::test]
     async fn a_merge_given_again_after_it_was_made_finds_it_made() {
         let repo = Repo::new("true");
-        let host = Local::new(repo.project.clone());
+        let host = Local::new(repo.project.clone(), repo.check.clone());
         let started = start_with(&repo, &host).await.unwrap();
         let checked = commit(&started.place.dir, "farewell.txt", "Bye.\n");
         let place = repo.place(WORK);
@@ -2746,7 +2738,7 @@ mod tests {
     #[tokio::test]
     async fn the_local_host_gives_the_repositorys_main_and_merges_there() {
         let repo = Repo::new("true");
-        let host = Local::new(repo.project.clone());
+        let host = Local::new(repo.project.clone(), repo.check.clone());
         assert_eq!(host.main().await, Ok(run(&repo.project.repo, &["rev-parse", "main"])));
         let started = start_with(&repo, &host).await.unwrap();
         let head = commit(&started.place.dir, "farewell.txt", "Bye.\n");

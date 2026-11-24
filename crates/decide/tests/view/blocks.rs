@@ -24,19 +24,40 @@ fn each_version_shows_who_wrote_it_a_person_the_outside_or_a_run() {
 }
 
 // A version shows whether it holds nothing as its write recorded it, which a test of content reads, so that whoever
-// shows the work reads that as the walk does and decides it by no rule of its own.
+// shows the work reads that as the walk does and decides it by no rule of its own. One that holds nothing where nothing
+// was before it says nothing, and has no meaning; one that clears what was there has its own.
 #[test]
 fn a_version_that_holds_nothing_shows_so_as_its_write_recorded_it() {
     let mut w = World::with_gate(vec![cell("check", &["main", "notes"], &["notes"])]);
     w.outside_writes("main");
-    let at = w.run("check", &[("notes", Nothing)]);
-    let run = finished_by(&w, at);
-    let nothing = VersionView {
+    let first = w.run("check", &[("notes", Nothing)]);
+    let run = finished_by(&w, first);
+    let nothing = |at, run, meaning| VersionView {
+        meaning,
         empty: true,
         ruled: false,
         ..version(at, Writer::Run(run), at, None)
     };
-    assert_eq!(seen(&w).blocks[&BlockId::from("notes")], vec![nothing]);
+    assert_eq!(
+        seen(&w).blocks[&BlockId::from("notes")],
+        vec![nothing(first, run, None)]
+    );
+    w.outside_writes("main");
+    let written = w.run("check", &[("notes", Matters)]);
+    w.outside_writes("main");
+    let cleared = w.run("check", &[("notes", Nothing)]);
+    let blocks = seen(&w).blocks;
+    let meanings: Vec<(Seq, Option<Seq>, bool)> = (blocks[&BlockId::from("notes")].iter())
+        .map(|v| (v.at, v.meaning, v.empty))
+        .collect();
+    assert_eq!(
+        meanings,
+        vec![
+            (first, None, true),
+            (written, Some(written), false),
+            (cleared, Some(cleared), true)
+        ]
+    );
 }
 
 #[test]
@@ -68,6 +89,21 @@ fn a_row_of_writes_said_not_to_matter_keeps_the_meaning_of_the_first() {
         .map(|v| (v.at, v.meaning))
         .collect();
     assert_eq!(meanings, vec![(p1, Some(p1)), (p2, Some(p1)), (p3, Some(p1))]);
+}
+
+// A block whose first version is handed in as changing nothing in meaning has said nothing yet: that version shows no
+// meaning, and the first that matters shows itself as the meaning.
+#[test]
+fn a_first_version_that_changes_nothing_in_meaning_shows_no_meaning_until_one_that_matters_comes() {
+    let mut w = planned();
+    w.person_writes("background");
+    let p1 = w.run("research", &[("plan", DoesNotMatter)]);
+    w.person_writes("background");
+    let p2 = w.run("research", &[("plan", Matters)]);
+    let meanings: Vec<(Seq, Option<Seq>)> = (seen(&w).blocks[&BlockId::from("plan")].iter())
+        .map(|v| (v.at, v.meaning))
+        .collect();
+    assert_eq!(meanings, vec![(p1, None), (p2, Some(p2))]);
 }
 
 #[test]

@@ -51,13 +51,30 @@ describe('the stream of changes', () => {
     const { streams, heard } = opened();
     streams[0].open();
     expect(heard).toEqual([]);
-    streams[0].send(JSON.stringify({ works: [3], items: false, copies: false, accounts: false }));
-    expect(heard).toEqual([{ works: [3], items: false, copies: false, accounts: false }]);
+    streams[0].send(JSON.stringify({ works: [3], items: false, copies: false, accounts: false, observations: false }));
+    expect(heard).toEqual([{ works: [3], items: false, copies: false, accounts: false, observations: false }]);
     // The browser opens it again by itself, and what happened meanwhile was not heard.
     streams[0].cut(false);
     streams[0].open();
-    expect(heard).toEqual([{ works: [3], items: false, copies: false, accounts: false }, 'everything']);
+    expect(heard).toEqual([{ works: [3], items: false, copies: false, accounts: false, observations: false }, 'everything']);
     expect(streams).toHaveLength(1);
+  });
+
+  // What the engine says of the calls of the rounds under way is `going`, which no change of a work's records says: it is
+  // heard as the engine says it, and left out of what does not say it.
+  it('tells that what the rounds under way have come to changed where the engine says so, and says nothing of it else', () => {
+    const { streams, heard } = opened();
+    streams[0].open();
+    streams[0].send(
+      JSON.stringify({ works: [], items: false, copies: false, accounts: false, observations: false, going: true }),
+    );
+    streams[0].send(
+      JSON.stringify({ works: [], items: false, copies: false, accounts: false, observations: false, going: false }),
+    );
+    expect(heard).toEqual([
+      { works: [], items: false, copies: false, accounts: false, observations: false, going: true },
+      { works: [], items: false, copies: false, accounts: false, observations: false },
+    ]);
   });
 
   it('opens the stream again itself once the browser gave up on it, and reads everything then', () => {
@@ -88,6 +105,17 @@ describe('the stream of changes', () => {
     vi.advanceTimersByTime(REOPEN_MS);
     streams[1].open();
     expect(open).toEqual([true, false, true, false, true]);
+  });
+
+  it('reads as changed what an event does not say of, and no work where it names none', () => {
+    const { streams, heard } = opened();
+    streams[0].open();
+    streams[0].send(JSON.stringify({ works: [3] }));
+    streams[0].send(JSON.stringify({}));
+    expect(heard).toEqual([
+      { works: [3], items: true, copies: true, accounts: true, observations: true },
+      { works: [], items: true, copies: true, accounts: true, observations: true },
+    ]);
   });
 
   it('reads everything on an event it cannot read', () => {

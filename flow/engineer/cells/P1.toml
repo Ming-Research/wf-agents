@@ -1,15 +1,14 @@
 # Why this cell exists: so that every plan is judged, before it is built, by a session that did not write it: whether it
 # does what `background` asks, its design by the engineering rules, its acceptance and its questions. One judgment a
-# round, each point answered. First on its line, it reads first what the line's reviews need: the tree for the item,
-# and the code the plan changes.
+# round, each point answered. It is given the entries of the design tree the plan was worked from, so that it knows
+# what the writer knew (principle the-reviewer-knows-no-less), and reads the code the plan changes.
 title = "Design review"
 kind = "agent"
 line = "plan_reviewer"
 effort = "high"
 task = '''
-You review the plan in a session of your own. You did not write it, so look for what its writer cannot see. If this
-session has not yet read the tree for this item, first understand what `background` asks, then read the tree for it
-as the tree's rules say, and read the code the plan changes. The plan is `plan_owner`, `plan_agent` and `acceptance`,
+You review the plan in a session of your own. You did not write it, so look for what its writer cannot see. Read the
+code the plan changes. The plan is `plan_owner`, `plan_agent` and `acceptance`,
 with the questions its writer asked the owner.
 
 Judge it only by what it was made for (what `background` asks) and by the repository's rules, on each of these points:
@@ -23,12 +22,12 @@ Judge it only by what it was made for (what `background` asks) and by the reposi
    question asks; a question not marked in `plan_owner`; a question marked wrongly, `tree` yes for a choice that is not
    the owner's by the tree's rules, or no for one that is.
 
-In the why of `plan_ok`, answer each point by its number: none, or what you found. Write everything the writer must
-deal with in `plan_review`, all at once: this is your one chance, and nothing that could be raised now is raised
-later. If `plan_ok` is yes, leave `plan_review` out of your return. Leave out anything you are not sure is better.
+In the why of `plan_ok`, answer each point by its number: none, or what you found. Write everything the writer must deal
+with in `plan_review`, all at once. If `plan_ok` is yes, leave `plan_review` out of your return. Leave out anything you
+are not sure is better.
 '''
 watches = ["plan", "plan_review"]
-reads = ["background", "found", "tree"]
+reads = ["background", "found", "tree", "tree_entries"]
 outputs = ["plan_review", "plan_ok"]
 must_write = ["plan_ok"]
 
@@ -43,6 +42,8 @@ plan_review = """Where the writer answered an earlier point in `plan_review`, ac
 [kinds]
 # Given as the files that changed since the tree this session read.
 tree = "last_and_latest"
+# The entries of the design tree the plan was worked from, whole.
+tree_entries = "latest"
 background = "last_and_latest"
 # What the research found, and what it sent the deep research to settle.
 found = "latest"

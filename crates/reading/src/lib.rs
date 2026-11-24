@@ -7,7 +7,7 @@
 //! crate `decide` and the exploration of the repository's own flow (crate `flow`, `tests/explored`), so it is one crate
 //! they share.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use decide::{
     BlockId, CallId, Cause, Cell, CellId, Condition, Finished, Flow, Outsider, Questioned, Records, RunId, Seq,
@@ -45,15 +45,23 @@ impl Version {
 }
 
 /// Why a run of a cell would start, as the entries say: a block that runs it is new to it, `was` being the version it
-/// consumed; or the results of the calls it is owed are all in.
+/// consumed and `worked` the version it last worked from; or the results of the calls it is owed are all in.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Reason {
-    Changed { block: BlockId, was: Option<Seq> },
-    Results { calls: Vec<CallId> },
+    Changed {
+        block: BlockId,
+        was: Option<Seq>,
+        worked: Option<Seq>,
+    },
+    Results {
+        calls: Vec<CallId>,
+    },
 }
 
 pub struct Reading<'a> {
     pub records: &'a Records,
+    /// The blocks whose versions are entries added to a record, which replace none: the flow says which.
+    pub entries: BTreeSet<BlockId>,
     /// Of each judge of the flow, each verdict it hands in with the dialogue it writes its points in, as the flow pairs
     /// them: (the judge, the verdict, the dialogue).
     pub rulings: Vec<(CellId, BlockId, BlockId)>,
@@ -116,7 +124,11 @@ impl<'a> Reading<'a> {
         for e in entries {
             let of_block = versions.entry(e.block.clone()).or_default();
             let own = Some(e.at);
+            // A write that holds nothing says nothing where no version is before it, where the one before holds nothing
+            // too, and where the block adds entries, which replace none (design document `data-and-context`, 9).
+            let nothing = e.empty && (flow.adds_entries(e.block) || of_block.last().is_none_or(|over| over.empty));
             let meaning = match of_block.last() {
+                _ if nothing => of_block.last().and_then(|over| over.meaning),
                 // Handed in as changing nothing, with no version before it, a version says nothing: a person's prose
                 // and a choice excepted, whose meaning their writer does not tell.
                 None if e.value.is_none() && e.by != Writer::Person && !e.matters => None,
@@ -153,8 +165,14 @@ impl<'a> Reading<'a> {
         let rulings = (flow.cells().iter())
             .flat_map(|c| (c.verdicts.iter()).map(|(verdict, of)| (c.id.clone(), verdict.clone(), of.dialogue.clone())))
             .collect();
+        let entries = (flow.cells().iter())
+            .flat_map(|c| c.outputs.iter().chain(&c.runs_on))
+            .filter(|b| flow.adds_entries(b))
+            .cloned()
+            .collect();
         Self {
             records,
+            entries,
             rulings,
             versions,
             started,
@@ -193,7 +211,13 @@ impl<'a> Reading<'a> {
     /// would write over; and a first version but one handed in as changing nothing, which says nothing (design
     /// document `data-and-context`, 9).
     pub fn would_change(&self, run: RunId, write: &Write) -> bool {
-        let Some(over) = self.current(&write.block) else {
+        let over = self.current(&write.block);
+        // A write that holds nothing says nothing where none is before it, where the one before holds nothing too, and
+        // where the block adds entries.
+        if write.empty && (self.entries.contains(&write.block) || over.is_none_or(|over| over.empty)) {
+            return false;
+        }
+        let Some(over) = over else {
             return write.value.is_some() || !write.meaning_unchanged;
         };
         if write.value.is_some() || over.value.is_some() {
@@ -260,6 +284,18 @@ impl<'a> Reading<'a> {
             .collect()
     }
 
+    /// The version of the block the cell last worked from before this place: the latest of the one it consumed, one a
+    /// run of it wrote, and one the owner ruled on. What the cell wrote is no change to it, and a point the owner ruled
+    /// on is new to no cell (design document `data-and-context`, 10, 39), so each counts as seen.
+    pub fn worked(&self, cell: &CellId, block: &BlockId, place: Seq) -> Option<Seq> {
+        let own_or_ruled = (self.of(block).iter())
+            .filter(|v| v.at < place)
+            .filter(|v| matches!(&v.by, Writer::Cell(c, _) if c == cell) || self.ruled(block, v, place))
+            .map(|v| v.at)
+            .max();
+        self.consumed(cell, block, place).max(own_or_ruled)
+    }
+
     /// Whether, at this place, a point is new to the cell in a dialogue it holds as the maker while the dialogue is
     /// open (design document `data-and-context`, 36, 41): a version new to it that a run of the other side wrote, a cell
     /// of the flow for which the dialogue is none it makes. A judge's dialogue is open while the verdict the flow pairs
@@ -289,6 +325,7 @@ impl<'a> Reading<'a> {
             .map(|block| Reason::Changed {
                 block: block.clone(),
                 was: self.consumed(&cell.id, block, place),
+                worked: self.worked(&cell.id, block, place),
             })
             .collect()
     }

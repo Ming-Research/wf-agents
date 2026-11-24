@@ -22,9 +22,9 @@ fn engineer() -> Compiled {
             "dependencies",
             "handed_in",
             "main",
-            "session",
             "start",
             "head",
+            "test_times",
             "tree",
             "words",
         ]),
@@ -89,7 +89,15 @@ fn the_engineer_s_outline_holds_each_cell_in_order_with_what_reading_a_work_on_i
     );
     assert_eq!(
         t2.reads.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(),
-        ["plan", "background", "tree"]
+        ["plan", "background", "tree", "tree_entries", "test_times"]
+    );
+    // The tests' times are read where the change and its tests are written and judged, and watched by no cell: what the
+    // engine writes of them as a run reports them runs none.
+    let reads_times = |id: &str| cell(id).reads.iter().any(|r| r.name == "test_times");
+    assert!(reads_times("I1") && reads_times("T2"));
+    assert!(
+        (outline.cells.iter()).all(|c| c.watches.iter().all(|w| w.name != "test_times")),
+        "no cell watches the tests' times"
     );
     // A cell that may ask is spoken to in its own words, whose texts the page reads the talk by.
     let words = cell("I1").words.as_ref().expect("I1 has words of its own");
@@ -108,6 +116,7 @@ fn the_engineer_s_outline_holds_each_cell_in_order_with_what_reading_a_work_on_i
     assert_eq!(from("background"), Some("owner"));
     assert_eq!(from("i1_words"), Some("words"));
     assert_eq!(from("i1_questions"), Some("answer"));
+    assert_eq!(from("test_times"), Some("test_times"));
     assert_eq!(from("plan_owner"), None);
     // Each line by its name; the groups, the card, the table and the data made for a cell.
     let lines: Vec<&str> = outline.lines.iter().map(|l| l.name.as_str()).collect();
@@ -191,4 +200,31 @@ fn an_outline_kept_before_a_part_was_added_reads_with_that_part_absent() {
     // A line kept with its name alone reads with whether its agents only read not known.
     let line: OutlinedLine = serde_json::from_str(r#"{"name": "engineer"}"#).expect("it reads");
     assert_eq!(line.reads_only, None);
+}
+
+// The two reviews of the plan think at the effort high, the owner having chosen it over xhigh for them, as the
+// reviews of the change do; the research and the implementation keep their own.
+#[test]
+fn the_engineer_s_reviews_of_the_plan_run_at_the_effort_high() {
+    let compiled = engineer();
+    for id in ["P1", "P2"] {
+        let cell = compiled.cells.iter().find(|c| c.id.as_str() == id).expect("the cell");
+        assert_eq!(cell.effort, Some(flow::Effort::High), "{id}");
+    }
+}
+
+// The three reviews of the change are cells of one line that only reads, so that they share a session and none of them
+// can change the work; the adversarial testing runs on a line of its own.
+#[test]
+fn the_three_reviews_of_the_change_share_one_line_that_only_reads_and_the_adversarial_testing_has_its_own() {
+    let compiled = engineer();
+    let cell =
+        |id: &str| (compiled.cells.iter().find(|c| c.id.as_str() == id)).unwrap_or_else(|| panic!("the cell {id}"));
+    for id in ["T1", "T2", "T3"] {
+        assert_eq!(cell(id).line.as_deref(), Some("code_reviewer"), "{id}");
+        assert!(cell(id).reads_only, "{id} may change the work");
+    }
+    let testing = cell("T4");
+    assert!(testing.line.is_some(), "the adversarial testing has a line");
+    assert_ne!(testing.line.as_deref(), Some("code_reviewer"));
 }

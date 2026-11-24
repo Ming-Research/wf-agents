@@ -6,9 +6,11 @@ import { changeables, problem, unquoted } from './SettingsView';
 import { fixtureSettings } from './fixtures';
 import { STANDING_WORDS, cacheShare, mergeAverages, nextWeekStart, standingOf, summed, weekStarts } from './standing';
 
-const spent = (usdMicros: number, inputTokens = 0, cachedTokens = 0): Spent => ({
+const spent = (usdMicros: number, inputTokens = 0, cachedTokens = 0, cacheWrittenTokens = 0, unsplitTokens = 0): Spent => ({
   usdMicros,
   inputTokens,
+  cacheWrittenTokens,
+  unsplitTokens,
   cachedTokens,
   outputTokens: 0,
   workingMs: 1000,
@@ -43,8 +45,8 @@ describe('where a work stands', () => {
     expect(standingOf(work({ kind: 'everything', at: 'plan', by: 'engine' }, [wait('held')]))).toBe('owner');
     expect(standingOf(work({ kind: 'paused', at: 'plan', by: 'owner', why: null }))).toBe('paused');
     expect(standingOf(work({ kind: 'round', cell: 'plan', run: 1, round: 1, since: 0 }))).toBe('running');
-    const question = { kind: 'call', call: 2, who: 'owner', what: { kind: 'question', who: 'owner', question: '?' } } as const;
-    expect(standingOf(work({ kind: 'waits', at: 'plan', on: [question, { kind: 'slot' }] }, [wait('call-2')]))).toBe('owner');
+    const atLimit = { kind: 'call', call: 2, who: 'owner', what: { kind: 'atLimit', limit: { of: 'returns', sentBack: 2 } } } as const;
+    expect(standingOf(work({ kind: 'waits', at: 'plan', on: [atLimit, { kind: 'slot' }] }, [wait('limit')]))).toBe('owner');
     expect(standingOf(work({ kind: 'waits', at: 'plan', on: [{ kind: 'slot' }] }))).toBe('due');
     expect(standingOf(work({ kind: 'everything', at: 'plan', by: 'owner' }))).toBe('due');
     // What the engine's list does not hold is not the owner's, whatever the work does.
@@ -98,6 +100,8 @@ describe('the span', () => {
 describe('what the span adds up to', () => {
   it('gives the share read from the cache, the averages of the merges, and sums', () => {
     expect(cacheShare(spent(0, 1000, 3000))).toBe(0.75);
+    // What was written to the cache and what the records do not tell from it were sent, as what was sent fresh was.
+    expect(cacheShare(spent(0, 500, 3000, 250, 250))).toBe(0.75);
     expect(cacheShare(spent(0))).toBeNull();
     expect(mergeAverages([])).toBeNull();
     expect(
@@ -109,6 +113,17 @@ describe('what the span adds up to', () => {
     ).toEqual({ took: 3000, usdMicros: 2_000_000 });
     expect(summed([{ spent: spent(10) }, { spent: null }, { spent: spent(5) }]).usdMicros).toBe(15);
   });
+
+  it('sums every kind of token apart, the written to the cache and those not told apart too', () => {
+    const sum = summed([
+      { spent: { ...spent(10, 1, 100, 20, 300), outputTokens: 4 } },
+      { spent: null },
+      { spent: { ...spent(5, 2, 200, 40, 600), outputTokens: 8 } },
+    ]);
+    expect([sum.inputTokens, sum.cacheWrittenTokens, sum.unsplitTokens, sum.cachedTokens, sum.outputTokens]).toEqual([
+      3, 60, 900, 300, 12,
+    ]);
+  });
 });
 
 describe('the settings the page changes', () => {
@@ -117,11 +132,12 @@ describe('the settings the page changes', () => {
     expect(keys.map((k) => [k.key, k.value, k.running, k.leftOut])).toEqual([
       ['owner.language', 'Chinese', null, false],
       ['agents.slots', '3', '2', false],
+      ['agents.highest_level', '', null, true],
       ['agents.levels.1.model', 'claude-haiku-5-5', null, false],
       ['agents.levels.2.model', 'claude-sonnet-5-5', null, false],
       ['agents.levels.3.model', 'claude-opus-5-5', null, false],
       ['items.highest_level', '3', null, false],
-      ['sessions.context_limit', '500000', '500000', true],
+      ['sessions.compact_at', '500000', '500000', true],
     ]);
     expect(unquoted('"a \\"b\\""')).toBe('a "b"');
     expect(unquoted("'c'")).toBe('c');
@@ -140,5 +156,7 @@ describe('the settings the page changes', () => {
     expect(problem(of('owner.language'), ' English', levels)).toBeNull();
     expect(problem(of('owner.language'), 'Eng\nlish', levels)).toBe('owner.language is a name on one line');
     expect(problem(of('items.highest_level'), '9', levels)).toBe('items.highest_level is one of the levels: 1, 2, 3');
+    expect(problem(of('agents.highest_level'), '9', levels)).toBe('agents.highest_level is one of the levels: 1, 2, 3');
+    expect(problem(of('agents.highest_level'), '3', levels)).toBeNull();
   });
 });

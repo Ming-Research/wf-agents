@@ -16,13 +16,15 @@ pub mod measured;
 pub mod observations;
 pub mod sessions;
 pub mod time;
+pub mod timed;
 
 pub use filled::{Fill, FillFault, Filled};
 pub use flows::{OnFlow, Read, Version, version_of};
-pub use measured::{Measured, Measures, Pinged};
+pub use measured::{BesideKind, Forked, Measured, Measures, Pinged, SpentBeside};
 pub use observations::Observed;
-pub use sessions::{Ran, RanOn, Session, Why};
-pub use time::{KeptTime, Stretch, Went};
+pub use sessions::{Left, LeftBehind, Ran, RanOn, Session, Why};
+pub use time::{KeptTime, Stretch, TurnSpan, Went};
+pub use timed::{Reading, Source, Timed};
 
 /// Everything kept of one work.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -56,8 +58,14 @@ pub struct Work {
     pub observed: Vec<Observed>,
     /// What the calls of each try of an agent's round to the model came to, where its carrier said, in order.
     pub measured: Vec<Measured>,
+    /// Each try of an agent's round whose program left processes running as it ended, which were stopped, in order.
+    pub left_behind: Vec<LeftBehind>,
     /// Each keep-warm ping of a line's session, in order.
     pub pinged: Vec<Pinged>,
+    /// Each fork of a round's session asked a question, in order.
+    pub forked: Vec<Forked>,
+    /// What each run of the project's CI said of how long its tests and jobs took, in order (module [`timed`]).
+    pub timed: Vec<Timed>,
     /// Each pull request the host of the work's repository found the work checked through, in order, where it is
     /// another than the one before: the latest is the work's.
     pub pulls: Vec<Pulled>,
@@ -88,6 +96,7 @@ impl Work {
             .chain(r.finished.iter().map(|e| e.at))
             .chain(r.abandoned.iter().map(|e| e.at))
             .chain(r.put_in.iter().map(|e| e.at))
+            .chain(r.hurried.iter().map(|e| e.at))
             .chain(r.written.iter().map(|e| e.at))
             .chain(r.questions.iter().map(|e| e.at))
             .chain(r.answers.iter().map(|e| e.at))
@@ -100,7 +109,10 @@ impl Work {
             .chain(self.filled.iter().map(|f| f.at))
             .chain(self.ran.iter().map(|r| r.at))
             .chain(self.measured.iter().map(|m| m.at))
+            .chain(self.left_behind.iter().map(|l| l.at))
             .chain(self.pinged.iter().map(|p| p.at))
+            .chain(self.forked.iter().map(|f| f.at))
+            .chain(self.timed.iter().map(|t| t.at))
             .chain(self.pulls.iter().map(|p| p.at))
             .chain(self.flows.iter().map(|f| f.at))
             .chain(self.kept_time.iter().map(|k| k.at));
@@ -113,12 +125,56 @@ impl Work {
         self.moments.iter().rev().find(|m| m.from <= place).map(|m| m.at)
     }
 
+    /// What the work's calls beside its rounds took, in the order of what happened to it: each keep-warm ping and each
+    /// fork. What a work spent in all is its rounds' and these.
+    pub fn spent_beside_rounds(&self) -> Vec<SpentBeside> {
+        let pings = self.pinged.iter().map(|p| SpentBeside {
+            at: p.at,
+            kind: BesideKind::Ping,
+            spent: p.spent,
+        });
+        let forks = self.forked.iter().map(|f| SpentBeside {
+            at: f.at,
+            kind: BesideKind::Fork,
+            spent: Spent {
+                usd_micros: f.usd_micros,
+                uncached_tokens: f.uncached_tokens,
+                cache_written_tokens: f.cache_written_tokens,
+                cached_tokens: f.cached_tokens,
+                output_tokens: f.output_tokens,
+                ..Spent::default()
+            },
+        });
+        let mut all: Vec<SpentBeside> = pings.chain(forks).collect();
+        all.sort_by_key(|b| b.at);
+        all
+    }
+
     /// A name no run and no call of the work has yet: one after the latest. Whoever starts a run or makes a call asks
     /// for it, and names the run or the call so.
     pub fn name(&self) -> u64 {
         let r = &self.records;
         let names = (r.started.iter().map(|s| s.run.0)).chain(r.called.iter().map(|c| c.call.0));
         names.max().unwrap_or(0) + 1
+    }
+
+    /// Whether a round of the work or a tool run for it is under way: a round began and has not ended, whatever became
+    /// of its run, or a call of a tool was made and has no result. Either may change what the work's branch and
+    /// worktree hold at any moment.
+    pub fn under_way(&self) -> bool {
+        let r = &self.records;
+        let mut open: BTreeMap<RunId, i64> = BTreeMap::new();
+        for round in &r.rounds {
+            *open.entry(round.run).or_default() += 1;
+        }
+        for returned in &r.returned {
+            *open.entry(returned.run).or_default() -= 1;
+        }
+        let tool = |call: &CallId| matches!(self.calls.get(call), Some(Call::Asked(Ask::Tool { .. })));
+        open.values().any(|rounds| *rounds > 0)
+            || (r.called.iter())
+                .filter(|c| tool(&c.call))
+                .any(|c| !r.done.iter().any(|d| d.call == c.call))
     }
 }
 
@@ -156,8 +212,12 @@ pub struct Moment {
 pub struct Spent {
     /// Its cost, in millionths of a dollar.
     pub usd_micros: u64,
-    /// The tokens sent that were not read from the cache.
-    pub input_tokens: u64,
+    /// The tokens sent that were not read from the cache: those sent fresh and those written to it.
+    pub uncached_tokens: u64,
+    /// Of `uncached_tokens`, those written to the cache. None where what the round took was kept before the
+    /// written ones were kept apart: they are then among `uncached_tokens` and not told from the tokens sent fresh.
+    #[serde(default)]
+    pub cache_written_tokens: Option<u64>,
     /// The tokens sent that were read from the cache.
     pub cached_tokens: u64,
     /// The tokens that came back.
@@ -219,6 +279,11 @@ pub enum Back {
         waits_for: Option<BlockId>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         read: Vec<Handed>,
+        /// Why the return says the work changes each file the project protects, by the file's path, where it says; a
+        /// return sent back is completed by the returns after it, which need not say it again. Returns kept before it
+        /// was kept have none.
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        protected: BTreeMap<String, String>,
     },
     /// Nothing came back: the round failed, for this reason, as whatever carried it out says, with the kind of cause
     /// it told apart. The run's next round is given what this one was given, as the kind's handling lets it (crate
@@ -273,21 +338,32 @@ impl Question {
 }
 
 impl Work {
-    /// What the version of a question asks and its options, or why it was withdrawn: as the round that brought it
-    /// returned it, the last of its run to end before the version was written, among what the agent said or what the
-    /// engine asked beside it. None where that round's return holds no question of the name.
+    /// What the version of a question asks and its options, or why it was withdrawn: of what the engine asked beside
+    /// the return of the last round of its run to end before the version was written; of what the agent said, as the
+    /// latest return of the run up to that round that wrote it ([`Work::asked_by`]), since a return completes the one
+    /// sent back before it. None where no return holds a question of the name.
     pub fn question(&self, version: &decide::Questioned) -> Option<&Question> {
         let r = &self.records;
         let round = (r.returned.iter())
             .filter(|e| e.run == version.run && e.at < version.at)
             .count();
+        if !version.engine {
+            return self.asked_by(version.run, round, &version.name);
+        }
         match self.back.get(&(version.run, round))? {
-            Back::Returned { said, engine, .. } => {
-                let of = if version.engine { engine } else { &said.questions };
-                of.iter().rev().find(|q| q.name() == version.name)
-            }
+            Back::Returned { engine, .. } => engine.iter().rev().find(|q| q.name() == version.name),
             _ => None,
         }
+    }
+
+    /// The question of this name as the latest return of the run up to this round that asked it, asked it anew or
+    /// withdrew it wrote it: what a return sent back wrote of it, and the returns completing it did not write again,
+    /// stands.
+    pub fn asked_by(&self, run: RunId, round: usize, name: &str) -> Option<&Question> {
+        (1..=round).rev().find_map(|n| match self.back.get(&(run, n))? {
+            Back::Returned { said, .. } => said.questions.iter().rev().find(|q| q.name() == name),
+            _ => None,
+        })
     }
 }
 
@@ -354,6 +430,121 @@ pub enum Call {
 pub enum Ask {
     /// A tool the engine runs, with what it is run on.
     Tool { name: String, input: String },
-    /// A question for a person.
+    /// A question for a person. No return that asks one is taken (the engine fails its round); the variant stays so
+    /// that a call recorded as one is read as it was recorded.
     Person { who: Who, question: String },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cost(usd_micros: u64) -> Spent {
+        Spent {
+            usd_micros,
+            uncached_tokens: 1,
+            cache_written_tokens: Some(1),
+            cached_tokens: 2,
+            output_tokens: 3,
+            context_tokens: Some(9),
+            compactions: 1,
+        }
+    }
+
+    // What a work spent beside its rounds is its keep-warm pings' and its forks', each at its place, in the order of
+    // what happened, whichever table keeps it; a fork's has only what a fork keeps. Microseconds.
+    #[test]
+    fn what_a_work_spent_beside_its_rounds_gives_pings_and_forks_in_the_order_of_their_places() {
+        let mut work = Work::default();
+        let ping = |at, usd| Pinged {
+            at: Seq(at),
+            line: "engineer".to_string(),
+            session: 0,
+            spent: cost(usd),
+            failed: None,
+        };
+        let fork = |at, usd| Forked {
+            at: Seq(at),
+            run: RunId(1),
+            round: 1,
+            usd_micros: usd,
+            uncached_tokens: 1,
+            cache_written_tokens: Some(1),
+            cached_tokens: 2,
+            output_tokens: 3,
+        };
+        work.pinged = vec![ping(2, 10), ping(6, 30)];
+        work.forked = vec![fork(4, 20), fork(8, 40)];
+        let beside = work.spent_beside_rounds();
+        let seen: Vec<(u64, BesideKind, u64)> = beside.iter().map(|b| (b.at.0, b.kind, b.spent.usd_micros)).collect();
+        assert_eq!(
+            seen,
+            [
+                (2, BesideKind::Ping, 10),
+                (4, BesideKind::Fork, 20),
+                (6, BesideKind::Ping, 30),
+                (8, BesideKind::Fork, 40)
+            ]
+        );
+        // A ping keeps what its session held and how often it compacted; a fork's spend has none of them.
+        assert_eq!(beside[0].spent, cost(10));
+        assert_eq!(
+            beside[1].spent,
+            Spent {
+                context_tokens: None,
+                compactions: 0,
+                ..cost(20)
+            }
+        );
+        assert_eq!(work.tick(), Seq(9), "a fork's place is one the next entry follows");
+    }
+
+    // A round under way, of an open run or one abandoned, and a tool's call with no result may each change what the
+    // work's worktree holds; a call that waits for a person or for the clock changes nothing there.
+    #[test]
+    fn a_work_is_under_way_while_a_round_of_it_or_a_tool_run_for_it_has_not_ended() {
+        use decide::{Called, Done, Returned, Round};
+        let mut work = Work::default();
+        assert!(!work.under_way(), "nothing began");
+        let round = |run, at| Round {
+            run: RunId(run),
+            at: Seq(at),
+        };
+        let returned = |run, at| Returned {
+            run: RunId(run),
+            at: Seq(at),
+        };
+        work.records.rounds = vec![round(1, 1), round(2, 2)];
+        work.records.returned = vec![returned(2, 3)];
+        assert!(work.under_way(), "the round of run 1 has not ended");
+        work.records.rounds.push(round(2, 4));
+        work.records.returned.push(returned(1, 5));
+        assert!(work.under_way(), "the second round of run 2 has not ended");
+        work.records.returned.push(returned(2, 6));
+        assert!(!work.under_way(), "every round ended");
+        let call = |call, at| Called {
+            call: CallId(call),
+            run: RunId(2),
+            on: None,
+            at: Seq(at),
+        };
+        let tool = Call::Asked(Ask::Tool {
+            name: "run_tests".to_string(),
+            input: String::new(),
+        });
+        let wait = Call::Wait {
+            until: Time(10),
+            failed: 1,
+        };
+        work.calls = BTreeMap::from([(CallId(3), wait), (CallId(4), tool)]);
+        work.records.called = vec![call(3, 7)];
+        assert!(!work.under_way(), "a wait for the clock changes nothing");
+        work.records.called.push(call(4, 8));
+        assert!(work.under_way(), "the tool has no result");
+        work.records.done.push(Done {
+            call: CallId(4),
+            at: Seq(9),
+        });
+        assert!(!work.under_way(), "the tool has its result");
+    }
 }

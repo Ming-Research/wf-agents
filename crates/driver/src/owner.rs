@@ -2,8 +2,8 @@
 //! mark, the cards the owner acts on, the browser's notifications, the stretches of a work's bar the owner held it, and
 //! what `wf-agents wait` says rests for a person are all read from [`waits`].
 //!
-//! A work waits on the owner for: a question put to them that holds it, at its cell, as a call, or at a precondition
-//! that only their answers make hold, as the check before the merge does; a cell at its limit, or its run; a
+//! A work waits on the owner for: a question put to them that holds it, at its cell or at a precondition that only
+//! their answers make hold, as the check before the merge does; a cell at its limit, or its run; a
 //! precondition the owner makes hold by writing a block, as a review's verdict for them to rule on; a pause the engine
 //! made; and the agents' command line where it cannot run, which only the owner mends. Who can make a precondition
 //! hold is what the flow declares of each block, as the deciding code reads it ([`Maker::Owner`]). Nothing else is the
@@ -17,11 +17,11 @@
 use decide::questions::{self, Standing};
 use decide::run::Limit;
 use decide::{
-    BlockId, CallId, CellId, Condition, Decision, End, Holder, Maker, Pauser, Records, Seq, TestKind, Waited, Who,
+    BlockId, CallId, CellId, Condition, Decision, End, Holder, Maker, Pauser, Records, Seq, TestKind, Waited,
 };
 use flow::Kind;
 use flow::agents::{OwnerWords, fill, sentence};
-use work::{Ask, Call};
+use work::Call;
 
 use crate::Kept;
 
@@ -51,8 +51,6 @@ pub enum Ends {
     /// among the versions of its cell's questions, none where it has none, as a question of a cell with no questions of
     /// its own.
     Answer { question: String, version: Option<u64> },
-    /// Answers in words the question this call puts to them.
-    Reply { call: CallId },
     /// Lets the run that reached its limit go on, as the result of this call.
     GoOn { call: CallId },
     /// Lets the cell go on past its limit.
@@ -90,7 +88,7 @@ pub fn waits(
     let mut waits = Vec::new();
     // A round under way goes on under a pause, and a run that answers the owner's words begins under it: the pause
     // holds the work once they are done.
-    if let Decision::Fault(_) | Decision::Busy { .. } | Decision::Abandon { .. } = decision {
+    if let Decision::Fault(_) | Decision::Busy { .. } | Decision::Hurry { .. } | Decision::Abandon { .. } = decision {
         return waits;
     }
     let pause_holds = !matches!(decision, Decision::Run { .. });
@@ -104,7 +102,7 @@ pub fn waits(
         && ended.is_none_or(|at| at.is_some_and(|at| pause.at > at))
     {
         let why = match &pause.why {
-            Some(why) => fill(&words.paused, &[("why", &sentence(why))]),
+            Some(reason) => fill(&words.paused, &[("reason", &sentence(reason))]),
             None => words.no_reason.clone(),
         };
         push(&mut waits, PAUSE.to_string(), why, Ends::Resume);
@@ -118,7 +116,7 @@ pub fn waits(
     let shared_holds = match decision {
         Decision::Run { cell, .. } => Some(cell),
         Decision::GoOn { cell, .. } if !matches!(held, Some(Holder::Pause | Holder::Everything)) => Some(cell),
-        Decision::Wait { at, on } if on.as_slice() == [Waited::Slot] => Some(at),
+        Decision::Wait { at, on } if on.as_slice() == [Waited::Slot] || on.as_slice() == [Waited::Turn] => Some(at),
         _ => None,
     };
     if let Decision::Wait { at, on } = decision {
@@ -161,8 +159,8 @@ fn at_cell(
 ) {
     let cell = at.as_str();
     match waited {
-        Waited::Call { call, on } => match kept.work.calls.get(call) {
-            Some(Call::AtLimit(limit)) => {
+        Waited::Call { call, .. } => {
+            if let Some(Call::AtLimit(limit)) = kept.work.calls.get(call) {
                 let why = match limit {
                     Limit::Returns { sent_back } => {
                         let sent_back = sent_back.to_string();
@@ -175,19 +173,7 @@ fn at_cell(
                 };
                 push(waits, LIMIT.to_string(), why, Ends::GoOn { call: *call });
             }
-            Some(Call::Asked(Ask::Person {
-                who: Who::Owner,
-                question,
-            })) if *on == Some(Who::Owner) => {
-                push(
-                    waits,
-                    format!("call-{}", call.0),
-                    question.clone(),
-                    Ends::Reply { call: *call },
-                );
-            }
-            _ => {}
-        },
+        }
         Waited::Precondition { on: key, by } if by.contains(&Maker::Owner) => {
             for block in decide::keeping(&kept.flow.flow, records, at, key) {
                 let Some(outsiders) = kept.flow.flow.outsiders(&block) else {
@@ -227,7 +213,7 @@ fn at_cell(
                 question(kept, name, standing, waits);
             }
         }
-        Waited::Precondition { .. } | Waited::Slot | Waited::Outside { .. } => {}
+        Waited::Precondition { .. } | Waited::Slot | Waited::Turn | Waited::Outside { .. } => {}
     }
 }
 
@@ -300,7 +286,7 @@ mod tests {
 
     use std::collections::BTreeMap;
 
-    use decide::{Called, Outsider, Pause, Questioned, Returned, RunId, Written};
+    use decide::{Outsider, Pause, Questioned, Returned, RunId, Who, Written};
     use flow::{Compiled, Has, Source, compile};
     use store::{First, Item, ItemNumber, WorkHead, WorkNumber};
     use work::{Back, Question, Said, Time, Work};
@@ -390,6 +376,7 @@ mod tests {
             project: None,
             depends_on: Vec::new(),
             tags: Vec::new(),
+            continues: None,
         };
         Item::new(ItemNumber(3), Time(0), first, Vec::new())
     }
@@ -459,6 +446,7 @@ mod tests {
                 engine: Vec::new(),
                 waits_for: None,
                 read: Vec::new(),
+                protected: Default::default(),
             },
         );
         for (i, (name, waits)) in asked.iter().enumerate() {
@@ -504,6 +492,7 @@ mod tests {
             at: Seq(30),
             by,
             why: why.map(str::to_string),
+            waits_for: Vec::new(),
         });
     }
 
@@ -588,36 +577,6 @@ mod tests {
     }
 
     #[test]
-    fn a_question_put_as_a_call_is_the_owners_and_one_put_to_the_architect_is_not() {
-        let mut work = Work::default();
-        for (call, who) in [(7, Who::Owner), (8, Who::Architect)] {
-            work.records.called.push(Called {
-                call: CallId(call),
-                run: RunId(1),
-                on: Some(who.clone()),
-                at: Seq(call),
-            });
-            let question = format!("Question {call}?");
-            work.calls
-                .insert(CallId(call), Call::Asked(Ask::Person { who, question }));
-        }
-        let call = |n: u64, who: Who| Waited::Call {
-            call: CallId(n),
-            on: Some(who),
-        };
-        let waits = of(&work, &at("write", vec![call(7, Who::Owner), call(8, Who::Architect)]));
-        let ends = Ends::Reply { call: CallId(7) };
-        assert_eq!(
-            waits,
-            [Waiting {
-                key: "call-7".to_string(),
-                why: "Question 7?".to_string(),
-                ends,
-            }]
-        );
-    }
-
-    #[test]
     fn a_cell_and_a_run_at_their_limits_are_the_owners_with_what_lets_them_go_on() {
         let mut work = Work::default();
         work.calls
@@ -664,6 +623,23 @@ mod tests {
         assert_eq!(of(&work, &held), Vec::<Waiting>::new());
     }
 
+    // The reason is a whole sentence of the engine's words, the cause after a colon, so that the card reads whole
+    // whatever the cause begins with: a lower case word, a path or a quote.
+    #[test]
+    fn a_reason_with_its_cause_after_a_colon_is_said_whole_after_the_engines_own_sentence() {
+        for cause in [
+            "the command line's result holds no structured return",
+            "/tmp/a: not found",
+            "\"x\" is quoted",
+        ] {
+            let reason = format!("The round failed. The cause: {cause}.");
+            let mut work = Work::default();
+            paused(&mut work, Pauser::Engine, Some(&reason));
+            let waits = of(&work, &Decision::Paused { cell: "write".into() });
+            assert_eq!(waits[0].why, format!("The engine paused the work. {reason}"));
+        }
+    }
+
     #[test]
     fn the_pause_of_every_work_is_no_wait_of_a_works_own() {
         // The pause of everything is one thing, said and lifted where it is set: a work it holds waits on the owner
@@ -693,7 +669,7 @@ mod tests {
         assert_eq!(keys(&waits), [AGENTS]);
         assert_eq!(
             waits[0].why,
-            "The agents' command line cannot run. No account is in use: choose one on the Settings view."
+            "The agents' command line cannot run. The cause: No account is in use: choose one on the Settings view."
         );
         let mend = "Choose an account on the Settings view, add its token again, or install the command line. The \
                     engine lets the work go on once its check finds that the command line runs.";

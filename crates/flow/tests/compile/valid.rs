@@ -90,6 +90,7 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
         effort: None,
         levels_above: 0,
         takes_main: false,
+        takes_turn: false,
         watches: Vec::new(),
     };
     // Each datum a cell watches runs it on itself.
@@ -171,10 +172,12 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
             default: None,
             what: None,
             words: None,
+            words_if_marked: None,
             shape: None,
             writes: Texts::default(),
             with_nothing_but: BTreeMap::new(),
             answers_in_the_tree: false,
+            names_tree_entries: false,
             writers: Writers {
                 cells: ids(writers),
                 people: who.0,

@@ -6,15 +6,16 @@ kind = "agent"
 line = "study"
 effort = "xhigh"
 task = '''
-Study what the item asks, starting from the tree you read. Check each fact it rests on where it can be seen, and
-research every approach that could work. Where a fact can be checked only by changing code, say in `conclusion` which
-item is to check it. Where the design tree's rules say a choice is the owner's, ask it in a question of its own, with
-each approach as an option and what it gains and costs. Before handing in, ask yourself where the conclusion is most
-likely wrong, and check that point.
+Study what the item asks. Read the design tree as its rules say, beyond `tree_entries`, for what the study reaches.
+Where the study reaches entries that `tree_entries` does not name, hand in `tree_entries` again, the whole list. Check
+each fact the item rests on where it can be seen, and research every approach that could work. Where a fact can be
+checked only by changing code, say in `conclusion` which item is to check it. Where the design tree's rules say a choice
+is the owner's, ask it in a question of its own, with each approach as an option and what it gains and costs. Before
+handing in, ask yourself where the conclusion is most likely wrong, and check that point.
 '''
 watches = ["background", "r1_questions", "r1_words"]
-reads = ["tree"]
-outputs = ["conclusion", "r1_questions", "r1_words"]
+reads = ["tree", "tree_entries"]
+outputs = ["conclusion", "r1_questions", "r1_words", "tree_entries"]
 must_write = ["conclusion"]
 
 # What the cell does when each datum it watches is new; a datum with none is the task's alone.
@@ -28,4 +29,6 @@ r1_words = """The owner has written to you in `r1_words`: deal with that first. 
 [kinds]
 # Given as the files that changed since the tree this session read.
 tree = "last_and_latest"
+# The entries of the design tree the study was worked from, whole.
+tree_entries = "latest"
 background = "last_and_latest"

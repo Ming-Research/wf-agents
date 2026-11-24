@@ -28,7 +28,7 @@
 //!   acts, cancelling the work. At a rest they answer a call for them, or let a cell go on at a limit, three times in
 //!   five. Where the cells ask, people answer a question that stands at any act now and then, the latest version of it
 //!   or an earlier one; and where the work waits for an answer, they give it in half their acts, and turn off the
-//!   condition of the cell it waits at in a quarter, so that the question holds the work at a cell that is skipped.
+//!   condition of the cell it waits at in a quarter, so that the question stands at a cell that is skipped, and holds nothing.
 //! - agents: each round ends with a return drawn from all the form allows, which the histories' engine judges with
 //!   `decide::run::next` and what `decide::told` gives, as the engine's loop does: it does the cell's work in most,
 //!   dealing with each of what ran the round with a chance of four in five and writing each output with three in five,
@@ -44,8 +44,9 @@
 //!   run takes up itself.
 //! - the engine: while the work is paused, a run at rest has its next round only where it started for the owner's words
 //!   and its last round did not fail in a way that paused the work with no letting on since (`pausing`).
-//! - the room the engine leaves the work (`room`), as before: the owner's pause of everything and the slot come and go
-//!   in some histories, and every history asks the walk what it would decide in every other room.
+//! - the room the engine leaves the work (`room`), as before: the owner's pause of everything, the slot and the turn
+//!   of the project come and go in some histories, and every history asks the walk what it would decide in every other
+//!   room.
 //!
 //! Every situation a property is about is counted, and a test fails if none of its histories reaches one of them.
 //!
@@ -289,17 +290,24 @@ struct History {
     failing: Option<Rng>,
     /// Draws the room the engine leaves the work, apart from `rng`, in the histories where it changes.
     rooms: Option<Rng>,
+    /// Draws which cells take the turn of the project and when it is not the work's, apart from `rooms`, in the same
+    /// histories, so that the draws of the room as they were do not change.
+    turns: Option<Rng>,
     /// Draws the questions the cells ask and the owner's answers, apart from `rng`, in the histories where cells ask,
     /// so that the histories where they do not go as they did before questions were added.
     asking: Option<Rng>,
     /// The cell the owner's answers to its questions run, in the histories where cells ask.
     answered: Option<CellId>,
-    /// The room the engine leaves the work: the owner's pause of everything, and whether a slot is free.
+    /// The room the engine leaves the work: the owner's pause of everything, whether a slot is free and whether it is
+    /// the work's turn.
     room: Room,
     /// Whether rounds fail more often than `ANY` draws them.
     often: bool,
     /// What each round of each run returned, in order: `None` while under way.
     backs: BTreeMap<RunId, Vec<Option<Back>>>,
+    /// What each round of each run that came back was sent back for, by the round's place among the run's rounds, as
+    /// the next round was told.
+    sent: BTreeMap<RunId, BTreeMap<usize, Vec<Unmet>>>,
     /// The calls the engine made for the owner at a run's limit of returns.
     at_limit: BTreeSet<CallId>,
     /// The runs whose last round failed, pausing the work, and that the work was not let on since.
@@ -336,9 +344,15 @@ impl History {
         let failing = (shape.is_none() && judged.is_none() && fails).then_some(failing);
         let mut rooms = Rng::new(seed ^ 0x0000_5107_5A0F_A11D);
         let mut rooms = (shape.is_none() && judged.is_none() && failing.is_none() && rooms.chance(50)).then_some(rooms);
+        let mut turns = rooms.as_ref().map(|_| Rng::new(seed ^ 0x0007_0A7E_0000_C0DE));
         if let Some(rooms) = &mut rooms {
             for c in &mut cells {
                 c.slot = !rooms.chance(30);
+            }
+        }
+        if let Some(turns) = &mut turns {
+            for c in &mut cells {
+                c.turn = turns.chance(30);
             }
         }
         let mut asks = Rng::new(seed ^ 0x0A5C_ED0F_0A11_5E7E);
@@ -401,11 +415,13 @@ impl History {
             judged,
             failing,
             rooms,
+            turns,
             asking,
             answered,
             room: Room::FREE,
             often: drawn.failing,
             backs: BTreeMap::new(),
+            sent: BTreeMap::new(),
             at_limit: BTreeSet::new(),
             unseen: BTreeSet::new(),
             failed: BTreeSet::new(),
@@ -438,6 +454,9 @@ impl History {
             if slot {
                 self.toggle_slot();
             }
+        }
+        if people && self.turns.as_mut().is_some_and(|turns| turns.chance(15)) {
+            self.toggle_turn();
         }
         let decision = self.decide();
         self.note(format!("decision: {decision:?}"));
@@ -512,6 +531,24 @@ impl History {
                 self.engine(run);
                 true
             }
+            Decision::Hurry { run, cell, .. } => {
+                let run = *run;
+                self.w.hurry();
+                self.note(format!("{cell}'s round is told to hand in what it has"));
+                // The round is given the telling before it ends in half of them, the engine knowing so after the
+                // round's carrier says it was.
+                if self.rng.chance(50) {
+                    let hurried = self.w.records.hurried.last().expect("the round was told").clone();
+                    let at = self.w.tick();
+                    self.w.records.put_in.push(PutIn {
+                        run,
+                        block: hurried.block,
+                        version: hurried.version,
+                        at,
+                    });
+                }
+                true
+            }
             Decision::Abandon { run, cell, .. } => {
                 let run = *run;
                 let before = self.consumed_by(cell);
@@ -532,6 +569,12 @@ impl History {
             Decision::Wait { on, .. } if on == &[Waited::Slot] => {
                 if people {
                     self.toggle_slot();
+                }
+                people
+            }
+            Decision::Wait { on, .. } if on == &[Waited::Turn] => {
+                if people {
+                    self.toggle_turn();
                 }
                 people
             }
@@ -582,7 +625,10 @@ impl History {
         assert!(under_way <= 1, "{under_way} runs have a round under way");
         if under_way == 1 {
             assert!(
-                matches!(decision, Decision::Busy { .. } | Decision::Abandon { .. }),
+                matches!(
+                    decision,
+                    Decision::Busy { .. } | Decision::Hurry { .. } | Decision::Abandon { .. }
+                ),
                 "a round is under way and the walk decides {decision:?}"
             );
         }
@@ -604,6 +650,7 @@ impl History {
         properties::decision(v, flow, &reading, decision, self.room, paused, seed);
         pausing::decision(v, flow, &reading, decision, self.room, paused);
         room::decision(v, flow, r);
+        room::begins(v, flow, decision, self.room);
     }
 
     /// What the walk decides, in the room the engine leaves the work.
@@ -645,6 +692,7 @@ impl History {
                         waits: false,
                         questions: Vec::new(),
                         read: Vec::new(),
+                        protected: Default::default(),
                     },
                     Back::Failed(failure) => Return::Failed {
                         failure: *failure,
@@ -662,6 +710,7 @@ impl History {
                             .collect(),
                     },
                 }),
+                sent_back: self.sent.get(&run).and_then(|m| m.get(&i)).cloned().unwrap_or_default(),
             })
             .collect();
         let rounds_ended_before = |at: Seq| ended.iter().filter(|e| **e < at).count();
@@ -676,6 +725,65 @@ impl History {
             .max()
             .map_or(0, rounds_ended_before);
         Log { rounds, let_go, let_on }
+    }
+
+    /// What the run's returns come to taken together, from the design's own words (decision
+    /// a-sent-back-return-is-completed-by-what-is-missing) and not from the deciding code: each return that came back
+    /// is completed by the ones after it, but for the blocks that the faults it was sent back for name, and a return
+    /// that asks for calls is neither carried nor carried into. What it deals with, what it writes, and whether it asks
+    /// for calls.
+    fn together(&self, run: RunId) -> (Vec<BlockId>, Vec<Write>, bool) {
+        let (mut dealt, mut writes, mut calls) = (Vec::<BlockId>::new(), Vec::<Write>::new(), false);
+        let mut before: Option<usize> = None;
+        for (i, back) in self.backs.get(&run).into_iter().flatten().enumerate() {
+            let Some(Back::Came {
+                dealt_with,
+                writes: now,
+                calls: asked,
+            }) = back
+            else {
+                continue;
+            };
+            let carries = before.is_some() && !calls && asked.is_empty();
+            if carries {
+                let faults = self
+                    .sent
+                    .get(&run)
+                    .and_then(|m| m.get(&before.unwrap()))
+                    .cloned()
+                    .unwrap_or_default();
+                let wrong: Vec<BlockId> = faults
+                    .iter()
+                    .flat_map(|u| match u {
+                        Unmet::NotAnOutput { block }
+                        | Unmet::WrittenTwice { block }
+                        | Unmet::NoValue { block }
+                        | Unmet::NotAValue { block, .. }
+                        | Unmet::NotAChoice { block }
+                        | Unmet::WrittenOver { block, .. }
+                        | Unmet::ChoiceChanged { block } => vec![block.clone()],
+                        Unmet::NothingBut { block, besides, .. } => {
+                            std::iter::once(block.clone()).chain(besides.iter().cloned()).collect()
+                        }
+                        _ => Vec::new(),
+                    })
+                    .collect();
+                writes.retain(|w| !wrong.contains(&w.block));
+            } else {
+                dealt.clear();
+                writes.clear();
+            }
+            for name in dealt_with {
+                if !dealt.contains(name) {
+                    dealt.push(name.clone());
+                }
+            }
+            writes.retain(|w| !now.iter().any(|n| n.block == w.block));
+            writes.extend(now.iter().cloned());
+            calls = !asked.is_empty();
+            before = Some(i);
+        }
+        (dealt, writes, calls)
     }
 
     /// Does what the run does next, as the engine's loop does, until a round of it begins or it rests: takes a return
@@ -717,17 +825,13 @@ impl History {
         let hold = decide::hold_in(&flow, &self.w.records, run, self.room);
         let step = run::next(&self.log_of(run), requires, hold);
         self.note(format!("run {run:?} of {}: {step:?}", cell.id));
-        if let Some(Some(Back::Came {
-            dealt_with,
-            writes,
-            calls,
-        })) = self.backs.get(&run).and_then(|b| b.last())
-        {
+        if let Some(Some(Back::Came { .. })) = self.backs.get(&run).and_then(|b| b.last()) {
+            let (dealt_with, writes, calls) = self.together(run);
             let reading = Reading::new(&flow, &self.w.records);
             let came = properties::Came {
-                dealt_with,
-                writes,
-                calls: !calls.is_empty(),
+                dealt_with: &dealt_with,
+                writes: &writes,
+                calls,
             };
             properties::next_word(&mut self.verdict, &flow, &reading, &started, came, &step);
         }
@@ -757,6 +861,8 @@ impl History {
             }
             Step::SendBack { unmet } => {
                 self.begin_round(run);
+                let sent = self.backs[&run].len() - 2;
+                self.sent.entry(run).or_default().insert(sent, unmet.clone());
                 for u in unmet {
                     if let Unmet::WrittenOver { block, version } = u {
                         self.verdict.count(properties::WRITTEN_OVER_SENT_BACK);
@@ -809,14 +915,17 @@ impl History {
         names.max().unwrap_or(0) + 1000
     }
 
-    /// People lift what holds the work back: the work's own pause, or, where the owner's pause of everything holds
-    /// or no slot is free, in half the acts drawn apart from the rest, that instead.
+    /// People lift what holds the work back: the work's own pause, or, where the owner's pause of everything holds,
+    /// no slot is free or it is not the work's turn, in half the acts drawn apart from the rest, that instead.
     fn lift(&mut self) {
-        let other = (self.room.paused || !self.room.slot) && self.rooms.as_mut().is_some_and(|r| r.chance(50));
+        let other = (self.room.paused || !self.room.slot || !self.room.turn)
+            && self.rooms.as_mut().is_some_and(|r| r.chance(50));
         if !other {
             self.toggle_pause();
         } else if !self.room.slot {
             self.toggle_slot();
+        } else if !self.room.turn {
+            self.toggle_turn();
         } else {
             self.toggle_everything();
         }
@@ -830,6 +939,16 @@ impl History {
             "lifts the pause of"
         };
         self.note(format!("the owner {what} everything"));
+    }
+
+    fn toggle_turn(&mut self) {
+        self.room.turn = !self.room.turn;
+        let what = if self.room.turn {
+            "comes to the work"
+        } else {
+            "goes to another work of the project"
+        };
+        self.note(format!("the turn {what}"));
     }
 
     fn toggle_slot(&mut self) {
@@ -969,8 +1088,7 @@ impl History {
         let callers = |rng: &mut Rng| -> Vec<Option<Who>> {
             (0..1 + rng.below(2))
                 .map(|_| match rng.below(10) {
-                    0 | 1 => Some(Who::Owner),
-                    2 => Some(Who::Architect),
+                    0..=2 => Some(Who::Owner),
                     _ => None,
                 })
                 .collect()
@@ -1355,7 +1473,7 @@ fn one_history(seed: u64, drawn: Drawn, log: &mut Vec<String>, verdict: &mut Ver
         }
         h.note("people stop".into());
         if h.room != Room::FREE {
-            h.note("the pause of everything is lifted, and a slot is free".into());
+            h.note("the pause of everything is lifted, a slot is free and it is the work's turn".into());
             h.room = Room::FREE;
         }
         // In a history whose rounds fail, the owner lets the work on, whoever paused it.

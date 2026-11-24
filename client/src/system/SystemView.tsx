@@ -1,19 +1,20 @@
 // The System view: how the whole system stands, in parts, each for what the owner does with it. Now says whether the
 // owner needs to step in: the engine, its slots, the wait every work shares, the copies of the database, the works by
-// where they stand, and the rounds under way. Produced says what got done, Spent where the money and the time went,
-// and Gone wrong what was wasted or failed, each over the span the owner picks in the view's line: the week under way,
-// the four weeks to its end, or all time. Each part sums up first, in numbers that stand alone; a number that counts a
+// where they stand, and the rounds under way, each with what its calls have come to so far against the lines it is
+// judged by, read again as the engine says it changed. Produced says what got done, Spent where the money and the time
+// went, and Gone wrong what was wasted or failed, each over the span the owner picks in the view's line, as links: the
+// week under way, the four weeks to its end, or all time. Each part sums up first, in numbers that stand alone; a number that counts a
 // list unfolds it under the numbers. Each thing is said once: the engine's pause and its slots in Now, and the rounds
 // under way in their list, not among the numbers of the works.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { CHOICE_KEYS, write } from '../kept';
-import { Coded, PanelPart, Switch } from '../parts';
+import { Coded, PanelPart, RoundLink, SpanLinks } from '../parts';
 import { hashOf, type Period } from '../route';
 import type { Copies, Engine, Item, Items, Spent } from '../works-api';
 import { NowLine } from '../works/marks';
-import { useChanges, useItems, useReading, useSource } from '../works/source';
+import { useChanges, useGoings, useItems, useReading, useSource } from '../works/source';
 import { waitingCount } from '../works/waiting';
 import {
   allTokens,
@@ -22,12 +23,13 @@ import {
   duration,
   failureWords,
   fullTime,
+  lineWords,
   outageWords,
   tokens,
   tokensWords,
   waitCounted,
 } from '../works/words';
-import { type RanOn, type System, useSystemSource } from './api';
+import { type Figure, type Going, type RanOn, type Rest, type System, type UnderWay, useSystemSource } from './api';
 import { copiesTone, copiesWords } from './copies';
 import { ItemName, Tile, Tiles, ViewTable, WorkLink } from './parts';
 import {
@@ -38,21 +40,27 @@ import {
   STANDINGS,
   type Standing,
   standingOf,
+  spentPerMerge,
   summed,
   nextWeekStart,
   weekStarts,
 } from './standing';
 
-const SPANS: { value: Period; name: string; title: string }[] = [
-  { value: 'week', name: 'This week', title: "From this week's Monday" },
-  { value: '4w', name: '4 weeks', title: 'From the Monday three weeks before this one' },
-  { value: 'all', name: 'All time', title: 'Everything the engine recorded' },
+const SPANS: { value: Period; name: string; href: string; title: string }[] = [
+  { value: 'week', name: 'This week', href: hashOf({ view: 'system', period: 'week' }), title: "From this week's Monday" },
+  {
+    value: '4w',
+    name: '4 weeks',
+    href: hashOf({ view: 'system', period: '4w' }),
+    title: 'From the Monday three weeks before this one',
+  },
+  { value: 'all', name: 'All time', href: hashOf({ view: 'system', period: 'all' }), title: 'Everything the engine recorded' },
 ];
 
 /// How many rows of a long list are drawn before the rest are counted.
 const ROWS = 50;
 
-export function SystemView({ period }: { period: Period }) {
+export function SystemView({ period, active = true }: { period: Period; active?: boolean }) {
   const works = useSource();
   const system = useSystemSource();
   const items = useItems();
@@ -80,6 +88,13 @@ export function SystemView({ period }: { period: Period }) {
     [system, period, earliest, waiting],
   );
   const span = useReading(loadSpan);
+  // What the calls of the rounds under way have come to, read again each time the engine says it changed while the view
+  // is shown, and once more when it is shown again, having been told nothing while hidden.
+  const loadGoing = useCallback(() => system.loadUnderWay(), [system]);
+  const going = useReading(loadGoing);
+  useGoings(going.read, active);
+  // The span the view is over is the one the owner last picked, kept in the browser for an address that names none.
+  useEffect(() => write(CHOICE_KEYS.systemPeriod, period), [period]);
   const readSpan = span.read;
   useEffect(() => {
     const now = Date.now();
@@ -108,23 +123,16 @@ export function SystemView({ period }: { period: Period }) {
       <div className="view-line">
         <span className="view-name">System</span>
         <span className="view-end">
-          <Switch<Period>
-            label="The span the numbers count over"
-            value={period}
-            onChange={(p) => {
-              write(CHOICE_KEYS.systemPeriod, p);
-              window.location.hash = hashOf({ view: 'system', period: p });
-            }}
-            choices={SPANS}
-          />
+          <SpanLinks<Period> label="The span the numbers count over" value={period} choices={SPANS} />
         </span>
       </div>
-      {[items.failed, engine.failed, span.failed].some((f) => f !== null) && (
+      {[items.failed, engine.failed, span.failed, going.failed].some((f) => f !== null) && (
         <p className="read-failed" role="alert">
           {[
             items.failed && `The works could not be read: ${items.failed}.`,
             engine.failed && `The engine could not be read: ${engine.failed}.`,
             span.failed && `The span could not be read: ${span.failed}.`,
+            going.failed && `What the rounds under way have come to could not be read: ${going.failed}.`,
           ]
             .filter(Boolean)
             .join(' ')}{' '}
@@ -135,7 +143,14 @@ export function SystemView({ period }: { period: Period }) {
         {items.value === null ? (
           <p className="message muted">Reading the system</p>
         ) : (
-          <NowPart items={items.value} engine={engine.value} copies={copies.value} copiesFailed={copies.failed} />
+          <NowPart
+            items={items.value}
+            engine={engine.value}
+            copies={copies.value}
+            copiesFailed={copies.failed}
+            system={span.value}
+            going={going.value}
+          />
         )}
         {span.value === null ? (
           span.failed === null && <p className="message muted">Reading the span</p>
@@ -152,12 +167,16 @@ export function SystemView({ period }: { period: Period }) {
 }
 
 /// Whether the owner needs to step in: the engine, the wait every work shares, the copies; the works by where they
-/// stand, each count unfolding its works; and the rounds under way.
-function NowPart({ items, engine, copies, copiesFailed }: {
+/// stand, each count unfolding its works; and the rounds under way. While a stop of the engine stands, the engine says
+/// when it is expected to end, and each round under way how much longer it is expected to take, as the span read last
+/// gives them, and what each agent's round's calls have come to so far as the engine last said it.
+function NowPart({ items, engine, copies, copiesFailed, system, going }: {
   items: Items;
   engine: Engine | null;
   copies: Copies | null;
   copiesFailed: string | null;
+  system: System | null;
+  going: Going[] | null;
 }) {
   const [open, setOpen] = useState<Standing | null>(null);
   // The works whose round is under way are in the list of the rounds under way, not among the numbers.
@@ -169,6 +188,15 @@ function NowPart({ items, engine, copies, copiesFailed }: {
   // The wait every work shares, said only where it holds a work.
   const shared = items.outage ? outageWords(items.outage) : null;
   const opened = by.find((b) => b.standing === open);
+  const stopping = engine?.stopping ?? null;
+  // When the engine is expected to end: once the last of the rounds under way has.
+  const last = system?.stopping?.rest ?? null;
+  const ends =
+    last === null
+      ? ''
+      : last.kind === 'expected'
+        ? `, expected in about ${duration(last.ms)}`
+        : ', one of them having taken longer than any round of its cell before';
   return (
     <PanelPart label="Now">
       <dl className="pairs view-pairs">
@@ -176,9 +204,11 @@ function NowPart({ items, engine, copies, copiesFailed }: {
         <dd>
           {engine === null
             ? 'not given'
-            : engine.paused === null
-              ? 'Every work goes on'
-              : `Every work paused since ${clock(engine.paused.since)}, by the ${engine.paused.by}: no work begins a round but to answer a note`}
+            : stopping !== null
+              ? `Stopping since ${clock(stopping.since)}${stopping.atOnce ? ', at once' : ''}: no round begins, and the engine ends once the rounds under way have ended${ends}`
+              : engine.paused === null
+                ? 'Every work goes on'
+                : `Every work paused since ${clock(engine.paused.since)}, by the ${engine.paused.by}: no work begins a round but to answer a note`}
         </dd>
         <dt title="Rounds of agents under way, of how many may be at once: agents.slots">Slots</dt>
         <dd>{engine === null ? 'not given' : `${engine.taken} taken of ${engine.slots}`}</dd>
@@ -240,9 +270,21 @@ function NowPart({ items, engine, copies, copiesFailed }: {
       {running.length === 0 ? (
         <p className="muted">No round is under way</p>
       ) : (
-        <ViewTable heads={['Work', 'Item', 'Cell', 'Since']}>
+        <ViewTable
+          heads={
+            stopping === null
+              ? ['Work', 'Item', 'Cell', 'Since', ...CALLS]
+              : ['Work', 'Item', 'Cell', 'Since', 'To go', ...CALLS]
+          }
+          numbers={[0, 1, 2, 3].map((n) => (stopping === null ? 4 : 5) + n)}
+        >
           {running.map((item) => (
-            <RunningRow key={item.work.number} item={item} />
+            <RunningRow
+              key={item.work.number}
+              item={item}
+              rests={stopping === null ? null : (system?.underWay ?? [])}
+              going={going?.find((g) => runsAs(item, g))}
+            />
           ))}
         </ViewTable>
       )}
@@ -250,21 +292,107 @@ function NowPart({ items, engine, copies, copiesFailed }: {
   );
 }
 
-function RunningRow({ item }: { item: Item }) {
+/// The columns of what a round's calls have come to so far.
+const CALLS = ['Context', 'Added', 'Per call', 'Cost'];
+
+/// Whether the figures are those of the round the item's work has under way.
+function runsAs(item: Item, g: Going): boolean {
+  const now = item.work.now;
+  return now.kind === 'round' && g.work === item.work.number && g.run === now.run && g.round === now.round;
+}
+
+/// What the run guard stops a round on, said where a figure it is judged by is.
+const GUARD =
+  'The run guard stops a round only where its growth over the round and its growth for each call after the first are both past their lines.';
+
+/// A round under way, with how much longer it is expected to take where `rests` gives what is under way, and what its
+/// calls have come to so far where `going` gives it.
+function RunningRow({ item, rests, going }: { item: Item; rests: UnderWay[] | null; going: Going | undefined }) {
   const now = item.work.now;
   if (now.kind !== 'round') return null;
+  const rest = rests?.find(
+    (u) => u.kind === 'round' && u.work === item.work.number && u.run === now.run && u.round === now.round,
+  );
   return (
     <tr>
       <td>
-        <WorkLink work={item.work.number} />
+        <RoundLink work={item.work.number} run={now.run} round={now.round} />
       </td>
       <td className="view-cell-wide">
         <ItemName item={item.number} title={item.title} />
       </td>
       <td className="mono">{now.cell}</td>
       <td title={fullTime(now.since)}>{clock(now.since)}</td>
+      {rests !== null && (
+        <td title="How much longer the round is expected to take: the median of what the rounds of its cell that took longer had left at this point">
+          {rest?.kind === 'round' && rest.rest ? restWords(rest.rest) : 'not known'}
+        </td>
+      )}
+      <td className="num">
+        {going?.context == null ? (
+          <NotYet />
+        ) : (
+          <span title="The whole prompt of the round's latest call, in tokens">{tokens(going.context)}</span>
+        )}
+      </td>
+      <td className="num">
+        <FigureCell
+          figure={going?.added}
+          unit={tokens}
+          says={`The tokens the round's context has grown by since it began. ${GUARD}`}
+        />
+      </td>
+      <td className="num">
+        <FigureCell
+          figure={going?.perCall}
+          unit={tokens}
+          says={`The tokens its context has grown by for each call after the first, told from the second call. ${GUARD}`}
+        />
+      </td>
+      <td className="num">
+        <FigureCell
+          figure={going?.cost}
+          unit={dollars}
+          says="What the round's calls cost so far, priced from the calls at their model's prices."
+        />
+      </td>
     </tr>
   );
+}
+
+/// What a round has no figure of yet: it has made no call, or it is an engine's own act, which makes none.
+function NotYet() {
+  return (
+    <span className="muted" title="Told once the round has made a call; an engine's own act makes none">
+      none yet
+    </span>
+  );
+}
+
+/// A figure of a round under way, with the line it is judged by beside it where the history gives one, in the colour of
+/// a warning where it is past it; the pointer's tip says what it is and what gave the line.
+function FigureCell({ figure, unit, says }: {
+  figure: Figure | null | undefined;
+  unit: (n: number) => string;
+  says: string;
+}) {
+  if (figure === null || figure === undefined) return <NotYet />;
+  const line = figure.line;
+  const title =
+    line === null
+      ? `${says} No line yet: too few rounds to give one.`
+      : `${says} Its line is ${unit(line.value)}, which ${lineWords(line)}; it is ${figure.past ? 'past' : 'within'} it.`;
+  return (
+    <span className={figure.past ? 'warn-text' : undefined} title={title}>
+      {unit(figure.value)}
+      {line !== null && <span className={figure.past ? undefined : 'muted'}> of {unit(line.value)}</span>}
+    </span>
+  );
+}
+
+/// How much longer something under way is expected to take, in words.
+function restWords(rest: Rest): string {
+  return rest.kind === 'expected' ? `about ${duration(rest.ms)}` : 'longer than any before';
 }
 
 /// How the copies stand, and when the newest was taken and kept off the machine, and the last that failed.
@@ -292,6 +420,7 @@ function Produced({ s, items }: { s: System; items: Map<number, Item> }) {
   const toggle = (what: 'merged' | 'cancelled' | 'added', n: number) =>
     n > 0 ? () => setOpen(open === what ? null : what) : undefined;
   const avg = mergeAverages(s.merged);
+  const perMerge = spentPerMerge(s.spent, s.merged);
   return (
     <PanelPart label="Produced">
       <Tiles>
@@ -308,7 +437,12 @@ function Produced({ s, items }: { s: System; items: Map<number, Item> }) {
           label="To merge, on average"
           title="From a merged work's first round to its merge"
         />
-        <Tile value={avg === null ? 'none' : dollars(avg.usdMicros)} label="A merge's cost, on average" />
+        <Tile
+          value={perMerge === null ? 'none' : dollars(perMerge)}
+          more={avg === null ? undefined : `the merged works' own: ${dollars(avg.usdMicros)}`}
+          label="A merge's cost, on average"
+          title="What the span spent in all, the rounds that ended in it and the keep-warm pings, for each work merged in it: what the works that did not merge and the rounds sent back or failed cost is in it. Beside it, what the merged works cost themselves on average, from their first round to the merge, some of which may be before the span."
+        />
       </Tiles>
       {open === 'merged' && (
         <ViewTable heads={['Item', 'Work', 'Merged', 'Took', 'Under way', 'Cost']} numbers={[3, 4, 5]}>
@@ -525,7 +659,7 @@ function GoneWrong({ s, items }: { s: System; items: Map<number, Item> }) {
             <tr key={`${r.work}/${r.run}/${r.round}`}>
               <td title={fullTime(r.began)}>{clock(r.began)}</td>
               <td>
-                <WorkLink work={r.work} />
+                <RoundLink work={r.work} run={r.run} round={r.round} />
               </td>
               <td className="view-cell-wide">
                 <ItemName item={r.item} title={items.get(r.item)?.title} />
@@ -547,7 +681,7 @@ function GoneWrong({ s, items }: { s: System; items: Map<number, Item> }) {
               <tr key={`${f.work}/${f.run}/${f.round}`}>
                 <td title={fullTime(f.ended)}>{clock(f.ended)}</td>
                 <td>
-                  <WorkLink work={f.work} />
+                  <RoundLink work={f.work} run={f.run} round={f.round} />
                 </td>
                 <td className="view-cell-wide">
                   <ItemName item={f.item} title={items.get(f.item)?.title} />

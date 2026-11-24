@@ -48,8 +48,9 @@ One set of marks shows how a run ended or how it stands now, filled for a run th
 - replaced: Two different strips, one on the console's card and one in the window, where the window's neither blinked nor marked a stop red, was on main; the owner changed it, because the same kind of thing is drawn from the same parts.
 
 ### decision a-level-looks-as-the-level-it-runs-at
-A card, under its number, and the item's window write a cell's level as `L2`, or `L2+1` where its line raises it, in the look of the level it runs at: muted, text, accent, accent in bold.
+A card, under its number, and the item's window write the level a cell really runs at as `L2`, or `L2+1` where it runs above its item's, in the look of that level: muted, text, accent, accent in bold.
 - replaced: The name of the cell the work stood at, under the card's number, was on main; the owner changed it, because that place is for the level, and the strip already marks where the work stands.
+- replaced: The item's level plus the line's `levels_above` as `L3+1`, in the look of the level it asks, even where `agents.highest_level` held the cell lower, was on main; the owner changed it, because the page wrote a level the cell never ran at.
 - rejected: an agent proposed a small grey number after the cell's name, and the words level 2 and cell level 3 in the window; the owner rejected it, because the place of the cell's name is for the level, which must plainly show both the base level and the current one.
 - rejected: an agent proposed three looks, with the third level in the accent and bold; the owner rejected it, because a level that its line raises past the third is higher still, and only that level takes the bold look.
 - rejected: the owner proposed a separate hue for each level; the owner rejected it, because red, yellow, the accent and green each already mean a state.
@@ -63,6 +64,11 @@ The flow's views draw a way back in the accent, a thick line and arrow on the ma
 ### decision every-mark-is-in-one-table
 Every mark the page draws is defined once, with a name of a word or two, in one table, and each view's legend lists only the marks that view draws, on one line, or on the console in a panel.
 - replaced: Separate marks and legends in each view, which named one thing in several ways, was on main; the owner changed it, because a legend's words had grown too long for its line, and things that were alike looked different from view to view.
+
+### decision the-wait-for-the-turn-has-a-colour-of-its-own
+The time bar draws a work's wait for its project's turn to check and merge in a teal of its own, said on pointing at it and listed with the bar's other colours in the console's legend.
+- rejected: an agent proposed drawing it in the grey of the items it waits for and of nothing running, told apart only on pointing; the owner rejected it, because a glance could not tell a work queued for the turn from any other grey stretch, each having to be pointed at.
+- rejected: an agent proposed a violet for it; the owner rejected it, because the accent would then also have to keep clear of violet, leaving only a short stretch of blue to choose from, and its rule would gain one more colour.
 
 ### decision the-page-draws-markdown-itself
 The page draws the Markdown that agents write with its own renderer and its own parts, and uses no Markdown library.
@@ -79,6 +85,22 @@ The words of code in a diff, and in a fence that names its language, are coloure
 ### decision the-page-draws-diagrams
 The page draws mermaid and dot fences, in what agents and the owner write, as diagrams, loading each library when a diagram comes near the screen, and shows the source of one it cannot draw.
 - replaced: A diagram's source shown in place of the diagram was on main; the owner changed it, because diagrams are key to how he understands a design.
+
+### decision a-wide-diagram-opens-in-a-dialog
+A diagram wider than its place is drawn as narrow as the place and never scrolls sideways; it opens larger in a dialog, in the viewer that moves and scales a chart.
+- rejected: an agent proposed only making it smaller; the owner rejected it, because its words become too small to read.
+- rejected: an agent proposed a new tab; the owner rejected it, because that takes the owner away from the text around it.
+- rejected: an agent proposed opening it in place; the owner rejected it, because in place it is only as wide as the text around it.
+- rejected: an agent proposed drawing it again narrower or turned; the owner rejected it, because that changes what its author drew and works for some kinds only.
+
+### decision every-list-is-drawn-numbered
+Every list in a text an agent or the owner wrote is drawn as a numbered list, whatever marker it was written with.
+- replaced: Drawing each list as it was written, bulleted or numbered, was on main; the owner changed it, because he read two lists of one shape drawn in two ways as meant to differ.
+
+### decision an-item-number-in-a-text-is-a-link-by-two-forms
+In a text an agent or the owner wrote, `#n`, and a number after the word item or its Chinese word, is a link to that item once the page has read it; any other number is left as written.
+- rejected: an agent proposed linking only `#n`; the owner rejected it, because the owner also writes an item's number after the word item or its Chinese word, and such a number would then be no link.
+- rejected: an agent proposed linking any number that stands alone, outside code and links; the owner rejected it, because with hundreds of items nearly every small number names one, so Article 8, 2 files and round 3 would link to unrelated items, and no list of words for other numbers is complete.
 
 ### decision the-page-uses-no-component-library
 The page is drawn with a small set of parts of its own, and uses no component library.
@@ -98,6 +120,10 @@ The page shows no number by which the engine tracks a run, a round, a call or a 
 - rejected: an agent proposed keeping a run's number only in the hover on its cell's name; the owner rejected it, because a number put on the page must serve a purpose, and this one served none.
 - replaced: A run's number and the engine's counters of sessions, calls, tries and rounds on the Step, the usage and the System view was on main; the owner changed it, because they told him nothing and served no purpose.
 - replaced: An event's number in the record, written after an at sign, to name a moment of a work was on main; the owner changed it, because that number could not be read, but a time can.
+
+### decision the-usage-tells-four-kinds-of-tokens-apart
+A work's usage (Usage tab, round panel, System view) tells tokens sent fresh, written to the cache, read from it and given back; those a record does not tell fresh from written stand apart.
+- replaced: Tokens told as sent, read from the cache and given back, the sent counting those written to the cache with those sent fresh, was on main; the owner changed it, because a write to the cache costs more than a send fresh, an hour's twice as much, and he could not see where the money went.
 
 ### decision the-browser-tells-the-owner-what-waits
 While the page is open, a browser notification tells the owner of each work that starts waiting for him, naming its cell and why; a click opens the console at that wait's card.
@@ -144,6 +170,12 @@ A cell of a work that ended with no run takes the strip's dash, with the words "
 - replaced: Saying such a cell was skipped was on main; the owner changed it, because skipped is read by walking the whole flow again, the very reading that showed a cell of a flow the work never ran on as skipped.
 
 ### decision a-work-on-no-version-is-drawn-from-its-records
-A work on no version has a column for each id its runs name, in the order they first ran, with no title or line; its card shows its item as added, with no talk, and says its flow was not kept.
+A work on no version has a column for each id its runs name, in order of first run, with no title or line; its card has no talk, shows the installed card's data it has and says its flow was not kept.
 - rejected: an agent proposed naming its cells by the titles of the flow installed; the owner rejected it, because where an id was given again, a title would name another cell.
 - rejected: an agent proposed reading its talk with the owner from its records; the owner rejected it, because the records do not say which datum was which cell's talk.
+- replaced: A card of what people wrote for the work before its first run was on main; the owner changed it, because that held only the background, and the item's window never showed the work's plan_owner, which the store holds.
+
+### decision the-engine-is-stopped-on-the-command-line
+The engine is stopped only by `wf-agents stop`, and at once only with `--now --yes`; the bar's engine state reads Stopping, and the System view gives what each round has to go.
+- rejected: an agent proposed the stop and the stop at once as controls in the System view or beside Pause all at the bar's right; the owner rejected it, because a stop is for installing a new build, which the assistant does, and later the work that builds and installs itself, never the owner.
+- rejected: an agent proposed a mark of its own for a stop on a work's time bar, with an entry in its legend; the owner rejected it, because the page changes only where a stop must be seen, so the bar draws a stop as a pause and the records keep the two apart.

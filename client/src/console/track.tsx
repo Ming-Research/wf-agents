@@ -1,15 +1,20 @@
 // Where a work's time went, as the item window draws it: one block for each stretch of a model or of the tools, and one
 // for each stretch no round ran between them in the colour of what the work waited for, from the work's first round to
-// its last, on a muted ground. Brought over from the page on `old-main` (`client/src/charts.tsx`, `TimeTrack` and
-// `barSpans`); the stretches waited through are the engine's (`Summary.bar`).
+// its last, on a muted ground. The stretches waited through are the engine's (`Summary.bar`).
+
+import type { CSSProperties } from 'react';
 
 import type { WorkPage } from '../works-api';
 import { STATE } from '../works/words';
 
 /// What a stretch of a work's time was: a model at work, the tools running, or no round running while the work waited
-/// for the owner, was paused, waited for the items its item depends on, or for anything else; or no round running
-/// while what the work waited for is not known, its flow's version not having been kept.
-export type TrackKind = 'model' | 'tool' | 'owner' | 'paused' | 'items' | 'gap' | 'unknown';
+/// for the owner, was paused, waited for the items its item depends on, waited for its project's turn to check and
+/// merge, or for anything else; or no round running while what the work waited for is not known, its flow's version
+/// not having been kept.
+export type TrackKind = 'model' | 'tool' | 'owner' | 'paused' | 'items' | 'turn' | 'gap' | 'unknown';
+
+/// Every kind a track draws, in the order its legend lists them.
+export const TRACK_KINDS: TrackKind[] = ['model', 'tool', 'owner', 'paused', 'items', 'turn', 'gap', 'unknown'];
 
 /// One stretch of a track, from `left` for `width`, both in percent of the track.
 export type TrackSpan = { key: string; kind: TrackKind; left: number; width: number };
@@ -21,6 +26,7 @@ export const BAR_KINDS: Record<string, TrackKind> = {
   o: 'owner',
   p: 'paused',
   w: 'items',
+  q: 'turn',
   '.': 'gap',
   '?': 'unknown',
 };
@@ -33,11 +39,18 @@ export const TRACK_WORDS: Record<TrackKind, string> = {
   owner: STATE.owner,
   paused: STATE.paused,
   items: STATE.items,
+  turn: STATE.turn,
   gap: 'Nothing ran',
   unknown: 'Nothing ran; what the work waited for is not known, the version of the flow it ran on not having been kept',
 };
 
 const pct = (part: number, whole: number) => (whole > 0 ? (part / whole) * 100 : 0);
+
+/// One block of a track, in the colour of what it was, saying what it is on pointing at it: the track draws it where
+/// the time was, and the legend draws it as a sample of the colour.
+export function TrackBlock({ kind, style }: { kind: TrackKind; style?: CSSProperties }) {
+  return <span className={`us-block us-${kind}`} title={TRACK_WORDS[kind]} style={style} />;
+}
 
 /// A work's time laid out from its first round's start to its last round's end, each block at least two pixels wide,
 /// each saying what it is on pointing at it.
@@ -45,12 +58,7 @@ export function TimeTrack({ spans }: { spans: TrackSpan[] }) {
   return (
     <div className="us-track">
       {spans.map((s) => (
-        <span
-          key={s.key}
-          className={`us-block us-${s.kind}`}
-          title={TRACK_WORDS[s.kind]}
-          style={{ left: `${s.left}%`, width: `max(${s.width}%, 2px)` }}
-        />
+        <TrackBlock key={s.key} kind={s.kind} style={{ left: `${s.left}%`, width: `max(${s.width}%, 2px)` }} />
       ))}
     </div>
   );
@@ -58,8 +66,9 @@ export function TimeTrack({ spans }: { spans: TrackSpan[] }) {
 
 /// The stretches of a track from the bar the engine lays a work's time out in (`Summary.bar`): one character for each
 /// cell of equal width, `m` where a model worked, `t` where the tools did, and where neither did what the work waited
-/// for, `o` the owner, `p` a pause, `w` the items it depends on, `.` anything else, `?` not known. A run of the same
-/// character is one block; the ends before the first block that is not `.` and after the last are left bare.
+/// for, `o` the owner, `p` a pause, `w` the items it depends on, `q` its project's turn to check and merge, `.` anything
+/// else, `?` not known. A run of the same character is one block; the ends before the first block that is not `.` and
+/// after the last are left bare.
 export function barSpans(bar: string): TrackSpan[] {
   const cells = [...bar];
   const first = cells.findIndex((c) => c !== '.');

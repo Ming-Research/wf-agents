@@ -9,7 +9,7 @@ effort = "xhigh"
 task = { file = "tasks/better_way.md" }
 when = { deep_needed = "no", r2_handed_in = "no" }
 watches = ["plan", "better_found"]
-reads = ["background", "tree"]
+reads = ["background", "tree", "tree_entries"]
 outputs = ["better_found"]
 
 # What the cell does when each datum it watches is new; a datum with none is the task's alone. An answer in
@@ -20,6 +20,8 @@ plan = """Think the plan through."""
 [kinds]
 # Given as the files that changed since the tree this session read.
 tree = "last_and_latest"
+# The entries of the design tree the plan was worked from, whole.
+tree_entries = "latest"
 background = "latest"
 plan_owner = "latest"
 plan_agent = "latest"

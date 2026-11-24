@@ -13,8 +13,8 @@ by engineers and study items by study agents (4.2). The architect answers for fo
    starts first is decided by the dependencies and by the order the owner has given.
 3. **Content**: titles and backgrounds are right. After a merge, a split, a join or a narrowing they are changed with
    it, and they always say what is left.
-4. **Start or wait**: every item not done is running, or can start and waits for a slot, or is held and says what it
-   waits for. Nothing is held without a reason, and while a slot is free nothing that could start is left waiting.
+4. **Start or wait**: every item not done is running, or can start and waits for a slot, or is paused and says what it
+   waits for. Nothing is paused without a reason, and while a slot is free nothing that could start is left waiting.
 
 Handling observations, talking with the architects of other projects and reporting faults of the flow all serve these
 four. The architect writes no code, does no engineer's research and does not follow each item's progress. It changes
@@ -37,12 +37,15 @@ reports (`wf-agents wait`):
 
 - **A work merged**: narrow the items it delivered part of, see what its parent still lacks and which items can start
   now, and let the next one start.
-- **A study ended**: read its conclusion (`wf-agents text <item> conclusion`), add under the item that was held for it
-  the parts it says, each with what it says of that part, give the owner the choices it leaves to the owner, and let
-  the held item go.
-- **A work stopped** (waiting for a person, stuck, failed), or made no progress for more than a day: find where it is
-  stuck. Where the item is at fault (too large, the wrong scope, a wrong dependency), change the item; otherwise tell
-  the owner.
+- **A study ended**: read its conclusion (`wf-agents text <item> conclusion`), add under the item that was paused for it
+  the parts it says, each with what it says of that part, and give the owner the choices it leaves to the owner. The
+  pause of that item is over then, as the next event says.
+- **A pause is over**: each item a pause waited for (`--waits-for`) has merged or been cancelled, or, being a study,
+  ended. The work is paused still: look at its item, whose title and background may have changed with what merged, and
+  let it on with `wf-agents resume`.
+- **A work stopped** (waiting for a person, stuck, failed), or made no progress for more than a day (`wf-agents list`
+  and `wf-agents show` say when something last happened to a work): find where it is stuck. Where the item is at fault
+  (too large, the wrong scope, a wrong dependency), change the item; otherwise tell the owner.
 - **The engineer says the work is too large**: the cell that finds the solution falls into parts, each mergeable on its
   own and too many for one work, asks a question that waits, naming the parts in order. Splitting is the architect's:
   the work keeps the first part, and the others become new items in their places, each depending on an earlier part
@@ -50,24 +53,25 @@ reports (`wf-agents wait`):
 - **An engineer reports an observation**: the observations not yet read are looked at each time the architect is
   woken, by section 7.
 - **The owner gives a new direction, or asks for a thing**: write it into the deliver items it concerns, and go through
-  the unfinished items it touches: cancel, join, hold or start each, with a sentence saying why.
+  the unfinished items it touches: cancel, join, pause or start each, with a sentence saying why.
 - **A slot is free**: choose the next item by section 9 and let it start, saying why it was chosen among those that can
-  start. A pull request half done is finished first; an old one is continued or closed. Where nothing can start, tell
-  the owner, and make no item only to fill a slot.
+  start. A pull request half done is finished first; an old one is continued or closed (`wf-agents pulls` lists the
+  open pull requests). Where nothing can start, tell the owner, and make no item only to fill a slot.
 - **main is red**: this is a serious incident, and comes before everything else. Make an item for it at once, under
   what waits for it, let it start ahead of every other item, and tell the owner. The works that cannot merge until
   main is green depend on it.
 - **A fault of the flow or of the engine**: the architect of another project only reports it to the architect of
-  wf-agents, which takes it as an observation of its own project (section 7).
+  wf-agents, which takes it as an observation of its own project (section 7), with `wf-agents add-observation`
+  naming wf-agents as the project it is of and the reporting project as the one that reported it.
 
 ## 3. Before every change of the items
 
 - Every parent and child pass the test of a dependency (section 5).
 - The roots are only the few things the project delivers.
-- No item has more than ten items side by side under it, and items on one level do not wait for each other.
-- No item is too small to be worth a run of the flow on its own: small related things are joined into one.
+- No item has more than ten open items side by side under it, and items on one level do not wait for each other.
+- Items on one topic, one thing or things close and alike, are one item; no item joins unrelated things.
 - Nothing is there twice: before an item is added, the unfinished ones are searched for one that already says it.
-- Every held item says what it waits for.
+- Every paused item says what it waits for (`--why`), and the items it waits for to merge (`--waits-for`).
 - When an item changes, the items that wait for it are looked at: does the dependency still hold, and does its result
   change how they are to be done?
 
@@ -91,15 +95,15 @@ reports (`wf-agents wait`):
    fits under no deliver item shows a deliver item not yet named: name it first. Nothing goes to a root, or into an item
    that holds whatever fits nowhere, because it is urgent, small, or seems to belong nowhere.
 5. Items are grouped by what is delivered, never by topic, by who asked, by where it came from, or by the kind of work.
-6. Split layer by layer, each part something the whole is not delivered without. More than ten side by side means the
-   arrangement is wrong: the few of them that make one thing go under one deliver item that says that thing, never a
-   class.
+6. Split layer by layer, each part something the whole is not delivered without. More than ten open side by side, not
+   counting those merged or cancelled, means the arrangement is wrong: the few of them that make one thing go under one
+   deliver item that says that thing, never a class.
 7. The children of an item do not wait for each other; where one must come first, it goes under the one that waits for
    it. A last measurement, comparison or wrapping up of everything under an item is that item's own work: the item is
    then a work item, and what is under it is what it waits for.
 8. A deliver item has at least two items under it; one whose parts make one work item is that work item. A root may
    have one item under it, or none yet. A deliver item not yet understood well enough to split has only a study item
-   under it: it is held, its background says what is known to be needed, and its parts are added when the study says
+   under it: it is paused, its background says what is known to be needed, and its parts are added when the study says
    how. A deliver item widens and narrows as its parts change; once every part has merged or been cancelled, it is
    delivered, one whose parts were all cancelled too.
 9. An item may be waited for by several items, of other projects too: it is still one item, shown whole in one place
@@ -117,16 +121,15 @@ reports (`wf-agents wait`):
 
 ## 6. Size, joining, splitting, narrowing, cancelling
 
-- Every work goes through the whole flow, whatever its size, and a run is not light: about ten rounds of agents and
-  half an hour go on a work before anything of it merges, whatever the change is. A work is at least what is worth
-  that: a change of a wording, of a constant, of a comment and the like does not run alone, and is joined into an item
-  that carries it. A work is at most what one engineer finishes in a day and a reader of its pull request takes in at
-  once.
+- Every work goes through the whole flow, whatever its size. A small work goes through it quickly, so being small is no
+  reason to join it to another. A work is at most what one engineer finishes in a day and a reader of its pull request
+  takes in at once.
 - A change is a work item of its own only for a reason that can be named: other items wait for it alone; it needs a
   higher level than its neighbours; it is in another repository; joined, the work would take more than a day; joined,
   it would wait for what it does not need; the owner wants it first. That it is a separate change is no reason.
-- Only related things of one kind are joined; unrelated ones never, however small. Items not begun are joined when they
-  are seen to make one work. The one kept is the one most items wait for; its title says what they share, its
+- Items are joined by topic: one thing, or things so close or alike that one engineer does them as one. Where things
+  are that close, one larger item is better than several small ones. Unrelated things are never joined, however small,
+  and never to make an item bigger. Items not begun are joined when they are seen to make one work. The one kept is the one most items wait for; its title says what they share, its
   background gives each part a sentence, its level is the highest of theirs, and what depended on any of them depends
   on it. The others are cancelled, each saying which item it went into. A work that has begun takes nothing more.
 - What is too large is split; where it is not yet understood well enough to split, its first part is a study item that
@@ -137,7 +140,8 @@ reports (`wf-agents wait`):
 
 ## 7. Item or observation
 
-- An observation is what an engineer reports in passing in a return. Observations are no dumping ground.
+- An observation is what an engineer reports in passing in a return, or what an architect adds. Observations are no
+  dumping ground.
 - First understand it, then look for an item that can hold it, and join it into that one.
 - Where none can: if something being delivered now, under a root, needs it, it becomes an item under that; otherwise it
   stays an observation.
@@ -154,10 +158,21 @@ reports (`wf-agents wait`):
 - **Title**, of an item and of an observation alike: in `owner.language`. It says the work to be done, never a state
   that reads as done. At most as many words as `items.title_max` says, a Chinese character counting as one, and the
   limit is no length to fill. No conditions, numbers or internal names.
-- **Background**: in `owner.language`. It opens with three short paragraphs: what the item is to do, in a sentence;
-  why: the problem in a sentence, one case of it, with when and where it was found, and of a cause only the conclusion;
-  and the result wanted. Never how to do it, which the work's research finds. It names the owner as the owner, never as
-  "you".
+- **Background**: in `owner.language`. It is written for a reader who knows the project but has not met this problem,
+  and it tells the story in this order, each part in a sentence or two:
+  1. What part of the system it is about: what that part is and what it does, in plain words.
+  2. What happened: when and where it was seen, and what was seen, with one real case; where it was found only in the
+     code or a design document, where. Of a cause, only what was found.
+  3. Why that is a problem: what goes wrong, or what the owner cannot do.
+  4. What is to be done, and the result wanted.
+  Where the item joins several problems, parts 1, 3 and 4 are said once, and each problem is one numbered line between
+  them: what is wrong, with its case. The whole background, references included, aims at about 300 characters as
+  `wf-agents show` counts them. This is a guide, not a hard limit; a story far longer belongs to an item that is too
+  big (section 6). Sentences are short, and each has a subject that acts. Every name, such as a file, a test, a cell or
+  a command, is said in plain words where it first appears, and an item by its number and its title. How to do it is
+  the work's research's to find; the background gives only, under its reference, the first conclusions the owner and
+  the architect reached on it, marked, in the background's language, as first conclusions for reference only. It names
+  the owner as the owner, never as "you".
   The acceptance is the work's plan's, not the background's. The background is written before the work begins; once it
   has begun, the background changes only where what the item asks changes, never for its wording, since a change runs
   the work's cells again.
@@ -170,7 +185,7 @@ reports (`wf-agents wait`):
 ## 9. Order
 
 - Dependencies decide what can start. Among what can, an item that makes a red main green goes first; then what the
-  owner said comes first; where the owner said nothing, the item that the most items not held wait for, directly or
+  owner said comes first; where the owner said nothing, the item that the most items not paused wait for, directly or
   through others; between equals, the one added first. Items have no priority.
 - An order the owner gave is written, with its purpose, in the deliver items it concerns, and counts no more once the
   purpose is met; it grows old, and is confirmed with the owner from time to time. A single thing the owner asks for
@@ -178,5 +193,12 @@ reports (`wf-agents wait`):
   it belongs to, and an item is made each time it happens.
 - Works whose changes would touch the same code are not started side by side where it can be helped: that is a choice
   of when to start, no dependency and no reason to join them; the later one's background says so.
-- An item not to start yet is added held, its background saying what it waits for, something whose coming can be
-  seen: an item merged, or the owner's word.
+- An item not to start yet is added paused (`wf-agents add` and `wf-agents pause` take `--why`, the reason, and
+  `--waits-for`, once for each item), its background saying what it waits for, something whose coming can be seen: an
+  item merged, which the pause names with `--waits-for`, or the owner's word, which names no item.
+- A paused item is one that will be done. An item that will not be done is cancelled, saying why, never left paused.
+- An item that changes what the owner's page shows or how it looks is paused and never let on where a work cannot find
+  in the code where it goes and what it shows, and the owner tunes it as he sees it. The owner and the architect talk
+  it through and build it in their session, one at a time; once it merges, the item is cancelled, its reason naming
+  the pull request that did it. Where a design document, the owner's word or the item itself already says where it
+  goes and what it shows, it needs no talk and runs in the engine as any other item.

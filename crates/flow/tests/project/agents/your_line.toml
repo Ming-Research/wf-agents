@@ -1,0 +1,8 @@
+# What the place `{your_line}` in the engine's words of the tests says.
+reads_only = "You only read."
+writes = "You commit."
+or = " or "
+tests_only = " Tests only: {paths}."
+protected = " Protected: {paths}."
+protected_read = " Read protected: {paths}."
+and = " and "

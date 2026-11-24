@@ -3,7 +3,7 @@
 The tree of items in columns, their cards and folds, and how the page lights what runs and what the owner points at.
 
 ### decision the-console-is-the-old-engines-console
-The console's tree is the old engine's console brought over, with its layout, its motion and its constants unchanged; the page's new look is used only around it.
+The console's tree is the old engine's console brought over, its layout and its motion as the decisions on its columns, cards and folds say; the page's new look is used only around it.
 - rejected: an agent proposed restyling the console in the page's new look; the owner rejected it, because its graph shows the dependencies, the progress and the activity at a glance, and even its sliding had been tuned.
 
 ### decision the-tree-is-drawn-on-a-canvas
@@ -12,11 +12,12 @@ PixiJS draws the console's tree in WebGL on a canvas, only what is on the screen
 - rejected: an agent proposed three.js; the owner rejected it, because it needs glyph atlases for thousands of characters and its own picking and layout, and no test can see into it.
 
 ### decision the-tree-stands-in-columns
-Items stand in columns, one for each level from the roots at the left; each scrolls by itself, and each column next to it glides only enough to keep the items joining the two level near the middle.
+Items stand in columns, one for each level from the roots at the left; each scrolls by itself, and the one beside it glides only its way, enough to keep what joins the two level near the middle.
 - rejected: an agent proposed nested strips, a flame graph; the owner rejected it, because its leaves cannot be seen without zooming.
 - rejected: an agent proposed a magnifier over the room each branch gets; the owner rejected it, because a big screen would show little.
 - rejected: an agent proposed rectangles packed to the screen's shape; the owner rejected it, because the boxes carry no information.
 - replaced: A line across the middle, onto which an item of each column snapped, was on main; the owner changed it, because the snap still jumped, and nothing pulls a block of items away from its parent.
+- replaced: A column next to it that could glide against the column it follows, as the wants near the middle changed, was on main; the owner changed it, because the third column ran up off the screen as he dragged the second.
 
 ### decision the-tree-follows-what-depends-on-what
 The items form one tree by what depends on what: where one item depends on another, the other stands under it, directly or further down; nothing else shapes the tree.
@@ -92,8 +93,19 @@ Three check boxes over the tree's corner, Open, Done and Cancelled, one under an
 Selecting an item that is off the screen, or half under the window, moves the tree only until the item is wholly in the part of the view the window leaves free.
 - replaced: Moving the tree to put such an item in the middle of that free part was on main; the owner changed it, because moving it to the middle was too heavy.
 
-### decision an-item-is-found-from-the-trees-corner
-A field under the boxes finds any item by its number, its path from its root or a part of its title, eight at most; a pick selects it, its kind ticked and the folds over it opened.
+### decision showing-an-item-in-the-tree-flashes-its-card
+A click on the item's title in its window brings the item into view and flashes its soft light once, wider and stronger, easing back to rest.
+- replaced: A click on the title that only moved the tree was on main; the owner changed it, because with the card already in view beside the window the click did nothing he could see.
+
+### decision an-item-is-found-from-a-box-the-slash-opens
+`/` opens a box over the console's top that finds any item by its number or a part of its title, eight at most; a pick selects it, its kind ticked and the folds over it opened.
+- replaced: A field always shown under the boxes at the tree's corner was on main; the owner changed it, because what it found had no room under it, and he wanted it only while he searches, as Spotlight is.
+- replaced: Finding an item by its path from its root, as 26-27, was on main; the owner changed it, because with the search he needs no path.
+
+### decision what-the-search-finds-is-lit-in-the-tree
+While the search is open the tree is dimmed, as round the item under the pointer, but for the items it finds; the row the keys or the pointer stand on moves nothing in the tree.
+- replaced: The tree left as it was while the search was open was on main; the owner changed it, because he wanted the tree to dim as the search opens, as Spotlight does, and what it finds to stand out as the item under the pointer does.
+- rejected: the owner proposed that the row the keys or the pointer stand on bring its item into view; the owner rejected it, because a key pressed or a pointer passing by mistake moves the tree away from what he looks at.
 - replaced: Finding an item only by scrolling the tree was on main; the owner changed it, because once many items were imported he could not find one he looked for.
 
 ### decision the-owner-walks-the-stops-by-keys

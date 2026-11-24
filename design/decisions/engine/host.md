@@ -19,10 +19,6 @@ The engine's acts and its watch on main work in a project's repository one at a 
 The check merges main's head into the work's branch in a commit of the engine's own and judges that commit, and the merge lands only a commit that holds the version of main the check took in.
 - rejected: an agent proposed GitHub's merge queue; the owner rejected it, because it cannot be used for every repository and knows only the required checks, and two ways would give two sets of rules.
 
-### decision one-work-checks-and-merges-at-a-time
-The works of a project take turns to check and merge, in the order their checks began to wait; a work keeps the turn from its check until it merges or its check fails.
-- rejected: an agent proposed bringing each branch that is behind main up to date with it and checking it again, with the works side by side; the owner rejected it, because one pull request was brought up to date with main four times in an hour while main broke twice.
-
 ### decision the-check-before-the-merge-is-the-full-workflows-once
 The check before the merge runs the project's full workflows once, by hand, on the exact commit to merge, and judges it by their JUnit and their jobs' conclusions.
 - replaced: Judging the merge by the checks GitHub ran on the pushes of the pull request was on main; the owner changed it, because the full workflows are dispatched on the exact commit, once, before the merge.
@@ -53,6 +49,10 @@ The local host runs the project's check command on a clean checkout of the commi
 ### decision the-pull-request-says-what-the-work-wrote
 A work's pull request is a draft until just before its merge, and its body is what the work wrote in the blocks the check names, with nothing in it left that GitHub would act on.
 - replaced: One fixed paragraph as the body of every pull request was on main; the owner changed it, because GitHub then showed nothing of what changed.
+
+### decision a-continued-open-pull-request-is-closed
+Once a continuing work's own pull request is open, the engine closes the open pull request into main of what the item continued, with a comment naming the new one; a work's own is never closed.
+- rejected: an agent proposed leaving the old pull request open for the owner, the replacement written only in the work's text; the owner rejected it, because two pull requests would stay open for one change, and GitHub would not show which replaced which.
 
 ### decision a-merge-is-named-by-its-works-line
 A work's merge, its pull request and the commit it makes, is named by the first line of the block the flow's merge names, which the cell that writes the code writes in English.

@@ -11,6 +11,7 @@
 
 use std::path::Path;
 use std::process::{ExitStatus, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -59,6 +60,8 @@ pub(crate) enum Ran {
         /// What it printed on its standard output, where its lines were not each given as they came.
         stdout: Vec<u8>,
         stderr: Vec<u8>,
+        /// How many processes it left running in its group as it ended, which were stopped before its end was given.
+        left: usize,
     },
     /// It was told to stop, and was stopped.
     Stopped,
@@ -106,7 +109,7 @@ async fn run_with(
         .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let program = command.as_std().get_program().to_string_lossy().into_owned();
+    let program = crate::programs::named(command.as_std().get_program());
     let mut child = command
         .spawn()
         .map_err(|e| format!("{program} cannot be started: {e}"))?;
@@ -139,10 +142,14 @@ async fn run_with(
 }
 
 /// Waits for the child to end, writing its input and reading its output, each line of it given to `lines` where
-/// they are given, or stops its group once told to. Its overseer is let go of once its output has ended, before the
-/// child is reaped, after which its group's number may be given to another; so a program that closes its standard
-/// output and runs on after it is not overseen from then until it ends. Dropped with this before that, as when the
-/// runtime of a process of the engine that ends by itself drops the round, the overseer stops the group.
+/// they are given, or stops its group once told to. The child's end is waited for beside the reading of its output,
+/// which what it left running in its group may hold open: once the child has ended, what it left is stopped, as a stop
+/// does, and counted ([`stop_what_is_left`]), since nobody reads what that does once the program has ended. Then the
+/// overseer is let go of, and the rest of the output read to its end, which the stop lets come. The child is reaped
+/// as it ends, which leaves its group's number to what it left: the system gives a group's number to no other process
+/// while the group has one, so what is stopped is what the program left. Dropped with this before the overseer is let
+/// go of, as when the runtime of a process of the engine that ends by itself drops the round, the overseer stops the
+/// group.
 #[allow(clippy::too_many_arguments)]
 async fn wait(
     mut child: tokio::process::Child,
@@ -181,7 +188,7 @@ async fn wait(
         })
     });
     let stdout = child.stdout.take();
-    let output = async {
+    let read = async {
         let mut kept = Vec::new();
         if let Some(stdout) = stdout {
             let mut reader = BufReader::new(stdout);
@@ -199,27 +206,49 @@ async fn wait(
                 }
             }
         }
+        Ok::<_, String>(kept)
+    };
+    // Once the program has ended and what it left is stopped, its group holds nothing, and its number may be another's:
+    // a stop told then signals nothing.
+    let left_stopped = AtomicBool::new(false);
+    let ended = async {
+        let status = (child.wait().await).map_err(|e| format!("{program} could not be waited for: {e}"))?;
+        let left = match group {
+            Some(group) => stop_what_is_left(group).await,
+            None => 0,
+        };
+        left_stopped.store(true, Ordering::Relaxed);
         if let Some(overseer) = overseer {
             overseer.let_go().await;
         }
-        let status = (child.wait().await).map_err(|e| format!("{program} could not be waited for: {e}"))?;
-        Ok::<_, String>((status, kept))
+        Ok::<_, String>((status, left))
+    };
+    let output = async {
+        let (kept, (status, left)) = tokio::try_join!(read, ended)?;
+        if left > 0 {
+            eprintln!("{program} left {left} processes running in its group as it ended, which were stopped");
+        }
+        Ok::<_, String>((status, kept, left))
     };
     tokio::pin!(output);
     tokio::select! {
         output = &mut output => {
-            let (status, stdout) = output?;
+            let (status, stdout, left) = output?;
             let stderr = match stderr {
                 Some(read) => read.await.unwrap_or_default(),
                 None => Vec::new(),
             };
-            Ok(Ran::Ended { status, stdout, stderr })
+            Ok(Ran::Ended { status, stdout, stderr, left })
         }
         () = async { tokio::select! { () = stop.told() => {}, () = halted => {} } } => {
-            if let Some(group) = group {
+            if let Some(group) = group
+                && !left_stopped.load(Ordering::Relaxed)
+            {
                 signal(group, "TERM").await;
                 if tokio::time::timeout(STOP_WAIT, &mut output).await.is_err() {
-                    signal(group, "KILL").await;
+                    if !left_stopped.load(Ordering::Relaxed) {
+                        signal(group, "KILL").await;
+                    }
                     let _ = output.await;
                 }
             }
@@ -236,10 +265,10 @@ const OVERSEEING: &str = r#"read -r line; kill -s TERM -- "-$1"; sleep "$2"; kil
 /// out of reach of the terminal's signals, and no handler of the engine's sees a crash or a `kill -9`: so a small shell
 /// waits on a pipe that only the engine's process holds, which closes as that process ends, and then stops the group.
 /// It is in a process group of its own, so that the terminal's signals do not end it first. Only let go of, as the
-/// program's output ends with the engine there to see it, does it end without touching the group: dropped otherwise,
-/// as the rounds are when the runtime of a process of the engine that ends by itself is dropped, it closes its pipe as
-/// well, and the shell stops the group; the runtime reaps it while the engine's process runs, and the system once that
-/// process has ended.
+/// program has ended and what it left is stopped with the engine there to see it, does it end without touching the
+/// group: dropped otherwise, as the rounds are when the runtime of a process of the engine that ends by itself is
+/// dropped, it closes its pipe as well, and the shell stops the group; the runtime reaps it while the engine's process
+/// runs, and the system once that process has ended.
 struct Overseer(tokio::process::Child);
 
 impl Overseer {
@@ -291,6 +320,26 @@ pub(crate) async fn stop_left(file: &Path, dir: &Path) {
         }
     }
     let _ = tokio::fs::remove_file(file).await;
+}
+
+/// Stops what is left running in the group of a program that has ended and been reaped: TERM, then KILL once
+/// [`STOP_WAIT`] has passed with any of it left. Gives how many processes were left.
+async fn stop_what_is_left(group: u32) -> usize {
+    let others = || async { members(group).await.len() };
+    let left = others().await;
+    if left == 0 {
+        return 0;
+    }
+    signal(group, "TERM").await;
+    let gone = async {
+        while others().await > 0 {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    };
+    if tokio::time::timeout(STOP_WAIT, gone).await.is_err() {
+        signal(group, "KILL").await;
+    }
+    left
 }
 
 /// Whether the group is the one a round of ours started: see [`stop_left`].
@@ -410,7 +459,7 @@ async fn signal(group: u32, name: &str) {
 pub(crate) fn shell(command: &str, dir: &std::path::Path, named: &[String]) -> Command {
     let kept =
         |name: &str| crate::cli::KEPT.contains(&name) || name.starts_with("LC_") || named.iter().any(|n| n == name);
-    let mut shell = Command::new("sh");
+    let mut shell = crate::programs::command("sh");
     shell
         .arg("-c")
         .arg("exec 2>&1; eval \"$1\"")
@@ -418,21 +467,42 @@ pub(crate) fn shell(command: &str, dir: &std::path::Path, named: &[String]) -> C
         .arg(command)
         .current_dir(dir)
         .env_clear()
-        .envs(std::env::vars().filter(|(name, _)| kept(name)));
+        .envs(
+            (crate::programs::engine().iter())
+                .filter(|(name, _)| kept(name))
+                .cloned(),
+        );
     shell
+}
+
+/// Why a program run for what it prints gave none: the kind is the type, so that nothing reads the words to tell it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Unrun {
+    /// It could not be run, as the system says.
+    Cannot(String),
+    /// It did not end within the limit, and was stopped.
+    Timeout(String),
+}
+
+impl From<Unrun> for String {
+    fn from(unrun: Unrun) -> String {
+        match unrun {
+            Unrun::Cannot(why) | Unrun::Timeout(why) => why,
+        }
+    }
 }
 
 /// Runs the program to its end and gives what it printed; or, where it does not end within the limit, kills it and
 /// says so: a program the engine waits for, a network call above all, must not hold the engine for ever.
-pub(crate) async fn output(mut command: Command, limit: Duration) -> Result<std::process::Output, String> {
-    let program = command.as_std().get_program().to_string_lossy().into_owned();
+pub(crate) async fn output(mut command: Command, limit: Duration) -> Result<std::process::Output, Unrun> {
+    let program = crate::programs::named(command.as_std().get_program());
     command.kill_on_drop(true);
     match tokio::time::timeout(limit, command.output()).await {
-        Ok(output) => output.map_err(|e| format!("{program} cannot be run: {e}")),
-        Err(_) => Err(format!(
+        Ok(output) => output.map_err(|e| Unrun::Cannot(format!("{program} cannot be run: {e}"))),
+        Err(_) => Err(Unrun::Timeout(format!(
             "{program} did not end within {} seconds, and was stopped",
             limit.as_secs()
-        )),
+        ))),
     }
 }
 
@@ -777,10 +847,8 @@ mod tests {
     }
 
     // An overseer let go of, as its program ends with the engine there to see it, is gone and has left the group alone:
-    // it signals no group the number is given to after the program is reaped, nor what the program left in its group,
-    // which runs on as it did before overseers. Let go of directly, and as a program run here ends by itself leaving a
-    // process in its group. Under half a second alone; the tests of an engine that ends hold only overseers that are
-    // not let go of.
+    // it signals no group the number is given to after the program is reaped. Under half a second alone; the tests of an
+    // engine that ends hold only overseers that are not let go of.
     #[tokio::test]
     async fn an_overseer_let_go_of_is_gone_and_has_left_its_group_alone() {
         let mut command = std::process::Command::new("sh");
@@ -799,25 +867,96 @@ mod tests {
         let _ = first.wait();
         assert!(left, "an overseer let go of stopped the group");
         assert!(gone, "an overseer let go of still runs");
+    }
 
+    // A program run here that ends by itself has what it left running in its group stopped before its end is given,
+    // and counted: nobody reads what that does once the program has ended. That holds where what it left holds its
+    // output open, whose last lines are kept. One that leaves nothing is counted as leaving nothing. Under half a
+    // second alone, most of it the leftovers' ending on TERM; no other test holds a program that ends leaving something
+    // in its group without a carrier around it, nor says what a leftover writes as it is stopped.
+    #[tokio::test]
+    async fn what_a_program_that_ends_by_itself_left_in_its_group_is_stopped() {
         let mut command = Command::new("sh");
         command.args(["-c", "sleep 30 >/dev/null 2>&1 & echo $!"]);
         let ran = run(command, None, None, &mut Stop::never())
             .await
             .expect("the program runs");
-        let Ran::Ended { stdout, .. } = ran else {
+        let Ran::Ended {
+            stdout, left: count, ..
+        } = ran
+        else {
             panic!("the program was stopped");
         };
         let left: u32 = (String::from_utf8_lossy(&stdout).trim().parse()).expect("what the program left");
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        let running = alive_process(left).await;
+        let running = runs(left).await;
         let _ = std::process::Command::new("kill")
             .args(["-s", "KILL", &left.to_string()])
             .status();
         assert!(
-            running,
-            "the overseer of a program that ended by itself stopped what the program left in its group"
+            !running,
+            "what the program left in its group runs on after its end was given"
         );
+        assert_eq!(count, 1, "what the program left is counted");
+
+        // What it left holding its output and its error, which says a line on each as it is stopped: the program's end
+        // is given once that is stopped, not once it ends by itself 30 s later, with every line it wrote.
+        let mut command = Command::new("sh");
+        command.args([
+            "-c",
+            "(trap 'echo stopped; echo stopped >&2; exit 0' TERM; sleep 30 & wait) & echo $!",
+        ]);
+        let from = std::time::Instant::now();
+        let ran = run(command, None, None, &mut Stop::never())
+            .await
+            .expect("the program runs");
+        let took = from.elapsed();
+        let Ran::Ended {
+            stdout,
+            stderr,
+            left: count,
+            ..
+        } = ran
+        else {
+            panic!("the program was stopped");
+        };
+        let stdout = String::from_utf8_lossy(&stdout);
+        let mut said = stdout.lines();
+        let left: u32 = (said.next().and_then(|line| line.trim().parse().ok())).expect("what the program left");
+        let running = runs(left).await;
+        let _ = std::process::Command::new("kill")
+            .args(["-s", "KILL", &left.to_string()])
+            .status();
+        assert!(
+            took < Duration::from_secs(10),
+            "the program's end waited {took:?} for what it left holding its output"
+        );
+        assert!(!running, "what the program left holding its output runs on");
+        assert!(count >= 1, "what the program left holding its output is counted");
+        assert_eq!(
+            said.collect::<Vec<_>>(),
+            ["stopped"],
+            "what was left wrote on the program's output as it was stopped, and was lost"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&stderr).trim(),
+            "stopped",
+            "what was left wrote on the program's error as it was stopped, and was lost"
+        );
+
+        let mut command = Command::new("sh");
+        command.args(["-c", "echo alone"]);
+        let ran = run(command, None, None, &mut Stop::never())
+            .await
+            .expect("the program runs");
+        let Ran::Ended { left, .. } = ran else {
+            panic!("the program was stopped");
+        };
+        assert_eq!(left, 0, "a program that leaves nothing is counted as leaving nothing");
+    }
+
+    /// Whether the process runs: it is there, and not a zombie waiting to be reaped.
+    async fn runs(process: u32) -> bool {
+        (ps(&["-o", "stat=", "-p", &process.to_string()]).await).is_some_and(|stat| !stat.starts_with('Z'))
     }
 
     #[tokio::test]
@@ -888,7 +1027,7 @@ mod tests {
         command.args(["-c", &format!("echo $$ > '{}'; exec sleep 30", pid.display())]);
         let began = std::time::Instant::now();
         let given_up = output(command, Duration::from_millis(500)).await.expect_err("given up");
-        assert!(given_up.contains("did not end within"), "{given_up}");
+        assert!(matches!(given_up, Unrun::Timeout(_)), "{given_up:?}");
         assert!(began.elapsed() < Duration::from_secs(10));
         let pid: u32 = std::fs::read_to_string(&pid).unwrap().trim().parse().unwrap();
         let gone = std::time::Instant::now();
@@ -900,6 +1039,17 @@ mod tests {
         quick.args(["-c", "echo done"]);
         let ended = output(quick, Duration::from_secs(10)).await.expect("it ends");
         assert_eq!(String::from_utf8_lossy(&ended.stdout), "done\n");
+    }
+
+    // A shell given an environment of its own is started by its path, so that the standard library starts it with
+    // `posix_spawn`, not `fork`. It builds a command and starts nothing.
+    #[test]
+    fn a_shell_command_is_started_by_the_path_of_sh() {
+        let shell = shell("true", Path::new("/"), &[]);
+        let program = Path::new(shell.as_std().get_program());
+        assert!(program.is_absolute(), "{}", program.display());
+        assert_eq!(program.file_name(), Some(std::ffi::OsStr::new("sh")));
+        assert_eq!(crate::programs::named(program.as_os_str()), "sh");
     }
 
     #[test]

@@ -7,7 +7,7 @@ use decide::{BlockId, Decision, End, Outsider, Seq};
 use engine::{Came, Effect, Event, handle};
 use flow::{CellSpec, Compiled};
 use service::Script;
-use service::script::{Ends, INPUT_TOKENS, OUTPUT_TOKENS, ROUND_MS, TOOL_MS, USD_MICROS};
+use service::script::{CACHE_WRITTEN_TOKENS, Ends, INPUT_TOKENS, OUTPUT_TOKENS, ROUND_MS, TOOL_MS, USD_MICROS};
 use work::{Ask, Handed, Spent, Time, Work};
 
 fn trial() -> Compiled {
@@ -33,9 +33,9 @@ fn engineer() -> Compiled {
             "dependencies",
             "handed_in",
             "main",
-            "session",
             "start",
             "head",
+            "test_times",
             "tree",
             "words",
         ]),
@@ -99,7 +99,6 @@ fn a_script_is_told_everything_it_names_that_the_flow_lacks() {
         [[flows.trial.rounds]]
         cell = "build"
         run = 2
-        turn = 3
         at = "https://github.example/actions/runs/1"
         "#,
     )
@@ -117,8 +116,25 @@ fn a_script_is_told_everything_it_names_that_the_flow_lacks() {
             "flows.trial.rounds[3]: an act of the engine asks for nothing",
             "flows.trial.rounds[3]: an act of the engine takes no cost and no tokens",
             "flows.trial.rounds[4]: says again what flows.trial.rounds[2] says",
-            "flows.trial.rounds[5]: only an act of the engine waits for the turn or runs as a CI run",
+            "flows.trial.rounds[5]: only an act of the engine runs as a CI run",
         ]
+    );
+}
+
+// An act of the engine takes no token of any kind, the ones written to the cache among them.
+#[test]
+fn an_act_of_the_engine_that_says_tokens_written_to_the_cache_is_told_it_takes_none() {
+    let script = Script::read(
+        r#"
+        [[flows.trial.rounds]]
+        cell = "merge"
+        took = { cache_written_tokens = 5 }
+        "#,
+    )
+    .unwrap();
+    assert_eq!(
+        script.check(&[trial()]),
+        ["flows.trial.rounds[0]: an act of the engine takes no cost and no tokens"]
     );
 }
 
@@ -227,14 +243,15 @@ fn a_round_the_script_says_nothing_of_hands_a_value_that_stands_alone_in_with_wh
 fn a_round_the_script_says_nothing_of_writes_what_only_a_cell_that_never_runs_beside_it_reads_before_it() {
     let flow = engineer();
     // The plan's second look, before the deep research, runs only where `deep_needed` is no and the deep research only
-    // where it is yes, so the plan, which the second look reads, is no way back for the deep research: it writes it, and
-    // its answers in its dialogues, which only the research and the second look, as far apart, read before it. Its own
-    // questions and words, which the reading of the tree reads, it writes not.
+    // where it is yes, so the plan, which the second look reads, is no way back for the deep research: it writes it, the
+    // entries of the tree it names, and its answers in its dialogues, which only the research and the second look, as
+    // far apart, read before it. Its own questions and words, which the reading of the tree reads, it writes not.
     let words = |block: &str| format!("The {block} as D1 wrote it in its run 1, round 1.");
     let blocks = [
         "plan_owner",
         "plan_agent",
         "acceptance",
+        "tree_entries",
         "better_found",
         "plan_review",
         "tree_review",
@@ -259,6 +276,15 @@ fn a_script_with_a_field_it_does_not_know_is_not_read() {
 }
 
 #[test]
+fn a_script_cannot_ask_a_person_a_question_which_no_return_does() {
+    let asked = "[[flows.trial.rounds]]\ncell = \"plan\"\nasks = [{ question = \"Which name?\" }]\n";
+    assert!(Script::read(asked).is_err());
+    let with_a_tool =
+        "[[flows.trial.rounds]]\ncell = \"plan\"\nasks = [{ question = \"Which name?\" }, { tool = \"ci\" }]\n";
+    assert!(Script::read(with_a_tool).is_err());
+}
+
+#[test]
 fn a_round_the_script_says_nothing_of_hands_in_the_outputs_no_earlier_cell_reads() {
     let flow = trial();
     let planned = Script::default().round(&flow, cell(&flow, "review"), 2, 3, &BTreeMap::new());
@@ -273,7 +299,8 @@ fn a_round_the_script_says_nothing_of_hands_in_the_outputs_no_earlier_cell_reads
         planned.spent,
         Spent {
             usd_micros: USD_MICROS,
-            input_tokens: INPUT_TOKENS,
+            uncached_tokens: INPUT_TOKENS + CACHE_WRITTEN_TOKENS,
+            cache_written_tokens: Some(CACHE_WRITTEN_TOKENS),
             cached_tokens: 0,
             output_tokens: OUTPUT_TOKENS,
             ..Default::default()
@@ -423,25 +450,51 @@ fn a_round_takes_what_its_entry_says_and_else_what_the_script_says() {
     assert_eq!((merge.ms, merge.spent), (900, Spent::default()));
 }
 
+// The script's `input_tokens` are the tokens sent fresh, as the program's are; the round's record counts, among the
+// tokens sent and not read from the cache, those it says were written to the cache, and tells them apart.
 #[test]
-fn an_act_says_the_turn_it_waits_for_and_the_ci_run_it_runs_as_where_its_entry_says() {
+fn a_round_the_script_says_wrote_tokens_to_the_cache_keeps_them_apart_from_those_sent_fresh() {
+    let flow = trial();
+    let script = Script::read(
+        r#"
+        [took]
+        input_tokens = 300
+        cache_written_tokens = 2000
+
+        [[flows.trial.rounds]]
+        cell = "build"
+        run = 2
+        took = { cache_written_tokens = 50 }
+        "#,
+    )
+    .unwrap();
+    let by_the_script = script.round(&flow, cell(&flow, "build"), 1, 1, &BTreeMap::new()).spent;
+    assert_eq!(
+        (by_the_script.uncached_tokens, by_the_script.cache_written_tokens),
+        (300 + 2000, Some(2000))
+    );
+    let by_its_entry = script.round(&flow, cell(&flow, "build"), 2, 1, &BTreeMap::new()).spent;
+    assert_eq!(
+        (by_its_entry.uncached_tokens, by_its_entry.cache_written_tokens),
+        (300 + 50, Some(50))
+    );
+}
+
+#[test]
+fn an_act_says_the_ci_run_it_runs_as_where_its_entry_says() {
     let flow = trial();
     let script = Script::read(
         r#"
         [[flows.trial.rounds]]
         cell = "merge"
-        turn = 3
         at = "https://github.example/actions/runs/1"
         "#,
     )
     .unwrap();
     let merge = script.round(&flow, cell(&flow, "merge"), 1, 1, &BTreeMap::new());
-    assert_eq!(
-        (merge.turn, merge.at.as_deref()),
-        (Some(3), Some("https://github.example/actions/runs/1"))
-    );
+    assert_eq!(merge.at.as_deref(), Some("https://github.example/actions/runs/1"));
     let again = script.round(&flow, cell(&flow, "merge"), 2, 1, &BTreeMap::new());
-    assert_eq!((again.turn, again.at), (None, None));
+    assert_eq!(again.at, None);
 }
 
 #[test]
@@ -451,22 +504,32 @@ fn a_round_asks_for_what_its_entry_says() {
         r#"
         [[flows.trial.rounds]]
         cell = "plan"
-        asks = [{ question = "Which name?" }, { tool = "ci", input = "main" }]
+        asks = [{ tool = "check" }, { tool = "ci", input = "main" }]
+
+        [[flows.trial.rounds]]
+        cell = "plan"
+        round = 2
+        asks = []
         "#,
     )
     .unwrap();
     assert_eq!(
         script.round(&flow, cell(&flow, "plan"), 1, 1, &BTreeMap::new()).ends,
         Ends::Came(Came::asks(vec![
-            Ask::Person {
-                who: decide::Who::Owner,
-                question: "Which name?".to_string()
+            Ask::Tool {
+                name: "check".to_string(),
+                input: String::new()
             },
             Ask::Tool {
                 name: "ci".to_string(),
                 input: "main".to_string()
             },
         ]))
+    );
+    // A round that asks for nothing returns nothing, and is sent back.
+    assert_eq!(
+        script.round(&flow, cell(&flow, "plan"), 1, 2, &BTreeMap::new()).ends,
+        Ends::Came(Came::asks(vec![]))
     );
 }
 

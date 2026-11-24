@@ -1,0 +1,21 @@
+# How a datum is put into a session of the tests, by its kind.
+choice = ", with the value `{value}`"
+held = "## `{block}`, version {number}{by}, in this session already; last worked from {last_number}"
+held_new = "## `{block}`, version {number}{by}, in this session already"
+by_line = ", written on the line `{line}`"
+by_owner = ", written by the owner"
+
+[entries]
+file = "In `{path}`:"
+gone = "{reference} is not in the tree."
+
+[latest]
+text = "## `{block}`, version {number}{choice}{by}\n\n{content}"
+
+[last_and_latest]
+text = "## `{block}`, what changed from version {last_number} to version {number}{by}\n\n{diff}"
+whole = "## `{block}`, version {number}{choice}{by}\n\n{content}"
+unread = "## `{block}`, version {number}{choice}{by}: this session has read none of it\n\n{content}"
+
+[all]
+text = "## `{block}`, version {first_number}{choice}{by}\n\n{content}\n\n{each_version}"

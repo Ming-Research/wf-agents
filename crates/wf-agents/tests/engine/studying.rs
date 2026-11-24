@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-use crate::{Engine, Place};
+use crate::{Engine, Place, plain, plain_line};
 
 /// A script whose rounds take a few milliseconds, and whose study hands in this conclusion.
 const SCRIPT: &str = r#"
@@ -22,7 +22,7 @@ fn defined(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../flow").join(name)
 }
 
-/// `wf-agents run` on the engineer's flow and the study flow, on any free port.
+/// `wf-agents run` on the engineer's flow and the study flow, on any free port, making the data directory's store.
 fn run_both(place: &Place) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_wf-agents"));
     command
@@ -36,6 +36,9 @@ fn run_both(place: &Place) -> Command {
         .arg("--script")
         .arg(place.script())
         .args(["--port", "0"]);
+    if !place.data().join("store.sqlite").exists() {
+        command.arg("--new");
+    }
     command
 }
 
@@ -62,10 +65,10 @@ fn a_study_ends_with_its_conclusion_which_the_architect_reads_and_lets_on_the_it
     add("Build on it", "engineer", Some("1"));
     engine.says(&["resume", "2"]);
     // The item that depends on the study waits for it to have ended, not for the owner.
-    let list = engine.says(&["list"]);
+    let list = plain(&engine.says(&["list"]));
     assert!(
         list.contains(
-            "\n#2 \"Build on it\" at level 1, project script, W2 on engineer, after #1: waits at S1 for the items it \
+            "\n#2 (project script) \"Build on it\" at level 1, W2 on engineer, after #1: waits at S1 for the items it \
              depends on to merge: #1\n"
         ),
         "{list}"
@@ -73,11 +76,11 @@ fn a_study_ends_with_its_conclusion_which_the_architect_reads_and_lets_on_the_it
 
     engine.says(&["resume", "1"]);
     engine.until(&["list", "--all"], |line| {
-        line == "#2 \"Build on it\" at level 1, project script, W2 on engineer, after #1: merged"
+        plain_line(line) == "#2 (project script) \"Build on it\" at level 1, W2 on engineer, after #1: merged"
     });
-    let list = engine.says(&["list", "--all"]);
+    let list = plain(&engine.says(&["list", "--all"]));
     assert!(
-        list.contains("#1 \"Study it\" at level 1, project script, W1 on study: merged\n"),
+        list.contains("#1 (project script) \"Study it\" at level 1, W1 on study: merged\n"),
         "{list}"
     );
     // What the study handed in stays in its item, for whoever splits the work after it.

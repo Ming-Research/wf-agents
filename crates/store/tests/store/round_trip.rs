@@ -49,6 +49,29 @@ fn a_work_saved_after_each_thing_that_happens_loads_back_as_it_was_with_an_entry
         [(41, "https://github.com/o/r/pull/41")],
         "the pull request found"
     );
+    assert_eq!(
+        w.timed.len(),
+        2,
+        "the run's times, read twice and kept once, and the same asking's other workflow beside it"
+    );
+    let reading = &w.timed[0].reading;
+    assert_eq!(reading.source, work::Source::Full);
+    assert_eq!(reading.workflow, "ci.yml");
+    assert_eq!(
+        (w.timed[1].reading.workflow.as_str(), w.timed[1].reading.asking.as_str()),
+        ("slow.yml", "run/1/round/1"),
+        "the other workflow's run, of the same asking"
+    );
+    let jobs: Vec<(&str, u64)> = reading.jobs.iter().map(|j| (j.name.as_str(), j.millis)).collect();
+    assert_eq!(jobs, [("lint", 7_000), ("test 1 of 3", 61_000)], "its jobs, by name");
+    let tests: Vec<(&str, bool, u64)> = (reading.tests.iter())
+        .map(|t| (t.name.as_str(), t.passed, t.millis))
+        .collect();
+    assert_eq!(
+        tests,
+        [("tools::tests::a", true, 120), ("tools::tests::b", false, 2_500)],
+        "its tests, by name"
+    );
     assert_eq!(w.ran.len(), 2, "the tries and what they ran on");
     assert!(
         w.spent
@@ -70,8 +93,8 @@ fn a_work_saved_after_each_thing_that_happens_loads_back_as_it_was_with_an_entry
     assert_eq!(kinds, [true; 3], "a kind of call is missing: {calls:?}");
     assert!(r.called.iter().any(|c| c.on.is_none()), "no call the engine makes");
     assert!(
-        r.called.iter().any(|c| c.on == Some(Who::Architect)),
-        "no call on the architect"
+        r.called.iter().any(|c| c.on == Some(Who::Owner)),
+        "no call on the owner"
     );
     assert_eq!(r.done.len(), w.results.len());
     assert!(w.results.values().any(|v| v == "withdrawn"), "no call withdrawn");
@@ -158,6 +181,94 @@ fn a_write_said_to_a_cell_loads_back_said_to_it() {
     assert_eq!(said, [Some("judge"), None]);
 }
 
+// A run that finished waiting for a block is kept with that block and loads back waiting for it. Well under a second
+// alone, a store on disk; no other test holds the block a finished run waits for through the file.
+#[test]
+fn a_run_that_finished_waiting_for_a_block_loads_back_waiting_for_it() {
+    let mut new = of_the_new_form();
+    let last = new.records.finished.last_mut().expect("a finished run");
+    last.waits_for = Some("main".into());
+    let db = Db::new();
+    let mut store = db.open();
+    first_work(&mut store);
+    let (_, work) = store
+        .add(&first("second", "2", &[]), "judged", Time(START), &Work::default())
+        .expect("the item is added");
+    store.save(work, &new).expect("the work is saved");
+    let loaded = db.open().load(work).expect("it loads");
+    let waits = loaded.records.finished.last().and_then(|f| f.waits_for.clone());
+    assert_eq!(waits, Some("main".into()));
+    assert_eq!(loaded, new);
+}
+
+// A question marked to go into the design tree is kept with its mark and loads back marked, one marked not to is kept
+// so, and one with no mark (the engine's, or asked before questions said it) loads back with none. Well under a second
+// alone, a store on disk; no other test keeps a question with a mark through the file.
+#[test]
+fn a_question_marked_for_the_design_tree_loads_back_marked_and_one_not_marked_with_none() {
+    let asked = |name: &str, tree: Option<bool>| engine::Question::Asked {
+        name: name.to_string(),
+        waits: true,
+        tree,
+        recommends: None,
+        ask: format!("Which way, {name}?"),
+        options: vec![engine::Way {
+            does: "the short way".to_string(),
+            follows: "less to read".to_string(),
+        }],
+        about: None,
+        reasons: BTreeMap::new(),
+    };
+    let mut new = of_the_new_form();
+    new.back.insert(
+        (RunId(1), 1),
+        Back::Returned {
+            dealt_with: vec![],
+            handed: vec![],
+            asks: vec![],
+            found: vec![],
+            said: work::Said {
+                questions: vec![
+                    asked("into_the_tree", Some(true)),
+                    asked("not_into_the_tree", Some(false)),
+                    asked("unmarked", None),
+                ],
+                observations: vec![],
+            },
+            engine: vec![],
+            waits_for: None,
+            read: vec![],
+            protected: BTreeMap::new(),
+        },
+    );
+    let db = Db::new();
+    let mut store = db.open();
+    first_work(&mut store);
+    let (_, work) = store
+        .add(&first("second", "2", &[]), "judged", Time(START), &Work::default())
+        .expect("the item is added");
+    store.save(work, &new).expect("the work is saved");
+    let loaded = db.open().load(work).expect("it loads");
+    let marks: Vec<(String, Option<bool>)> = match loaded.back.get(&(RunId(1), 1)) {
+        Some(Back::Returned { said, .. }) => (said.questions.iter())
+            .filter_map(|q| match q {
+                engine::Question::Asked { name, tree, .. } => Some((name.clone(), *tree)),
+                engine::Question::Withdrawn { .. } => None,
+            })
+            .collect(),
+        other => panic!("the return is not kept: {other:?}"),
+    };
+    assert_eq!(
+        marks,
+        [
+            ("into_the_tree".to_string(), Some(true)),
+            ("not_into_the_tree".to_string(), Some(false)),
+            ("unmarked".to_string(), None),
+        ]
+    );
+    assert_eq!(loaded, new);
+}
+
 #[test]
 fn runs_of_the_new_form_load_back_with_what_they_dealt_with_what_was_put_in_and_what_filled_their_sessions() {
     let new = of_the_new_form();
@@ -209,7 +320,68 @@ fn runs_of_the_new_form_load_back_with_what_they_dealt_with_what_was_put_in_and_
         .collect();
     assert_eq!(mattering, ["Integer(1)", "Integer(0)"]);
     assert_eq!(rows["put_in"].len(), 1);
+    assert_eq!(rows["hurried"].len(), 1);
     // Each try that was filled, the round tried twice among them.
     assert_eq!(rows["filled"].len(), 5);
     assert!(new.filled.iter().any(|f| f.attempt == 2));
+}
+
+// A reason a return was sent back for was kept under the name it had then (`NotATrigger`, now `NotWatched`): a work kept
+// before is read with the name it has now, and what is kept of it is not changed by reading it.
+#[test]
+fn a_reason_a_return_was_sent_back_for_that_was_kept_under_its_earlier_name_loads_under_its_name_now() {
+    use decide::run::Unmet;
+    let db = Db::new();
+    let mut store = db.open();
+    let number = first_work(&mut store);
+    let mut d = Driver::new();
+    reopened_after(&mut d);
+    let (&(run, round), _) = (d.work.given.iter())
+        .find(|(_, given)| matches!(given, Given::SentBack(_)))
+        .expect("a round that was sent back");
+    store.save(number, &d.work).expect("the work is saved");
+    let now = Given::SentBack(vec![Unmet::NotWatched {
+        name: "opinions".to_string(),
+    }]);
+    let then = serde_json::to_string(&now)
+        .expect("it is JSON")
+        .replace("NotWatched", "NotATrigger");
+    assert!(then.contains("NotATrigger"), "{then}");
+    let kept = Connection::open(&db.path).expect("the database opens");
+    let changed = kept
+        .execute(
+            "UPDATE given SET given = ?1 WHERE work = ?2 AND run = ?3 AND round = ?4",
+            rusqlite::params![then, number.0, run.0, round],
+        )
+        .expect("the row is changed");
+    assert_eq!(changed, 1);
+    let loaded = db.open().load(number).expect("the work loads");
+    assert_eq!(loaded.given.get(&(run, round)), Some(&now));
+}
+
+// A cause recorded before the version the cell last worked from was recorded in it has none and reads back as it was
+// kept; one recorded with it reads back as written (records are only added to, so those of before are read all the
+// same).
+#[test]
+fn a_cause_kept_without_the_version_worked_from_reads_back_with_none_and_one_kept_with_it_as_written() {
+    use decide::{Cause, Seq};
+    let kept = r#"{"Changed":{"block":"plan","was":3,"behind":false}}"#;
+    let old: Cause = serde_json::from_str(kept).expect("a cause kept before reads");
+    assert_eq!(
+        old,
+        Cause::Changed {
+            block: "plan".into(),
+            was: Some(Seq(3)),
+            worked: None,
+            behind: false,
+        }
+    );
+    let new = Cause::Changed {
+        block: "plan".into(),
+        was: Some(Seq(3)),
+        worked: Some(Seq(5)),
+        behind: true,
+    };
+    let text = serde_json::to_string(&new).expect("it is JSON");
+    assert_eq!(serde_json::from_str::<Cause>(&text).expect("it reads back"), new);
 }

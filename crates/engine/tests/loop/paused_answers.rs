@@ -14,7 +14,8 @@ fn ran_and_paused() -> (W, Seq, Seq) {
     assert_eq!(
         w.on(Event::Paused {
             by: Pauser::Owner,
-            why: None
+            why: None,
+            waits_for: Vec::new(),
         }),
         vec![]
     );
@@ -37,7 +38,7 @@ fn a_run_for_what_a_person_wrote_during_a_pause_has_its_rounds_and_calls_and_fin
         ],
     );
     assert_eq!(start_of(&w, again), start);
-    // A tool, then a question for the owner: each made, and the cell entered again as a run given its result.
+    // A tool, then another: each made, and the cell entered again as a run given its result.
     let tools = calls_of(&w.returns(again, Came::asks(vec![tool("a")])));
     let effects = w.done(tools[0].0);
     let again = w.work.records.started.last().expect("a run").run;
@@ -45,12 +46,12 @@ fn a_run_for_what_a_person_wrote_during_a_pause_has_its_rounds_and_calls_and_fin
         effects,
         vec![round_effect(again, "write", 1, Given::Results(vec![tools[0].0]))]
     );
-    let questions = calls_of(&w.returns(again, Came::asks(vec![question(Who::Owner)])));
-    let effects = w.done(questions[0].0);
+    let others = calls_of(&w.returns(again, Came::asks(vec![tool("b")])));
+    let effects = w.done(others[0].0);
     let again = w.work.records.started.last().expect("a run").run;
     assert_eq!(
         effects,
-        vec![round_effect(again, "write", 1, Given::Results(vec![questions[0].0]))]
+        vec![round_effect(again, "write", 1, Given::Results(vec![others[0].0]))]
     );
     // What does not meet what the flow requires is sent back.
     assert_eq!(
@@ -102,6 +103,7 @@ fn a_note_written_to_a_cell_while_its_first_round_is_under_way_during_a_pause_ru
     w.on(Event::Paused {
         by: Pauser::Owner,
         why: None,
+        waits_for: Vec::new(),
     });
     let (effects, opinions) = w.person_writes("opinions");
     assert_eq!(effects, vec![]);
@@ -133,6 +135,7 @@ fn a_run_for_what_a_person_wrote_that_started_before_the_pause_has_its_next_roun
     w.on(Event::Paused {
         by: Pauser::Owner,
         why: None,
+        waits_for: Vec::new(),
     });
     // Entered again for the result, the writer still has the note to answer: the pause lets that run be.
     let effects = w.done(call);
@@ -151,6 +154,7 @@ fn a_cell_entered_for_its_results_and_no_note_is_held_while_a_later_cell_has_wha
     w.on(Event::Paused {
         by: Pauser::Owner,
         why: None,
+        waits_for: Vec::new(),
     });
     // The writer ran for the request; its run given the tool's result waits for the work to be let on, whatever a
     // person writes for a cell after it.

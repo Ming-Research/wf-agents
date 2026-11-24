@@ -106,7 +106,7 @@ pub(crate) fn cell(flow: &Compiled) -> &CellSpec {
 
 /// What is written beside the flows, as the flow crate's tests have it.
 pub(crate) fn words() -> flow::agents::Agents {
-    let beside = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../flow/tests/laid_out");
+    let beside = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../flow/tests/project");
     flow::agents::read(&beside).expect("the words beside the flows of the tests are read")
 }
 
@@ -169,30 +169,22 @@ fn a_block_named_as_written_with_its_meaning_unchanged_runs_no_cell() {
     assert_eq!(read(&r), Ok(expected));
 }
 
+// Whether the owner's words ran the round, and so whether a return that names them owes an answer, is what the run's
+// check knows from the records (crate `decide`, `NotAnswered`); the reading only says what the return named.
 #[test]
-fn a_return_that_deals_with_the_owners_words_and_gives_no_answer_to_them_is_found_wanting() {
+fn a_return_that_names_the_owners_words_is_read_as_naming_them_and_leaves_their_answer_to_the_run_s_check() {
     let flow = flow();
-    let found = |r: &Value| came(r, &flow, cell(&flow), &words()).expect("it is read").came.found;
+    let read = |r: &Value| came(r, &flow, cell(&flow), &words()).expect("it is read").came;
     let mut r = work();
     r["outcome"]["dealt_with"] = json!(["request", "write_words"]);
-    let unanswered = vec![Unmet::NotAnswered {
-        name: "write_words".to_string(),
-    }];
-    assert_eq!(found(&r), unanswered);
-    // Words that are only space answer nothing; words in the cell's own words do, and nowhere else.
+    let came = read(&r);
+    assert_eq!(came.found, []);
+    assert_eq!(came.dealt_with, Some(vec!["request".into(), "write_words".into()]));
+    // Whatever it writes in the words, or not, it is read the same: it is the run's check that finds no answer.
     r["outcome"]["outputs"]["write_words"] = json!("  ");
-    assert_eq!(found(&r), unanswered);
+    assert_eq!(read(&r).found, []);
     r["outcome"]["outputs"]["write_words"] = json!("Done as you said.");
-    assert_eq!(found(&r), []);
-    let mut elsewhere = work();
-    elsewhere["outcome"]["dealt_with"] = json!(["request", "write_words"]);
-    elsewhere["outcome"]["outputs"]["plan"] = json!("Done as you said.");
-    assert_eq!(found(&elsewhere), unanswered);
-    // A return that answers what nobody said to it is not found wanting, nor one that deals with something else.
-    let mut r = work();
-    r["outcome"]["outputs"]["write_words"] = json!("Nobody asked.");
-    assert_eq!(found(&r), []);
-    assert_eq!(found(&work()), []);
+    assert_eq!(read(&r).found, []);
 }
 
 // The answer to the owner is handed in as any block, in the cell's own words, and its words are kept as written; the
@@ -392,7 +384,13 @@ fn why_a_return_changes_each_protected_file_is_read_for_the_look_at_the_branch()
         ("flow/cell.toml".to_string(), " Needed. ".to_string()),
     ]);
     assert_eq!(said.protected.as_ref(), Some(&expected));
-    assert_eq!(said.came, worked(), "it changes nothing else of the reading");
+    // The reasons stand in what the run keeps of the return, for a return that completes it to be held to them, and
+    // nothing else of the reading changes.
+    let kept = Came {
+        protected: expected.clone(),
+        ..worked()
+    };
+    assert_eq!(said.came, kept, "it changes nothing else of the reading");
     // Left out, null, or written as a string that holds it.
     assert_eq!(reading(&work()).protected, Some(BTreeMap::new()));
     r["outcome"]["protected_changes"] = Value::Null;
@@ -476,11 +474,35 @@ fn what_only_the_reading_can_see_wrong_is_found_in_the_order_of_the_return() {
     assert_eq!(came.dealt_with, Some(vec!["request".into()]));
 }
 
+// What a return names that the cell is given but that did not run its round, or names twice, is the run's check to
+// read (crate `decide`, `standing_names`): the reading finds nothing wrong with it and keeps each name as written.
 #[test]
-fn a_name_dealt_with_twice_stands_twice_for_the_run_s_check_to_find() {
-    let r = json!({"outcome": {"dealt_with": ["request", "request"]}});
+fn a_name_the_cell_is_given_is_read_as_written_however_often_it_is_named() {
+    let r = json!({"outcome": {"dealt_with": ["request", "request", "write_words", "write_questions"]}});
     let came = read(&r).expect("it is read");
-    assert_eq!(came.dealt_with, Some(vec!["request".into(), "request".into()]));
+    assert_eq!(came.found, []);
+    let names: Vec<BlockId> = ["request", "request", "write_words", "write_questions"]
+        .into_iter()
+        .map(BlockId::from)
+        .collect();
+    assert_eq!(came.dealt_with, Some(names));
+}
+
+// A block the cell writes, named as written with its meaning unchanged and not written, changes nothing and is not
+// found; a name that is none of the cell's outputs is, as a block's name written wrong.
+#[test]
+fn a_block_the_cell_writes_named_as_unchanged_and_not_written_is_read_as_nothing() {
+    let mut r = work();
+    r["outcome"]["outputs"] = json!({"ok": {"value": "yes", "why": "It says how."}});
+    r["outcome"]["meaning_unchanged"] = json!(["plan"]);
+    let came = read(&r).expect("it is read");
+    assert_eq!(came.found, []);
+    assert_eq!(came.writes, [handed("ok", "It says how.", true, Some("yes"))]);
+    r["outcome"]["meaning_unchanged"] = json!(["plan", "ghost"]);
+    assert_eq!(
+        read(&r).expect("it is read").found,
+        [Unmet::UnchangedNotWritten { block: "ghost".into() }]
+    );
 }
 
 #[test]

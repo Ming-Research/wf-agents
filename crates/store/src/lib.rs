@@ -31,14 +31,16 @@
 //! - `backups`: the copies of the database that were taken and uploaded, and what failed in keeping them. They belong
 //!   to no work, and the backup's own task keeps them through a connection of its own ([`Backups`]).
 //! - `observations`: what agents came across beyond their works, the observations each run kept as it finished, which
-//!   are kept with the rest of the work and numbered as the installation's; and the owner's reading of each. They are
-//!   read for the page, and marked read, through a connection of their own ([`Observations`]).
+//!   are kept with the rest of the work and numbered as the installation's, and those an architect adds; each one's
+//!   title, tags and later changes; and the owner's reading of each. They are read for the page, added to, changed and
+//!   marked read through a connection of their own ([`Observations`]).
 
 mod backups;
 pub mod before_migration;
 mod flows;
 mod items;
 mod observations;
+pub mod repair;
 mod tables;
 
 use std::path::Path;
@@ -49,8 +51,10 @@ use work::{Time, Work};
 
 pub use backups::{Backups, Failure, Kept, Records};
 pub use flows::{KeptFlow, KeptOutline};
-pub use items::{Change, First, Item, ItemChange, ItemNumber, WorkHead, WorkNumber};
-pub use observations::{Observation, Observations};
+pub use items::{Change, Continues, First, Item, ItemChange, ItemNumber, TAG_CHARS, WorkHead, WorkNumber, tag_is_bad};
+pub use observations::{
+    FromRound, NewObservation, NotMade, Observation, ObservationChange, Observations, Refusal, TagCount,
+};
 
 /// The name of the store's file in the data directory.
 pub const FILE: &str = "store.sqlite";
@@ -60,7 +64,7 @@ pub const SCHEMA: &str = include_str!("../../../db/schema.sql");
 
 /// The version of [`SCHEMA`]. A database made with an earlier one is migrated to it as it is opened; one made with
 /// any other is not opened.
-pub const SCHEMA_VERSION: u32 = 22;
+pub const SCHEMA_VERSION: u32 = 33;
 
 /// A step of the store after a migration's SQL.
 type Step = fn(&Connection) -> Result<(), Fault>;
@@ -144,6 +148,39 @@ const MIGRATIONS: &[Migration] = &[
     Migration::sql(include_str!(
         "../../../db/migrations/202611211200-keep-the-versions-of-the-flows-works-run-on.sql"
     )),
+    Migration::sql(include_str!(
+        "../../../db/migrations/202611221200-keep-when-a-round-was-told-to-hand-in-what-it-has.sql"
+    )),
+    Migration::sql(include_str!(
+        "../../../db/migrations/202611221500-keep-what-the-forks-of-rounds-cost.sql"
+    )),
+    Migration::sql(include_str!(
+        "../../../db/migrations/202611221600-record-who-took-an-account-and-keep-the-switch-that-moves-on.sql"
+    )),
+    Migration::sql(include_str!(
+        "../../../db/migrations/202611231000-let-an-item-continue-a-branch-or-pull-request.sql"
+    )),
+    Migration::sql(include_str!(
+        "../../../db/migrations/202611231230-keep-what-the-programs-run-for-works-left-running.sql"
+    )),
+    Migration::sql(include_str!(
+        "../../../db/migrations/202611231231-keep-the-engine-s-stops.sql"
+    )),
+    Migration::sql(include_str!(
+        "../../../db/migrations/202611231400-keep-the-observations-an-architect-adds-and-what-is-done-to-each.sql"
+    )),
+    Migration::sql(include_str!(
+        "../../../db/migrations/202611231500-keep-how-long-the-tests-and-jobs-of-each-run-took.sql"
+    )),
+    Migration::sql(include_str!(
+        "../../../db/migrations/202611231513-keep-how-much-of-what-was-sent-was-written-to-the-cache.sql"
+    )),
+    Migration::sql(include_str!(
+        "../../../db/migrations/202611231600-keep-what-a-pause-of-the-owner-waits-for.sql"
+    )),
+    Migration::sql(include_str!(
+        "../../../db/migrations/202611231620-keep-when-an-ended-work-held-its-project-s-turn.sql"
+    )),
 ];
 
 // The migrations bring a database of every earlier version to this one.
@@ -165,14 +202,26 @@ pub struct PauseOfEverything {
     pub at: Time,
 }
 
-/// An account the agents' program may run under, added, removed or taken by the owner as the one the agents run under,
-/// by the name the owner gave it, at this time: what the store keeps of it, every one in order. Its token is kept
-/// outside the store.
+/// An account the agents' program may run under, added, removed or taken as the one the agents run under, by the name
+/// the owner gave it, at this time: what the store keeps of it, every one in order. Its token is kept outside the
+/// store.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AccountRecord {
     pub name: String,
     pub what: AccountAct,
     pub at: Time,
+    /// Who did it: the owner, or the engine, which only takes an account, at a usage limit.
+    pub taker: AccountTaker,
+    /// For an account the engine took, when the usage limit of the account it left resets, where that was said; none
+    /// otherwise.
+    pub left_resets: Option<Time>,
+}
+
+/// Who took an account as the one the agents run under.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum AccountTaker {
+    Owner,
+    Engine,
 }
 
 /// What was done to an account.
@@ -182,6 +231,25 @@ pub enum AccountAct {
     Removed,
     /// Taken as the one the agents run under.
     Taken,
+}
+
+/// The engine asked to stop, or started again after a stop, at this time: what the store keeps of it, every one in
+/// order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StopRecord {
+    pub what: StopAct,
+    pub at: Time,
+}
+
+/// What a stop of the engine came to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum StopAct {
+    /// Asked to stop once what is under way has ended: from then no round of any work begins.
+    Asked,
+    /// Asked to stop at once, cutting off what is under way.
+    Now,
+    /// Started again after a stop, which no longer stands.
+    Over,
 }
 
 /// The items and the works, kept in one SQLite database.
@@ -303,11 +371,25 @@ pub trait Storage {
     /// Keeps that the sessions of works that wait are kept warm from this time, or are not.
     fn keep_warm(&mut self, warm: bool, at: Time) -> Result<(), Fault>;
 
+    /// Whether the engine may move to another account at the usage limit of the one in use, as it was last switched;
+    /// it may not where it was never switched, as in a store that never kept it.
+    fn moving_on(&self) -> Result<bool, Fault>;
+
+    /// Keeps that the engine may move to another account at a usage limit from this time, or may not.
+    fn set_moving_on(&mut self, moving: bool, at: Time) -> Result<(), Fault>;
+
     /// Every account added, removed or taken, in the order they were kept; none in a store that never kept one.
     fn accounts(&self) -> Result<Vec<AccountRecord>, Fault>;
 
     /// Keeps that an account was added, removed or taken. Whether it may be is not the store's to judge.
     fn keep_account(&mut self, record: &AccountRecord) -> Result<(), Fault>;
+
+    /// Every stop of the engine asked for, and every start after one, in the order they were kept; none in a store
+    /// that never kept one.
+    fn stops(&self) -> Result<Vec<StopRecord>, Fault>;
+
+    /// Keeps that the engine was asked to stop, or started again after a stop.
+    fn keep_stop(&mut self, record: &StopRecord) -> Result<(), Fault>;
 }
 
 impl Store {
@@ -497,22 +579,43 @@ impl Storage for Store {
         Ok(())
     }
 
+    fn moving_on(&self) -> Result<bool, Fault> {
+        let latest = (self.db)
+            .query_row("SELECT moving FROM moving_on ORDER BY n DESC LIMIT 1", [], |row| {
+                row.get::<_, bool>(0)
+            })
+            .optional()?;
+        Ok(latest.unwrap_or(false))
+    }
+
+    fn set_moving_on(&mut self, moving: bool, at: Time) -> Result<(), Fault> {
+        (self.db).execute(
+            "INSERT INTO moving_on (moving, time) VALUES (?1, ?2)",
+            rusqlite::params![moving, at.0],
+        )?;
+        Ok(())
+    }
+
     fn accounts(&self) -> Result<Vec<AccountRecord>, Fault> {
-        let mut query = (self.db).prepare("SELECT name, what, time FROM accounts ORDER BY n")?;
+        let mut query = (self.db).prepare("SELECT name, what, time, taker, left_resets FROM accounts ORDER BY n")?;
         let rows = query.query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
                 row.get::<_, u64>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, Option<u64>>(4)?,
             ))
         })?;
         let mut records = Vec::new();
         for row in rows {
-            let (name, what, time) = row?;
+            let (name, what, time, taker, left_resets) = row?;
             records.push(AccountRecord {
                 name,
                 what: tables::from_name("accounts", what)?,
                 at: Time(time),
+                taker: tables::from_name("accounts", taker)?,
+                left_resets: left_resets.map(Time),
             });
         }
         Ok(records)
@@ -520,9 +623,33 @@ impl Storage for Store {
 
     fn keep_account(&mut self, record: &AccountRecord) -> Result<(), Fault> {
         let what = tables::name("accounts", &record.what)?;
+        let taker = tables::name("accounts", &record.taker)?;
         (self.db).execute(
-            "INSERT INTO accounts (name, what, time) VALUES (?1, ?2, ?3)",
-            rusqlite::params![record.name, what, record.at.0],
+            "INSERT INTO accounts (name, what, time, taker, left_resets) VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![record.name, what, record.at.0, taker, record.left_resets.map(|t| t.0)],
+        )?;
+        Ok(())
+    }
+
+    fn stops(&self) -> Result<Vec<StopRecord>, Fault> {
+        let mut query = (self.db).prepare("SELECT what, time FROM stops ORDER BY n")?;
+        let rows = query.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?)))?;
+        let mut records = Vec::new();
+        for row in rows {
+            let (what, time) = row?;
+            records.push(StopRecord {
+                what: tables::from_name("stops", what)?,
+                at: Time(time),
+            });
+        }
+        Ok(records)
+    }
+
+    fn keep_stop(&mut self, record: &StopRecord) -> Result<(), Fault> {
+        let what = tables::name("stops", &record.what)?;
+        (self.db).execute(
+            "INSERT INTO stops (what, time) VALUES (?1, ?2)",
+            rusqlite::params![what, record.at.0],
         )?;
         Ok(())
     }

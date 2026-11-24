@@ -3,10 +3,11 @@
 //! work read through its moves saves as it was read (decision `a-move-is-read-through-the-renumberings`).
 
 use decide::{BlockId, CellId, Reading};
-use store::{KeptFlow, KeptOutline, SCHEMA_VERSION};
-use work::{KeptTime, OnFlow, Stretch, Went};
+use store::{Divergence, Entry, KeptFlow, KeptOutline, SCHEMA_VERSION};
+use work::{KeptTime, OnFlow, Stretch, TurnSpan, Went};
 
-use super::opening::{columns, versions};
+use super::diverged::{Change, refused};
+use super::opening::{before_pauses_waited_for_items, columns, versions};
 use super::*;
 
 /// A version of the judged flow as the store is given it: these files, each with a digest of its own making, and an
@@ -77,7 +78,20 @@ fn a_work_s_moves_and_what_its_time_went_to_read_back_as_written_its_records_as_
     d.work.kept_time.push(KeptTime {
         at,
         stretches: vec![stretch],
+        turn: Some(vec![TurnSpan {
+            from: Time(START),
+            until: Some(Time(START + 500)),
+        }]),
     });
+    // A work that held the turn nowhere keeps none held, apart from one kept before they were kept, which keeps none.
+    for turn in [Some(Vec::new()), None] {
+        let at = d.work.tick();
+        d.work.kept_time.push(KeptTime {
+            at,
+            stretches: Vec::new(),
+            turn,
+        });
+    }
     store
         .save(number, &d.work)
         .expect("the work read through its move saves again, with what came after");
@@ -111,16 +125,20 @@ fn a_work_s_moves_and_what_its_time_went_to_read_back_as_written_its_records_as_
 fn a_file_of_version_21_is_migrated_with_no_version_kept_no_work_on_one_and_no_time_kept() {
     let mut d = Driver::new();
     history(&mut d);
-    let (old, new) = kept_in_21(&d.work);
+    let mut work = d.work;
+    before_pauses_waited_for_items(&mut work);
+    let (old, new) = kept_in_21(&work);
     let store = old.open();
+    // The file ends at the schema of this build, whichever migrations follow the one that makes the tables below.
     assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
-    assert_eq!(SCHEMA_VERSION, 22);
     assert_eq!(
         columns(&old.path),
         columns(&new.path),
         "the migrated file has other tables than a new one"
     );
-    assert_eq!(store.load(WorkNumber(1)), Ok(d.work));
+    // A file of version 21 kept no times of the runs of the CI, which version 30 keeps.
+    work.timed.clear();
+    assert_eq!(store.load(WorkNumber(1)), Ok(work));
     for table in ["flow_files", "flows", "on_flow", "kept_time"] {
         assert_eq!(count(&old.path, table), 0, "{table} holds rows");
     }
@@ -130,4 +148,167 @@ fn a_file_of_version_21_is_migrated_with_no_version_kept_no_work_on_one_and_no_t
 /// The work as a file of version 21 of the schema holds it, and a file of this version that holds it.
 fn kept_in_21(work: &Work) -> (Db, Db) {
     super::opening::kept_in(21, work)
+}
+
+// A file of version 32 kept no stretches a work held the turn of its project: what it kept of the time of its works is
+// read as it was, with none held, which is not the same as a work that held it nowhere.
+#[test]
+fn a_file_of_version_32_is_migrated_with_its_kept_times_read_as_holding_no_turn() {
+    let mut d = Driver::new();
+    history(&mut d);
+    let mut work = d.work;
+    let at = work.tick();
+    work.kept_time.push(KeptTime {
+        at,
+        stretches: vec![Stretch {
+            from: Time(START),
+            until: Time(START + 1000),
+            went: Went::Owner,
+        }],
+        turn: None,
+    });
+    let (old, new) = super::opening::kept_in(32, &work);
+    let store = old.open();
+    assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
+    assert_eq!(
+        columns(&old.path),
+        columns(&new.path),
+        "the migrated file has other tables than a new one"
+    );
+    assert_eq!(store.load(WorkNumber(1)), Ok(work));
+    assert_eq!(count(&old.path, "kept_time"), 1);
+}
+
+#[test]
+fn a_file_of_version_23_is_migrated_with_no_fork_kept() {
+    let mut d = Driver::new();
+    history(&mut d);
+    let mut work = d.work;
+    before_pauses_waited_for_items(&mut work);
+    let (old, new) = super::opening::kept_in(23, &work);
+    let store = old.open();
+    assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
+    assert_eq!(
+        columns(&old.path),
+        columns(&new.path),
+        "the migrated file has other tables than a new one"
+    );
+    // A file of version 23 kept no times of the runs of the CI, which version 30 keeps.
+    work.timed.clear();
+    assert_eq!(store.load(WorkNumber(1)), Ok(work));
+    assert_eq!(count(&old.path, "forked"), 0, "a work kept before has no fork");
+}
+
+#[test]
+fn the_forks_of_a_work_read_back_as_written_each_with_its_round_and_what_it_took() {
+    let db = Db::new();
+    let mut store = db.open();
+    let number = first_work(&mut store);
+    let mut d = Driver::new();
+    history(&mut d);
+    let run = d.work.records.rounds[0].run;
+    let spent = |usd_micros| Spent {
+        usd_micros,
+        uncached_tokens: 120,
+        cache_written_tokens: Some(100),
+        cached_tokens: 18_100,
+        output_tokens: 30,
+        ..Spent::default()
+    };
+    d.on(Event::Forked {
+        run,
+        round: 1,
+        spent: spent(400_000),
+    });
+    store.save(number, &d.work).expect("the work is saved with a fork");
+    d.on(Event::Forked {
+        run,
+        round: 1,
+        spent: spent(250_000),
+    });
+    store
+        .save(number, &d.work)
+        .expect("the work is saved with a second fork");
+    assert_eq!(d.work.forked.len(), 2);
+    let loaded = db.open().load(number).expect("the work loads");
+    assert_eq!(loaded.forked, d.work.forked);
+    assert_eq!(
+        (loaded.forked[0].usd_micros, loaded.forked[1].usd_micros),
+        (400_000, 250_000)
+    );
+    assert_eq!(loaded, d.work);
+    assert_eq!(count(&db.path, "forked"), 2);
+}
+
+// A table the store holds is only added to: the moves a work made onto the versions of its flow, what its time went to
+// and the forks of its sessions are as refused where a save changes or lacks an entry as those of the records.
+#[test]
+fn a_work_changed_at_or_lacking_an_entry_of_its_moves_its_time_or_its_forks_is_refused() {
+    let db = Db::new();
+    let mut store = db.open();
+    store.keep_flow(&kept("a", &[("flow.toml", "one")])).expect("a is kept");
+    store.keep_flow(&kept("b", &[("flow.toml", "two")])).expect("b is kept");
+    let number = first_work(&mut store);
+    let mut d = Driver::new();
+    d.work.onto(Time(START), Some("a".to_string()), Reading::default());
+    history(&mut d);
+    let run = d.work.records.rounds[0].run;
+    d.on(Event::Forked {
+        run,
+        round: 1,
+        spent: Spent {
+            usd_micros: 400_000,
+            ..Spent::default()
+        },
+    });
+    d.work
+        .onto(Time(START + 60_000), Some("b".to_string()), Reading::default());
+    let stretch = Stretch {
+        from: Time(START),
+        until: Time(START + 1000),
+        went: Went::Model,
+    };
+    let at = d.work.tick();
+    d.work.kept_time.push(KeptTime {
+        at,
+        stretches: vec![stretch],
+        turn: None,
+    });
+    store.save(number, &d.work).expect("the work is saved");
+    let kept = d.work;
+    assert_eq!((kept.flows.len(), kept.kept_time.len(), kept.forked.len()), (2, 1, 1));
+
+    let changes: [Change; 3] = [
+        |w| {
+            let on = &mut w.flows[0];
+            on.version = Some("b".to_string());
+            ("on_flow", Entry::At(on.at))
+        },
+        |w| {
+            let k = &mut w.kept_time[0];
+            k.stretches.pop();
+            ("kept_time", Entry::At(k.at))
+        },
+        |w| {
+            let f = &mut w.forked[0];
+            f.usd_micros += 1;
+            ("forked", Entry::At(f.at))
+        },
+    ];
+    for change in changes {
+        let mut given = kept.clone();
+        let (table, entry) = change(&mut given);
+        refused(&db, &mut store, number, &given, table, entry, Divergence::Changed);
+    }
+    let removals: [Change; 3] = [
+        |w| ("on_flow", Entry::At(w.flows.pop().expect("a move").at)),
+        |w| ("kept_time", Entry::At(w.kept_time.pop().expect("a time kept").at)),
+        |w| ("forked", Entry::At(w.forked.pop().expect("a fork").at)),
+    ];
+    for removal in removals {
+        let mut given = kept.clone();
+        let (table, entry) = removal(&mut given);
+        refused(&db, &mut store, number, &given, table, entry, Divergence::Missing);
+    }
+    assert_eq!(store.load(number), Ok(kept));
 }

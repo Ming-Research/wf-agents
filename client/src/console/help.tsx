@@ -1,15 +1,16 @@
 // What the console's marks and keys mean: a small mark at the tree's bottom left corner, the plainest question mark
 // drawn as the page's signs are, which shows, while the pointer is over it or over what it shows, or the keys are on
-// it, a panel with the legend of every mark the console's tree draws (`MARKS` in marks.tsx) and the keys the console
-// takes (principle every-mark-is-explained).
+// it, a panel with the legend of every mark the console draws (`MARKS` in marks.tsx), the tree's and the colours of
+// the time track in an item's window, and the keys the console takes (principle every-mark-is-explained).
 
 import { useState } from 'react';
 
 import { Label } from '../parts';
-import { Legend, type MarkKey } from '../marks';
+import { Legend, type MarkKey, TRACK_MARKS } from '../marks';
+import { TRACK_KINDS } from './track';
 
-/// The marks the console's tree draws, in the order its legend lists them: a card by how its work stands, then a
-/// card's tags and rows, then what joins the cards, and the map.
+/// The marks the console draws, in the order its legend lists them: a card by how its work stands, then a card's tags
+/// and rows, then what joins the cards, and the map; then each colour of the time track an item's window draws.
 export const CONSOLE_MARKS: MarkKey[] = [
   'cardStopped',
   'cardRunning',
@@ -32,6 +33,7 @@ export const CONSOLE_MARKS: MarkKey[] = [
   'folded',
   'litWay',
   'map',
+  ...TRACK_KINDS.map((kind) => TRACK_MARKS[kind]),
 ];
 
 /// The keys the console takes, each with what it does.

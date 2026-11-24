@@ -9,11 +9,12 @@
 // the block's meaning, and its content. Of another act: what was done, and when. With no row, that nothing has run yet.
 // A content is read only when the owner opens it.
 
-import { Fragment, type ReactNode, useCallback } from 'react';
+import { Fragment, type ReactNode, useCallback, useContext, useEffect, useRef } from 'react';
 
 import { StateMark, markName } from '../marks';
-import { Fold, ListRow, Sign, StatusLine } from '../parts';
+import { Attr, Fold, ListRow, Sign, StatusLine } from '../parts';
 import type { CallRow, Following, Handed, Round, Run, Step, Unmet, WorkPage } from '../works-api';
+import { ChosenRound } from './chosen-round';
 import { CallsTook, Opener, Parts } from './marks';
 import { type HistoryRow, type SessionStep, runState } from './placing';
 import { ContextKeys, DoneList, Keys, MissedKeys, SystemPrompt, TookKeys } from './Round';
@@ -27,6 +28,7 @@ import {
   callWords,
   callsWaited,
   causeRest,
+  CHOSEN_SECTION,
   clock,
   duration,
   fullTime,
@@ -37,7 +39,6 @@ import {
   sentence,
   sessionWords,
   spentWords,
-  unmetWords,
   writerWords,
 } from './words';
 
@@ -101,6 +102,24 @@ function CallLine({ row, reader, abandoned }: { row: CallRow; reader: Reader; ab
   );
 }
 
+/// Why a return was sent back, each reason as the key its words have in `[faults]` of `agents/return/sent_back.toml` and
+/// the values recorded of it, each under the name of its field, with no sentence of the page's own (decision
+/// a-sent-back-reason-is-shown-by-its-key).
+export function Reasons({ unmet }: { unmet: Unmet[] }) {
+  return (
+    <ul className="reasons">
+      {unmet.map((u, i) => (
+        <ListRow key={i}>
+          <span className="mono">{u.key}</span>
+          {u.values.map((v, j) => (
+            <Attr key={j} name={v.name} value={v.value} />
+          ))}
+        </ListRow>
+      ))}
+    </ul>
+  );
+}
+
 /// The details of each time the cell was run within the run, when it was where there were several: where it is not the
 /// first, why it ran again, its return sent back or its
 /// last time having failed; what came back: the calls it asked the engine for, each with its result, or what it handed
@@ -130,12 +149,27 @@ function RoundPart({ run, round, calls, first, timed, sentBack, failedBefore, re
   const session = round.session;
   const given = round.given;
   const back = round.back;
+  // Where the address names this time, it is open and lit, and the Step is scrolled to it once, as the address came to
+  // name it, not each time the Step is drawn or shown again, so that the owner's place stays where he left it.
+  const named = useContext(ChosenRound);
+  const chosen = named !== null && named.run === run.run && named.round === round.number ? named : null;
+  const section = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (chosen === null || !shown || chosen.scrolled.current) return;
+    chosen.scrolled.current = true;
+    section.current?.scrollIntoView({ block: 'center' });
+  }, [chosen, shown]);
   const when =
     round.ended === null
       ? `began ${clock(round.began)}, under way`
       : `${clock(round.began)} to ${clock(round.ended)}, ${duration(round.ended - round.began)}`;
   return (
-    <Fold title={first ? 'Details' : 'Ran again'} note={timed ? when : undefined}>
+    <Fold
+      title={first ? 'Details' : 'Ran again'}
+      note={timed ? when : undefined}
+      chosen={chosen === null ? undefined : CHOSEN_SECTION}
+      section={section}
+    >
       <dl className="pairs round">
         {!first && (given.kind === 'sentBack' || failedBefore || given.kind === 'results') && (
           <>
@@ -189,11 +223,7 @@ function RoundPart({ run, round, calls, first, timed, sentBack, failedBefore, re
           <>
             <dt>Sent back</dt>
             <dd>
-              <ul className="reasons">
-                {sentBack.map((u, i) => (
-                  <ListRow key={i}>{unmetWords(u)}</ListRow>
-                ))}
-              </ul>
+              <Reasons unmet={sentBack} />
             </dd>
           </>
         )}

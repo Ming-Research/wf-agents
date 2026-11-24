@@ -10,10 +10,14 @@
 mod accounts;
 mod acts;
 mod cancelling;
+mod continuing;
 mod contract;
 mod dependencies;
 mod failing;
+mod figures;
+mod forking;
 mod going;
+mod moving_on;
 mod pausing;
 mod pinging;
 mod shared_wait;
@@ -47,12 +51,15 @@ pub fn new_item(title: &str, depends_on: &[u64]) -> NewItem {
         project: "trial".to_string(),
         depends_on: depends_on.iter().copied().map(ItemNumber).collect(),
         tags: Vec::new(),
+        continues: None,
         flow: "trial".to_string(),
         writes: vec![FirstWrite {
             block: "request".into(),
             content: format!("{title}, please."),
             value: None,
         }],
+        why: None,
+        waits_for: Vec::new(),
     }
 }
 
@@ -126,23 +133,25 @@ pub struct Trial {
     inbox: Inbox,
     /// What the carriers were handed since the process last started.
     handed: Arc<Mutex<BTreeSet<Unit>>>,
-    /// What the carriers were last told of each work's pause since the process last started.
-    paused: Told,
     /// How often the loop took an answer to each unit, over every start of the process.
     answered: BTreeMap<Unit, usize>,
     /// How many things the loop took, over every start.
     pub steps: usize,
     /// The keep-warm pings handed out and not yet answered, where the agents' sessions are kept warm.
     pings: Option<Pings>,
+    /// What the forks asked of the agents' sessions are to answer, the first first, where they are kept warm.
+    forks: Forks,
     /// The check of the outside of the agents' rounds, where it is not the script's, which always finds it well.
     outside: Option<Arc<dyn service::Outside>>,
+    /// The result a call the engine ends itself has, in the carriers' words.
+    calls: flow::agents::Calls,
 }
 
 /// The keep-warm pings handed out and not yet answered, each with its reply.
 type Pings = Arc<Mutex<Vec<(Ping, PingReply)>>>;
 
-/// What the carriers were last told of whether a pause holds each work.
-type Told = Arc<Mutex<BTreeMap<WorkNumber, bool>>>;
+/// The answers the agents' carrier gives to the forks it is asked, in order.
+type Forks = Arc<Mutex<std::collections::VecDeque<Result<service::Forked, service::ForkFailed>>>>;
 
 impl Trial {
     /// The loop with the trial's script, on an empty store.
@@ -160,35 +169,81 @@ impl Trial {
         Trial::opened(script, None, Some(outside))
     }
 
+    /// The loop with the trial's script, on an empty store, the result of a call the engine ends itself being these
+    /// words.
+    pub fn with_calls(calls: flow::agents::Calls) -> Trial {
+        Trial::opened_with(trial_script(), (None, None), calls)
+    }
+
+    /// The loop with this script, on an empty store, the result of a call the engine ends itself being these words.
+    pub fn with_script_and_calls(script: Script, calls: flow::agents::Calls) -> Trial {
+        Trial::opened_with(script, (None, None), calls)
+    }
+
     /// The loop with the trial's script, on an empty store, whose agents' rounds run in sessions kept warm: every round
     /// runs on one model, and a line that waits has its session pinged 55 minutes after its last call, at most twice
     /// in a wait. The owner has taken an account, which a session is kept warm only under.
     pub fn warm() -> Trial {
         let mut trial = Trial::opened(trial_script(), Some(Pings::default()), None);
-        for what in [store::AccountAct::Added, store::AccountAct::Taken] {
-            let (reply, mut answer) = oneshot::channel();
-            trial.take(Message::Account {
-                name: ACCOUNT.to_string(),
-                what,
-                reply,
-            });
-            (answer.try_recv())
-                .expect("the loop answers at once")
-                .expect("the account is taken");
-        }
+        trial.take_account(ACCOUNT);
         trial
+    }
+
+    /// The loop as [`Trial::warm`] has it, with this script, the outside of the agents' rounds checked by this.
+    pub fn warm_with(script: Script, outside: Arc<dyn service::Outside>) -> Trial {
+        let mut trial = Trial::opened(script, Some(Pings::default()), Some(outside));
+        trial.take_account(ACCOUNT);
+        trial
+    }
+
+    /// The owner adds an account of this name, and takes it as the one the agents run under.
+    fn take_account(&mut self, name: &str) {
+        for what in [store::AccountAct::Added, store::AccountAct::Taken] {
+            self.account(name, what);
+        }
+    }
+
+    /// The owner adds, removes or takes the account of this name.
+    pub fn account(&mut self, name: &str, what: store::AccountAct) {
+        let (reply, mut answer) = oneshot::channel();
+        self.take(Message::Account {
+            name: name.to_string(),
+            what,
+            reply,
+        });
+        (answer.try_recv())
+            .expect("the loop answers at once")
+            .expect("the account is done");
+    }
+
+    /// The owner lets the engine move to another account at a usage limit, or does not.
+    pub fn set_moving_on(&mut self, moving: bool) {
+        let (reply, mut answer) = oneshot::channel();
+        self.take(Message::SetMovingOn { moving, reply });
+        (answer.try_recv())
+            .expect("the loop answers at once")
+            .expect("the switch is set");
     }
 
     /// The loop with this script, on an empty store, its sessions kept warm where `pings` holds the pings in hand, and
     /// the outside checked by `outside` where one is given.
     fn opened(script: Script, pings: Option<Pings>, outside: Option<Arc<dyn service::Outside>>) -> Trial {
+        Trial::opened_with(script, (pings, outside), Scripted::calls())
+    }
+
+    /// The loop as [`Trial::opened`] opens it, the result of a call the engine ends itself being these words.
+    fn opened_with(
+        script: Script,
+        (pings, outside): (Option<Pings>, Option<Arc<dyn service::Outside>>),
+        calls: flow::agents::Calls,
+    ) -> Trial {
         let dir = tempfile::tempdir().expect("a directory for the store");
         let path = dir.path().join("store.sqlite");
         let clock = Arc::new(TokioClock::new(START));
         let handed = Arc::new(Mutex::new(BTreeSet::new()));
-        let paused = Told::default();
-        let carried = (pings.as_ref(), outside.as_ref());
-        let (service, inbox) = open(&path, &script, &clock, (&handed, &paused), carried);
+        let forks = Forks::default();
+        let carried = (pings.as_ref(), outside.as_ref(), &forks);
+        let (service, inbox) = open(&path, &script, &clock, &handed, carried, &calls);
         let trial = Trial {
             _dir: dir,
             path,
@@ -197,20 +252,15 @@ impl Trial {
             service,
             inbox,
             handed,
-            paused,
             answered: BTreeMap::new(),
             steps: 0,
             pings,
+            forks,
             outside,
+            calls,
         };
         trial.check();
         trial
-    }
-
-    /// Whether the carriers were last told, since the process last started, that a pause holds the work back; none
-    /// where they were told nothing of it.
-    pub fn told_paused(&self, work: WorkNumber) -> Option<bool> {
-        self.paused.lock().expect("what was told").get(&work).copied()
     }
 
     /// The works with a keep-warm ping in hand.
@@ -236,13 +286,18 @@ impl Trial {
     /// hands out again what is to be done.
     pub fn restart(&mut self) {
         self.handed = Arc::new(Mutex::new(BTreeSet::new()));
-        self.paused = Told::default();
         if let Some(pings) = &self.pings {
             pings.lock().expect("the pings").clear();
         }
-        let recorded = (&self.handed, &self.paused);
-        let carried = (self.pings.as_ref(), self.outside.as_ref());
-        let (service, inbox) = open(&self.path, &self.script, &self.clock, recorded, carried);
+        let carried = (self.pings.as_ref(), self.outside.as_ref(), &self.forks);
+        let (service, inbox) = open(
+            &self.path,
+            &self.script,
+            &self.clock,
+            &self.handed,
+            carried,
+            &self.calls,
+        );
         self.service = service;
         self.inbox = inbox;
         self.check();
@@ -291,6 +346,12 @@ impl Trial {
             }
             _ => panic!("only the carriers and the timers send to the loop in these tests"),
         };
+        Some(self.happened(work, event))
+    }
+
+    /// The loop takes what a carrier said happened to the work, the unit it answers counted as answered, and what must
+    /// always hold is checked; says what it was.
+    fn happened(&mut self, work: WorkNumber, event: Event) -> Event {
         let unit = match &event {
             Event::Returned { run, .. } | Event::Failed { run, .. } => {
                 Some(Unit::Round(work, *run, self.began(work, *run)))
@@ -308,7 +369,7 @@ impl Trial {
             .expect("the loop takes it");
         self.steps += 1;
         self.check();
-        Some(taken)
+        taken
     }
 
     /// Takes what comes until the work's decision is as `wanted` says, and gives it; fails where nothing more comes
@@ -352,17 +413,10 @@ impl Trial {
         answer.try_recv().expect("the loop answers at once")
     }
 
-    /// Answers the owner's call the work waits for.
-    pub fn answer(&mut self, work: WorkNumber, result: &str) {
+    /// Lets the run go on whose call at its limit the work waits for the owner on.
+    pub fn let_go_on(&mut self, work: WorkNumber) {
         let call = self.owners_call(work).expect("the work waits for the owner's call");
-        self.act(
-            work,
-            Act::Result {
-                call,
-                result: result.to_string(),
-            },
-        )
-        .expect("the answer is taken");
+        self.act(work, Act::GoOn { call }).expect("the run is let go on");
     }
 
     /// The owner's call the work waits for, where it waits for one.
@@ -379,7 +433,23 @@ impl Trial {
         }
     }
 
-    /// Takes the work to its end, answering the owner's questions as they come.
+    /// Takes what comes until the work waits for the owner's call, and gives it: the plan's run reaches its limit of
+    /// returns after its first three rounds.
+    pub async fn to_the_owners_call(&mut self, work: WorkNumber) -> CallId {
+        loop {
+            if let Some(call) = self.owners_call(work) {
+                return call;
+            }
+            if self.step().await.is_none() {
+                panic!(
+                    "nothing more comes, and work {} waits for no call of the owner's",
+                    work.0
+                );
+            }
+        }
+    }
+
+    /// Takes the work to its end, answering the owner's calls as they come.
     pub async fn drive(&mut self, work: WorkNumber) -> Decision {
         loop {
             let decision = self.decision(work);
@@ -387,7 +457,7 @@ impl Trial {
                 return decision;
             }
             if self.owners_call(work).is_some() {
-                self.answer(work, "Yes, by name.");
+                self.let_go_on(work);
                 continue;
             }
             if self.step().await.is_none() {
@@ -503,27 +573,27 @@ fn carried(driver: &driver::Driver, todo: &Todo) -> Option<Unit> {
 }
 
 /// Opens the loop on the store at this path, with carriers following the script that record in `handed` what they
-/// are given and in `paused` what they are told of each work's pause, and keep the agents' sessions warm where `pings`
-/// holds the pings in hand; the outside of the agents' rounds is checked by `outside` where one is given, and else is
+/// are given, and keep the agents' sessions warm where `pings` holds the pings in hand; the outside of the agents' rounds is checked by `outside` where one is given, and else is
 /// always well.
 fn open(
     path: &Path,
     script: &Script,
     clock: &Arc<TokioClock>,
-    (handed, paused): (&Arc<Mutex<BTreeSet<Unit>>>, &Told),
-    (pings, outside): (Option<&Pings>, Option<&Arc<dyn service::Outside>>),
+    handed: &Arc<Mutex<BTreeSet<Unit>>>,
+    (pings, outside, forks): (Option<&Pings>, Option<&Arc<dyn service::Outside>>, &Forks),
+    calls: &flow::agents::Calls,
 ) -> (Service, Inbox) {
     let store = Store::open(path).expect("the store opens");
     let recording = Arc::new(Recording {
         scripted: Scripted::new(script.clone()),
         handed: handed.clone(),
-        paused: paused.clone(),
         path: path.to_path_buf(),
     });
     let agents: Arc<dyn Rounds> = match pings {
         Some(pings) => Arc::new(Warm {
             recording: recording.clone(),
             pings: pings.clone(),
+            forks: forks.clone(),
         }),
         None => recording.clone(),
     };
@@ -535,6 +605,7 @@ fn open(
         host: Some(Arc::new(recording.scripted.clone())),
         slots: SLOTS,
         tokens: Arc::new(service::KeptTokens::new()),
+        calls: calls.clone(),
     };
     let clock: Arc<dyn service::Clock> = clock.clone();
     Service::open(Box::new(store), vec![trial_flow()], carriers, clock).expect("the loop opens")
@@ -562,6 +633,7 @@ fn ran_on(account: Option<String>) -> RanOn {
 struct Warm {
     recording: Arc<Recording>,
     pings: Pings,
+    forks: Forks,
 }
 
 impl Rounds for Warm {
@@ -595,14 +667,22 @@ impl Rounds for Warm {
     fn ping(&self, ping: Ping, reply: PingReply) {
         self.pings.lock().expect("the pings").push((ping, reply));
     }
+
+    fn fork(
+        &self,
+        fork: service::Fork,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<service::Forked, service::ForkFailed>> + Send + '_>>
+    {
+        let _ = fork;
+        let answer = self.forks.lock().expect("the forks").pop_front();
+        Box::pin(async move { answer.expect("a fork is asked that the test gave no answer for") })
+    }
 }
 
 /// The scripted carriers, recording what they are handed after checking that the store holds it as to be done.
 struct Recording {
     scripted: Scripted,
     handed: Arc<Mutex<BTreeSet<Unit>>>,
-    /// What it was last told of whether a pause holds each work.
-    paused: Told,
     path: PathBuf,
 }
 
@@ -639,10 +719,6 @@ impl Rounds for Recording {
         let unit = Unit::Round(round.work, round.run, round.number);
         self.hand(round.work, Effect::Stop { run: round.run }, unit);
         self.scripted.stop(round, reply);
-    }
-
-    fn paused(&self, work: WorkNumber, paused: bool) {
-        self.paused.lock().expect("what was told").insert(work, paused);
     }
 
     fn release(&self, release: Release, reply: ReleaseReply) {

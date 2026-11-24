@@ -1,23 +1,31 @@
 //! What a work changed, as its page shows it, worked out with git in the project's repository: each file between where
 //! the work's branch left main and the work's latest head, together with what its worktree holds that is not committed
-//! while the worktree is there; and the unified diff of one of them. Nothing here writes, and git is told to take no
-//! lock it can do without, so that an agent's own git in the worktree is never held up by a look.
+//! while the worktree is there; and the unified diff of one of them. Nothing here writes: git is told to take no lock
+//! it can do without, and a diff against the worktree is told not to write down the stat information it finds
+//! out of date ([`WRITES_NOTHING`]), so that an agent's own git in the worktree is never held up by a look.
 //!
 //! The work's latest head is its branch while its worktree is there, which holds what it committed since its last round
 //! ended; once the worktree is gone, the reference the engine keeps each head under ([`crate::head::kept`]), or, for a
 //! work whose heads were read before they were kept so, its branch. Where the branch left main is worked out from the
 //! head and main alone ([`base`]), and is the same before the work merges and after; so what a work at a head changed
 //! is worked out once for each head and kept in memory, as is the head of a work with no worktree, whose head nothing
-//! moves until its worktree is made again ([`Known`]). What a worktree holds changes as its agent works, and is worked
-//! out each time it is asked for: two git commands and a read of each file not tracked.
+//! moves until its worktree is made again ([`Known`]). What a worktree holds changes as its agent works: two git
+//! commands and a read of each file not tracked. Only a round of the work or a tool run for it changes its branch or its
+//! worktree, and each is recorded as it begins and ends; so the numbers of a work with neither under way are kept from
+//! one look to the next until its records move on or its worktree comes or goes ([`Known::stat`]).
+//!
+//! The looks of the whole engine share one limit of how many run at once ([`LOOKS`]), whatever read or project they are
+//! for.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
+use decide::Seq;
 use service::{Changes, Diff, Diffstat, FileChanged};
 use store::WorkNumber;
+use tokio::sync::{OnceCell, Semaphore};
 
 use crate::git::{self, Place};
 
@@ -25,18 +33,48 @@ use crate::git::{self, Place};
 /// repository's configuration names for a diff run.
 const PLAIN: [&str; 3] = ["--no-renames", "--no-ext-diff", "--no-textconv"];
 
+/// What a diff against the worktree is given so that it writes nothing. `--no-optional-locks` does not stop it: with
+/// `diff.autoRefreshIndex`, which is on unless it is turned off, `git diff` rewrites the index with the stat
+/// information of each file whose time or size changed and whose content did not. A diff is still taken of the
+/// content of such a file, which is the same, and so it lists none. The one-file diff [`Known::diff`] takes is given
+/// it too: `git diff <base> -- <path>` writes the index only where the file's content is the base's while its time
+/// is not what the index knows, and a file is diffed only where the look just listed it as differing from the base,
+/// so that holds only where the agent put it back in the moment between the two; no test can make that moment come.
+const WRITES_NOTHING: [&str; 4] = ["--no-optional-locks", "-c", "diff.autoRefreshIndex=false", "diff"];
+
 /// The most of one file's diff that is given, in bytes: a file made by a program, such as a lock file, can change by
 /// megabytes, which no reader of the page reads whole.
 pub(crate) const DIFF: usize = 1 << 20;
 
+/// How many looks at what works changed run at once in the whole engine: each runs a few git commands, which take tens
+/// of milliseconds each, mostly the process starting, so a few at once keep a read of every work short without
+/// crowding the machine.
+const LOOKS: usize = 8;
+
+/// The turns of the looks, taken by every read of every project's repository.
+static LOOKING: Semaphore = Semaphore::const_new(LOOKS);
+
 /// What was worked out so far, kept in memory for the process: what a work at each head changed, by the head; the
-/// latest head of each work with no worktree, by the work; and the pull request each merge's commit names, by the
-/// commit.
+/// latest head of each work with no worktree, by the work; the pull request each merge's commit names, by the commit;
+/// and the latest look at each work's numbers, by the work.
 #[derive(Default)]
 pub(crate) struct Known {
     between: Mutex<HashMap<String, Arc<Between>>>,
     heads: Mutex<HashMap<WorkNumber, Option<String>>>,
     pulls: Mutex<HashMap<String, Option<u64>>>,
+    looks: Mutex<HashMap<WorkNumber, Look>>,
+    /// How many times what a work changed was worked out with git.
+    #[cfg(test)]
+    looked: std::sync::atomic::AtomicUsize,
+}
+
+/// A look at a work's numbers, taken with its records at this place and its worktree there or not; its answer, once it
+/// has one, is given to every read that asks of the work as it stood so. A look taken while nothing of the work was
+/// under way is kept for the reads after it; one taken while something was, only while it runs.
+struct Look {
+    place: Seq,
+    worktree: bool,
+    answer: Arc<OnceCell<Result<Option<Diffstat>, String>>>,
 }
 
 /// What a work at a head changed: where its branch left main, and each file changed since, by its path.
@@ -76,8 +114,53 @@ fn known<T>(map: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 impl Known {
+    /// How many files the work at its place changed, and how many lines added and removed in them, as
+    /// [`Known::changed`] works them out; its records being at `at`, with a round of it or a tool run for it
+    /// `under_way` or not. Worked out with nothing of the work under way, they hold until its records move on or its
+    /// worktree comes or goes, and are not worked out again before. Reads that ask of the work as it stands while a
+    /// look at it runs are given that look's answer.
+    pub(crate) async fn stat(
+        &self,
+        repo: &Path,
+        main: &str,
+        (work, place): (WorkNumber, &Place),
+        (at, under_way): (Seq, bool),
+    ) -> Result<Option<Diffstat>, String> {
+        let worktree = place.dir.is_dir();
+        let answer = {
+            let mut looks = known(&self.looks);
+            match looks.get(&work) {
+                Some(look) if look.place == at && look.worktree == worktree => look.answer.clone(),
+                _ => {
+                    let answer = Arc::new(OnceCell::new());
+                    let look = Look {
+                        place: at,
+                        worktree,
+                        answer: answer.clone(),
+                    };
+                    looks.insert(work, look);
+                    answer
+                }
+            }
+        };
+        let stat = (answer.get_or_init(|| async {
+            let changed = self.changed(repo, main, work, place).await?;
+            Ok(changed.map(|changed| changed.stat()))
+        }))
+        .await
+        .clone();
+        // A worktree under way may change at any moment, and a look that failed is tried again by the next read.
+        if under_way || stat.is_err() {
+            let mut looks = known(&self.looks);
+            if looks.get(&work).is_some_and(|look| Arc::ptr_eq(&look.answer, &answer)) {
+                looks.remove(&work);
+            }
+        }
+        stat
+    }
+
     /// What the work at its place changed, where `main` names main's head in the repository; none where it has no
-    /// head to tell it from, as before its branch is made.
+    /// head to tell it from, as before its branch is made. It waits for its turn among the engine's looks.
     pub(crate) async fn changed(
         &self,
         repo: &Path,
@@ -85,6 +168,9 @@ impl Known {
         work: WorkNumber,
         place: &Place,
     ) -> Result<Option<Changed>, String> {
+        let _turn = LOOKING.acquire().await;
+        #[cfg(test)]
+        self.looked.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let worktree = place.dir.is_dir();
         let Some(head) = self.head(repo, work, place, worktree).await? else {
             return Ok(None);
@@ -135,6 +221,7 @@ impl Known {
         if !changes.files.iter().any(|f| f.path == path) {
             return Ok(None);
         }
+        let _turn = LOOKING.acquire().await;
         let text = if changed.untracked.contains(path) {
             let (lead, tail) = (["--no-optional-locks", "diff", "--no-index"], ["--", "/dev/null", path]);
             let args = [&lead[..], &PLAIN[..], &tail[..]].concat();
@@ -145,11 +232,8 @@ impl Known {
                 _ => return Err(format!("git diff --no-index of {path} failed: {}", said.err)),
             }
         } else if changes.worktree {
-            let (lead, tail) = (
-                ["--no-optional-locks", "--literal-pathspecs", "diff"],
-                [changes.base.as_str(), "--", path],
-            );
-            let args = [&lead[..], &PLAIN[..], &tail[..]].concat();
+            let (lead, tail) = (["--literal-pathspecs"], [changes.base.as_str(), "--", path]);
+            let args = [&lead[..], &WRITES_NOTHING[..], &PLAIN[..], &tail[..]].concat();
             git::git(&place.dir, &args).await?
         } else {
             let lead = ["--literal-pathspecs", "diff"];
@@ -161,11 +245,13 @@ impl Known {
     }
 
     /// The number of the pull request the title of the commit names at its end, as GitHub titles the commit a merge of
-    /// one makes, `(#N)`; none where it names none. Worked out once for each commit.
+    /// one makes, `(#N)`; none where it names none. Worked out once for each commit, in its turn among the engine's
+    /// looks.
     pub(crate) async fn pull_named(&self, repo: &Path, commit: &str) -> Result<Option<u64>, String> {
         if let Some(named) = known(&self.pulls).get(commit) {
             return Ok(*named);
         }
+        let _turn = LOOKING.acquire().await;
         let title = git::git(repo, &["log", "-1", "--format=%s", commit]).await?;
         let named = (title.trim_end().strip_suffix(')'))
             .and_then(|title| title.rsplit_once("(#"))
@@ -280,8 +366,7 @@ fn numstat(out: &str) -> BTreeMap<String, Lines> {
 /// latest head included, and each file git does not track and does not ignore, all of whose lines are added; with the
 /// paths of the latter.
 async fn in_worktree(dir: &Path, base: &str) -> Result<(BTreeMap<String, Lines>, BTreeSet<String>), String> {
-    let lead = ["--no-optional-locks", "diff", "--numstat", "-z"];
-    let args = [&lead[..], &PLAIN[..], &[base][..]].concat();
+    let args = [&WRITES_NOTHING[..], &["--numstat", "-z"][..], &PLAIN[..], &[base][..]].concat();
     let mut files = numstat(&git::git(dir, &args).await?);
     let others = [
         "--no-optional-locks",

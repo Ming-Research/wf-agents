@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CellNow, Item, Items, Now, Summary, Wait } from '../works-api';
-import { asksOf, findItems, itemPaths, pathWords, STANDINGS, shownTree, type Shown } from './items';
+import { asksOf, findItems, STANDINGS, shownTree, type Shown } from './items';
 import { indexTree } from './tree';
 
 const CELLS = ['plan', 'implement', 'merge'];
@@ -25,7 +25,16 @@ function work(item: number, now: Now, states: CellNow['state'][] = ['notYet', 'n
       record: null,
       open: states[i] === 'running' || states[i] === 'resting' ? 1 : null,
     })),
-    spent: { usdMicros: 1_500_000, inputTokens: 0, cachedTokens: 0, outputTokens: 0, workingMs: 0, rounds: 3 },
+    spent: {
+      usdMicros: 1_500_000,
+      inputTokens: 0,
+      cacheWrittenTokens: 0,
+      unsplitTokens: 0,
+      cachedTokens: 0,
+      outputTokens: 0,
+      workingMs: 0,
+      rounds: 3,
+    },
     last: null,
   };
 }
@@ -251,7 +260,7 @@ describe('the folds of the tree', () => {
 });
 
 describe('the search of the items', () => {
-  // 1 depends on 2 and 3, and 2 on 4: the paths 1-2, 1-3 and 1-2-4. 5, cancelled, and 65 stand alone.
+  // 1 depends on 2 and 3, and 2 on 4; 5, cancelled, and 65 stand alone.
   const named = (i: Item, title: string): Item => ({ ...i, title });
   const data: Items = {
     items: [
@@ -263,52 +272,29 @@ describe('the search of the items', () => {
       named(item(65, 'open'), 'Read the record'),
     ],
   };
-  const found = (query: string) => findItems(data, query).map((f) => pathWords(f.path));
-
-  it('writes each item by its path in the tree, from its root down, as the tree places it', () => {
-    const paths = itemPaths(data);
-    const words = [1, 2, 3, 4, 5, 65].map((n) => pathWords(paths.get(n) ?? []));
-    expect(words).toEqual(['1', '1-2', '1-3', '1-2-4', '5', '65']);
-  });
+  const found = (query: string) => findItems(data, query).map((i) => i.number);
 
   it('finds an item by its number, with or without #, and as the number is typed, the items whose number begins so', () => {
-    expect(found('65')).toEqual(['65']);
-    expect(found('#65')).toEqual(['65']);
-    expect(found(' 3 ')).toEqual(['1-3']);
-    expect(found('6')).toEqual(['65']);
-    expect(found('1')).toEqual(['1']);
+    expect(found('65')).toEqual([65]);
+    expect(found('#65')).toEqual([65]);
+    expect(found(' 3 ')).toEqual([3]);
+    expect(found('6')).toEqual([65]);
+    // The very number first, then the others it begins.
+    expect(found('1')).toEqual([1]);
+    const typed: Items = { items: [item(26, 'open'), item(2, 'done'), item(27, 'open'), item(260, 'cancelled')] };
+    expect(findItems(typed, '2').map((i) => i.number)).toEqual([2, 26, 27, 260]);
+    expect(findItems(typed, '26').map((i) => i.number)).toEqual([26, 260]);
   });
 
-  it('finds the item a path from its root names, and the items under it, in the order of the tree', () => {
-    expect(found('1-2')).toEqual(['1-2', '1-2-4']);
-    expect(found('1-2-4')).toEqual(['1-2-4']);
-    expect(found('1-')).toEqual(['1-2', '1-2-4', '1-3']);
-    // A path that does not begin at a root names nothing.
-    expect(found('2-4')).toEqual([]);
-  });
-
-  it('finds as a path is typed a digit at a time: the last number begun names each number it begins, the very one first', () => {
-    // 26 depends on 27, 28 and 29, and 27 on 30.
-    const typed: Items = {
-      items: [
-        item(26, 'open', [27, 28, 29]),
-        item(27, 'done', [30]),
-        item(28, 'open'),
-        item(29, 'cancelled'),
-        item(30, 'done'),
-      ],
-    };
-    const paths = (query: string) => findItems(typed, query).map((f) => pathWords(f.path));
-    expect(paths('26-2')).toEqual(['26-27', '26-27-30', '26-28', '26-29']);
-    expect(paths('26-28')).toEqual(['26-28']);
-    expect(paths('26-27-3')).toEqual(['26-27-30']);
-    expect(paths('2')).toEqual(['26', '26-27', '26-28', '26-29']);
+  it('takes numbers joined by `-` for no path: it finds only what a title holds of them', () => {
+    expect(found('1-2')).toEqual([]);
+    expect(found('1-')).toEqual([]);
   });
 
   it('finds the items whose title holds what is typed, in any case and as Chinese is typed, open, done or cancelled', () => {
-    expect(found('find')).toEqual(['1', '5']);
-    expect(found('LEGEND')).toEqual(['1-2']);
-    expect(found('搜索')).toEqual(['1-3']);
+    expect(found('find')).toEqual([1, 5]);
+    expect(found('LEGEND')).toEqual([2]);
+    expect(found('搜索')).toEqual([3]);
     expect(found('nowhere')).toEqual([]);
   });
 
@@ -324,8 +310,7 @@ describe('what a card shows of an item', () => {
     kind: 'waits',
     at: 'implement',
     on: [
-      { kind: 'call', call: 1, who: 'owner', what: { kind: 'question', who: 'owner', question: 'Which?' } },
-      { kind: 'call', call: 2, who: 'architect', what: { kind: 'question', who: 'architect', question: 'Where?' } },
+      { kind: 'call', call: 1, who: 'owner', what: { kind: 'atLimit', limit: { of: 'returns', sentBack: 2 } } },
       { kind: 'call', call: 3, who: null, what: { kind: 'tool', name: 'ci', input: '' } },
       { kind: 'precondition', test: 'confirmed', words: 'The owner confirmed it', by: [{ kind: 'owner' }] },
       {
@@ -341,9 +326,9 @@ describe('what a card shows of an item', () => {
 
   it('counts the things a work waits on the owner for as the engine\'s list says, and nothing of what it waits for that the list leaves out', () => {
     const listed = [
-      { key: 'call-1', why: 'Which?', ends: { kind: 'reply' as const, call: 1 } },
+      { key: 'limit', why: "The cell's run had 2 returns sent back, which is its limit.", ends: { kind: 'goOn' as const, call: 1 } },
       { key: 'write-confirmed', why: 'implement requires test = confirmed, which confirmed keeps from holding.', ends: { kind: 'write' as const, block: 'confirmed', value: 'yes' } },
-      { key: 'limit', why: 'The cell ran 3 times in a row for what a cell after it wrote, which is its limit.', ends: { kind: 'letGo' as const, cell: 'implement' } },
+      { key: 'answer-which', why: 'Which?', ends: { kind: 'answer' as const, question: 'which', version: 1 } },
     ];
     expect(asksOf({ waits: listed })).toBe(3);
     expect(asksOf({ waits: [] })).toBe(0);
@@ -364,7 +349,7 @@ describe('what a card shows of an item', () => {
 
   it('shows the work of an item once it has begun, and while it goes on', () => {
     const notBegun = item(1, 'open', [2, 3]);
-    const listed: Wait[] = ['call-1', 'write-confirmed', 'limit'].map((key) => ({ key, why: `${key}.`, ends: { kind: 'resume' } }));
+    const listed: Wait[] = ['limit', 'write-confirmed', 'answer-which'].map((key) => ({ key, why: `${key}.`, ends: { kind: 'resume' } }));
     const begun: Item = { ...item(2, 'open'), work: { ...work(2, waits, ['done', 'resting', 'notYet']), waits: listed } };
     const shown = shownTree({ items: [notBegun, begun, item(3, 'done')] });
     expect(shown[0].work).toBeNull();

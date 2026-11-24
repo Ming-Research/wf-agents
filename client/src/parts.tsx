@@ -12,6 +12,9 @@ import {
   useState,
 } from 'react';
 
+import { hashOf } from './route';
+import { workName } from './works/words';
+
 /// The bar: the page's name, the views as text tabs (the one shown marked), and at its right what belongs to the page
 /// as a whole.
 export function Bar({ name, views, current, end }: {
@@ -139,6 +142,31 @@ export function Switch<T extends string>({ label, choices, value, onChange }: {
         </button>
       ))}
     </span>
+  );
+}
+
+/// The spans of time a view counts over, side by side as links: each opens the view over its span and can be copied as
+/// an address, the one in use is marked and keeps the address it stands at. Which span a view is over is in its address,
+/// so that a span is a place the owner can send someone to.
+export function SpanLinks<T extends string>({ label, choices, value }: {
+  label: string;
+  choices: { value: T; name: ReactNode; href: string; title?: string }[];
+  value: T;
+}) {
+  return (
+    <nav className="span-links" aria-label={label}>
+      {choices.map((c) => (
+        <a
+          key={c.value}
+          className="span-link link"
+          href={c.href}
+          title={c.title}
+          aria-current={c.value === value ? 'true' : undefined}
+        >
+          {c.name}
+        </a>
+      ))}
+    </nav>
   );
 }
 
@@ -321,8 +349,6 @@ function keptWindow(key: string): number {
 /// which the browser keeps under `widthKey`. It floats over the view, which keeps its whole width under it. When it
 /// comes and goes besides the tab is its view's to say (`open`); `label` names it, and `hide` and `show` say what the
 /// tab does.
-///
-/// Brought over from the console of the engine on `old-main` (`client/src/console/Drawer.tsx`).
 export function Drawer({
   open,
   onToggle,
@@ -438,16 +464,39 @@ function foldedNow(): string[] {
   }
 }
 
+/// A work by its number, which opens it with one round of one of its runs chosen.
+export function RoundLink({ work, run, round }: { work: number; run: number; round: number }) {
+  return (
+    <a
+      href={hashOf({ view: 'work', work, run, round })}
+      className="link mono"
+      title="Open the work with this round chosen"
+    >{workName(work)}</a>
+  );
+}
+
 /// A section of the item's window, in every tab of it: a whole row in the accent's colour that names it and folds it
 /// away at a press, how many it holds and a muted note beside the name, and under it what it holds. The spaces between
 /// the name and what follows it are not drawn, the row's gap being, but keep them apart where the row is read as text.
-export function Fold({ title, count, note, children }: {
+/// A section `chosen` is one the owner was brought to, as by a link: it is open whatever was kept, stands in the accent's
+/// soft light and says in these words, on pointing at it, what the light is; it keeps nothing of its being opened.
+/// `section` is the section's element, for the one that scrolls to it.
+export function Fold({ title, count, note, children, chosen, section }: {
   title: string;
   count?: number;
   note?: ReactNode;
   children: ReactNode;
+  chosen?: string;
+  section?: RefObject<HTMLElement | null>;
 }) {
-  const [folded, setFolded] = useState(() => foldedNow().includes(title));
+  const [folded, setFolded] = useState(() => chosen === undefined && foldedNow().includes(title));
+  // A section that becomes the one chosen opens as it is drawn, not in an effect after it: the one that scrolls to it
+  // measures the section open.
+  const [wasChosen, setWasChosen] = useState(chosen);
+  if (wasChosen !== chosen) {
+    setWasChosen(chosen);
+    if (chosen !== undefined) setFolded(false);
+  }
   const turn = () => {
     const now = !folded;
     setFolded(now);
@@ -459,7 +508,11 @@ export function Fold({ title, count, note, children }: {
     }
   };
   return (
-    <section className="cw-fold">
+    <section
+      ref={section}
+      className={chosen === undefined ? 'cw-fold' : 'cw-fold cw-fold-chosen'}
+      title={chosen}
+    >
       <button type="button" className="cw-fold-head" aria-expanded={!folded} onClick={turn}>
         <span className="cw-fold-sign" aria-hidden="true">
           <FoldMark open={!folded} />

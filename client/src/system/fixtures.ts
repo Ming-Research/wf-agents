@@ -4,12 +4,14 @@
 // paused. The settings are a file like the sample's, with a value the engine runs at another and a table left out.
 
 import { fixtureItems } from '../works/fixtures';
-import type { Spent } from '../works-api';
-import type { AccountsPage, AccountUsage, SettingsPage, System, Week } from './api';
+import type { Line, Spent } from '../works-api';
+import type { AccountsPage, AccountUsage, Figure, Going, SettingsPage, System, Week } from './api';
 
 const nothing = (): Spent => ({
   usdMicros: 0,
   inputTokens: 0,
+  cacheWrittenTokens: 0,
+  unsplitTokens: 0,
   cachedTokens: 0,
   outputTokens: 0,
   workingMs: 0,
@@ -19,6 +21,8 @@ const nothing = (): Spent => ({
 const add = (a: Spent, b: Spent): Spent => ({
   usdMicros: a.usdMicros + b.usdMicros,
   inputTokens: a.inputTokens + b.inputTokens,
+  cacheWrittenTokens: a.cacheWrittenTokens + b.cacheWrittenTokens,
+  unsplitTokens: a.unsplitTokens + b.unsplitTokens,
   cachedTokens: a.cachedTokens + b.cachedTokens,
   outputTokens: a.outputTokens + b.outputTokens,
   workingMs: a.workingMs + b.workingMs,
@@ -29,6 +33,8 @@ const add = (a: Spent, b: Spent): Spent => ({
 const part = (spent: Spent, share: number): Spent => ({
   usdMicros: Math.round(spent.usdMicros * share),
   inputTokens: Math.round(spent.inputTokens * share),
+  cacheWrittenTokens: Math.round(spent.cacheWrittenTokens * share),
+  unsplitTokens: Math.round(spent.unsplitTokens * share),
   cachedTokens: Math.round(spent.cachedTokens * share),
   outputTokens: Math.round(spent.outputTokens * share),
   workingMs: Math.round(spent.workingMs * share),
@@ -107,6 +113,30 @@ export function fixtureSystem(starts: number[]): System {
   };
 }
 
+/// What the calls of each agent's round under way in the works' fixtures have come to so far. The works' fixtures hold one
+/// round under way, which shows each case of a figure in one row: the growth over the round past its line, the growth
+/// for each call within its line, and the cost with no line to judge by yet; a round with no call told yet, as any other
+/// under way would be, has no figure.
+export function fixtureUnderWay(): Going[] {
+  const rounds = fixtureItems().items.flatMap((i) =>
+    i.work.now.kind === 'round' ? [{ work: i.work.number, run: i.work.now.run, round: i.work.now.round }] : [],
+  );
+  const line = (value: number, samples: number): Line => ({ value, samples, scope: 'cell' });
+  const figure = (value: number, on: Line | null, past: boolean): Figure => ({ value, line: on, past });
+  return rounds.map(
+    (round, n): Going =>
+      n === 0
+        ? {
+            ...round,
+            context: 182_400,
+            added: figure(96_000, line(60_000, 12), true),
+            perCall: figure(3_000, line(5_000, 12), false),
+            cost: figure(310_000, null, false),
+          }
+        : { ...round, context: null, added: null, perCall: null, cost: null },
+  );
+}
+
 export function fixtureSettings(): SettingsPage {
   return {
     file: '/data/install.toml',
@@ -127,7 +157,8 @@ export function fixtureSettings(): SettingsPage {
         keys: [
           key('command', '"claude"'),
           key('slots', '3', '2', { kind: 'count' }),
-          key('args', '["--allowedTools", "Edit(./**)"]'),
+          { key: 'highest_level', written: null, running: null, change: { kind: 'level' } },
+          key('env', '["HTTPS_PROXY"]'),
           key('work_budget_usd', '5.0'),
         ],
       },
@@ -143,7 +174,7 @@ export function fixtureSettings(): SettingsPage {
       {
         name: 'sessions',
         leftOut: true,
-        keys: [{ key: 'context_limit', written: null, running: '500000', change: { kind: 'count' } }],
+        keys: [{ key: 'compact_at', written: null, running: '500000', change: { kind: 'count' } }],
       },
     ],
   };
@@ -201,6 +232,8 @@ export function fixtureAccounts(): AccountsPage {
       account('old', 350),
     ],
     inUse: 'work',
+    movingOn: false,
+    moves: [],
     command: 'claude setup-token',
     closed: null,
   };

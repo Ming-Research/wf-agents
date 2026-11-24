@@ -5,9 +5,9 @@
 //
 // The page is to stay quick with several hundred works, each change of any of them read again. So the interface's
 // changes come on the page's one stream (changes.ts); a part reads again at most once at a time, and once more after
-// a read where changes came while it was under way; and the items, which the bar and the list of works both show, are
-// read once for both, each item that did not change kept as the very object it was, so that what draws it is not drawn
-// again.
+// a read where changes came while it was under way; and the items, which the bar, the list of works and the console
+// all show, are read once for all of them, each item that did not change kept as the very object it was, so that what
+// draws it is not drawn again.
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
@@ -35,6 +35,7 @@ import type {
   VersionPage,
   WorkPage,
 } from '../works-api';
+import { workName } from './words';
 
 export interface Source {
   loadCopies(): Promise<Copies>;
@@ -114,8 +115,8 @@ export const FIXTURES: Source = {
       stopped = true;
     };
   },
-  loadChanges: (work) => Promise.reject(new Error(`The made-up work ${work} changed no files`)),
-  loadDiff: (work) => Promise.reject(new Error(`The made-up work ${work} changed no files`)),
+  loadChanges: (work) => Promise.reject(new Error(`The made-up ${workName(work)} changed no files`)),
+  loadDiff: (work) => Promise.reject(new Error(`The made-up ${workName(work)} changed no files`)),
   loadSystem: async (work, line, session) => (await import('./fixtures')).fixtureSystem(work, line, session),
   loadCall: async (work, call) => (await import('./fixtures')).fixtureCall(work, call),
   act: async (work, what) => {
@@ -194,8 +195,23 @@ export function useSource(): Source {
   return useContext(SourceContext);
 }
 
+/// Whether a change says only that what the calls of an agent's round under way have come to changed: it names no work
+/// and sets no other flag, since no record of a work holds it, and only a part that shows it has anything to read.
+export function onlyGoing(changed: Changed): boolean {
+  return (
+    changed.going === true &&
+    changed.works.length === 0 &&
+    !changed.items &&
+    !changed.copies &&
+    !changed.accounts &&
+    !changed.observations
+  );
+}
+
 /// Calls `onChanged` each time the source says something happened, and `onOpened` each time its stream opens, for as
-/// long as the part that asks is shown.
+/// long as the part that asks is shown. A change that says only what the rounds under way have come to is not told to
+/// it ([`useGoings`] is told): it comes with every call of every round, and a part that reads the engine, the items or
+/// a work again for each would read for nothing.
 export function useChanges(onChanged: (changed: Changed) => void, onOpened: () => void) {
   const source = useSource();
   const latest = useRef({ onChanged, onOpened });
@@ -205,11 +221,39 @@ export function useChanges(onChanged: (changed: Changed) => void, onOpened: () =
   useEffect(
     () =>
       source.changes(
-        (c) => latest.current.onChanged(c),
+        (c) => {
+          if (!onlyGoing(c)) latest.current.onChanged(c);
+        },
         () => latest.current.onOpened(),
       ),
     [source],
   );
+}
+
+/// Calls `onGoing` each time the source says what the calls of the rounds under way have come to changed, and each
+/// time its stream opens, while `shown`: a part that is hidden is told nothing, and is told once it is shown again by
+/// reading when it is.
+export function useGoings(onGoing: () => void, shown: boolean) {
+  const source = useSource();
+  const latest = useRef(onGoing);
+  useEffect(() => {
+    latest.current = onGoing;
+  });
+  // Shown again after being hidden, a part reads once for what it was not told.
+  const was = useRef(shown);
+  useEffect(() => {
+    if (shown && !was.current) latest.current();
+    was.current = shown;
+  }, [shown]);
+  useEffect(() => {
+    if (!shown) return undefined;
+    return source.changes(
+      (c) => {
+        if (c.going === true) latest.current();
+      },
+      () => latest.current(),
+    );
+  }, [source, shown]);
 }
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -287,6 +331,10 @@ export function useReading<T>(load: () => Promise<T>): { value: T | null; failed
   return { ...state, read };
 }
 
+/// Where the items are read from, and what says when to read them again. A source of the works page is one; the
+/// console's source names the one it reads its items from (console/source.ts).
+export type ItemsFeed = Pick<Source, 'loadItems' | 'changes'>;
+
 /// The items as read for every part that shows them, and the parts to tell when they are read again.
 interface ItemsStore {
   state: { value: Items | null; failed: string | null };
@@ -295,19 +343,19 @@ interface ItemsStore {
   stop: (() => void) | null;
 }
 
-const itemsStores = new WeakMap<Source, ItemsStore>();
+const itemsStores = new WeakMap<ItemsFeed, ItemsStore>();
 
-function itemsStore(source: Source): ItemsStore {
-  let store = itemsStores.get(source);
+function itemsStore(feed: ItemsFeed): ItemsStore {
+  let store = itemsStores.get(feed);
   if (store === undefined) {
     const made: ItemsStore = {
       state: { value: null, failed: null },
       shown: new Set(),
-      reads: oneAtATime(() => readItems(source, made)),
+      reads: oneAtATime(() => readItems(feed, made)),
       stop: null,
     };
     store = made;
-    itemsStores.set(source, store);
+    itemsStores.set(feed, store);
   }
   return store;
 }
@@ -333,12 +381,12 @@ export function keptSame(before: Items, now: Items): Items {
 
 /// Reads the items for every part that shows them, and tells each what came of it. The store's reads run it at most
 /// once at a time.
-function readItems(source: Source, store: ItemsStore): Promise<void> {
+function readItems(feed: ItemsFeed, store: ItemsStore): Promise<void> {
   const set = (state: ItemsStore['state']) => {
     store.state = state;
     [...store.shown].forEach((tell) => tell());
   };
-  return source.loadItems().then(
+  return feed.loadItems().then(
     (fresh) => {
       const before = store.state.value;
       set({ value: before === null ? fresh : keptSame(before, fresh), failed: null });
@@ -347,17 +395,21 @@ function readItems(source: Source, store: ItemsStore): Promise<void> {
   );
 }
 
-/// The items, read once for every part of the page that shows them, as the list of works and the bar both do: at
-/// once, again each time an item or a work changed and each time the stream of changes opens again, and on `read`.
-/// A read that fails keeps what was shown and says why.
+/// The items of the page's source, read once for every part of the page that shows them ([`useItemsOf`]).
 export function useItems(): { value: Items | null; failed: string | null; read: () => void } {
-  const source = useSource();
-  const store = itemsStore(source);
+  return useItemsOf(useSource());
+}
+
+/// The items `feed` gives, read once for every part of the page that reads them from it: at once, again each time an
+/// item or a work changed and each time the stream of changes opens again, and on `read`. A read that fails keeps
+/// what was shown and says why.
+export function useItemsOf(feed: ItemsFeed): { value: Items | null; failed: string | null; read: () => void } {
+  const store = itemsStore(feed);
   const subscribe = useCallback(
     (tell: () => void) => {
       store.shown.add(tell);
       if (store.shown.size === 1) {
-        store.stop = source.changes(
+        store.stop = feed.changes(
           (changed) => {
             if (changed.items || changed.works.length > 0) store.reads.ask();
           },
@@ -373,7 +425,7 @@ export function useItems(): { value: Items | null; failed: string | null; read: 
         }
       };
     },
-    [source, store],
+    [feed, store],
   );
   const state = useSyncExternalStore(subscribe, () => store.state);
   const read = useCallback(() => store.reads.ask(), [store]);

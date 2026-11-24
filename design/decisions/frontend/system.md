@@ -12,7 +12,7 @@ The wait every work shares is described by what is down and since when, what the
 - replaced: The same last sentence for every cause, that no round begins until the command line runs again, was on main; the owner changed it, because it did not fit a limit, the network or the service, so each cause says what ends it.
 
 ### decision the-page-changes-what-is-tuned-while-the-engine-runs
-The Settings view changes the owner's language, each level's model, the highest level an item may have, the context past which a line starts a new session, and the slots; the rest only in the file.
+The Settings view changes the language, each level's model, the highest level of an item and of a round, the context past which a line starts a new session, and the slots; the rest only in the file.
 - replaced: Four settings from the installation's file, shown but not changeable on the page, was on main; the owner changed it, because the page showed too little, and what is tuned while works go on should be changed there.
 - replaced: The levels' models set only in the installation's file was on main; the owner changed it, because he wanted the levels' models, and what goes with them, in the page's settings.
 
@@ -24,3 +24,20 @@ Beside them the Settings view lists the accounts: the one in use marked, each ot
 An account's Usage, its table's second column, shows on one line each window the service names, how much of it is used, and how long until it resets and when, counting down while the view is open.
 - replaced: The columns Account, Added, Token lasts until and Usage, with a reset given as a date, was on main; the owner changed it, because the day added and the token's end were of no use, and he wanted to see how long until each reset.
 - replaced: A usage limit shown only for an account under which a round had hit it was on main; the owner changed it, because when switching he most wants to know which account has the most left.
+
+### decision the-switch-and-the-engines-moves-stand-with-the-accounts
+The Settings view puts the switch Move on at the limit above the accounts and, once the engine has moved, lists its latest five moves below, each with the account it left and when that limit resets.
+- rejected: an agent proposed only the switch, each move shown on the in-use mark as it is pointed at; the owner rejected it, because only the latest move would be kept, and an earlier one, or the account it left, could not be found.
+- rejected: an agent proposed the record of moves in the System view's section on what is going on now; the owner rejected it, because the switch and its record would stand on two pages, and a thing is shown in one place.
+- rejected: an agent proposed the switch at the bar's right end beside the keep-warm switch; the owner rejected it, because it only manages the accounts and is set once, unlike Pause all and the slots, which are pressed at any time, and it belongs beside the accounts it moves between.
+
+### decision a-round-under-way-shows-its-figures-against-their-lines
+The System view's rounds under way have the columns Context, Added, Per call and Cost; the last three read value of line, and the one value past its own line is in the warning colour.
+- rejected: an agent proposed the columns Context, Added and Cost without the growth for each call; the owner rejected it, because Added's mark would also flag a normal long round, and the owner would be led to rounds that are well.
+- rejected: an agent proposed the four columns with values only, the lines in the hover and no colour for a figure past its line; the owner rejected it, because which round to look at could not be seen without opening each hover.
+
+### decision a-merges-cost-is-what-the-whole-span-spent-for-each
+The Produced part gives a merge's cost on average as what the whole span spent for each merge, what was wasted included, with the merged works' own average beside it, each said in its own range.
+- replaced: A merge's cost on average as the merged works' own cost alone was on main; the owner changed it, because it left out what was wasted, so the owner could not see what a merge really cost.
+- rejected: an agent proposed keeping the cell and adding a cell Spent per merge; the owner rejected it, because two numbers in two cells read as one number that contradicts itself.
+- rejected: an agent proposed a column Span share in the list of merged works and no average; the owner rejected it, because the overall average could not be seen, and the list has to be unfolded first.

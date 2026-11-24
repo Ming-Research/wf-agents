@@ -6,8 +6,8 @@ told = "alone"
 words = '''
 Each block you write is a field of `outputs` under the block's name. A block that is a choice holds `value`, one of
 its values, and `why`, a line that says why, in `owner.language`; any other block holds its whole new version. Write only
-the blocks listed under "What this cell returns": write one marked "hand it in every time" in every return, and any
-other only if you change it. A block you do not change is not a field of `outputs`, not even an empty one.'''
+the blocks listed under "What this cell returns", each only if you change it. A block you do not change is not a field
+of `outputs`, not even an empty one.'''
 
 # The shape of `outputs`, which the form gives the blocks of the line under `properties`.
 [shape]

@@ -1,6 +1,6 @@
-# One read-only SQL query on the engine's records, run by the engine (design statement 27). `{store}` is filled with
-# what the records hold where the store is open to agents, and with `closed` below where it is not. The engine gives a
-# result as `{"rows": [...]}`, each row an object by the column names, with `cut` where rows are left out.
+# One read-only SQL query on the engine's records, run by the engine. `{store}` is filled with
+# what the records hold that agents may see. The engine gives a result as `{"rows": [...]}`, each row an object by the
+# column names, with `cut` where rows are left out.
 words = '''
 `query`: one read-only SQL query on the engine's records, as `{"sql": "..."}`. {store}
   It gives `{"rows": [...]}`, each row an object keyed by column name. Rows beyond a query's bounds are left out: then
@@ -14,18 +14,15 @@ defines = ["rows", "cut", "count", "rest", "bytes", "file", "trimmed", "substr"]
 given_bytes = 12000
 
 # What the engine says of its own answers: `{why}` the reason, `{ms}` the milliseconds a query may take, `{bytes}` the
-# bytes a row may take. `hides_nothing` is the fault at start of opening a store whose schema hides nothing from agents.
-# The store is described table by table where it is open: `store_table` (`{table}`, `{comment}` and `{columns}`, which
+# bytes a row may take. The store is described table by table: `store_table` (`{table}`, `{comment}` and `{columns}`, which
 # are `store_column`, or `store_column_commented` where a column has a comment, with `{column}`, `{type}` and
 # `{comment}`).
 [texts]
-closed = "The store is not open to agents yet: `query` answers nothing until the owner opens it."
 unreadable = "The request is not read: ask as `{\"sql\": \"...\"}`."
 error = "The query failed: {why}"
 timeout = "The query ran longer than {ms} milliseconds, or was withdrawn, and was stopped."
 unavailable = "The store could not be read; ask again."
 row_too_long = "A row of the query is over {bytes} bytes, and is not given: ask for fewer or shorter columns, or part of a value with `substr`."
-hides_nothing = "The store cannot be opened to agents while its schema marks no table and no column \"hidden from agents\": the owner marks what agents may not see."
 store_table = '''
 ### `{table}`
 {comment}

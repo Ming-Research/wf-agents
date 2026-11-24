@@ -5,3 +5,5 @@ requires = { test = "settled", asked = "answered", review_ok = "yes", test_ok = 
 watches = ["head", "main", "asked"]
 outputs = ["checked", "check"]
 describes = ["code"]
+# The works of a project check and merge one at a time: this cell and the merge take the project's turn.
+takes_turn = true

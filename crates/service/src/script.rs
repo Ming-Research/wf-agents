@@ -10,6 +10,7 @@
 //! ms = 1500
 //! usd_micros = 20000
 //! input_tokens = 3000
+//! cache_written_tokens = 2000
 //! cached_tokens = 12000
 //! output_tokens = 400
 //!
@@ -37,16 +38,19 @@
 //! ]
 //! observations = ["The greeting has no test."]
 //!
-//! # The first round of the first run of plan asks the owner a question, and a tool to run.
+//! # The first round of the first run of plan asks for a tool to run.
 //! [[flows.trial.rounds]]
 //! cell = "plan"
-//! asks = [{ question = "Which name?", who = "owner" }, { tool = "ci", input = "the branch" }]
+//! asks = [{ tool = "ci", input = "the branch" }]
 //!
-//! # The first round of the merge's check waits for the project's turn, which work 3 holds, for the first half of its
-//! # time, and then runs as the CI run at this link.
+//! # The first round of the first run of review asks for nothing and hands nothing in, so that it is sent back.
+//! [[flows.trial.rounds]]
+//! cell = "review"
+//! asks = []
+//!
+//! # The first round of the merge's check runs as the CI run at this link.
 //! [[flows.trial.rounds]]
 //! cell = "check"
-//! turn = 3
 //! at = "https://github.com/o/r/actions/runs/2"
 //!
 //! # The first round of the second run of plan fails: nothing comes back, and the work is paused with this reason.
@@ -105,15 +109,18 @@ use serde::Deserialize;
 use work::{Ask, Handed, Spent, Time};
 
 use decide::run::Failure;
-use decide::{BlockId, Condition, Seq, Who};
+use decide::{BlockId, Condition, Seq};
 use engine::Came;
 
 /// How long a round takes where the script says nothing, in milliseconds.
 pub const ROUND_MS: u64 = 200;
 /// What an agent's round costs where the script says nothing, in millionths of a dollar.
 pub const USD_MICROS: u64 = 2_000;
-/// The tokens an agent's round sends that are not read from the cache, where the script says nothing.
+/// The tokens an agent's round sends fresh, neither read from the cache nor written to it, where the script says
+/// nothing.
 pub const INPUT_TOKENS: u64 = 1_000;
+/// The tokens an agent's round writes to the cache, where the script says nothing.
+pub const CACHE_WRITTEN_TOKENS: u64 = 0;
 /// The tokens an agent's round sends that are read from the cache, where the script says nothing.
 pub const CACHED_TOKENS: u64 = 0;
 /// The tokens that come back from an agent's round, where the script says nothing.
@@ -143,6 +150,23 @@ pub struct Script {
     /// What the cells of each flow return, by the flow's name.
     #[serde(default)]
     pub flows: BTreeMap<String, FlowScript>,
+    /// The pull requests open on the host of each project, where the script says one.
+    #[serde(default)]
+    pub pulls: Vec<PullScript>,
+}
+
+/// A pull request open on the host of a project, as the script's host says it.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PullScript {
+    /// The project whose repository it is in.
+    pub project: String,
+    pub number: u64,
+    pub title: String,
+    #[serde(default)]
+    pub draft: bool,
+    /// When it was last updated, in milliseconds since 1970.
+    pub updated: u64,
 }
 
 /// What a round takes; what is left out is taken from the script's own, or else from the defaults above.
@@ -153,6 +177,7 @@ pub struct Took {
     pub ms: Option<u64>,
     pub usd_micros: Option<u64>,
     pub input_tokens: Option<u64>,
+    pub cache_written_tokens: Option<u64>,
     pub cached_tokens: Option<u64>,
     pub output_tokens: Option<u64>,
 }
@@ -195,8 +220,8 @@ pub struct RoundScript {
     pub took: Took,
     /// The blocks it hands in.
     pub hands_in: Option<Vec<HandIn>>,
-    /// The calls it asks for.
-    pub asks: Option<Vec<AskScript>>,
+    /// The tools it asks for; none, where it asks for nothing and so is sent back.
+    pub asks: Option<Vec<ToolAsk>>,
     /// What it came across beyond its work, each a text, where it does the cell's work.
     pub observations: Option<Vec<String>>,
     /// What it committed, where it does the cell's work: each block of the work's branch it moved, as its carrier reads
@@ -209,11 +234,7 @@ pub struct RoundScript {
     pub failure: Option<Failure>,
     /// When the usage limit its failure reached resets, in milliseconds since the start of 1970.
     pub resets: Option<u64>,
-    /// For an act of the engine, the work that holds the project's turn to check and merge, which it says it waits
-    /// for during the first half of its time.
-    pub turn: Option<u64>,
-    /// For an act of the engine, the link of the CI run it says it runs as: from its begin, or once the turn it waits
-    /// for is taken.
+    /// For an act of the engine, the link of the CI run it says it runs as, from its begin.
     pub at: Option<String>,
 }
 
@@ -246,14 +267,6 @@ pub struct Commit {
     pub content: String,
 }
 
-/// A call a round asks for.
-#[derive(Clone, Debug, Deserialize)]
-#[serde(untagged)]
-pub enum AskScript {
-    Tool(ToolAsk),
-    Question(QuestionAsk),
-}
-
 /// A tool to run.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -264,24 +277,6 @@ pub struct ToolAsk {
     pub input: String,
 }
 
-/// A question for a person.
-#[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct QuestionAsk {
-    pub question: String,
-    #[serde(default)]
-    pub who: Person,
-}
-
-/// Who a question is for.
-#[derive(Clone, Copy, Debug, Default, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Person {
-    #[default]
-    Owner,
-    Architect,
-}
-
 /// What a round returns, and what it takes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Planned {
@@ -289,9 +284,7 @@ pub struct Planned {
     pub spent: Spent,
     /// How long it is under way, in milliseconds.
     pub ms: u64,
-    /// The work whose turn to check and merge it says it waits for during the first half of its time.
-    pub turn: Option<u64>,
-    /// The link of the CI run it says it runs as, from its begin or once the turn is taken.
+    /// The link of the CI run it says it runs as, from its begin.
     pub at: Option<String>,
 }
 
@@ -365,12 +358,10 @@ impl Script {
                 if round.commits.is_some() && (round.fails.is_some() || round.asks.is_some()) {
                     faults.push(format!("{at}: only a round that does the cell's work commits"));
                 }
-                if (round.turn.is_some() || round.at.is_some())
+                if round.at.is_some()
                     && (flow.cells.iter()).any(|cell| cell.id.as_str() == round.cell && cell.kind == Kind::Agent)
                 {
-                    faults.push(format!(
-                        "{at}: only an act of the engine waits for the turn or runs as a CI run"
-                    ));
+                    faults.push(format!("{at}: only an act of the engine runs as a CI run"));
                 }
                 if round.fails.is_none() && (round.failure.is_some() || round.resets.is_some()) {
                     faults.push(format!(
@@ -406,6 +397,7 @@ impl Script {
                         let costs = [
                             took.usd_micros,
                             took.input_tokens,
+                            took.cache_written_tokens,
                             took.cached_tokens,
                             took.output_tokens,
                         ];
@@ -436,11 +428,17 @@ impl Script {
             .find(|r| r.cell == cell.id.as_str() && r.run == run && r.round == number);
         let took = entry.map(|entry| entry.took).unwrap_or_default();
         let or = |round: Option<u64>, script: Option<u64>, default: u64| round.or(script).unwrap_or(default);
+        let written = or(
+            took.cache_written_tokens,
+            self.took.cache_written_tokens,
+            CACHE_WRITTEN_TOKENS,
+        );
         let spent = match cell.kind {
             Kind::Engine => Spent::default(),
             Kind::Agent => Spent {
                 usd_micros: or(took.usd_micros, self.took.usd_micros, USD_MICROS),
-                input_tokens: or(took.input_tokens, self.took.input_tokens, INPUT_TOKENS),
+                uncached_tokens: or(took.input_tokens, self.took.input_tokens, INPUT_TOKENS) + written,
+                cache_written_tokens: Some(written),
                 cached_tokens: or(took.cached_tokens, self.took.cached_tokens, CACHED_TOKENS),
                 output_tokens: or(took.output_tokens, self.took.output_tokens, OUTPUT_TOKENS),
                 ..Default::default()
@@ -468,11 +466,10 @@ impl Script {
                     },
                     spent,
                     ms: or(took.ms, self.took.ms, ROUND_MS),
-                    turn: None,
                     at: None,
                 };
             }
-            Some(RoundScript { asks: Some(asks), .. }) => Came::asks(asks.iter().map(AskScript::ask).collect()),
+            Some(RoundScript { asks: Some(asks), .. }) => Came::asks(asks.iter().map(ToolAsk::ask).collect()),
             Some(RoundScript {
                 hands_in: Some(handed), ..
             }) => Came::hands_in(
@@ -574,7 +571,6 @@ impl Script {
             ends: Ends::Came(came),
             spent,
             ms: or(took.ms, self.took.ms, ROUND_MS),
-            turn: entry.and_then(|entry| entry.turn),
             at: entry.and_then(|entry| entry.at.clone()),
         }
     }
@@ -587,20 +583,11 @@ impl Script {
     }
 }
 
-impl AskScript {
+impl ToolAsk {
     fn ask(&self) -> Ask {
-        match self {
-            AskScript::Tool(tool) => Ask::Tool {
-                name: tool.tool.clone(),
-                input: tool.input.clone(),
-            },
-            AskScript::Question(question) => Ask::Person {
-                who: match question.who {
-                    Person::Owner => Who::Owner,
-                    Person::Architect => Who::Architect,
-                },
-                question: question.question.clone(),
-            },
+        Ask::Tool {
+            name: self.tool.clone(),
+            input: self.input.clone(),
         }
     }
 }

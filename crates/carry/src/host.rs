@@ -6,14 +6,16 @@
 //!
 //! - [`Local`]: the local repository is the host: its own main branch, the project's check command, and a merge in its
 //!   checkout; an agent's check runs the command on the worktree as it stands.
-//! - [`GitHub`]: the repository on GitHub is the host: its main branch, the CI of the work's pull request, and the
-//!   pull request's merge; an agent's `run_tests` runs the tests it names by the fast workflow, on the commit it names or
-//!   else the last commit of its work's branch, which the engine pushes to a branch of its own.
+//! - [`GitHub`]: the repository on GitHub is the host: its main branch, the full workflows the engine runs by hand on
+//!   the commit that its pull request merges, and that merge; an agent's `run_tests` runs the tests it names by the
+//!   fast workflow, on the commit it names or else the last commit of its work's branch, which the engine pushes to a
+//!   branch of its own.
 //! - `fake`: a host for the tests, which gives what it is told to.
 //!
 //! Each operation can be asked again after the engine started again, and finds what it did already rather than doing
 //! it a second time.
 
+mod continuing;
 pub mod github;
 mod local;
 
@@ -25,20 +27,25 @@ use std::sync::Arc;
 
 use decide::run::Failure;
 use decide::{CallId, RunId};
-use store::WorkNumber;
+use service::OpenPull;
+use store::{Continues, ItemNumber, WorkNumber};
 use tokio::sync::Mutex;
 
+use crate::commit_lines::Whose;
 use crate::git::Place;
 use crate::held::Stop;
 
 pub use github::GitHub;
 pub use local::Local;
 
-/// The work's branch, as a host is given it: with the work, the name of its merge and what the work says of itself,
-/// which a host may show where it shows the branch. A host is given nothing of the work's item.
+/// The work's branch, as a host is given it: with the work, the number of its item, which the commits the host makes
+/// name, the name of its merge and what the work says of itself, which a host may show where it shows the branch. A host
+/// is given nothing else of the work's item.
 #[derive(Clone, Copy, Debug)]
 pub struct Branch<'a> {
     pub work: WorkNumber,
+    /// The item the work is done for, which its commits name beside the work.
+    pub item: ItemNumber,
     /// The name of the work's merge, which its pull request and the commit its merge makes take
     /// ([`crate::acts::name`]).
     pub title: &'a str,
@@ -46,6 +53,19 @@ pub struct Branch<'a> {
     /// or nothing is written yet.
     pub about: &'a str,
     pub place: &'a Place,
+    /// What the work's item continues, where it continues something: the host closes the pull request that was open
+    /// on it, once the work's own is open, saying the address of its own (`superseded` of `agents/pull_request.toml`).
+    pub continues: Option<&'a Continues>,
+}
+
+impl Branch<'_> {
+    /// The item and the work the commits of the branch name.
+    pub fn whose(&self) -> Whose {
+        Whose {
+            item: self.item,
+            work: self.work,
+        }
+    }
 }
 
 /// What asks a host to run the project's checks, as the work's records name it: a call of `run_tests`, or a round of
@@ -214,13 +234,18 @@ pub trait Host: Send + Sync + 'static {
         checked: Option<&str>,
     ) -> impl Future<Output = Result<String, NotMerged>> + Send;
 
+    /// The head of the branch, or of the pull request, that an item continues, as a work that continues it starts from
+    /// it: what the local repository and the host hold of it, the newer where one holds the other, and a refusal
+    /// ([`Failed::refused`]) where there is none to start from or where the two have gone different ways.
+    fn continued(&self, what: &Continues) -> impl Future<Output = Result<String, Failed>> + Send;
+
     /// The reference of the local repository that holds the head of main as the host last gave it, read without asking
     /// the host again: where a work's change begins is worked out from it.
     fn kept_main(&self) -> String;
 
-    /// What the agents' tool `run_tests` finds of the work, with the tests and checks the agent named, on the commit it
-    /// named or else the work's last commit, in words for the agent whose call asks, whole; none where it was told to
-    /// stop. A request that names neither a test nor a check is run as nothing, and said so. An `Err` is why it could not
+    /// What the agents' tool `run_tests` finds of the work, with the tests, checks and measurements the agent named, on
+    /// the commit it named or else the work's last commit, in words for the agent whose call asks, whole; none where it
+    /// was told to stop. A request that names none of them is run as nothing, and said so. An `Err` is why it could not
     /// run them, for the agent too. What failed is said as [`Host::verdict`] says it.
     fn run_tests(
         &self,
@@ -231,10 +256,10 @@ pub trait Host: Send + Sync + 'static {
     ) -> impl Future<Output = Result<Option<String>, String>> + Send;
 
     /// Lets go of what the host holds for the work, which has ended with nothing of it under way: its pull request
-    /// where it did not merge, closed with a word that its work ended ([`CLOSED`]), and, merged or not, the branches
-    /// that calls of [`Host::run_tests`] left (`wf-try/<the work's branch>/…`), deleted after the pull request is
-    /// closed, whether or not that went well. What is gone, closed or merged already is left as it is, and the work's
-    /// own branch stays.
+    /// where it did not merge, closed with a word that its work ended, as the words beside the flows say it
+    /// (`agents/pull_request.toml`), and, merged or not, the branches that calls of [`Host::run_tests`] left
+    /// (`wf-try/<the work's branch>/…`), deleted after the pull request is closed, whether or not that went well. What
+    /// is gone, closed or merged already is left as it is, and the work's own branch stays.
     fn end(&self, branch: &Branch<'_>, merged: bool) -> impl Future<Output = Result<(), String>> + Send;
 
     /// Takes up again what the host held for a work that was cancelled and reopened, as the work makes its place
@@ -245,21 +270,29 @@ pub trait Host: Send + Sync + 'static {
     /// The address of the pull request of this number on the host, worked out without asking it; none where the host
     /// has no pull requests, as the local repository.
     fn pull_at(&self, number: u64) -> Option<String>;
+
+    /// The pull requests open on the host, whatever their branch; none where the host has no pull requests, as the
+    /// local repository. An `Err` is why the host could not say, which says nothing of there being none.
+    fn open_pulls(&self) -> impl Future<Output = Result<Option<Vec<OpenPull>>, String>> + Send;
 }
 
-/// The tests and the checks an agent names to `run_tests`, each as it wrote it, and the commit it names to run them on.
+/// The tests, the checks and the measurements an agent names to `run_tests`, each as it wrote it, and the commit it names
+/// to run them on.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Named {
     pub tests: Vec<String>,
     pub checks: Vec<String>,
+    /// The measurements to time on the commit and on the commit the work's change began from.
+    pub measure: Vec<String>,
     /// The commit to run on, as git names one in the agent's worktree; none for the last commit of the work's branch.
     pub commit: Option<String>,
 }
 
 impl Named {
-    /// Whether neither a test nor a check is named, which a commit alone does not make a request to run anything.
+    /// Whether neither a test, a check nor a measurement is named, which a commit alone does not make a request to run
+    /// anything.
     pub fn is_empty(&self) -> bool {
-        self.tests.is_empty() && self.checks.is_empty()
+        self.tests.is_empty() && self.checks.is_empty() && self.measure.is_empty()
     }
 }
 
@@ -272,10 +305,6 @@ pub(crate) fn kept_main(project: &crate::settings::Project) -> String {
         Some(github) => github::kept_main(&github.remote, main),
     }
 }
-
-/// What the host says on the pull request of a work that ended without merging. It says not why: why is the owner's,
-/// in the owner's language, and on the owner's page.
-pub const CLOSED: &str = "Its work ended without merging.";
 
 /// A host shared, as the acts and the tools share it.
 impl<H: Host> Host for Arc<H> {
@@ -297,6 +326,10 @@ impl<H: Host> Host for Arc<H> {
 
     async fn merge(&self, branch: &Branch<'_>, checked: Option<&str>) -> Result<String, NotMerged> {
         (**self).merge(branch, checked).await
+    }
+
+    async fn continued(&self, what: &Continues) -> Result<String, Failed> {
+        (**self).continued(what).await
     }
 
     fn kept_main(&self) -> String {
@@ -323,5 +356,9 @@ impl<H: Host> Host for Arc<H> {
 
     fn pull_at(&self, number: u64) -> Option<String> {
         (**self).pull_at(number)
+    }
+
+    async fn open_pulls(&self) -> Result<Option<Vec<OpenPull>>, String> {
+        (**self).open_pulls().await
     }
 }

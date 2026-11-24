@@ -11,11 +11,13 @@ use super::*;
 const FULL: Room = Room {
     paused: false,
     slot: false,
+    turn: true,
 };
 
 const PAUSED: Room = Room {
     paused: true,
     slot: true,
+    turn: true,
 };
 
 impl W {
@@ -134,11 +136,13 @@ fn the_works_own_pause_is_said_before_the_pause_of_everything_and_both_before_a_
     w.on(Event::Paused {
         by: Pauser::Owner,
         why: None,
+        waits_for: Vec::new(),
     });
     w.on(wrote("request", Outsider::Person, true, None));
     let neither = Room {
         paused: true,
         slot: false,
+        turn: true,
     };
     assert_eq!(held(&w.flow, &w.work, neither), Some(Holder::Pause));
     let (write, ..) = round(&w.on(Event::Resumed));

@@ -3,8 +3,8 @@
 //! A flow is a directory. Laid out one thing to a file, it holds `flow.toml` for what is the flow's as a whole, and one
 //! file to each cell, line, block and named test, in `cells/`, `lines/`, `blocks/` (in directories of their own, as
 //! deep as is useful) and `tests/`, each named by the thing it defines. What every flow shares is beside the flows,
-//! defined once: the engine's own data in `../data/`, which a flow names among those it uses, and those each cell or
-//! each line has its own of, made where a cell names them; and the sets of rules for the agents that a line names, in
+//! defined once: the engine's own data in `../data/`, which a flow names among those it uses, and those each cell
+//! has its own of, made where a cell names them; and the sets of rules for the agents that a line names, in
 //! `../agents/rules/rules.toml`. Written
 //! before that layout, a flow is `flow.toml` holding its lines, blocks and named tests, one `<cell id>.toml` beside it
 //! for each cell, and in `rules/` one `<name>.md` for each set of rules for the agents that a line's system prompt
@@ -38,12 +38,11 @@ pub const TESTS_DIR: &str = "tests";
 pub const TASK_EXTENSION: &str = "md";
 
 /// The directory beside the flows, from a flow's directory, that holds the engine's own data, as deep as is useful:
-/// each defined once for every flow, and used by a flow that names it. In its `of_a_cell/` ([`OF_A_CELL`]) and
-/// `of_a_line/` ([`OF_A_LINE`]), each a datum every cell or every line has its own of, its file's `name` holding
-/// `{cell}`, the cell's id in small letters, or `{line}`, the line's name: such a datum is made where a cell names it.
+/// each defined once for every flow, and used by a flow that names it. In its `of_a_cell/` ([`OF_A_CELL`]), each a
+/// datum every cell has its own of, its file's `name` holding `{cell}`, the cell's id in small letters: such a datum is
+/// made where a cell names it.
 pub const DATA_DIR: &str = "../data";
 pub const OF_A_CELL: &str = "of_a_cell";
-pub const OF_A_LINE: &str = "of_a_line";
 
 /// The path, from a flow's directory, of the file beside the flows that names the sets of rules for the agents a line
 /// may take: [`agents::RULES_FILE`].
@@ -386,8 +385,8 @@ pub struct LineFile {
     /// leaves it out.
     #[serde(default)]
     pub tests_only: bool,
-    /// How many levels above its item's the line's rounds run at, none above the highest an item may be at; none
-    /// where it is left out.
+    /// How many levels above its item's the line's rounds run at, none above the highest level the installation lets
+    /// one round run at; none where it is left out.
     #[serde(default)]
     pub levels_above: u32,
     /// The flow's sets of rules for the agents that the system prompt of the line's session holds, each `rules/<name>.md`
@@ -410,8 +409,8 @@ pub struct LaidOutLineFile {
     /// leaves it out.
     #[serde(default)]
     pub tests_only: bool,
-    /// How many levels above its item's the line's rounds run at, none above the highest an item may be at; none
-    /// where it is left out.
+    /// How many levels above its item's the line's rounds run at, none above the highest level the installation lets
+    /// one round run at; none where it is left out.
     #[serde(default)]
     pub levels_above: u32,
     /// The sets of rules for the agents that the system prompt of the line's session holds, each by its name in
@@ -452,6 +451,9 @@ pub struct BlockFile {
     pub what: Option<String>,
     /// What a cell that writes the block is told of writing it, after the list of what it returns.
     pub words: Option<String>,
+    /// What a cell that writes the block is told after those words, where it also has a block it must hand in every
+    /// time.
+    pub words_if_marked: Option<String>,
     /// The shape a return holds the block to, where it is neither a text nor a choice.
     pub shape: Option<toml::Table>,
     /// Of a block a source of the engine's writes, what it writes: each text by its name, in the order written, a
@@ -468,6 +470,11 @@ pub struct BlockFile {
     /// latest version and the work's change against main changes nothing in the project's design tree.
     #[serde(default)]
     pub answers_in_the_tree: bool,
+    /// Its lines name entries of the project's design tree, one to a line, as the tree's format (`agents/tree.toml`)
+    /// refers to one: a return that writes it is sent back for a line that names none the tree on the work's branch
+    /// holds, and a round is given each entry named whole in place of the names, as the tree's latest version has it.
+    #[serde(default)]
+    pub names_tree_entries: bool,
 }
 
 /// Who changes what a source outside the work writes of a block, by their acts: the owner, as the record of the
@@ -503,6 +510,9 @@ pub struct LaidOutBlockFile {
     pub what: Option<String>,
     /// What a cell that writes the block is told of writing it, after the list of what it returns.
     pub words: Option<String>,
+    /// What a cell that writes the block is told after those words, where it also has a block it must hand in every
+    /// time.
+    pub words_if_marked: Option<String>,
     /// The shape a return holds the block to, where it is neither a text nor a choice.
     pub shape: Option<toml::Table>,
     /// Of a block a source of the engine's writes, what it writes: each text by its name, in the order written, a
@@ -520,6 +530,11 @@ pub struct LaidOutBlockFile {
     /// latest version and the work's change against main changes nothing in the project's design tree.
     #[serde(default)]
     pub answers_in_the_tree: bool,
+    /// Its lines name entries of the project's design tree, one to a line, as the tree's format (`agents/tree.toml`)
+    /// refers to one: a return that writes it is sent back for a line that names none the tree on the work's branch
+    /// holds, and a round is given each entry named whole in place of the names, as the tree's latest version has it.
+    #[serde(default)]
+    pub names_tree_entries: bool,
 }
 
 /// Who writes a block from outside the cells, as `from` says it: whether the owner does, and the source outside the
@@ -544,11 +559,13 @@ impl From<LaidOutBlockFile> for BlockFile {
             default: block.default,
             what: block.what,
             words: block.words,
+            words_if_marked: block.words_if_marked,
             shape: block.shape,
             writes: block.writes,
             changed_by: block.changed_by,
             with_nothing_but: block.with_nothing_but,
             answers_in_the_tree: block.answers_in_the_tree,
+            names_tree_entries: block.names_tree_entries,
         }
     }
 }
@@ -622,6 +639,10 @@ pub struct CellFile {
     /// the code.
     #[serde(default)]
     pub takes_main: bool,
+    /// Whether the cell takes the turn of its work's project: the works of a project take turns at the cells that
+    /// say so, one work at a time, from its first round of such a cell while its walk stays at them.
+    #[serde(default)]
+    pub takes_turn: bool,
     /// The tools of the engine's that an agent cell may ask for in its return, by name, each a tool the engine has.
     #[serde(default)]
     pub tools: Vec<String>,
@@ -633,7 +654,7 @@ pub struct CellFile {
 pub enum InputKind {
     /// Only the latest version.
     Latest,
-    /// The version the cell last consumed and the latest, so that the agent sees what changed between them.
+    /// The version the cell last worked from and the latest, so that the agent sees what changed between them.
     LastAndLatest,
     /// Every version.
     All,

@@ -20,16 +20,7 @@ fn study() -> Compiled {
     let source = flow::read(&dir).expect("the study flow is read");
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
     let has = Has {
-        sources: names(&[
-            "answer",
-            "asked",
-            "dependencies",
-            "handed_in",
-            "session",
-            "start",
-            "tree",
-            "words",
-        ]),
+        sources: names(&["answer", "asked", "dependencies", "handed_in", "start", "tree", "words"]),
         acts: names(&["start", "conclude"]),
         tools: names(&["query", "run_tests"]),
         ..Default::default()
@@ -52,7 +43,7 @@ fn studying() -> (W, RunId) {
     let effects = w.returns(start, hands_in(&[("place", None)]));
     let (read, cell, ..) = round(&effects);
     assert_eq!(cell, "R0");
-    let effects = w.returns(read, Came::hands_in(Vec::new()));
+    let effects = w.returns(read, hands_in(&[("tree_entries", None)]));
     let (run, cell, ..) = round(&effects);
     assert_eq!(cell, "R1");
     (w, run)

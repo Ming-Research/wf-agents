@@ -25,7 +25,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use decide::{BlockId, CallId, Records, RunId, Seq, VersionView, Writer};
+use decide::{BlockId, CallId, InputView, Records, RunId, Seq, VersionView, Writer};
 use flow::agents::{Agents, Part};
 use flow::{CellSpec, Compiled, InputKind, Listed};
 use work::sessions::{began_at, number_at, of_line, of_round, start};
@@ -36,11 +36,12 @@ use crate::message::{self, By, Called, Datum, Form, Main, NewVersions, Run, Sent
 use crate::text::as_written;
 use decide::run::Unmet;
 
-/// Which work a round is of, and the item it is done for, by their numbers, with the item's title.
+/// Which work a round is of, and the item it is done for, by their numbers as the engine writes them (`W1`, `#1`),
+/// with the item's title.
 #[derive(Clone, Copy, Debug)]
 pub struct For<'a> {
-    pub work: u64,
-    pub item: u64,
+    pub work: &'a str,
+    pub item: &'a str,
     pub title: &'a str,
 }
 
@@ -50,9 +51,9 @@ pub type Changes = BTreeMap<(BlockId, Seq), String>;
 
 /// What the carrier brings to an entry that neither the flow nor the work's records hold: which work the round is of;
 /// what came of taking main in as the run started, where the cell takes main in and the branch did not hold it
-/// already; what changed in the data whose versions the carrier compares itself; the settings the flow's words may
-/// name, with their values; and each result given otherwise than the records hold it, as a result of the tool `query`
-/// is given cut.
+/// already; what changed in the data whose versions the carrier compares itself; what a version is given as in place
+/// of its own content; the settings the flow's words may name, with their values; and each result given otherwise than
+/// the records hold it, as a result of the tool `query` is given cut.
 #[derive(Clone, Copy, Debug)]
 pub struct Carried<'a> {
     pub about: For<'a>,
@@ -62,6 +63,10 @@ pub struct Carried<'a> {
     /// of it.
     pub compared: &'a BTreeSet<BlockId>,
     pub changes: &'a Changes,
+    /// What a version is given as in place of its own content, by the block and the version's place: the entries of
+    /// the design tree a block's lines name, whole (`names_tree_entries`), as the carrier reads them. The records keep
+    /// the version as it was written.
+    pub given_as: &'a Changes,
     pub named: &'a flow::system::Settings,
     pub results: &'a BTreeMap<CallId, String>,
 }
@@ -145,7 +150,7 @@ pub fn enter(
             Ok(Version {
                 number: number_of(block, v.at)?,
                 value: v.value.clone(),
-                content: content(work, block, v.at).to_string(),
+                content: given_as(work, carried, block, v.at).to_string(),
                 by: by(flow, &records, block, v),
             })
         };
@@ -236,26 +241,29 @@ pub fn enter(
         filling.insert(block, fills);
     }
     // What the cell watches that is new to it this entry: each datum, or group of which a block, ran the round, with
-    // the version the cell last worked from and the latest (design document `data-and-context`, 11).
+    // the version the cell last worked from and each version new to it that changed its meaning, as the walk reads
+    // them (design document `data-and-context`, 10 and 11).
     let ran_by = decide::told(&flow.flow, &records, run)
         .map(|t| t.ran_by)
         .unwrap_or_default();
+    let seen = decide::view(&flow.flow, &records);
+    let inputs: Vec<&InputView> = (seen.cells.iter())
+        .find(|c| c.cell == cell.id)
+        .map_or_else(Vec::new, |c| c.runs_on.iter().collect());
     for watched in cell.ran(&ran_by) {
-        let latest = (watched.blocks.iter())
-            .filter_map(|b| versions.get(b).and_then(|vs| vs.last()).map(|v| v.at))
-            .max();
-        let of = |b: &BlockId| versions.get(b).map_or(&[][..], Vec::as_slice);
-        let last = (watched.blocks.iter())
-            .filter_map(|b| last_worked_from(flow, &records, cell, b, of(b)))
-            .max();
+        let of = (inputs.iter()).filter(|i| watched.blocks.contains(&i.block));
+        let last = of.clone().filter_map(|i| i.worked).max();
+        let mut changed: Vec<Seq> = of.flat_map(|i| i.new_versions.iter().copied()).collect();
+        changed.sort();
+        changed.dedup();
         // Of a group, among the versions of the group: each place that wrote any of its blocks is one.
-        if let Some(latest) = latest {
-            let new = NewVersions {
-                last: last.map(|at| numbered(&records, &watched.blocks, at)).transpose()?,
-                latest: numbered(&records, &watched.blocks, latest)?,
-            };
-            values.new.insert(watched.name.clone(), new);
-        }
+        let new = NewVersions {
+            last: last.map(|at| numbered(&records, &watched.blocks, at)).transpose()?,
+            changed: (changed.into_iter())
+                .map(|at| numbered(&records, &watched.blocks, at))
+                .collect::<Result<_, String>>()?,
+        };
+        values.new.insert(watched.name.clone(), new);
         situation.new.push(watched.name.clone());
     }
     // The results the run's rounds are given, and why what its earlier rounds returned was sent back, that the session
@@ -284,6 +292,11 @@ pub fn enter(
                 sent_back.push(k);
                 let round = (k < number).then_some(k);
                 values.sent_back.push((round, unmet.clone()));
+                // A return that asked for calls or could not be read is completed by nothing, nor does it complete one:
+                // the next gives it whole.
+                if k == number {
+                    values.whole = gives_whole(work, run, number);
+                }
                 for u in unmet {
                     if let Unmet::WrittenOver { block, version } = u {
                         values
@@ -310,7 +323,7 @@ pub fn enter(
                         let written = Version {
                             number: number_of(block, v.at)?,
                             value: v.value.clone(),
-                            content: content(work, block, v.at).to_string(),
+                            content: given_as(work, carried, block, v.at).to_string(),
                             by: by(flow, &records, block, v),
                         };
                         values.written_over.push((block.clone(), written));
@@ -375,9 +388,35 @@ fn numbered<'b>(records: &Records, datum: impl IntoIterator<Item = &'b BlockId>,
     })
 }
 
+/// Whether the return sent back for the round of this number stands alone, completing none and completed by none: it
+/// asked for calls, or it could not be read. It is the latest round before this one that came back or failed unread,
+/// a round that failed in some other way returning nothing. The run's fold reads such a return so
+/// ([`decide::run::carried`]), and the round is told to give it whole.
+fn gives_whole(work: &Work, run: RunId, number: usize) -> bool {
+    let returned = (1..number).rev().find_map(|round| match work.back.get(&(run, round)) {
+        Some(Back::Failed { failure, .. }) if *failure != decide::run::Failure::Unread => None,
+        back => Some(back),
+    });
+    match returned.flatten() {
+        Some(Back::Asked(_)) => true,
+        Some(Back::Returned { asks, .. }) => !asks.is_empty(),
+        Some(Back::Failed { .. }) => true,
+        _ => false,
+    }
+}
+
 /// Whether the part of this name is one the session keeps: one with a `kind`.
 fn kept_part(words: &Agents, name: &str) -> bool {
     (words.message.parts.iter()).any(|p| p.part.name() == name && p.kind.is_some() && p.part != Part::Context)
+}
+
+/// The content a version of a block is given as: what the carrier gives in its place, where it gives something
+/// ([`Carried::given_as`]), or else its own.
+fn given_as<'a>(work: &'a Work, carried: &'a Carried<'_>, block: &BlockId, at: Seq) -> &'a str {
+    match carried.given_as.get(&(block.clone(), at)) {
+        Some(text) => text,
+        None => content(work, block, at),
+    }
 }
 
 /// The content of a version of a block; nothing where the work keeps none.
@@ -461,12 +500,13 @@ fn by(flow: &Compiled, records: &Records, block: &BlockId, version: &VersionView
     }
 }
 
-/// The version of the datum the cell last worked from: the latest it consumed, where the datum runs the cell (design
-/// document `data-and-context`, 10); of another, the latest its last finished run was given, which is the one written
-/// last before that run's last round began, every round being filled with the latest; and in either case the latest
-/// a run of the cell wrote, where that is later, a cell's own version being no change to it, and the latest of the
-/// block's `versions` the owner ruled on, where that is later, as the walk reads them: a point the owner ruled on is
-/// new to no cell (39), so what came before it is no change to the cell.
+/// The version of the datum the cell last worked from (design document `data-and-context`, 10). Where the datum runs
+/// the cell, it is the walk's own ([`decide::InputView::worked`]), which a cause records as a run begins: the latest of
+/// the one the cell consumed, one a run of it wrote and one the owner ruled on. Of another datum it is the latest its
+/// last finished run was given, which is the one written last before that run's last round began, every round being
+/// filled with the latest; or the latest a run of the cell wrote, where that is later, a cell's own version being no
+/// change to it; or the latest of the block's `versions` the owner ruled on, where that is later, as the walk reads
+/// them: a point the owner ruled on is new to no cell (39), so what came before it is no change to the cell.
 fn last_worked_from(
     flow: &Compiled,
     records: &Records,
@@ -475,24 +515,25 @@ fn last_worked_from(
     versions: &[VersionView],
 ) -> Option<Seq> {
     let finished = (records.finished.iter()).filter(|f| of_cell(records, f.run, cell));
+    let runs_it = (flow.flow.place(&cell.id)).is_some_and(|p| flow.flow.cells()[p].runs_on.contains(block));
+    if runs_it {
+        // The walk's own reading, which a cause records alike.
+        let view = decide::view(&flow.flow, records);
+        let of = view.cells.into_iter().find(|c| c.cell == cell.id);
+        return of
+            .and_then(|c| c.runs_on.into_iter().find(|i| &i.block == block))
+            .and_then(|i| i.worked);
+    }
     let wrote = (finished.clone())
         .filter(|f| f.writes.iter().any(|w| &w.block == block))
         .map(|f| f.at)
         .max();
-    let runs_it = (flow.flow.place(&cell.id)).is_some_and(|p| flow.flow.cells()[p].runs_on.contains(block));
-    let worked = if runs_it {
-        let view = decide::view(&flow.flow, records);
-        let of = view.cells.into_iter().find(|c| c.cell == cell.id);
-        of.and_then(|c| c.runs_on.into_iter().find(|i| &i.block == block))
-            .and_then(|i| i.consumed)
-    } else {
-        let last = finished.max_by_key(|f| f.at);
-        let round = last.and_then(|f| (records.rounds.iter()).filter(|r| r.run == f.run).map(|r| r.at).max());
-        let versions = decide::versions(records).remove(block).unwrap_or_default();
-        round.and_then(|round| versions.iter().map(|v| v.at).filter(|at| *at < round).max())
-    };
+    let last = finished.max_by_key(|f| f.at);
+    let round = last.and_then(|f| (records.rounds.iter()).filter(|r| r.run == f.run).map(|r| r.at).max());
+    let all = decide::versions(records).remove(block).unwrap_or_default();
+    let given = round.and_then(|round| all.iter().map(|v| v.at).filter(|at| *at < round).max());
     let ruled = (versions.iter()).filter(|v| v.ruled).map(|v| v.at).max();
-    worked.max(wrote).max(ruled)
+    given.max(wrote).max(ruled)
 }
 
 /// A call whose result the round is given, as the carrier gives it, or else as the work holds it.
@@ -502,10 +543,10 @@ fn result(work: &Work, call: CallId, given: &BTreeMap<CallId, String>) -> messag
             name: name.clone(),
             input: input.clone(),
         },
-        Some(Call::Asked(Ask::Person { question, .. })) => Called::Question(question.clone()),
         Some(Call::AtLimit(_)) => Called::AtLimit,
-        // The engine's wait before a round is tried again is no result a round is given.
-        Some(Call::Wait { .. }) | None => Called::Unknown(call),
+        // The engine's wait before a round is tried again is no result a round is given, nor is a question for a person,
+        // which no round is given a result of now.
+        Some(Call::Asked(Ask::Person { .. }) | Call::Wait { .. }) | None => Called::Unknown(call),
     };
     message::Result {
         call: called,

@@ -22,20 +22,16 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use decide::run::Failure;
-use decide::{BlockId, CallId, End, Outsider, Pauser, RunId};
+use decide::{BlockId, CallId, End, Outsider, Pauser, RunId, Seq};
 use driver::history::Lines;
-use driver::{Accounts, Along, Found, Instead, Policy, Said, Under};
+use driver::{Accounts, Along, Found, Going, Instead, Policy, Said, Under};
 use engine::{Came, Event};
 use flow::{CellSpec, Compiled, Kind};
 use store::{Item, WorkNumber};
 use tokio::sync::mpsc;
-use work::{Fill, Given, Measures, RanOn, Spent, Time, Why, Work};
+use work::{Fill, Given, Left, Measures, RanOn, Spent, Time, Why, Work};
 
 use crate::Message;
-
-/// The result a withdrawn call has: given by the loop to a person's call, and by what runs a tool to a tool's call it
-/// stopped.
-pub const WITHDRAWN: &str = "Withdrawn: its run was abandoned before it had its result.";
 
 pub use engine::spoken::Telling;
 
@@ -61,14 +57,6 @@ pub trait Rounds: Send + Sync {
     /// carried out in no session are told nothing, as by default, and their cells take the words in their next round.
     fn tell(&self, round: Round, told: Telling) {
         let _ = (round, told);
-    }
-
-    /// Says whether a pause holds the work back now, its own or the owner's pause of everything: of every work as the
-    /// loop opens, before any round is given, and again whenever it may have changed, the same said again changing
-    /// nothing. What a carrier holds a round back for itself, as the acts the check for the project's turn to check
-    /// and merge, a pause holds back too, as the walk holds back what would begin a round; by default nothing is held.
-    fn paused(&self, work: WorkNumber, paused: bool) {
-        let _ = (work, paused);
     }
 
     /// What the round of this number of the run was told and what came back of it, each try in order, as far as
@@ -125,6 +113,14 @@ pub trait Rounds: Send + Sync {
         Box::pin(async { Ok(None) })
     }
 
+    /// The pull requests open on the host of this project's repository, as the carrier that keeps the repository asks
+    /// the host; none, as by default, where the host has no pull requests, as the local repository; or why the host
+    /// could not say. It is called off the loop.
+    fn open_pulls(&self, project: &str) -> Pin<Box<dyn Future<Output = PullsSaid> + Send + '_>> {
+        let _ = project;
+        Box::pin(async { Ok(None) })
+    }
+
     /// When a line begins a new session, for rounds carried out in sessions: what they run on, and whether a new session
     /// of a line would begin with another system prompt or form of return than its session began with. None, as by
     /// default, for rounds carried out in no session, whose lines the loop begins no session for itself.
@@ -135,10 +131,12 @@ pub trait Rounds: Send + Sync {
     /// Asks a fork of the session the round ran in a question (design document `testing`, 27), as the planner asks
     /// it: what the fork answered, or why it could not be asked. It is called off the loop, as [`Rounds::told`] is,
     /// and takes no slot. Rounds carried out in no session have none to fork, as by default.
-    fn fork(&self, fork: Fork) -> Pin<Box<dyn Future<Output = Result<Forked, String>> + Send + '_>> {
+    fn fork(&self, fork: Fork) -> Pin<Box<dyn Future<Output = Result<Forked, ForkFailed>> + Send + '_>> {
         let _ = fork;
         Box::pin(async {
-            Err("these rounds are carried out in no session, which a fork could be asked of".to_string())
+            Err(ForkFailed::from(
+                "these rounds are carried out in no session, which a fork could be asked of",
+            ))
         })
     }
 
@@ -181,8 +179,45 @@ pub struct Fork {
     pub accounts: Accounts,
 }
 
+/// Why a fork could not be asked or gave no answer, what its program cost where it ran, and how many processes it
+/// left running in its group as it ended, which were stopped: a fork that ran spent money whether or not it answered,
+/// and that is recorded with the work, as what it left is. A fork refused before its program ran cost nothing and has
+/// none, and left nothing.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ForkFailed {
+    pub why: String,
+    pub spent: Option<Spent>,
+    pub left: usize,
+}
+
+impl From<String> for ForkFailed {
+    fn from(why: String) -> Self {
+        ForkFailed {
+            why,
+            spent: None,
+            left: 0,
+        }
+    }
+}
+
+impl From<&str> for ForkFailed {
+    fn from(why: &str) -> Self {
+        ForkFailed::from(why.to_string())
+    }
+}
+
+impl std::fmt::Display for ForkFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.why)?;
+        match &self.spent {
+            Some(spent) => write!(f, " It cost ${:.4}.", spent.usd_micros as f64 / 1e6),
+            None => Ok(()),
+        }
+    }
+}
+
 /// What a fork answered: its return, as JSON, where it wrote one, and what its program said at its end; what the fork
-/// cost, in millionths of a dollar; what its first call read from the cache, and what the session held as the fork
+/// cost and its tokens; what its first call read from the cache, and what the session held as the fork
 /// began, the context the round it begins at ended with, in tokens, where each is known; how many minutes before the
 /// cache had let go what the fork begins with, where it had: the last call that read it was more than the cache's life
 /// before; the round asked of, by run and number; the later rounds of the session, which the fork leaves out, beginning
@@ -193,7 +228,7 @@ pub struct Fork {
 pub struct Forked {
     pub answer: Option<String>,
     pub text: String,
-    pub usd_micros: u64,
+    pub spent: Spent,
     pub read: Option<u64>,
     pub held: Option<u64>,
     pub expired: Option<u64>,
@@ -203,6 +238,9 @@ pub struct Forked {
     pub account: String,
     pub instead: Option<Instead>,
     pub usage: Option<Said>,
+    /// How many processes its program left running in its group as it ended, which were stopped: kept with the work
+    /// and said with the answer, as what it cost is.
+    pub left: usize,
 }
 
 /// A keep-warm ping of the session of this number of a line of the work.
@@ -234,7 +272,9 @@ pub struct PingReply {
 }
 
 impl PingReply {
-    pub(crate) fn new(work: WorkNumber, line: String, session: u32, to: mpsc::UnboundedSender<Message>) -> Self {
+    /// The reply that says what came of the ping down this channel, as the loop makes it; whoever tests a carrier
+    /// makes one to read what the carrier says.
+    pub fn new(work: WorkNumber, line: String, session: u32, to: mpsc::UnboundedSender<Message>) -> Self {
         PingReply {
             work,
             line,
@@ -256,6 +296,18 @@ impl PingReply {
     /// The agents' service said this of the usage of the account of this name, which the ping ran under.
     pub fn usage(&self, account: String, said: Said) {
         let _ = self.to.send(Message::Usage { account, said });
+    }
+
+    /// The ping's program ended by itself and left these many processes running in its group, which the carrier
+    /// stopped: said before the ping's end.
+    pub fn left_behind(&self, processes: usize) {
+        let of = Left::Ping {
+            line: self.line.clone(),
+            session: self.session,
+        };
+        let event = Event::LeftBehind { of, processes };
+        // Where the loop has ended, the process is stopping: what the ping left is not counted.
+        let _ = self.to.send(Message::Happened { work: self.work, event });
     }
 
     fn send(self, spent: Spent, failed: Option<String>) {
@@ -366,7 +418,8 @@ pub struct Returned {
     pub duration_ms: Option<u64>,
     /// The models it was answered by, by name.
     pub models: Vec<String>,
-    /// The tokens it wrote to the prompt cache, which the records count among those not read from it.
+    /// The tokens it wrote to the prompt cache, as the program printed them: a try's own, where a round's are in what
+    /// it took.
     pub cache_creation_input_tokens: Option<u64>,
 }
 
@@ -404,13 +457,32 @@ pub struct Doings {
 }
 
 /// A work as the carrier of its project's repository is asked of it, off the loop: its number; its item, whose
-/// project says which repository; and, where it merged and no pull request of it is kept, what its merge wrote, which
-/// names the commit its merge made.
+/// project says which repository; where it merged and no pull request of it is kept, what its merge wrote, which
+/// names the commit its merge made; and how far its records had come, with whether a round of it or a tool run for
+/// it was under way, which say how long what git says of it holds.
 #[derive(Clone, Debug)]
 pub struct OfWork {
     pub work: WorkNumber,
     pub item: Item,
     pub merged: Option<String>,
+    /// The place the work's next record takes ([`work::Work::tick`]).
+    pub place: Seq,
+    /// Whether a round of the work or a tool run for it is under way ([`work::Work::under_way`]): only these change
+    /// what its branch and worktree hold, and each is recorded as it begins and ends.
+    pub under_way: bool,
+}
+
+impl OfWork {
+    /// The work as the driver keeps it, with what its merge wrote where that is given.
+    pub fn of(kept: &driver::Kept<'_>, merged: Option<String>) -> OfWork {
+        OfWork {
+            work: kept.head.number,
+            item: kept.item.clone(),
+            merged,
+            place: kept.work.tick(),
+            under_way: kept.work.under_way(),
+        }
+    }
 }
 
 /// What the repository of a work's project says of the work beside its records.
@@ -437,6 +509,22 @@ pub struct Pull {
     pub number: u64,
     pub url: String,
 }
+
+/// A pull request open on the host of a project's repository, as a person lists it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpenPull {
+    pub number: u64,
+    pub title: String,
+    pub url: String,
+    /// Whether it is a draft, which is not yet for anyone to review or merge.
+    pub draft: bool,
+    /// When the host last updated it, in milliseconds since 1970.
+    pub updated: u64,
+}
+
+/// What the host of a project's repository says of its open pull requests: them, none where the host has no pull
+/// requests, as the local repository, or why it could not say.
+pub type PullsSaid = Result<Option<Vec<OpenPull>>, String>;
 
 /// Each file a work changed, as [`Diffstat`] counts them, in the order of their paths; the commit where its branch left
 /// main and its latest head they are between; and whether what its worktree holds was counted, the worktree being
@@ -476,10 +564,10 @@ pub trait Tools: Send + Sync {
     /// Runs the tool. The call has its result when the reply gives it.
     fn call(&self, call: ToolCall, reply: CallReply);
 
-    /// Withdraws the call, whose run was abandoned: the tool is stopped where it runs, and the call has
-    /// [`WITHDRAWN`] for its result, or the result that came before it could be stopped. A call has one result:
-    /// where the reply it was made with is still held, that one is used and this one dropped, and where the call's
-    /// result was sent already this one is dropped and nothing more is sent.
+    /// Withdraws the call, whose run was abandoned: the tool is stopped where it runs, and the call has the result of
+    /// a withdrawn call ([`Carriers::calls`]) for its result, or the result that came before it could be stopped. A
+    /// call has one result: where the reply it was made with is still held, that one is used and this one dropped,
+    /// and where the call's result was sent already this one is dropped and nothing more is sent.
     fn withdraw(&self, call: ToolCall, reply: CallReply);
 }
 
@@ -667,6 +755,9 @@ pub struct Carriers {
     pub host: Option<Arc<dyn Network>>,
     /// What keeps the tokens of the accounts the agents' program may run under.
     pub tokens: Arc<dyn Tokens>,
+    /// The result a call has where the engine ends it itself, in the words beside the flows: the loop gives it to a
+    /// run at its limit and to the engine's wait, and the tools give it to a tool's call they stop.
+    pub calls: flow::agents::Calls,
 }
 
 impl Carriers {
@@ -741,6 +832,12 @@ impl Carriers {
     pub async fn diff(&self, of: OfWork, path: String) -> Result<Option<Diff>, String> {
         self.acts.diff(of, path).await
     }
+
+    /// The pull requests open on the host of this project's repository, as the carrier of the engine's acts asks the
+    /// host.
+    pub async fn open_pulls(&self, project: &str) -> PullsSaid {
+        self.acts.open_pulls(project).await
+    }
 }
 
 /// A round of a run, to give or to stop.
@@ -781,6 +878,9 @@ pub struct ToolCall {
     pub item: Item,
     /// The work as it was kept when the call was handed out.
     pub kept: Arc<Work>,
+    /// For a call of the tool that runs the project's tests: how long one test may run before it is stopped, in
+    /// milliseconds, as the history of the project's merged checks says it (crate `driver`, module `timed`).
+    pub test_time: Option<f64>,
 }
 
 /// The way to say once that a round ended, or that it failed.
@@ -854,6 +954,7 @@ impl RoundReply {
         let paused = Event::Paused {
             by: Pauser::Engine,
             why: Some(why),
+            waits_for: Vec::new(),
         };
         // Where the loop has ended, the process is stopping: the round is handed out again when it starts again.
         let _ = self.to.send(Message::Happened {
@@ -876,6 +977,7 @@ impl RoundReply {
         let paused = Event::Paused {
             by: Pauser::Engine,
             why: Some(pause),
+            waits_for: Vec::new(),
         };
         // Where the loop has ended, the process is stopping: the round is handed out again when it starts again.
         let _ = self.to.send(Message::Happened {
@@ -936,10 +1038,26 @@ impl Hosting {
         // Where the loop has ended, the process is stopping: what is given again finds the pull request again.
         let _ = self.to.send(Message::Happened { work: self.work, event });
     }
+
+    /// The host read a run of the project's CI, which this call or round asked for, and says how long its tests and
+    /// jobs took, or that it gives no time; said again for the same run, it is kept once.
+    pub fn timed(&self, reading: work::Reading) {
+        let event = Event::Timed { reading };
+        // Where the loop has ended, the process is stopping: what is given again reads the run again.
+        let _ = self.to.send(Message::Happened { work: self.work, event });
+    }
+
+    /// The project's check the host ran for the work, for a round of an act or a call, ended by itself and left these
+    /// many processes running in its group, which the host stopped: said before the round's end or the call's result.
+    pub fn left_behind(&self, of: Left, processes: usize) {
+        let event = Event::LeftBehind { of, processes };
+        // Where the loop has ended, the process is stopping: what the check left is not counted.
+        let _ = self.to.send(Message::Happened { work: self.work, event });
+    }
 }
 
 impl Saying {
-    /// Where it stands now; none where it no longer stands anywhere it says, as once a turn it waited for is taken.
+    /// Where it stands now; none where it no longer stands anywhere it says, as once the CI run it ran as has ended.
     pub fn say(&self, along: Option<Along>) {
         // Where the loop has ended, the process is stopping: what is given again says it again.
         let _ = self.to.send(Message::Along {
@@ -951,6 +1069,18 @@ impl Saying {
 }
 
 impl Teller {
+    /// What the calls to the model of the round of this number, the first being one, have come to so far, against the
+    /// lines the run guard judges it by: no record holds it, and the engine keeps the latest while the round is under
+    /// way. Said again for each call of the round.
+    pub fn going(&self, round: usize, going: Going) {
+        // Where the loop has ended, the process is stopping: what is given again says it again.
+        let _ = self.to.send(Message::Along {
+            work: self.work,
+            under: Under::Round { run: self.run, round },
+            along: Some(Along::Going(going)),
+        });
+    }
+
     /// The try of this number of the round, the first being one, begins on this.
     pub fn ran_on(&self, attempt: usize, on: RanOn) {
         self.tell(Event::Ran {
@@ -978,6 +1108,18 @@ impl Teller {
             attempt,
             measures,
         });
+    }
+
+    /// The program of the try of this number of the round of this number ended by itself and left these many
+    /// processes running in its group, which the carrier stopped: said before the round's end, so that it is in the
+    /// records with the round.
+    pub fn left_behind(&self, round: usize, attempt: usize, processes: usize) {
+        let of = Left::Try {
+            run: self.run,
+            round,
+            attempt,
+        };
+        self.tell(Event::LeftBehind { of, processes });
     }
 
     /// The line's session was reopened during the round, for this reason: the agents' program had lost the one the
@@ -1128,6 +1270,7 @@ mod tests {
             outside: Arc::new(Well),
             host: None,
             tokens: Arc::new(KeptTokens::new()),
+            calls: crate::Scripted::calls(),
         }
     }
 

@@ -27,12 +27,12 @@ What is recorded is given a form for every use from the start, not only for the 
 Why: Records outlive the code that wrote them, and changing their form means rewriting the past.
 
 ### principle agents-get-only-what-the-flow-gives
-The engine starts an agent with a configuration directory of its own, which loads none of the owner's own tools, memory or settings: what an agent sees is decided by the flow and the project's configuration alone.
+The engine starts an agent with a configuration directory of its own, which loads none of the owner's own tools, memory or settings: what an agent sees and may use is decided by the flow and the project's declaration alone.
 Why: Other tools take up context for nothing and can be written to, and what an agent reads by itself the engine cannot carry to a later session.
 
 ### principle refuse-as-little-as-must-be
 Every agent is refused only heavy work on the host's processor, such as building and testing, and writing beyond its worktree, such as pushing, besides what a read-only line is refused; the engine runs for it only what its own command line cannot, such as what needs credentials.
-Why: The worktree is the agent's own, and what it does there changes nobody else's work, while what it could reach beyond it the engine's own guards hold. Each command refused or handed to the engine costs a round more, and what the engine runs for an agent needs limits of its own.
+Why: The worktree is the agent's own, and what it does there changes nobody else's work; what it could reach beyond it the engine's own guards hold. A command refused or handed to the engine ends the round, and the next request carries the whole context again; what the engine runs needs limits too.
 
 ### principle stored-content-is-kept-small
 What is stored is kept under control: no large content is stored more than once.

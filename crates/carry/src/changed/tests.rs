@@ -13,7 +13,9 @@ const MAIN: &str = "refs/heads/main";
 /// A started work.
 async fn started() -> (Repo, Place) {
     let repo = Repo::new("true");
-    let started = git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+    let started = git::start(&repo.project, &repo.place(WORK), "main", "main")
+        .await
+        .unwrap();
     (repo, started.place)
 }
 
@@ -78,9 +80,18 @@ async fn once_its_worktree_and_branch_are_gone_a_merged_work_changed_what_its_ke
     let head = commit(&place.dir, "farewell.txt", "Bye.\n");
     crate::head::keep(&place, &head).await.unwrap();
     // Merged by a commit of the merge, as the local repository merges, after which main moves on.
-    git::merge(&repo.project, &place, "Say goodbye", Some(&head))
-        .await
-        .unwrap();
+    git::merge(
+        &repo.project,
+        &place,
+        "Say goodbye",
+        crate::commit_lines::Whose {
+            item: store::ItemNumber(36),
+            work: WORK,
+        },
+        Some(&head),
+    )
+    .await
+    .unwrap();
     commit(r, "later.txt", "Later.\n");
     git::remove(&repo.project, &place).await.unwrap();
     run(r, &["branch", "-D", &place.branch]);
@@ -98,6 +109,96 @@ async fn once_its_worktree_and_branch_are_gone_a_merged_work_changed_what_its_ke
         files(&changed),
         [("farewell.txt", 1, 0, false, true), ("greeting.txt", 1, 1, false, true)]
     );
+}
+
+/// How many times the work's changes were worked out with git.
+fn looked(known: &Known) -> usize {
+    known.looked.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The repository's own directory stands aside, a file no git can read in its place, so that every git command there
+/// and in its worktrees fails whatever directory holds the repository; and comes back.
+struct Hidden<'a>(&'a Path);
+
+impl<'a> Hidden<'a> {
+    fn of(repo: &'a Path) -> Hidden<'a> {
+        std::fs::rename(repo.join(".git"), repo.join(".git-aside")).unwrap();
+        std::fs::write(repo.join(".git"), "no repository\n").unwrap();
+        Hidden(repo)
+    }
+}
+
+impl Drop for Hidden<'_> {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(self.0.join(".git"));
+        let _ = std::fs::rename(self.0.join(".git-aside"), self.0.join(".git"));
+    }
+}
+
+// Nothing but a round of the work or a tool run for it changes what its branch and worktree hold, and each is recorded:
+// so with nothing under way its numbers are worked out once for its records as they stand, no git running for the
+// reads after, and again once its records move on, the head a round moved read with them, or once its worktree goes.
+#[tokio::test]
+async fn the_numbers_of_a_work_with_nothing_under_way_are_kept_until_its_records_move_on() {
+    let (repo, place) = started().await;
+    let r = &repo.project.repo;
+    let known = Known::default();
+    let at_rest = |at| (Seq(at), false);
+    commit(&place.dir, "farewell.txt", "Bye.\n");
+    std::fs::write(place.dir.join("notes.txt"), "One\n").unwrap();
+    let hidden = Hidden::of(r);
+    let failed = known.stat(r, MAIN, (WORK, &place), at_rest(5)).await;
+    drop(hidden);
+    assert!(failed.is_err(), "{failed:?}");
+    let first = known.stat(r, MAIN, (WORK, &place), at_rest(5)).await;
+    let stat = |files, added| -> Result<Option<Diffstat>, String> {
+        Ok(Some(Diffstat {
+            files,
+            added,
+            removed: 0,
+        }))
+    };
+    assert_eq!(first, stat(2, 2), "a look that failed is taken again");
+    assert_eq!(looked(&known), 2);
+    std::fs::write(place.dir.join("later.txt"), "Later.\n").unwrap();
+    let hidden = Hidden::of(r);
+    let again = known.stat(r, MAIN, (WORK, &place), at_rest(5)).await;
+    drop(hidden);
+    assert_eq!(again, first, "no git ran");
+    assert_eq!(looked(&known), 2);
+    commit(&place.dir, "more.txt", "More.\nAnd more.\n");
+    let moved = known.stat(r, MAIN, (WORK, &place), at_rest(9)).await;
+    assert_eq!(moved, stat(4, 5), "the head moved, and what the worktree holds beside");
+    assert_eq!(looked(&known), 3);
+    git::remove(&repo.project, &place).await.unwrap();
+    let gone = known.stat(r, MAIN, (WORK, &place), at_rest(9)).await;
+    assert_eq!(gone, stat(2, 3), "only what the head holds, once the worktree is gone");
+    assert_eq!(looked(&known), 4);
+}
+
+// What a worktree under way holds changes at any moment: each read works it out again, but a read that asks of the work
+// as it stands while a look at it runs is given that look's answer.
+#[tokio::test]
+async fn the_numbers_of_a_work_under_way_are_worked_out_for_each_read_and_shared_while_a_look_runs() {
+    let (repo, place) = started().await;
+    let r = &repo.project.repo;
+    let known = Known::default();
+    let look = || known.stat(r, MAIN, (WORK, &place), (Seq(5), true));
+    let (one, two) = tokio::join!(look(), look());
+    let none: Result<Option<Diffstat>, String> = Ok(Some(Diffstat::default()));
+    assert_eq!((&one, &two), (&none, &none));
+    assert_eq!(looked(&known), 1, "the second read was given the first's look");
+    std::fs::write(place.dir.join("notes.txt"), "One\n").unwrap();
+    let three = look().await;
+    assert_eq!(
+        three,
+        Ok(Some(Diffstat {
+            files: 1,
+            added: 1,
+            removed: 0
+        }))
+    );
+    assert_eq!(looked(&known), 2);
 }
 
 #[tokio::test]
@@ -154,4 +255,268 @@ async fn the_pull_request_a_merge_s_commit_names_at_the_end_of_its_title_is_read
     let known = Known::default();
     assert_eq!(known.pull_named(r, &named).await.unwrap(), Some(41));
     assert_eq!(known.pull_named(r, &unnamed).await.unwrap(), None);
+}
+
+/// A work that committed two files and whose worktree is taken away, its branch left and no reference kept under its
+/// head: the state of a work whose heads were read before they were kept, merged or not.
+async fn committed_and_gone() -> (Repo, Place, String) {
+    let (repo, place) = started().await;
+    commit(&place.dir, "farewell.txt", "Bye.\n");
+    let head = commit(&place.dir, "other.txt", "Other.\n");
+    git::remove(&repo.project, &place).await.unwrap();
+    (repo, place, head)
+}
+
+#[tokio::test]
+async fn a_binary_file_the_work_committed_is_listed_as_binary_with_no_lines() {
+    let (repo, place) = started().await;
+    let r = &repo.project.repo;
+    std::fs::write(place.dir.join("img.png"), [0u8, 1, 2]).unwrap();
+    run(&place.dir, &["add", "img.png"]);
+    run(&place.dir, &["commit", "-q", "-m", "Add an image"]);
+    let changed = Known::default()
+        .changed(r, MAIN, WORK, &place)
+        .await
+        .unwrap()
+        .expect("a head");
+    // Git says `-` for the lines of each side of a binary file, which are no number.
+    assert_eq!(files(&changed), [("img.png", 0, 0, true, true)]);
+}
+
+#[tokio::test]
+async fn a_link_not_tracked_is_one_line_and_a_large_file_not_tracked_is_counted_whole() {
+    let (repo, place) = started().await;
+    let r = &repo.project.repo;
+    std::os::unix::fs::symlink("greeting.txt", place.dir.join("link")).unwrap();
+    // Far more than the 64 KiB a read takes at a time, so the count crosses the end of each piece.
+    std::fs::write(place.dir.join("big.txt"), "x\n".repeat(100_000)).unwrap();
+    let changed = Known::default()
+        .changed(r, MAIN, WORK, &place)
+        .await
+        .unwrap()
+        .expect("a head");
+    assert_eq!(
+        files(&changed),
+        [("big.txt", 100_000, 0, false, false), ("link", 1, 0, false, false)]
+    );
+}
+
+#[tokio::test]
+async fn a_file_git_ignores_is_no_change_of_the_work() {
+    let (repo, place) = started().await;
+    let r = &repo.project.repo;
+    commit(&place.dir, ".gitignore", "target/\n");
+    std::fs::create_dir(place.dir.join("target")).unwrap();
+    std::fs::write(place.dir.join("target/out.o"), "built\n").unwrap();
+    std::fs::write(place.dir.join("keep.txt"), "Kept.\n").unwrap();
+    let changed = Known::default()
+        .changed(r, MAIN, WORK, &place)
+        .await
+        .unwrap()
+        .expect("a head");
+    assert_eq!(
+        files(&changed),
+        [(".gitignore", 1, 0, false, true), ("keep.txt", 1, 0, false, false)]
+    );
+}
+
+#[tokio::test]
+async fn a_file_named_with_spaces_or_accents_is_listed_and_diffed_by_its_real_name() {
+    let (repo, place) = started().await;
+    let r = &repo.project.repo;
+    commit(&place.dir, "my file.txt", "Spaced.\n");
+    std::fs::write(place.dir.join("café é.txt"), "Accented.\n").unwrap();
+    let known = Known::default();
+    let changed = known.changed(r, MAIN, WORK, &place).await.unwrap().expect("a head");
+    // Git quotes and escapes such names unless it is told to end each with a zero byte.
+    assert_eq!(
+        files(&changed),
+        [("café é.txt", 1, 0, false, false), ("my file.txt", 1, 0, false, true)]
+    );
+    for (path, line) in [("café é.txt", "+Accented."), ("my file.txt", "+Spaced.")] {
+        let diff = known
+            .diff(r, MAIN, (WORK, &place), path)
+            .await
+            .unwrap()
+            .expect("changed");
+        assert!(diff.text.contains(line), "{path}: {}", diff.text);
+    }
+}
+
+#[tokio::test]
+async fn a_file_moved_is_a_file_removed_and_a_file_added_and_no_program_the_repository_names_for_a_diff_runs() {
+    let (repo, place) = started().await;
+    let r = &repo.project.repo;
+    run(&place.dir, &["mv", "greeting.txt", "moved.txt"]);
+    run(&place.dir, &["commit", "-q", "-m", "Move the greeting"]);
+    // The repository's own configuration asks git to find renames and to run a program for each diff.
+    let program = repo.data.join("diff-program");
+    let marked = repo.data.join("diff-program-ran");
+    crate::git::tests::marking(&program, &marked);
+    run(r, &["config", "diff.renames", "true"]);
+    run(r, &["config", "diff.external", &program.display().to_string()]);
+    let known = Known::default();
+    let changed = known.changed(r, MAIN, WORK, &place).await.unwrap().expect("a head");
+    assert_eq!(
+        files(&changed),
+        [("greeting.txt", 0, 1, false, true), ("moved.txt", 1, 0, false, true)]
+    );
+    let diff = known
+        .diff(r, MAIN, (WORK, &place), "moved.txt")
+        .await
+        .unwrap()
+        .expect("changed");
+    assert!(diff.text.contains("+Hello."), "{}", diff.text);
+    assert!(!marked.exists(), "the repository's diff program was run");
+}
+
+#[tokio::test]
+async fn a_work_that_committed_nothing_has_its_head_for_its_base_and_shows_what_its_worktree_holds() {
+    let (repo, place) = started().await;
+    let r = &repo.project.repo;
+    std::fs::write(place.dir.join("notes.txt"), "Note.\n").unwrap();
+    let changed = Known::default()
+        .changed(r, MAIN, WORK, &place)
+        .await
+        .unwrap()
+        .expect("a head");
+    let main = run(r, &["rev-parse", "main"]);
+    let changes = &changed.changes;
+    assert_eq!(
+        (changes.base.as_str(), changes.head.as_str()),
+        (main.as_str(), main.as_str())
+    );
+    assert_eq!(files(&changed), [("notes.txt", 1, 0, false, false)]);
+}
+
+#[tokio::test]
+async fn a_work_whose_head_was_never_kept_is_read_at_its_branch_once_its_worktree_is_gone() {
+    let (repo, place, head) = committed_and_gone().await;
+    let r = &repo.project.repo;
+    let changed = Known::default()
+        .changed(r, MAIN, WORK, &place)
+        .await
+        .unwrap()
+        .expect("the branch");
+    assert_eq!(
+        (changed.changes.head.as_str(), changed.changes.worktree),
+        (head.as_str(), false)
+    );
+    assert_eq!(
+        files(&changed),
+        [("farewell.txt", 1, 0, false, true), ("other.txt", 1, 0, false, true)]
+    );
+}
+
+#[tokio::test]
+async fn the_head_of_a_work_with_no_worktree_is_read_once_and_so_is_what_it_changed_at_a_head() {
+    let (repo, place) = started().await;
+    let r = &repo.project.repo;
+    let first = commit(&place.dir, "farewell.txt", "Bye.\n");
+    let second = commit(&place.dir, "other.txt", "Other.\n");
+    crate::head::keep(&place, &first).await.unwrap();
+    git::remove(&repo.project, &place).await.unwrap();
+    run(r, &["branch", "-D", &place.branch]);
+    let known = Known::default();
+    let head = |changed: Option<Changed>| changed.expect("the kept head").changes.head;
+    assert_eq!(head(known.changed(r, MAIN, WORK, &place).await.unwrap()), first);
+    // The reference moves, which nothing but a worktree does: what was read stays what it was.
+    run(r, &["update-ref", &crate::head::kept(&place), &second]);
+    assert_eq!(head(known.changed(r, MAIN, WORK, &place).await.unwrap()), first);
+    assert_eq!(
+        head(Known::default().changed(r, MAIN, WORK, &place).await.unwrap()),
+        second
+    );
+}
+
+#[tokio::test]
+async fn what_the_worktree_holds_is_worked_out_at_each_ask_so_the_changes_grow_as_the_agent_works() {
+    let (repo, place) = started().await;
+    let r = &repo.project.repo;
+    let known = Known::default();
+    let paths = |changed: Changed| {
+        files(&changed)
+            .iter()
+            .map(|f| (f.0.to_string(), f.1))
+            .collect::<Vec<_>>()
+    };
+    let ask = || known.changed(r, MAIN, WORK, &place);
+    assert_eq!(paths(ask().await.unwrap().expect("a head")), []);
+    std::fs::write(place.dir.join("notes.txt"), "One\n").unwrap();
+    assert_eq!(
+        paths(ask().await.unwrap().expect("a head")),
+        [("notes.txt".to_string(), 1)]
+    );
+    std::fs::write(place.dir.join("notes.txt"), "One\nTwo\n").unwrap();
+    std::fs::write(place.dir.join("greeting.txt"), "Hello.\nHi.\n").unwrap();
+    assert_eq!(
+        paths(ask().await.unwrap().expect("a head")),
+        [("greeting.txt".to_string(), 1), ("notes.txt".to_string(), 2)]
+    );
+}
+
+#[tokio::test]
+async fn once_the_worktree_is_gone_a_file_s_diff_is_taken_between_the_base_and_the_kept_head() {
+    let (repo, place, _) = committed_and_gone().await;
+    let r = &repo.project.repo;
+    let known = Known::default();
+    let diff = known
+        .diff(r, MAIN, (WORK, &place), "farewell.txt")
+        .await
+        .unwrap()
+        .expect("changed");
+    assert!(diff.text.contains("+Bye."), "{}", diff.text);
+    assert_eq!((diff.path.as_str(), diff.cut), ("farewell.txt", None));
+    assert_eq!(known.diff(r, MAIN, (WORK, &place), "greeting.txt").await.unwrap(), None);
+}
+
+#[tokio::test]
+async fn a_diff_over_its_bound_is_cut_at_a_character_with_its_whole_length_said() {
+    let (repo, place) = started().await;
+    let r = &repo.project.repo;
+    // Each line of the diff is four bytes, one of them a two-byte letter: over a megabyte, with the cut among them. Where
+    // in a line the bound falls depends on the length of the diff's head, which holds the path three times; four paths a
+    // letter longer than one another have it fall at each place of a line, one of which is inside the letter.
+    for name in ["big.txt", "bigg.txt", "biggg.txt", "bigggg.txt"] {
+        commit(&place.dir, name, &"é\n".repeat(600_000));
+        let diff = (Known::default().diff(r, MAIN, (WORK, &place), name).await.unwrap()).expect("changed");
+        assert!(
+            diff.cut.is_some_and(|whole| whole as usize > DIFF),
+            "{name}: {:?}",
+            diff.cut
+        );
+        assert!(
+            diff.text.len() <= DIFF && diff.text.len() + 4 > DIFF,
+            "{name}: {}",
+            diff.text.len()
+        );
+    }
+}
+
+/// The path of the index of the work's worktree.
+fn index_of(dir: &Path) -> PathBuf {
+    dir.join(run(dir, &["rev-parse", "--git-path", "index"]))
+}
+
+/// Gives the tracked file a time newer than the index knows, its content as it was: git cannot tell the file is as it
+/// was without reading it, and a refresh would write down what it finds.
+fn touched_later(dir: &Path, file: &str) {
+    let file = std::fs::File::options().write(true).open(dir.join(file)).unwrap();
+    file.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(5_000))
+        .unwrap();
+}
+
+#[tokio::test]
+async fn a_look_at_the_worktree_leaves_its_index_as_it_was_so_an_agent_s_own_git_is_never_held_up() {
+    let (repo, place) = started().await;
+    let r = &repo.project.repo;
+    let index = index_of(&place.dir);
+    touched_later(&place.dir, "greeting.txt");
+    let before = std::fs::read(&index).unwrap();
+    Known::default()
+        .changed(r, MAIN, WORK, &place)
+        .await
+        .unwrap()
+        .expect("a head");
+    assert_eq!(std::fs::read(&index).unwrap(), before, "a look wrote the index");
 }

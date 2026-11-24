@@ -41,8 +41,8 @@
 //! once; then, with a chance of four in five, with the outside making the first cell's precondition hold (the items
 //! the work depends on merged); otherwise with a look. Then, for 0 to 199 steps, the driver's random
 //! steps, people acting at a step with a chance of one in four and the engine stopping at any step:
-//! - an agent's round ends with one to three calls in a tenth of the rounds (a tool in seven of ten, a question for the
-//!   owner or the architect otherwise), asking for nothing in one in twenty-five, handing in a block its cell may not
+//! - an agent's round ends with one to three tools to run in a tenth of the rounds, asking for nothing in one in
+//!   twenty-five, handing in a block its cell may not
 //!   write beside the rest in one in twenty-five, and otherwise handing in what its cell may write: each choice in nine
 //!   of ten, its first value (yes) in a little over half of those; each other block in four of five, mattering in seven
 //!   of ten; but a block a cell before it reads, an opinion for that cell, in about a third, mattering; and beside a
@@ -127,7 +127,7 @@ use decide::questions::Standing;
 use decide::run::Failure;
 use decide::{
     BlockId, Cause, CellId, Condition, Decision, End, Flow, Outsider, Pauser, Records, RunId, Seq, TestKind, Waited,
-    Who, decide,
+    decide,
 };
 use engine::spoken::{self, To};
 use engine::{Ask, Came, Effect, Event, Handed, Question, Way};
@@ -135,8 +135,11 @@ use flow::{Compiled, Has, Kind, Source, compile, read};
 use reading::{Reading, Writer};
 use support::{Driver, Part, Rng, lacking_a_must_write};
 
-/// How many histories are run.
-const SEEDS: u64 = 500;
+/// How many histories are run. The rarest situation the histories must reach, a judge's refusal standing while the check's
+/// record passes, came up in 3 of 500 histories before a return sent back was completed by the next, and in none of 500
+/// after it (measured on 2026-11-22): what the random steps happen to do moves with every rule that changes a history,
+/// so the number is set where each situation comes up in several histories.
+const SEEDS: u64 = 1500;
 
 /// How many random steps, at most, a history takes before the content continuation.
 const RANDOM: usize = 200;
@@ -202,8 +205,9 @@ fn read_head(d: &Driver, roles: &Roles, branch: Branch) -> Option<(BlockId, Stri
 }
 
 /// What the carriers read of the work's head as the round of the cell at this place ends: an agent's round on a line
-/// that may change the work hands it in with its return; one on a line that only reads, and the start, write it from
-/// outside first. The check reads it as it judges ([`gate`]).
+/// that may change the work hands it in with its return, which the run takes up only where the return asks for no call;
+/// one on a line that only reads, and the start, write it from outside first, but not while a cell that may change the
+/// work waits for the results of calls. The check reads it as it judges ([`gate`]).
 fn round_end(d: &mut Driver, roles: &Roles, branch: Branch, i: usize, came: &mut Came) {
     let Some((block, content)) = read_head(d, roles, branch) else {
         return;
@@ -219,6 +223,12 @@ fn round_end(d: &mut Driver, roles: &Roles, branch: Branch, i: usize, came: &mut
             value: None,
         }];
     } else if agent || start {
+        let waiting = decide::owed(&d.flow.flow, &d.work.records)
+            .keys()
+            .any(|cell| d.flow.cells.iter().any(|c| &c.id == cell && !c.reads_only));
+        if waiting {
+            return;
+        }
         let event = Event::Wrote {
             block,
             by: Outsider::Outside,
@@ -301,9 +311,9 @@ fn compiled(source: &Source) -> Compiled {
             "dependencies",
             "handed_in",
             "main",
-            "session",
             "start",
             "head",
+            "test_times",
             "tree",
         ]),
         acts: names(&["start", "check", "merge"]),
@@ -578,8 +588,9 @@ fn handed(block: &BlockId, cell: &str, matters: bool, value: Option<String>) -> 
 /// What the round of the run of the cell at this place returns that hands in these blocks. An agent's return names as
 /// dealt with each thing its round was told ran it, as its agent is told them (crate `context`), and is read as the
 /// agents' rounds read a return (`CellSpec::dealt_with`), a group by its own name; an act of the engine's
-/// names none, and deals with everything that ran its round.
-fn hands_in(d: &Driver, run: RunId, i: usize, writes: Vec<Handed>) -> Came {
+/// names none, and deals with everything that ran its round. Where that is the cell's own words, which the owner wrote,
+/// it answers them in the words, as the run's check requires of a return that names them.
+fn hands_in(d: &Driver, run: RunId, i: usize, mut writes: Vec<Handed>) -> Came {
     let spec = &d.flow.cells[i];
     if spec.kind == Kind::Engine {
         return Came::hands_in(writes);
@@ -588,6 +599,12 @@ fn hands_in(d: &Driver, run: RunId, i: usize, writes: Vec<Handed>) -> Came {
     let names: Vec<String> = spec.ran(&told.ran_by).map(|t| t.name.clone()).collect();
     let (dealt_with, none) = spec.dealt_with(&names);
     assert!(none.is_empty(), "{} watches none of {none:?}", spec.id);
+    if let Some(own) = spoken::words_of(&d.flow, &spec.id)
+        && dealt_with.contains(own)
+        && !writes.iter().any(|h| &h.block == own)
+    {
+        writes.push(handed(own, spec.id.as_str(), true, None));
+    }
     Came::works(dealt_with, writes)
 }
 
@@ -735,6 +752,7 @@ impl Random {
             return Some(Event::Paused {
                 by: Pauser::Owner,
                 why: None,
+                waits_for: Vec::new(),
             });
         }
         if !(d.paused && self.paused_it && !checking) {
@@ -989,19 +1007,9 @@ impl Random {
             0..=9 => {
                 let n = 1 + d.rng.below(3);
                 let asks = (0..n)
-                    .map(|k| {
-                        if d.rng.chance(70) {
-                            Ask::Tool {
-                                name: format!("tool {k}"),
-                                input: "x".to_string(),
-                            }
-                        } else {
-                            let who = if d.rng.chance(50) { Who::Owner } else { Who::Architect };
-                            Ask::Person {
-                                who,
-                                question: "which?".to_string(),
-                            }
-                        }
+                    .map(|k| Ask::Tool {
+                        name: format!("tool {k}"),
+                        input: "x".to_string(),
                     })
                     .collect();
                 Came::asks(asks)
@@ -1136,6 +1144,7 @@ impl Random {
             return Event::Paused {
                 by: Pauser::Owner,
                 why: None,
+                waits_for: Vec::new(),
             };
         }
         if paused && passed_before_merge(d, &self.roles) {
@@ -1224,6 +1233,7 @@ impl Random {
                 Event::Paused {
                     by: Pauser::Owner,
                     why: None,
+                    waits_for: Vec::new(),
                 }
             }),
             // A person commits on the work's branch, outside any round: nothing is written until a carrier reads it.
@@ -1870,7 +1880,7 @@ impl History {
             Waited::Precondition { on, .. } => {
                 (make_hold(&self.d, on).map(|e| (e, false))).or_else(|| ask_a_cell(&self.d, on).map(|e| (e, true)))
             }
-            Waited::Call { .. } | Waited::Slot | Waited::Answer { .. } | Waited::Outside { .. } => None,
+            Waited::Call { .. } | Waited::Slot | Waited::Turn | Waited::Answer { .. } | Waited::Outside { .. } => None,
         })
     }
 

@@ -12,12 +12,14 @@ use super::*;
 const PAUSED: Room = Room {
     paused: true,
     slot: true,
+    turn: true,
 };
 
 /// No slot free, nothing paused.
 const FULL: Room = Room {
     paused: false,
     slot: false,
+    turn: true,
 };
 
 /// A research that reads the background, which people write, and a note to it; an implementation that reads the plan;
@@ -52,6 +54,7 @@ fn paused_itself(w: &World) -> decide::Records {
         at: Seq(last.0 + 1),
         by: Pauser::Owner,
         why: None,
+        waits_for: Vec::new(),
     });
     records
 }
@@ -129,6 +132,7 @@ fn a_note_answered_under_the_pause_of_everything_waits_for_a_slot_too() {
     let neither = Room {
         paused: true,
         slot: false,
+        turn: true,
     };
     assert_eq!(
         decide_in(&w.flow, &w.records, neither),

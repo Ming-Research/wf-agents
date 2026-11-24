@@ -83,7 +83,7 @@ export function nextWeekStart(now: number): number {
 
 /// The share of the tokens sent that were read from the cache, from 0 to 1; none where nothing was sent.
 export function cacheShare(spent: Spent): number | null {
-  const sent = spent.inputTokens + spent.cachedTokens;
+  const sent = spent.inputTokens + spent.cacheWrittenTokens + spent.unsplitTokens + spent.cachedTokens;
   return sent === 0 ? null : spent.cachedTokens / sent;
 }
 
@@ -101,13 +101,31 @@ export function mergeAverages(merged: Merged[]): { took: number | null; usdMicro
   return { took, usdMicros: merged.reduce((sum, m) => sum + m.spent.usdMicros, 0) / merged.length };
 }
 
+/// What the span spent in all, the rounds that ended in it and the keep-warm pings, whatever they were for: the works that
+/// did not merge, the rounds sent back and the rounds that failed among them, for each work merged in it; none where
+/// none merged. What the merged works cost themselves is [`mergeAverages`]'s, over their whole lives.
+export function spentPerMerge(spent: Spent, merged: Merged[]): number | null {
+  return merged.length === 0 ? null : spent.usdMicros / merged.length;
+}
+
 /// What a list of things that took something took, together.
 export function summed(list: { spent: Spent | null }[]): Spent {
-  const sum: Spent = { usdMicros: 0, inputTokens: 0, cachedTokens: 0, outputTokens: 0, workingMs: 0, rounds: 0 };
+  const sum: Spent = {
+    usdMicros: 0,
+    inputTokens: 0,
+    cacheWrittenTokens: 0,
+    unsplitTokens: 0,
+    cachedTokens: 0,
+    outputTokens: 0,
+    workingMs: 0,
+    rounds: 0,
+  };
   for (const { spent } of list) {
     if (spent === null) continue;
     sum.usdMicros += spent.usdMicros;
     sum.inputTokens += spent.inputTokens;
+    sum.cacheWrittenTokens += spent.cacheWrittenTokens;
+    sum.unsplitTokens += spent.unsplitTokens;
     sum.cachedTokens += spent.cachedTokens;
     sum.outputTokens += spent.outputTokens;
     sum.workingMs += spent.workingMs;

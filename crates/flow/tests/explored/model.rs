@@ -17,12 +17,11 @@ pub const BACKGROUND: &str = "background";
 const WORDS: &str = "words";
 const ANSWER: &str = "answer";
 
-/// The sources outside the work: the start, the items the work depends on, main, the sessions of the lines, each line
-/// writing a block of its own, the design tree, and the work's head, as a commit no round made moves it.
+/// The sources outside the work: the start, the items the work depends on, main, the design tree, and the work's head,
+/// as a commit no round made moves it.
 pub const START: &str = "start";
 pub const DEPENDENCIES: &str = "dependencies";
 pub const MAIN: &str = "main";
-pub const SESSION: &str = "session";
 pub const TREE: &str = "tree";
 pub const HEAD: &str = "head";
 
@@ -112,8 +111,6 @@ pub enum Event {
     LetsGo(CellId),
     /// The source outside the work writes its block: main moves, the tree changes.
     Source(&'static str),
-    /// The line begins a new session, which writes its own block of the source `session`.
-    Session(String),
     /// The items the work depends on have all merged.
     Dependencies,
 }
@@ -129,7 +126,6 @@ impl fmt::Display for Event {
             Event::LetsGo(cell) => write!(f, "the owner lets {cell} go on at its limit"),
             Event::Source(MAIN) => write!(f, "main moves"),
             Event::Source(source) => write!(f, "the outside writes {source}"),
-            Event::Session(line) => write!(f, "a session of {line} is begun anew"),
             Event::Dependencies => write!(f, "the items the work depends on merge"),
         }
     }
@@ -170,10 +166,8 @@ pub struct Model {
     pub asked: Option<BlockId>,
     /// Each pair of cells whose conditions want another value of a block, by their places, with the block.
     pub contradicting: Vec<(usize, usize, BlockId)>,
-    /// The block each source outside the work but `session` writes.
+    /// The block each source outside the work writes.
     pub sources: BTreeMap<&'static str, BlockId>,
-    /// The block of the source `session` of each line whose cells read one, by the line.
-    pub sessions: BTreeMap<String, BlockId>,
     /// The place of the check's cell.
     pub check: usize,
     /// Of each cell by its place, of each block that runs it and that an act of the engine's after it writes, what
@@ -318,17 +312,6 @@ impl Model {
                     .map(|(block, _)| (source, block.clone()))
             })
             .collect();
-        let line_of = |cell: &CellId| {
-            (compiled.cells.iter())
-                .find(|c| &c.id == cell)
-                .and_then(|c| c.line.clone())
-        };
-        let sessions = (compiled.blocks.iter())
-            .filter(|(_, b)| b.writers.outside.as_deref() == Some(SESSION))
-            .flat_map(|(block, b)| {
-                (b.readers.cells.iter()).filter_map(move |cell| line_of(cell).map(|line| (line, block.clone())))
-            })
-            .collect();
         let check = (compiled.cells.iter())
             .position(|c| c.act.as_deref() == Some(CHECK))
             .expect("the flow has a check");
@@ -375,7 +358,6 @@ impl Model {
             asked,
             contradicting,
             sources,
-            sessions,
             check,
             answered_by,
             stray,
@@ -577,6 +559,7 @@ impl Model {
                 waits: false,
                 questions: Vec::new(),
                 read: Vec::new(),
+                protected: Default::default(),
             };
             return (ret, false);
         }
@@ -605,6 +588,10 @@ impl Model {
                 }
                 Variant::Content | Variant::Empty | Variant::SentBack | Variant::Fails(_) => {}
             }
+            // A block the cell must write it writes in every return, whatever ran it, as an agent that does as its
+            // task says: one that no cell runs on, such as the entries of the tree the reading names, too.
+            let must = &self.compiled.cells[i].must_write;
+            prose.extend(must.iter().filter(|b| !self.choices.contains_key(*b)).cloned());
         } else {
             let fails = matches!(variant, Variant::Fails(_));
             for (block, value) in values.iter_mut() {
@@ -653,6 +640,7 @@ impl Model {
             waits: asks,
             questions: Vec::new(),
             read: read.into_iter().collect(),
+            protected: Default::default(),
         };
         (ret, asks)
     }

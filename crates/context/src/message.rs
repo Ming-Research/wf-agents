@@ -107,14 +107,17 @@ pub struct Run {
     pub named: Settings,
     /// Each datum of the cell's context that has a version, by its name.
     pub data: BTreeMap<BlockId, Datum>,
-    /// Of each datum or group the cell watches that is new to it, by its name, the version the cell last consumed and
-    /// the latest (design document `data-and-context`, 11).
+    /// Of each datum or group the cell watches that is new to it, by its name, the version the cell last worked from
+    /// and the versions that changed its meaning (design document `data-and-context`, 10 and 11).
     pub new: BTreeMap<String, NewVersions>,
     /// The calls whose results the round is given, in the order they were made.
     pub results: Vec<Result>,
     /// Why what the rounds of the run returned was sent back, each with the number of an earlier round, or none for
     /// the round's own, in their order.
     pub sent_back: Vec<(Option<usize>, Vec<Unmet>)>,
+    /// The return the round's own reasons are for stands for nothing of what the round gives: it asked for calls, or it
+    /// could not be read, so the round gives it whole (`sent_back.toml`, `again_whole`).
+    pub whole: bool,
     /// The number of each version a reason for sending back names, by its block and the place it was written at.
     pub numbers: BTreeMap<(BlockId, Seq), u64>,
     /// Each version the round's own return would have written over, of a block the cell is not given, which its
@@ -137,12 +140,13 @@ pub struct Datum {
 
 /// The versions a round is told of a datum or group new to it, by their numbers: of a group, among the versions of the
 /// group, each place that wrote any of its blocks being one.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NewVersions {
-    /// The version the cell last consumed; none where it consumed none.
+    /// The version the cell last worked from: the latest it consumed, wrote itself or the owner ruled on; none where
+    /// it worked from none.
     pub last: Option<u64>,
-    /// The latest version.
-    pub latest: u64,
+    /// Each version new to the cell, which changed the meaning, the earliest first.
+    pub changed: Vec<u64>,
 }
 
 /// A version of a datum.
@@ -220,8 +224,6 @@ pub struct Result {
 pub enum Called {
     /// A tool, run on this.
     Tool { name: String, input: String },
-    /// A question put to a person, as it was put.
-    Question(String),
     /// The owner's word at a limit.
     AtLimit,
     /// A call the work does not hold.
@@ -234,7 +236,6 @@ impl Called {
         match self {
             Called::Tool { input, .. } if input.is_empty() => "tool_alone",
             Called::Tool { .. } => "tool",
-            Called::Question(_) => "question",
             Called::AtLimit => "at_limit",
             Called::Unknown(_) => "unknown",
         }
@@ -244,7 +245,7 @@ impl Called {
 /// The keys of the words of the part `main` of `message.toml`, and of those of a call in `results.toml`, in the
 /// order the files write them.
 pub const MAIN: [&str; 5] = ["text", "conflict", "uncommitted", "merging", "failed"];
-pub const CALLS: [&str; 5] = ["tool", "tool_alone", "question", "at_limit", "unknown"];
+pub const CALLS: [&str; 4] = ["tool", "tool_alone", "at_limit", "unknown"];
 
 /// In which of its forms a part is sent.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -647,9 +648,10 @@ impl Build<'_> {
     }
 
     /// What the cell writes, with its task: its blocks, each on a line with its marks and its words, as `[outputs]` of
-    /// `return.toml` says; after the list its `owner_reads`, once, where a block of it is one the owner reads; then
-    /// what the cell is told of writing each block whose file says it, each a paragraph, in the order of the list; that
-    /// it writes none, where it writes none.
+    /// `return.toml` says; after the list its `owner_reads`, once, where a block of it is one the owner reads, and its
+    /// `every_time`, once, where a block of it is one the cell must hand in every time; then what the cell is told of
+    /// writing each block whose file says it, each a paragraph, in the order of the list, with what its file says
+    /// after it where the cell has such a block; that it writes none, where it writes none.
     fn outputs(&self) -> Vec<Piece> {
         let told = &self.words.returns.outputs;
         let place = self.flow.flow.place(&self.cell.id);
@@ -690,12 +692,19 @@ impl Build<'_> {
         };
         let shown = (outputs.iter()).any(|block| self.flow.blocks.get(block).is_some_and(|b| b.readers.shown));
         let reads = shown.then(|| told.owner_reads.trim().to_string());
+        let marked = (outputs.iter()).any(|block| self.cell.must_write.contains(block));
+        let every_time = marked.then(|| told.every_time.trim().to_string());
         let words = (outputs.iter())
-            .filter_map(|block| self.flow.blocks.get(block).and_then(|b| b.words.as_deref()))
+            .filter_map(|block| self.flow.blocks.get(block))
+            .flat_map(|block| {
+                let after = block.words_if_marked.as_deref().filter(|_| marked);
+                (block.words.as_deref().into_iter()).chain(after)
+            })
             .map(|words| words.trim().to_string());
         let parts: Vec<String> = [told.heading.clone(), list]
             .into_iter()
             .chain(reads)
+            .chain(every_time)
             .chain(words)
             .collect();
         written(&self.named(&parts.join("\n\n")))
@@ -717,7 +726,6 @@ impl Build<'_> {
         let head = match key {
             "tool" => &words.tool,
             "tool_alone" => &words.tool_alone,
-            "question" => &words.question,
             "at_limit" => &words.at_limit,
             "unknown" => &words.unknown,
             _ => return Vec::new(),
@@ -742,7 +750,6 @@ impl Build<'_> {
                 .map(|r| {
                     let places: Vec<(&str, String)> = match &r.call {
                         Called::Tool { name, input } => vec![("name", name.clone()), ("input", input.clone())],
-                        Called::Question(question) => vec![("question", question.clone())],
                         Called::AtLimit => Vec::new(),
                         Called::Unknown(call) => vec![("call", call.0.to_string())],
                     };
@@ -796,7 +803,8 @@ impl Build<'_> {
                     text.push_str(&format!("{heading}\n\n{}\n\n", reasons(unmet)));
                 }
                 None => {
-                    let (heading, again) = (&words.heading, &words.again);
+                    let again = if run.whole { &words.again_whole } else { &words.again };
+                    let heading = &words.heading;
                     text.push_str(&format!("{heading}\n\n{}\n\n", reasons(unmet)));
                     for (block, version) in &run.written_over {
                         let latest = self.datum(block, InputKind::Latest).text;
@@ -826,17 +834,16 @@ impl Build<'_> {
             named.map_or_else(|| block.to_string(), |w| w.name.clone())
         };
         let block = |block: &BlockId| ("block", block.to_string());
-        let (text, places): (&str, Vec<(&str, String)>) = match unmet {
-            Unmet::AsksNothing => (&f.asks_nothing, vec![]),
-            Unmet::NotAnOutput { block: b } => (&f.not_an_output, vec![block(b)]),
-            Unmet::WrittenTwice { block: b } => (&f.written_twice, vec![block(b)]),
-            Unmet::NoValue { block: b } => (&f.no_value, vec![block(b), ("values", values(b))]),
-            Unmet::NotAValue { block: b, value } => (
-                &f.not_a_value,
-                vec![block(b), ("values", values(b)), ("value", value.clone())],
-            ),
-            Unmet::NotAChoice { block: b } => (&f.not_a_choice, vec![block(b)]),
-            Unmet::NotHandedIn { block: b } => (&f.not_handed_in, vec![block(b)]),
+        let places: Vec<(&str, String)> = match unmet {
+            Unmet::AsksNothing => vec![],
+            Unmet::NotAnOutput { block: b } => vec![block(b)],
+            Unmet::WrittenTwice { block: b } => vec![block(b)],
+            Unmet::NoValue { block: b } => vec![block(b), ("values", values(b))],
+            Unmet::NotAValue { block: b, value } => {
+                vec![block(b), ("values", values(b)), ("value", value.clone())]
+            }
+            Unmet::NotAChoice { block: b } => vec![block(b)],
+            Unmet::NotHandedIn { block: b } => vec![block(b)],
             Unmet::NothingBut {
                 block: b,
                 value,
@@ -844,58 +851,57 @@ impl Build<'_> {
             } => {
                 let ticked: Vec<String> = besides.iter().map(|b| format!("`{b}`")).collect();
                 let besides = ticked.join(&words.between);
-                (
-                    &f.nothing_but,
-                    vec![block(b), ("value", value.clone()), ("besides", besides)],
-                )
+                vec![block(b), ("value", value.clone()), ("besides", besides)]
             }
-            Unmet::Unreadable { why } => (&f.unreadable, vec![("why", why.clone())]),
-            Unmet::NotRunBy { block: b } => (&f.not_run_by, vec![("name", watched(b))]),
-            Unmet::DealtWithTwice { block: b } => (&f.dealt_with_twice, vec![("name", watched(b))]),
-            Unmet::DealtWithNothing => (&f.dealt_with_nothing, vec![]),
+            Unmet::Unreadable { why } => vec![("why", why.clone())],
+            Unmet::NotRunBy { block: b } => vec![("name", watched(b))],
+            Unmet::DealtWithTwice { block: b } => vec![("name", watched(b))],
+            Unmet::DealtWithNothing => vec![],
             Unmet::WrittenOver { block: b, version } => {
                 let numbers = self.run().map(|run| &run.numbers);
                 let number = numbers.and_then(|n| n.get(&(b.clone(), *version)));
-                (
-                    &f.written_over,
-                    vec![block(b), ("version", number.map_or_else(String::new, u64::to_string))],
-                )
+                vec![block(b), ("version", number.map_or_else(String::new, u64::to_string))]
             }
-            Unmet::ChoiceChanged { block: b } => (&f.choice_changed, vec![block(b)]),
-            Unmet::AsksAndWorks => (&f.asks_and_works, vec![]),
-            Unmet::NotWatched { name } => (&f.not_watched, vec![("name", name.clone())]),
-            Unmet::NotATool { name } => (&f.not_a_tool, vec![("name", name.clone())]),
-            Unmet::UnchangedNotWritten { block: b } => (&f.unchanged_not_written, vec![block(b)]),
-            Unmet::QuestionTaken { name } => (&f.question_taken, vec![("name", name.clone())]),
-            Unmet::NoSuchQuestion { name } => (&f.no_such_question, vec![("name", name.clone())]),
-            Unmet::QuestionTwice { name } => (&f.question_twice, vec![("name", name.clone())]),
-            Unmet::NotAnOption { name } => (&f.not_an_option, vec![("name", name.clone())]),
-            Unmet::NotAnswerable { name } => (&f.not_answerable, vec![("name", name.clone())]),
-            Unmet::NotAnswered { name } => (&f.not_answered, vec![("name", name.clone())]),
-            Unmet::Unexplained { path } => (&f.unexplained, vec![("path", path.clone())]),
-            Unmet::NotATest { path } => (&f.not_a_test, vec![("path", path.clone())]),
-            Unmet::Uncommitted { changes } => (&f.uncommitted, vec![("changes", changes.clone())]),
-            Unmet::Merging { changes } => (&f.merging, vec![("changes", changes.clone())]),
-            Unmet::TreeUnchanged { name } => (&f.tree_unchanged, vec![("name", name.clone())]),
-            Unmet::Unanswered { block } => (&f.unanswered, vec![("block", block.to_string())]),
+            Unmet::ChoiceChanged { block: b } => vec![block(b)],
+            Unmet::AsksAndWorks => vec![],
+            Unmet::NotWatched { name } => vec![("name", name.clone())],
+            Unmet::NotATool { name } => vec![("name", name.clone())],
+            Unmet::UnchangedNotWritten { block: b } => vec![block(b)],
+            Unmet::QuestionTaken { name } => vec![("name", name.clone())],
+            Unmet::NoSuchQuestion { name } => vec![("name", name.clone())],
+            Unmet::QuestionTwice { name } => vec![("name", name.clone())],
+            Unmet::NotAnOption { name } => vec![("name", name.clone())],
+            Unmet::NotAnswerable { name } => vec![("name", name.clone())],
+            Unmet::NotAnswered { name } => vec![("name", name.clone())],
+            Unmet::Unexplained { path } => vec![("path", path.clone())],
+            Unmet::NotATest { path } => vec![("path", path.clone())],
+            Unmet::Uncommitted { changes } => vec![("changes", changes.clone())],
+            Unmet::Merging { changes } => vec![("changes", changes.clone())],
+            Unmet::TreeUnchanged { name } => vec![("name", name.clone())],
+            Unmet::NotAnEntry { line } => vec![("line", line.clone())],
+            Unmet::TreeForm { lines } => vec![("faults", lines.join("\n"))],
+            Unmet::Unanswered { block } => vec![("block", block.to_string())],
             Unmet::WordOwed { name, watched } => {
                 let ticked: Vec<String> = watched.iter().map(|b| format!("`{b}`")).collect();
                 let watched = ticked.join(&words.between);
-                (&f.word_owed, vec![("name", name.to_string()), ("watched", watched)])
+                vec![("name", name.to_string()), ("watched", watched)]
             }
-            Unmet::NoPoint { block: b, value, name } => (
-                &f.no_point,
-                vec![block(b), ("value", value.clone()), ("name", name.to_string())],
-            ),
+            Unmet::NoPoint { block: b, value, name } => {
+                vec![block(b), ("value", value.clone()), ("name", name.to_string())]
+            }
         };
+        // The sentence is the file's for the key the page shows (`Unmet::key`); every key has one (a test holds it).
+        let text = f
+            .text(unmet.key())
+            .expect("every key of a reason a return is sent back for has its sentence");
         let places: Vec<(&str, &str)> = places.iter().map(|(name, value)| (*name, value.as_str())).collect();
         text::as_written(&fill(text.trim_end(), &places))
     }
 
     /// The line of a datum or group the cell watches, new to it: its `each`, with its versions, the one the cell last
-    /// consumed, where it consumed one, and the latest (design document `data-and-context`, 11), and what the cell
-    /// does where it says. The page is shown the versions as one place left open, which a run fills with the words of
-    /// either.
+    /// worked from, where it worked from one, and each that changed its meaning, where one did (design document
+    /// `data-and-context`, 10 and 11), and what the cell does where it says. The page is shown the versions as one
+    /// place left open, which a run fills with the words of either.
     fn watched(&self, part: &MessagePart, watched: &flow::Watched) -> Vec<Piece> {
         let each = with_slots(part.each.as_deref().unwrap_or_default());
         let words = |text: &Option<String>| text.as_deref().unwrap_or_default().to_string();
@@ -904,15 +910,22 @@ impl Build<'_> {
                 name: "versions".to_string(),
             }],
             Some(run) => match run.new.get(&watched.name) {
-                Some(NewVersions {
-                    last: Some(last),
-                    latest,
-                }) => fill(
-                    &words(&part.since),
-                    &[("last", &last.to_string()), ("latest", &latest.to_string())],
-                ),
-                Some(NewVersions { last: None, latest }) => {
-                    fill(&words(&part.first), &[("latest", &latest.to_string())])
+                Some(new) => {
+                    let mut pieces = match new.last {
+                        Some(last) => fill(&words(&part.since), &[("last", &last.to_string())]),
+                        None => Vec::new(),
+                    };
+                    let numbers: Vec<String> = new.changed.iter().map(u64::to_string).collect();
+                    let changed = match new.changed.len() {
+                        0 => None,
+                        1 => Some(&part.changed_one),
+                        _ => Some(&part.changed_many),
+                    };
+                    if let Some(changed) = changed {
+                        let numbers = numbers.join(&words(&part.between));
+                        pieces.extend(fill(&words(changed), &[("changed", &numbers)]));
+                    }
+                    join(pieces)
                 }
                 None => Vec::new(),
             },
@@ -987,8 +1000,17 @@ impl Build<'_> {
         }
     }
 
-    /// A text of a datum with the places of this version of it filled.
+    /// A text of a datum with the places of this version of it filled: its content and what changed in it, each set
+    /// apart from the message's own words in a fence, so that no heading or list in what an agent wrote reads as the
+    /// message's own structure (principle agent-writing-is-data), the lines at its end left out; a content with nothing
+    /// in it stays empty.
     fn filled_by(&self, pieces: Vec<Piece>, datum: &Datum, version: &Version) -> Vec<Piece> {
+        let apart = |said: &str| match said.trim_end_matches('\n') {
+            "" => String::new(),
+            said => text::fenced(said),
+        };
+        let diff = apart(datum.diff.as_deref().unwrap_or_default());
+        let content = apart(&version.content);
         let number = version.number.to_string();
         let last = datum.last.map(|l| l.to_string()).unwrap_or_default();
         let given = &self.words.given;
@@ -1003,8 +1025,8 @@ impl Build<'_> {
             ("last_number", last.as_str()),
             ("first_number", number.as_str()),
             ("value", version.value.as_deref().unwrap_or_default()),
-            ("diff", datum.diff.as_deref().unwrap_or_default()),
-            ("content", version.content.as_str()),
+            ("diff", diff.as_str()),
+            ("content", content.as_str()),
         ];
         filled(pieces, &places)
     }

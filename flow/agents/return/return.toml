@@ -16,9 +16,9 @@ outcome = ["dealt_with", "meaning_unchanged", "observations", "protected_changes
 
 # The part on returning of a line's system prompt, after the engine's words (`../session.toml`): the same for every
 # cell of the flow. `heading`, `first` and `kinds`; each field told `alone`, in the order of the form, with those told
-# `with_outputs` after the words of `outputs`; `every_time`; `fields`, over the fields told `listed`, each field's
-# `also` after the list; `owner_reads`, `{fields}` the names in `reads` joined by `", "` and `and`; where the flow
-# names tools, `tools`, then each tool's words.
+# `with_outputs` after the words of `outputs`; `fields`, over the fields told `listed`, each field's `also` after the
+# list; `owner_reads`, `{fields}` the names in `reads` joined by `", "` and `and`; where the flow names tools, `tools`,
+# then each tool's words.
 [how_you_return]
 heading = "## How you return"
 first = "You end every round with one return, in the form given to you."
@@ -30,8 +30,6 @@ nothing else.'''
 item = "- {text}"
 # The fields told `listed`, in this order.
 listed = ["observations", "protected_changes"]
-every_time = '''
-Handing in a block marked "hand it in every time" again, with its value unchanged, runs no cell again.'''
 fields = '''
 Fields that are not blocks of the work:'''
 owner_reads = "The owner reads {fields}: write it in `owner.language`, with technical terms in their English original."
@@ -45,10 +43,12 @@ Each tool is a field of `tools` under its name, holding a list of requests. The 
 and the cell is entered again once their results are in.'''
 
 # What a cell is told it writes, with its task, where the session lacks it: its blocks, each on a line, after the
-# heading; after the list, `owner_reads`, once, where a block of the list is one the owner reads; then the words of
-# each block it writes that has words of its own (`words` in the block's file), each a paragraph, in the order of the
-# list; `none` where it writes none. A line says after the block's name each mark that holds: that it is a choice,
-# `{values}` its values; that the owner reads it; that the cell hands it in every time.
+# heading; after the list, `owner_reads`, once, where a block of the list is one the owner reads, and `every_time`,
+# once, where a block of the list is one the cell hands in every time; then the words of each block it writes that has
+# words of its own (`words` in the block's file), each a paragraph, in the order of the list, each followed by its
+# `words_if_marked` where a block of the list is one the cell hands in every time; `none` where it writes none. A line
+# says after the block's name each mark that holds: that it is a choice, `{values}` its values; that the owner reads
+# it; that the cell hands it in every time.
 [outputs]
 heading = "## What this cell returns"
 block = "- `{block}`{choice}{shown}{must_write}: {what}"
@@ -59,3 +59,6 @@ must_write = " (hand it in every time)"
 owner_reads = '''
 Write what the owner reads in `owner.language`, with technical terms in their English original. If a diagram says
 it more plainly than words, draw it in a small ```mermaid or ```dot fence, and do not say it again in words.'''
+every_time = '''
+Write each block marked "hand it in every time" in every return, changed or not: handed in again with its value
+unchanged, it runs no cell.'''

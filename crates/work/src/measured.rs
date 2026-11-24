@@ -53,9 +53,12 @@ pub struct Measures {
     /// The characters of the message it was given.
     pub given: u64,
     /// What came before the session's messages in its prompt, which the cache reads only where it is what the call
-    /// before had: each part by its name, with its value, or the digest of a long one (`model`, `effort`, `account`,
-    /// `program`, `system`, `schema`, `tools`). A part the try did not say is missing, as the account where it ran
-    /// under none.
+    /// before had: each part by its name, with its value, or the digest of a long one (`model`, `account`, `system`,
+    /// `schema`, and what the program's first line said it gave the model: `program`, its version, `program_tools`
+    /// and `program_agents`, in the order it gave them). A part the try did not say is missing, as the account where
+    /// it ran under none. Rows kept earlier also hold `effort`, which caused no miss in the measured changes of it,
+    /// and `tools`, a digest of the arguments the engine gave the program, which is not what the program gave the
+    /// model; they are no longer written, and the readers of a miss do not compare them.
     pub before: BTreeMap<String, String>,
     /// Whether its program said, as its stream began, that it had taken the message in: it is then in the session,
     /// whatever came of the try.
@@ -88,6 +91,46 @@ pub struct Pinged {
     pub spent: Spent,
     /// Why it failed, where it did: the session's cache was not read, and a ping is tried again a while after.
     pub failed: Option<String>,
+}
+
+/// A fork of a round's session asked a question, at a place of its own in the order of what happened to the work: the
+/// run and the round whose session it was forked from, and what it took (the cost and the tokens sent and not read from
+/// the cache, those of them written to it, those read from it, and those that came back), whether it answered or not.
+/// Its time is the time of that place.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Forked {
+    /// The place of the entry in the order of what happened to the work.
+    pub at: Seq,
+    pub run: RunId,
+    /// Which round of the run, the first being one.
+    pub round: usize,
+    pub usd_micros: u64,
+    /// The tokens sent that were not read from the cache, as [`crate::Spent::uncached_tokens`].
+    pub uncached_tokens: u64,
+    /// Of `uncached_tokens`, those written to the cache, as [`crate::Spent::cache_written_tokens`].
+    pub cache_written_tokens: Option<u64>,
+    pub cached_tokens: u64,
+    pub output_tokens: u64,
+}
+
+/// What a kind of call beside the rounds took.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BesideKind {
+    /// A keep-warm ping of a line's session.
+    Ping,
+    /// A fork of a round's session asked a question.
+    Fork,
+}
+
+/// What a call made beside the rounds took, at its place in the order of what happened to the work: a keep-warm ping's
+/// or a fork's. Whatever adds up what a work spent reads these, so that every kind of spend beside the rounds counts
+/// wherever the spend is added up.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SpentBeside {
+    pub at: Seq,
+    pub kind: BesideKind,
+    /// What it took: a fork's has the cost and the three counts of tokens alone.
+    pub spent: Spent,
 }
 
 /// The measures of the round of this number of the run: its last try's; none where no try of it said them.

@@ -8,10 +8,12 @@ of each part.
 
 ## The layers of the suite
 
-1. A test guards: it runs in CI at every change, the whole suite at every pull request and every push to main, and
-   fails on a fault of its kind from then on. What no test of the suite judges is judged otherwise: a cell's words on
-   real works (10), the page by the owner (16 to 21), what rounds cost in trials (22 to 32). A look guards nothing
-   until what it found is a test.
+1. A test guards: it runs in CI at every change, the whole suite at the check before each merge and on each pull
+   request that is not a work's, and fails on a fault of its kind from then on. What no test of the suite judges is
+   judged otherwise: a cell's words on real works (10), the page by the owner (16 to 21), what rounds cost in trials
+   (22 to 32). A look guards nothing until what it found is a test.
+   How long each test and job of a merged check took is kept with its work, and a test's time and the CI's growth are
+   judged by that history, not by a number set by hand (decision the-ci-grows-by-medians-of-its-merged-checks).
 
 2. A fault, wherever it is found (by a review, in a trial, by the owner on the page), is first written as a test that
    fails on it, at the layer below that catches its kind, and only then fixed. Where that layer checks properties, it
@@ -119,9 +121,10 @@ of each part.
     the real installation, served on a port of its own by the program of the change being judged, where every round
     follows a script.
 
-17. Only the program writes the store. A build starts the engine on an empty data directory with a script, adds the
-    items, and brings each work to its state with the engine's own commands and its interface, each act at the state it
-    waits for. A state written into the store by hand may be one no engine reaches, and the page would be judged on it.
+17. Only the program writes the store. A build starts the engine on an empty data directory (`--new`) with a script,
+    adds the items, and brings each work to its state with the engine's own commands and its interface, each act at the
+    state it waits for. A state written into the store by hand may be one no engine reaches, and the page would be
+    judged on it.
 
 18. The states are taken from the flow's definition and the engine's own kinds, never from what was seen: under way at
     each cell; waiting, at each cell that can, for each thing it can wait for (an answer, a call's result, the engine's
@@ -144,10 +147,10 @@ of each part.
     as data, the engine's own questions, the context a round ends with, a tool's time in one work), so that the build
     runs the program as it is rather than one changed for it; the build kept in the repository beside the program it
     drives, as 25 needs, the items it fills the store with given from the installation's data (principle
-    harness-only); and the states a script cannot bring about: sessions kept warm and what a round wrote to the cache,
-    which only a trial shows (22); the settings and the levels, which a script runs without; the copies of the store;
-    and times spread as a real installation's are, which needs the build to run on a clock of its own (principle
-    outside-behind-interfaces).
+    each-setting-where-it-is-true); and the states a script cannot bring about: sessions kept warm and what a round
+    wrote to the cache, which only a trial shows (22); the settings and the levels, which a script runs without; the
+    copies of the store; and times spread as a real installation's are, which needs the build to run on a clock of its
+    own (principle outside-behind-interfaces).
 
 ## A trial on the real installation
 
@@ -186,7 +189,10 @@ of each part.
     unneeded, how to fix each, quoting the text. An agent that knows it is being tested does not do what it would in
     real work (an inference, not measured). The return cannot show which words can be read another way; the fork,
     holding everything the round saw, can. Asking why it acted as it did is refused whole by the model's safety check
-    (it happened on 2026-11-08).
+    (it happened on 2026-11-08). Each fork is sent a first message, the same for every fork of the round, before its
+    question, so that the first fork writes the session's history to the prompt cache and the forks asked after it read
+    it (decision a-fork-begins-with-a-message-every-fork-of-the-round-shares); what a fork cost is kept with the work,
+    in what it spent.
 
     Where an agent did what its cell did not mean, the words are traced before they change. Each guess at which
     words led it there is written down first, with those words. A fork of its session, from the end of the round it
@@ -220,6 +226,5 @@ of each part.
 31. The trial's costs, by cell and in all, are set against the history of the flow's works. Once a work ends, each of
     its lines' sessions is forked, as 27 says, and asked about the rules it worked under.
 
-32. Not built: a round's panel showing first what was new to it (document `the-owners-page`, 3), and a work's cost by
-    kind of token (the same, 4); and walking a changed flow without acting (document `changed-flow-walks-the-records`,
-    3).
+32. Not built: a round's panel showing first what was new to it (document `the-owners-page`, 2); and walking a changed
+    flow without acting (document `changed-flow-walks-the-records`, 3).

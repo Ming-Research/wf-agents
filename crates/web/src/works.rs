@@ -26,7 +26,7 @@
 //! not: making its view gives [`Broken`], saying what is missing.
 
 use context::Author;
-use decide::run::{Failure as FailureOf, Limit as LimitOf, Unmet as UnmetOf};
+use decide::run::{Failure as FailureOf, Limit as LimitOf, Recorded, Unmet as UnmetOf};
 use decide::{
     BlockId, CallId, Cause as CauseOf, CellId, Condition as Applies, Decision, End, Holder, Maker as MakerOf,
     Pauser as PauserOf, Records, RunId, Seq, Unrun as UnrunOf, VersionView, View, Waited as WaitedOf, Who,
@@ -74,9 +74,17 @@ pub struct Outage {
     pub checked: Option<Checked>,
     /// When the rounds it holds may begin again.
     pub until: Until,
-    /// Whether it holds rounds now: once a check found the outside well, it stands only until a round that began after
-    /// the latest that failed so comes back, and holds nothing meanwhile.
+    /// Whether it holds rounds now: once a check found the outside well, or a look reached the acts' host, it stands
+    /// until a round that began after the latest that failed so comes back, and holds every other round while that one,
+    /// which goes first, is under way.
     pub holds: bool,
+    /// The work whose round goes first, while it is under way and the wait holds the others for it.
+    #[serde(default)]
+    pub first: Option<u64>,
+    /// Whether the owner has let the engine move to another account at a usage limit and some other account may yet be
+    /// moved to in this wait: then the wait ends when the engine moves as well as when the limit resets.
+    #[serde(default)]
+    pub may_move: bool,
 }
 
 /// The latest check of the outside of the agents' rounds in a wait: when, how many were taken in the wait, and what it
@@ -114,7 +122,7 @@ pub enum Until {
     /// Once a check of the outside of the agents' rounds, which the engine takes at this time, finds it well: at a
     /// usage limit whose reset was said, at the reset.
     Checked { at: u64 },
-    /// Now: the check taken at this time found the outside well, and every work goes on.
+    /// Now: the check taken at this time found the outside well, and one round goes first.
     Well { at: u64 },
     /// Every act, once a look at the host, taken every half minute from this time, reaches it.
     Looked { at: u64 },
@@ -168,10 +176,48 @@ pub struct Item {
     /// The tags it carries, in the order of their names.
     #[serde(default)]
     pub tags: Vec<String>,
+    /// The branch or pull request its work starts from, where it continues one and not the head of main; left out
+    /// where it continues nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continues: Option<Continues>,
     /// What it was as it was added, and each change made to it since: what it said before, and when it changed.
     pub history: ItemHistory,
     /// The one work done for it, which was added with it.
     pub work: Summary,
+}
+
+/// What an item continues: a branch of its project's repository, or a pull request on its host, whose head its work
+/// starts from.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum Continues {
+    /// The branch of this name.
+    Branch { name: String },
+    /// The pull request of this number.
+    Pull { number: u64 },
+}
+
+impl Continues {
+    /// What the store keeps of it.
+    pub fn kept(self) -> store::Continues {
+        match self {
+            Continues::Branch { name } => store::Continues::Branch(name),
+            Continues::Pull { number } => store::Continues::Pull(number),
+        }
+    }
+
+    /// What the store keeps, as the pages read it.
+    pub fn of(kept: &store::Continues) -> Continues {
+        match kept {
+            store::Continues::Branch(name) => Continues::Branch { name: name.clone() },
+            store::Continues::Pull(number) => Continues::Pull { number: *number },
+        }
+    }
 }
 
 /// An item as it was added, and each change made to it since, in the order they were made: its title, level and
@@ -193,6 +239,9 @@ pub struct FirstItem {
     pub depends_on: Vec<u64>,
     #[serde(default)]
     pub tags: Vec<String>,
+    /// None for an item added continuing nothing, and then left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continues: Option<Continues>,
 }
 
 /// A change made to an item, at this time, and why, as whoever made it said; none for a change kept before changes
@@ -222,6 +271,8 @@ pub enum ItemChanged {
     Tagged { tag: String },
     /// It no longer carries this tag.
     Untagged { tag: String },
+    /// It came to continue this, or, with none, to continue nothing.
+    Continues { continues: Option<Continues> },
 }
 
 /// A work in brief.
@@ -245,13 +296,17 @@ pub struct Summary {
     pub now: Now,
     /// Each cell of its flow as it stands for this work, in the order of the walk.
     pub cells: Vec<CellNow>,
-    /// What all its rounds that ended took, and its keep-warm pings, which count in what it spent as its rounds do:
-    /// `rounds` counts its rounds alone.
+    /// What all its rounds that ended took, and its keep-warm pings and its forks, which count in what it spent as its
+    /// rounds do: `rounds` counts its rounds alone.
     pub spent: Spent,
     /// What the keep-warm pings of its sessions took, each ping counted as a round, none of them under way for any
     /// time the page counts.
     #[serde(default)]
     pub pinged: Spent,
+    /// What the forks of its rounds' sessions took, each fork counted as a round, none of them under way for any time
+    /// the page counts.
+    #[serde(default)]
+    pub forked: Spent,
     /// When something last happened to it; none where nothing has.
     pub last: Option<u64>,
     /// When its first round began; none before it has one.
@@ -284,15 +339,19 @@ pub struct Summary {
     #[serde(default)]
     pub level: Option<String>,
     /// The level the rounds of the cell it stands at run at, by the same rule: its level raised as far as the cell's
-    /// line says, never above the highest an item may be at; none where it stands at no cell, as a work that ended,
-    /// at an engine cell, whose acts run on no level, or where the rule refuses its level.
+    /// line says, never above the highest level one round may run at; none where it stands at no cell, as a work that
+    /// ended, at an engine cell, whose acts run on no level, or where the rule refuses its level.
     #[serde(default)]
     pub cell_level: Option<String>,
-    /// How many levels the line of the cell it stands at raises that cell above its level, as the line's
-    /// `levels_above` says, whatever the highest level an item may be at holds the cell's level to; none where it
-    /// stands at no agent's cell.
+    /// How many levels above its level the cell it stands at really runs: its line's `levels_above`, less what the
+    /// highest level one round may run at took off it; none where it stands at no agent's cell, or where the rule
+    /// refuses its level.
     #[serde(default)]
     pub raise: Option<u32>,
+    /// What held the cell it stands at below what its line asks, where the highest level one round may run at did;
+    /// none where nothing did.
+    #[serde(default)]
+    pub held: Option<Held>,
     /// The pull request the host of its repository checks it through: the latest the host found, as the work keeps
     /// it; of a work that merged before works kept theirs, the one the title of the commit its merge made names. None
     /// where it has none, as on a host with no pull requests.
@@ -304,6 +363,15 @@ pub struct Summary {
     /// made, and where git could not say, which the engine's standard error says.
     #[serde(default)]
     pub changed: Option<Diffstat>,
+}
+
+/// What held a cell below the level its line asks it to run at: how many levels above its item's the line asks, and the
+/// key of the setting that holds a round to its highest level, none where the engine has no settings of its own.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Held {
+    pub asks: u32,
+    pub by: Option<String>,
 }
 
 /// A pull request on the host of a work's repository: its number, and its address.
@@ -375,8 +443,6 @@ pub enum Ends {
     /// Answers this version of the work's question of this name, by one of its options: the version by its number
     /// among the versions of its cell's questions, none where it has none.
     Answer { question: String, version: Option<u64> },
-    /// Answers in words the question this call puts to them.
-    Reply { call: u64 },
     /// Lets the run that reached its limit go on, as the result of this call.
     GoOn { call: u64 },
     /// Lets the cell go on past its limit.
@@ -398,7 +464,6 @@ impl Wait {
             why: waiting.why,
             ends: match waiting.ends {
                 EndsOf::Answer { question, version } => Ends::Answer { question, version },
-                EndsOf::Reply { call } => Ends::Reply { call: call.0 },
                 EndsOf::GoOn { call } => Ends::GoOn { call: call.0 },
                 EndsOf::LetGo { cell } => Ends::LetGo { cell: cell.to_string() },
                 EndsOf::Write { block, value } => Ends::Write {
@@ -437,12 +502,18 @@ pub enum Now {
     },
     /// It is paused at this cell, by the owner, or by the engine itself for this reason, as when a round failed: what
     /// it would do next is begin a round there, or, where it is stalled and its own pause holds it, it stands there. An
-    /// engine of a build before the cell was said gives none, read as empty.
+    /// engine of a build before the cell was said gives none, read as empty. The owner's pause may say why, and the
+    /// items it waits for to merge or be cancelled, `waits_for`, of which `open` are those that have not yet: with
+    /// `waits_for` and no `open`, what it waited for is over, and only the owner lets the work on.
     Paused {
         #[serde(default)]
         at: String,
         by: Pauser,
         why: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        waits_for: Vec<u64>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        open: Vec<u64>,
     },
     /// The pause of everything holds it back, and what it would do next is begin a round at this cell; its own pause
     /// does not hold it. `by` is who set it: the owner, or the engine as it started with works going on, which holds
@@ -533,13 +604,16 @@ pub enum Waited {
     Slot {},
     /// The wait every work shares: the cell's agent's round does not begin until it is over.
     Agents { outage: Outage },
+    /// The engine was asked to stop at this time, and no round of any work begins until it has started again.
+    Stopping { since: u64 },
     /// The owner's answer to the latest version of this question, which the cell asked and waits for.
     Answer { question: String },
     /// A source outside the work, as main moving: only this cell can make a precondition hold, and what its latest run
     /// wrote, `why` in the run's own words, waits for that source before the cell runs again.
     Outside { source: String, cell: String, why: String },
-    /// The project's turn to check and merge, which this work holds: the cell's act, its round under way since this
-    /// time, waits for it, as the act says. The works of a project check and merge one at a time.
+    /// The project's turn to check and merge, which this work holds or is before the work in having wanted: the cell
+    /// waits for it since this time, from when the work first wanted it. The works of a project check and merge one
+    /// at a time.
     Turn { holder: u64, since: u64 },
     /// The items the work's item depends on that have neither merged nor been cancelled, by their numbers: a
     /// precondition only they make hold, as each merges or is cancelled.
@@ -551,7 +625,6 @@ pub enum Waited {
 #[serde(rename_all = "camelCase")]
 pub enum Person {
     Owner,
-    Architect,
 }
 
 /// Who can make a precondition hold, by writing a block its test reads.
@@ -580,7 +653,7 @@ pub enum Pauser {
 pub enum Call {
     /// A tool the engine runs, with what it is run on.
     Tool { name: String, input: String },
-    /// A question for a person.
+    /// A question for a person, as a call recorded as one is read.
     Question { who: Person, question: String },
     /// The run reached a limit: the owner lets it go on or cancels the work.
     AtLimit { limit: Limit },
@@ -622,8 +695,8 @@ pub enum CellState {
     /// The engine carries out something for its run that takes its time: the act of an engine cell, its round under
     /// way, or a tool's call its agent asked for, which the work waits for at the cell.
     Calling,
-    /// Its run is at rest: for a call's result, or only for its next round; or, for an engine cell whose act waits for
-    /// the project's turn to check and merge, for that turn.
+    /// Its run is at rest: for a call's result, or only for its next round, which may wait for the project's turn to
+    /// check and merge.
     Resting,
     /// Its run's last round failed: the run is at rest, and its next round, once the work is let on, is that round
     /// again.
@@ -660,8 +733,14 @@ fn settled(applies: bool, ran: bool, changed: bool) -> CellState {
 pub struct Spent {
     /// The cost, in millionths of a dollar.
     pub usd_micros: u64,
-    /// The tokens sent that were not read from the cache.
+    /// The tokens sent fresh, neither read from the cache nor written to it.
     pub input_tokens: u64,
+    /// The tokens written to the cache.
+    pub cache_written_tokens: u64,
+    /// The tokens sent and not read from the cache by rounds, pings and forks whose records do not tell those sent
+    /// fresh from those written to it, as they were kept before the written ones were kept apart: neither of the two
+    /// above counts them.
+    pub unsplit_tokens: u64,
     /// The tokens sent that were read from the cache.
     pub cached_tokens: u64,
     /// The tokens that came back.
@@ -790,6 +869,10 @@ pub struct QuestionPage {
     pub recommends: Option<u64>,
     /// The owner's answer to the latest version.
     pub answer: Option<AnswerPage>,
+    /// Why its cell does not run now, said as a stalled work says it, where its condition does not hold; none while it
+    /// does. A question of a cell that does not run holds the work at no cell.
+    #[serde(default)]
+    pub skipped: Option<String>,
 }
 
 /// An option of a question.
@@ -821,8 +904,9 @@ impl QuestionPage {
     }
 
     /// Each question of the work, as it stands, numbered as the version the work is on names each cell's questions.
-    fn all(kept: &Kept<'_>) -> Vec<QuestionPage> {
+    fn all(kept: &Kept<'_>) -> Result<Vec<QuestionPage>, Broken> {
         let work = kept.work;
+        let skipped = decide::skipped(&kept.flow.flow, &work.records);
         (decide::questions::questions(&work.records).into_iter())
             .map(|(name, q)| {
                 let (ask, options, recommends, withdrawn, tree) = match work.question(q.latest) {
@@ -844,7 +928,18 @@ impl QuestionPage {
                     Some(work::Question::Withdrawn { why, .. }) => (None, Vec::new(), None, Some(why.clone()), false),
                     None => (None, Vec::new(), None, None, false),
                 };
-                QuestionPage {
+                // Why its cell does not run says why a question that stands holds nothing: one answered or withdrawn
+                // holds nothing and has nothing to be answered, so it says none.
+                let skipped = match (skipped.get(&q.latest.cell), q.unanswered()) {
+                    (Some(keys), true) => {
+                        let on: Vec<CellKey> = (keys.iter())
+                            .map(|key| key_of(kept, key))
+                            .collect::<Result<_, Broken>>()?;
+                        Some(skipped_words(&kept.flow.waits.stalled, &q.latest.cell.to_string(), &on))
+                    }
+                    _ => None,
+                };
+                Ok(QuestionPage {
                     name: name.to_string(),
                     cell: q.latest.cell.to_string(),
                     version: kept.question_version(&q.latest.cell, q.latest.at),
@@ -860,7 +955,8 @@ impl QuestionPage {
                         at: a.at.0,
                         why: a.why.clone(),
                     }),
-                }
+                    skipped,
+                })
             })
             .collect()
     }
@@ -884,11 +980,13 @@ pub struct CellDetail {
 pub enum Cause {
     /// It had no record, as a run started before a cell ran only for what is new says.
     NoRecord,
-    /// The block is new to the cell. `was` is the version the cell consumed, by its number; `behind` says every new
-    /// version was written by a cell after this one.
+    /// The block is new to the cell. `worked_from` is the version the cell last worked from as the run began, by its
+    /// number: the latest of the one it consumed, one it wrote and one the owner ruled on, which a message to it names
+    /// alike; for a cause recorded before that was recorded, the `was` it recorded, the one it consumed. `behind` says
+    /// every new version was written by a cell after this one.
     Changed {
         block: String,
-        was: Option<u64>,
+        worked_from: Option<u64>,
         behind: bool,
     },
     /// The results of the calls its earlier runs asked for are all in.
@@ -1216,8 +1314,12 @@ pub struct Missed {
     /// The tokens its session held.
     pub held: u64,
     /// What comes before the session's messages in the prompt and differs from the call before, by name: the cause by
-    /// design; none where nothing does, and the miss is a fault of wf-agents.
+    /// design; none where nothing does, and the miss is a fault of wf-agents unless `unknown`.
     pub differs: Vec<String>,
+    /// Whether the records do not say why it missed: none of the parts differs by what they hold, and they do not hold
+    /// what both calls were given, or the first prompt is shorter than what the session held with no compaction
+    /// recorded.
+    pub unknown: bool,
 }
 
 /// The session of its line a round runs in.
@@ -1270,83 +1372,19 @@ pub enum Given {
     SentBack { unmet: Vec<Unmet> },
 }
 
-/// Why what came back does not meet what the flow requires.
+/// Why what came back does not meet what the flow requires: the key its words have in `[faults]` of
+/// `agents/return/sent_back.toml`, and what was recorded of it, each value under its name, as the file writes them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
-pub enum Unmet {
-    /// The round asked for calls, and for none.
-    AsksNothing,
-    /// The block is not one the cell may write.
-    NotAnOutput { block: String },
-    /// The block was written before in the same return.
-    WrittenTwice { block: String },
-    /// The block is a choice, and was written with no value.
-    NoValue { block: String },
-    /// The block is a choice, and this is not one of its values.
-    NotAValue { block: String, value: String },
-    /// The block is no choice, and was written with a value.
-    NotAChoice { block: String },
-    /// The block is one the cell must hand in each time, and was not handed in.
-    NotHandedIn { block: String },
-    /// It writes the choice with the value, with which a return holds no other block its cell may write but those the
-    /// choice's file names, and holds these besides.
-    NothingBut {
-        block: String,
-        value: String,
-        besides: Vec<String>,
-    },
-    /// What came back could not be read as a return, for this reason.
-    Unreadable { why: String },
-    /// The block is named as dealt with, and it did not run the round.
-    NotRunBy { block: String },
-    /// The block is named twice as dealt with.
-    DealtWithTwice { block: String },
-    /// Something ran the round, and the return deals with none of it and asks for no call.
-    DealtWithNothing,
-    /// The block got this version, by its number, from another writer since the round was told of the one it writes
-    /// over.
-    WrittenOver { block: String, version: u64 },
-    /// The block is a choice, written as changing nothing in meaning with another value than it has.
-    ChoiceChanged { block: String },
-    /// The return asks for calls and also does the cell's work.
-    AsksAndWorks,
-    /// The return names as dealt with a name that is none of what its cell watches.
-    NotWatched { name: String },
-    /// The return asks for a tool its cell may not ask for.
-    NotATool { name: String },
-    /// The return names the block as written with its meaning unchanged, and does not write it.
-    UnchangedNotWritten { block: String },
-    /// A question it writes is not its cell's own: another cell's, or one the engine asked.
-    QuestionTaken { name: String },
-    /// It withdraws a question of which none of its cell's stands.
-    NoSuchQuestion { name: String },
-    /// It writes a question twice.
-    QuestionTwice { name: String },
-    /// A question it asks recommends none of its options.
-    NotAnOption { name: String },
-    /// It asks a question from a cell that no answer runs.
-    NotAnswerable { name: String },
-    /// It deals with its cell's own words, of this name, and writes no answer in them.
-    NotAnswered { name: String },
-    /// The work's branch changes this file the project protects, and nothing says why.
-    Unexplained { path: String },
-    /// The run of a line that changes only the project's tests changed this file, which is none of them.
-    NotATest { path: String },
-    /// A round that asks for no call ended with changes to tracked files that are not committed.
-    Uncommitted { changes: String },
-    /// A round that asks for no call ended with a merge begun in the worktree and not committed.
-    Merging { changes: String },
-    /// It hands in the change while the question of this name, marked `tree`, has the owner's answer and the work's
-    /// change changes nothing in the design tree.
-    TreeUnchanged { name: String },
-    /// It deals with what an act after its cell wrote, and leaves nothing new that runs the act and no question with an
-    /// answer to come.
-    Unanswered { block: String },
-    /// It names as dealt with a dialogue it answers as the maker, and answers none of its points there, changes none of
-    /// what the other side watches and asks no question the work waits for.
-    WordOwed { name: String, watched: Vec<String> },
-    /// It writes a verdict with the value that does not pass, and no version of its dialogue.
-    NoPoint { block: String, value: String, name: String },
+pub struct Unmet {
+    pub key: String,
+    pub values: Vec<UnmetValue>,
+}
+
+/// A value recorded of a thing wrong with a return, under the name of its field.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UnmetValue {
+    pub name: String,
+    pub value: String,
 }
 
 /// What came back at the end of a round.
@@ -1481,8 +1519,8 @@ pub struct RanOn {
     pub effort: Option<String>,
 }
 
-/// The levels an item may be given, lowest first, with the one it is given where it is given none, and the highest
-/// a level a line runs above its item's may reach.
+/// The levels an item may be given, lowest first, with the one it is given where it is given none, and the highest an
+/// item may be given.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LevelsPage {
@@ -1547,6 +1585,9 @@ pub enum ChangeAsked {
     Tag { item: u64, tag: String },
     /// The item no longer carries this tag.
     Untag { item: u64, tag: String },
+    /// The item comes to continue this branch or pull request, or, with none, to continue nothing, until its work's
+    /// branch is made.
+    Continues { item: u64, continues: Option<Continues> },
     /// The item is cancelled: nothing of its work goes on.
     Cancel { item: u64 },
     /// The item, cancelled, is reopened: its work is paused, and goes on from its records once it is let on.
@@ -1571,6 +1612,7 @@ impl ChangeAsked {
             | ChangeAsked::NoLongerDependsOn { item, .. }
             | ChangeAsked::Tag { item, .. }
             | ChangeAsked::Untag { item, .. }
+            | ChangeAsked::Continues { item, .. }
             | ChangeAsked::Cancel { item }
             | ChangeAsked::Reopen { item } => *item,
         }
@@ -1597,6 +1639,7 @@ impl ChangeAsked {
             ChangeAsked::NoLongerDependsOn { on, .. } => Asked::Item(C::NoLongerDependsOn(ItemNumber(on))),
             ChangeAsked::Tag { tag, .. } => Asked::Item(C::Tagged(tag)),
             ChangeAsked::Untag { tag, .. } => Asked::Item(C::Untagged(tag)),
+            ChangeAsked::Continues { continues, .. } => Asked::Item(C::Continues(continues.map(Continues::kept))),
             ChangeAsked::Cancel { .. } => Asked::Cancel,
             ChangeAsked::Reopen { .. } => Asked::Reopen,
         };
@@ -1614,7 +1657,7 @@ impl LevelsPage {
                 })
                 .collect(),
             default: levels.default().to_string(),
-            highest: levels.highest().to_string(),
+            highest: levels.items_highest().to_string(),
         }
     }
 }
@@ -1635,8 +1678,8 @@ pub enum TryBack {
         duration_ms: Option<u64>,
         /// The models it was answered by, by name.
         models: Vec<String>,
-        /// The tokens it wrote to the prompt cache, as the program printed them; the records count them among those
-        /// not read from the cache.
+        /// The tokens it wrote to the prompt cache, as the program printed them: a try's own, where a round's are in
+        /// what it took.
         cache_creation_input_tokens: Option<u64>,
     },
     /// The program said the try failed, for this reason.
@@ -1791,8 +1834,15 @@ pub enum Act {
     },
     /// Lets the cell go on at its limit.
     LetGo { cell: String },
-    /// Pauses the work.
-    Pause {},
+    /// Lets the run at its limit go on, as the engine's own result of this call.
+    GoOn { call: u64 },
+    /// Pauses the work, saying why where the owner will, and the items the pause waits for to merge or be cancelled.
+    Pause {
+        #[serde(default)]
+        why: Option<String>,
+        #[serde(default)]
+        waits_for: Vec<u64>,
+    },
     /// Lets the work on again.
     Resume {},
     /// Cancels the work's item, saying why where a reason is given, such as the item it was joined into.
@@ -1800,7 +1850,8 @@ pub enum Act {
         #[serde(default)]
         why: Option<String>,
     },
-    /// Gives a call that waits for a person its result, such as that a run at its limit goes on.
+    /// Gives a call that waits for a person its result: a person's answer to a question put to them. A run at its
+    /// limit is let go on, which gives it no words.
     Result { call: u64, result: String },
     /// Answers a version of a question, the one the page shows, by its number among the versions of its cell's
     /// questions, taking an option, counted from one, and nothing else.
@@ -1853,6 +1904,9 @@ pub struct ForkPage {
     /// Why that is the account in use and not the one the session ran under, whose cache holds the session, where it
     /// is.
     pub instead: Option<ForkInstead>,
+    /// How many processes its program left running in its group as it ended, which were stopped.
+    #[serde(default)]
+    pub left: usize,
 }
 
 /// Why a fork ran under the account in use and not the one its session last ran under: that one was removed, or the
@@ -1869,7 +1923,7 @@ impl ForkPage {
         ForkPage {
             answer: forked.answer,
             text: forked.text,
-            usd_micros: forked.usd_micros,
+            usd_micros: forked.spent.usd_micros,
             read: forked.read,
             held: forked.held,
             expired: forked.expired,
@@ -1881,6 +1935,7 @@ impl ForkPage {
                 service::Instead::Removed(account) => ForkInstead::Removed { account },
                 service::Instead::NoAccount => ForkInstead::NoAccount,
             }),
+            left: forked.left,
         }
     }
 }
@@ -1907,13 +1962,22 @@ pub struct NewItem {
     /// The tags it carries; none where none is given.
     #[serde(default)]
     pub tags: Vec<String>,
+    /// The branch or pull request its work starts from; none where it starts from the head of main.
+    #[serde(default)]
+    pub continues: Option<Continues>,
     /// The name of the flow its work runs on.
     pub flow: String,
     /// What is written for it as it is added, each a block people write.
     pub writes: Vec<NewWrite>,
+    /// Why its work is paused as it is added, where whoever adds it says.
+    #[serde(default)]
+    pub why: Option<String>,
+    /// The items its work's pause waits for to merge or be cancelled, where whoever adds it says.
+    #[serde(default)]
+    pub waits_for: Vec<u64>,
 }
 
-/// The engine as a whole: its slots, and the pause of everything.
+/// The engine as a whole: its slots, the pause of everything, and the stop it was asked for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Engine {
@@ -1926,6 +1990,18 @@ pub struct Engine {
     /// Whether the sessions of works that wait are kept warm: the engine's own state, which the owner switches, on
     /// until they switch it off.
     pub keep_warm: bool,
+    /// The stop the engine was asked for, while it stands: no round of any work begins, and the engine ends once what
+    /// is under way has, or at once.
+    #[serde(default)]
+    pub stopping: Option<Stopping>,
+}
+
+/// A stop of the engine that stands: since when it was asked for, and whether at once.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Stopping {
+    pub since: u64,
+    pub at_once: bool,
 }
 
 /// The pause of everything: when it began, and who set it, the owner, or the engine as it started with works going on,
@@ -1937,7 +2013,9 @@ pub struct EverythingPaused {
     pub by: Pauser,
 }
 
-/// What the owner does to the engine as a whole on the pages, each kind a struct as an [`Act`] is.
+/// What is done to the engine as a whole through its interface, each kind a struct as an [`Act`] is: the pause of
+/// everything and the switch that keeps sessions warm are the owner's on the pages, and the stop is asked for on the
+/// command line alone, by whoever installs a new build.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(
     tag = "kind",
@@ -1953,6 +2031,9 @@ pub enum EngineAct {
     /// Keeps the sessions of works that wait warm, or keeps them so no longer, as `on` says: one act for a switch the
     /// owner sets either way, so that it says where the switch now stands and not which way it was moved.
     KeepWarm { on: bool },
+    /// Stops the engine: no round of any work begins from then, and it ends once what is under way has ended, or, where
+    /// `now`, at once, cutting that off.
+    Stop { now: bool },
 }
 
 /// A block written as an item is added.
@@ -1973,7 +2054,10 @@ pub struct Added {
 }
 
 /// Something happened: these works grew, an item was added where `items`, the copies of the database changed where
-/// `copies`, and the accounts, their usage or their usage limits changed where `accounts`.
+/// `copies`, the accounts, their usage or their usage limits changed where `accounts`, and an observation was added or
+/// changed where `observations`. What an agent's round under way has come to so far changed where `going`: no work's
+/// records hold it, and a notice that holds it alone names no work and sets no other flag, so that the page's parts that
+/// read a work, the items or the engine have nothing to read for it; only `GET /api/v1/system/under-way` shows it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Changed {
@@ -1981,6 +2065,9 @@ pub struct Changed {
     pub items: bool,
     pub copies: bool,
     pub accounts: bool,
+    pub observations: bool,
+    #[serde(default)]
+    pub going: bool,
 }
 
 /// Why something asked of the interface was refused, in words.
@@ -2014,6 +2101,7 @@ impl Items {
                 added: kept.item.added.0,
                 depends_on: kept.item.depends_on.iter().map(|on| on.0).collect(),
                 tags: kept.item.tags.clone(),
+                continues: kept.item.continues.as_ref().map(Continues::of),
                 history: ItemHistory::of(kept.item),
                 work: Summary::of(kept, &view, driver, &every, levels, now)?,
             });
@@ -2033,6 +2121,7 @@ impl ItemHistory {
                 level: first.level.clone(),
                 depends_on: first.depends_on.iter().map(|on| on.0).collect(),
                 tags: first.tags.clone(),
+                continues: first.continues.as_ref().map(Continues::of),
             },
             changes: (item.changes.iter())
                 .map(|change| ItemChange {
@@ -2055,6 +2144,9 @@ impl ItemChanged {
             store::ItemChange::NoLongerDependsOn(on) => ItemChanged::NoLongerDependsOn { item: on.0 },
             store::ItemChange::Tagged(tag) => ItemChanged::Tagged { tag: tag.clone() },
             store::ItemChange::Untagged(tag) => ItemChanged::Untagged { tag: tag.clone() },
+            store::ItemChange::Continues(continues) => ItemChanged::Continues {
+                continues: continues.as_ref().map(Continues::of),
+            },
         }
     }
 }
@@ -2078,19 +2170,13 @@ impl Summary {
         let along = &driver.along_of(number);
         let runs = runs(kept)?;
         let engine = |cell: &CellId| kept.cell(cell).is_some_and(|cell| !cell.agent);
-        // The act of an engine cell that waits for the project's turn runs nothing yet.
-        let turn = |run: RunId| {
-            (along.iter()).any(|(under, said)| {
-                matches!(under, Under::Round { run: of, .. } if *of == run) && matches!(said, Along::Turn { .. })
-            })
-        };
         let now = Now::of(
             kept,
             &view.decision,
             held,
             &every.outages,
             along,
-            &driver.items_waited_for(number),
+            &Others::of(driver, number, &every.at_once),
         )?;
         // The cell the work waits at for a tool's call the engine runs.
         let calling = match &now {
@@ -2128,19 +2214,14 @@ impl Summary {
         };
         let cells = match &view.decision {
             Decision::Ended(_) => {
-                (OutlineView::of(kept.on.outline(), &work.records, &|id| kept.came_from(id).cloned())
-                    .cells
-                    .into_iter())
-                .map(|cell| ended(&cell.id))
-                .collect()
+                let came_from = |id: &CellId| kept.came_from(id).cloned();
+                let outline = OutlineView::of(kept.on.outline(), &kept.flow.card, &work.records, &came_from);
+                outline.cells.into_iter().map(|cell| ended(&cell.id)).collect()
             }
             _ => (view.cells.iter())
                 .map(|cell| CellNow {
                     cell: cell.cell.to_string(),
                     state: match (&cell.open, cell.applies, cell.record) {
-                        (Some(open), ..) if open.under_way && engine(&cell.cell) && turn(open.run) => {
-                            CellState::Resting
-                        }
                         (Some(open), ..) if open.under_way && engine(&cell.cell) => CellState::Calling,
                         (Some(open), ..) if open.under_way => CellState::Running,
                         _ if calling == Some(cell.cell.as_str()) => CellState::Calling,
@@ -2158,7 +2239,7 @@ impl Summary {
                 })
                 .collect(),
         };
-        let (level, cell_level, raise) = levels_of(levels, kept.item.level.as_deref(), kept.flow, &now);
+        let (level, cell_level, raise, capped) = levels_of(levels, kept.item.level.as_deref(), kept.flow, &now);
         let pull = (work.pulls.last()).map(|pulled| Pull {
             number: pulled.number,
             url: pulled.url.clone(),
@@ -2166,7 +2247,8 @@ impl Summary {
         let waits: Vec<Wait> = (driver.waits_on_owner_at(number, view, held, &every.at_once).into_iter())
             .map(Wait::of)
             .collect();
-        let ahead = QuestionPage::ahead(&QuestionPage::all(&kept), &waits);
+        let ahead = QuestionPage::ahead(&QuestionPage::all(&kept)?, &waits);
+        let beside = spent_beside_rounds(work, &|_| true)?;
         Ok(Summary {
             number: kept.head.number.0,
             item: kept.head.item.0,
@@ -2179,8 +2261,9 @@ impl Summary {
             now,
             cells,
             spent: (runs.iter().fold(Spent::default(), |sum, run| sum.with(run.spent)))
-                .with(pinged(work, &|_| true).as_no_round()),
-            pinged: pinged(work, &|_| true),
+                .with(beside.all().as_no_round()),
+            pinged: beside.pinged,
+            forked: beside.forked,
             last: work.moments.last().map(|moment| moment.at.0),
             from: (runs.iter().flat_map(|run| &run.rounds)).map(|round| round.began).min(),
             bar: bar(kept, &every.held, when),
@@ -2190,6 +2273,7 @@ impl Summary {
             level,
             cell_level,
             raise,
+            held: capped,
             pull,
             // What git says of it is worked out off the loop, after this ([`Summary::saw`]).
             changed: None,
@@ -2223,11 +2307,7 @@ pub fn asked(driver: &Driver, summary: &Summary) -> Option<service::OfWork> {
         (None, Now::Merged) => merge_wrote(&kept),
         _ => None,
     };
-    Some(service::OfWork {
-        work: number,
-        item: kept.item.clone(),
-        merged,
-    })
+    Some(service::OfWork::of(&kept, merged))
 }
 
 /// What the run that merged the work wrote, of a work that merged: its latest finished run, the merge's finish being
@@ -2240,39 +2320,62 @@ fn merge_wrote(kept: &Kept<'_>) -> Option<String> {
     kept.work.contents.get(&(write.block.clone(), merged.at)).cloned()
 }
 
-/// The level a work's rounds run at, the level of the cell it stands at, and how far that cell's line raises it
-/// ([`Summary::level`], [`Summary::cell_level`], [`Summary::raise`]), by the one rule that gives a round its level: of an
-/// item at this level, its work on this flow doing what `now` says.
+/// The level a work's rounds run at, the level of the cell it stands at, how far that cell really runs above its level
+/// and what held it below what its line asks ([`Summary::level`], [`Summary::cell_level`], [`Summary::raise`],
+/// [`Summary::held`]), by the one rule that gives a round its level: of an item at this level, its work on this flow
+/// doing what `now` says.
 fn levels_of(
     levels: &Levels,
     item: Option<&str>,
     flow: &flow::Compiled,
     now: &Now,
-) -> (Option<String>, Option<String>, Option<u32>) {
-    let at = |above: u32| levels.of_round(item, above).ok();
+) -> (Option<String>, Option<String>, Option<u32>, Option<Held>) {
+    let level = levels.of_round(item, 0).ok().map(|round| round.level);
     let cell = now
         .cell()
         .and_then(|cell| (flow.cells.iter()).find(|spec| spec.id.as_str() == cell));
     let agent = cell.filter(|spec| spec.kind == Kind::Agent);
-    let cell_level = agent.and_then(|spec| at(spec.levels_above));
-    (at(0), cell_level, agent.map(|spec| spec.levels_above))
+    let round = agent.and_then(|spec| levels.of_round(item, spec.levels_above).ok());
+    let held = (round.as_ref())
+        .filter(|round| round.asks > round.raised)
+        .map(|round| Held {
+            asks: round.asks,
+            by: levels.rounds_highest_key().map(str::to_string),
+        });
+    let raise = round.as_ref().map(|round| round.raised);
+    (level, round.map(|round| round.level), raise, held)
 }
 
 /// What holds every work at once, as the bar reads it at a moment: each stretch the pause of everything held, from the
-/// store's record of every pause set and lifted; and the agents' wait where their command line cannot run, from when,
-/// with what it said. Whether that wait held at a moment before is not kept: the engine's checks of the outside, which
-/// end it, are no records, so only the one that stands now is read, from when it began.
+/// store's record of every pause set and lifted; each stretch a stop of the engine stood, from its record of each stop
+/// and each start after one; each wait in which the agents' command line could not run, from the rounds that failed so
+/// and the next round of an agent that began, and the one that stands now, from when it began; and each stretch each
+/// work of a project held the turn to check and merge, by the project and the work, as the work kept it or as it is
+/// worked out.
 struct HeldAll {
     everything: Vec<driver::Span>,
-    cannot_run: Option<(Time, String)>,
+    stops: Vec<driver::StopSpan>,
+    cannot_run: Vec<driver::CannotRun>,
+    turns: Vec<(Option<String>, store::WorkNumber, Vec<work::TurnSpan>)>,
 }
 
 impl HeldAll {
     fn of(driver: &Driver, at_once: &driver::AtOnce) -> HeldAll {
         HeldAll {
             everything: driver.everything_spans().to_vec(),
-            cannot_run: at_once.cannot_run().map(|(since, why)| (since, why.to_string())),
+            stops: driver.stop_spans(),
+            cannot_run: driver.cannot_runs(at_once),
+            turns: driver.turn_spans(),
         }
+    }
+
+    /// Each stretch another work of the work's project held the turn, which the work's own bar is read by.
+    fn turns_of_others(&self, kept: &Kept<'_>) -> Vec<work::TurnSpan> {
+        let (project, number) = (kept.item.project.as_ref(), kept.head.number);
+        (self.turns.iter())
+            .filter(|(of, work, _)| of.as_ref() == project && *work != number)
+            .flat_map(|(_, _, spans)| spans.iter().copied())
+            .collect()
     }
 }
 
@@ -2281,7 +2384,7 @@ enum TimeOf<'a> {
     /// What it kept as it last ended, where it has not been reopened since.
     Kept(&'a [Stretch]),
     /// For a work the flow installed decides, what it waited for as that flow reads it now, asked at each time.
-    Decided(driver::time::Waits<'a>),
+    Decided(Box<driver::time::Waits<'a>>),
     /// Else what ran alone, read from its records, a round a model's where it had a try: what it waited for is not
     /// known.
     Ran(Vec<Stretch>),
@@ -2295,8 +2398,14 @@ impl<'a> TimeOf<'a> {
             return TimeOf::Kept(&kept_time.stretches);
         }
         if kept.on.installed() {
-            let cannot_run = all.cannot_run.as_ref().map(|(since, why)| (*since, why.as_str()));
-            return TimeOf::Decided(driver::time::Waits::new(kept, &all.everything, cannot_run, now));
+            return TimeOf::Decided(Box::new(driver::time::Waits::new(
+                kept,
+                &all.everything,
+                &all.stops,
+                &all.cannot_run,
+                all.turns_of_others(&kept),
+                now,
+            )));
         }
         let tried = |run: RunId| work.ran.iter().any(|ran| ran.run == run);
         let end = work.moments.last().map_or(now, |moment| moment.at);
@@ -2332,8 +2441,10 @@ fn mark(went: Went) -> char {
         Went::Model => 'm',
         Went::Tools => 't',
         Went::Owner => 'o',
-        Went::Paused => 'p',
+        // A stop of the engine is drawn as a pause, with no mark of its own: what it is the records keep apart.
+        Went::Paused | Went::Stopping => 'p',
         Went::Items => 'w',
+        Went::Turn => 'q',
         Went::Other => '.',
     }
 }
@@ -2395,6 +2506,26 @@ fn bar(kept: Kept<'_>, all: &HeldAll, now: Time) -> String {
         .collect()
 }
 
+/// What other works decide for a work, which holds it back or says what it waits for: the items its item depends on
+/// that it waits for, the items its pause waits for, and whose the project's turn to check and merge is, with since
+/// when the work has wanted it.
+pub(crate) struct Others {
+    waited_for: Vec<ItemNumber>,
+    paused_for: Vec<ItemNumber>,
+    turn: Option<(store::WorkNumber, Time)>,
+}
+
+impl Others {
+    /// What the driver says of them for this work, at once with every other work.
+    pub(crate) fn of(driver: &Driver, work: store::WorkNumber, at_once: &driver::AtOnce) -> Others {
+        Others {
+            waited_for: driver.items_waited_for(work),
+            paused_for: driver.items_paused_for(work),
+            turn: driver.turn_waited_at(work, at_once),
+        }
+    }
+}
+
 impl Now {
     /// The cell the work stands at, as what it does now names it; none where it names none, as a work that ended or
     /// whose records are at fault.
@@ -2409,17 +2540,18 @@ impl Now {
     }
 
     /// What the work does now. Of what holds it back, its own pause is said first, then the owner's pause of
-    /// everything, then the wait every work shares, then a slot. A round under way whose act waits for the project's
-    /// turn, as the act says, waits for it.
+    /// everything, then the stop of the engine, then the wait every work shares, then the turn to check and merge,
+    /// which `others` says whose it is and since when the work has wanted it, then a slot.
     pub(crate) fn of(
         kept: Kept<'_>,
         decision: &Decision,
         held: Option<Holder>,
         outages: &Outages,
         along: &[(Under, &Along)],
-        waited_for: &[ItemNumber],
+        others: &Others,
     ) -> Result<Now, Broken> {
         let work = kept.work;
+        let (waited_for, paused_for, turn) = (&others.waited_for[..], &others.paused_for[..], others.turn);
         // Held by the pause of everything, which holds while the driver says it holds the work.
         let everything = |at: &CellId| -> Result<Now, Broken> {
             let by = (outages.everything).ok_or_else(|| Broken("the pause of everything holds no work".to_string()))?;
@@ -2432,6 +2564,22 @@ impl Now {
             outage.as_ref().filter(|o| o.holds)
         };
         let shared = |cell: &CellId| holding(cell).is_some();
+        // Held by the stop of the engine, which holds every round while it stands.
+        let stopped = |cell: &CellId| {
+            (outages.stopping).map(|since| Now::Waits {
+                at: cell.to_string(),
+                on: vec![Waited::Stopping { since }],
+            })
+        };
+        // The turn to check and merge, whose it is, and since when the work has wanted it.
+        let turned = || -> Result<Waited, Broken> {
+            let (holder, since) =
+                turn.ok_or_else(|| Broken("the work waits for a turn that is its own".to_string()))?;
+            Ok(Waited::Turn {
+                holder: holder.0,
+                since: since.0,
+            })
+        };
         let waits_shared = |cell: &CellId| Now::Waits {
             at: cell.to_string(),
             on: holding(cell)
@@ -2457,33 +2605,39 @@ impl Now {
                 let said = (along.iter())
                     .find(|(under, _)| *under == Under::Round { run: *run, round })
                     .map(|(_, said)| *said);
-                match said {
-                    Some(Along::Turn { holder }) => Now::Waits {
-                        at: cell.to_string(),
-                        on: vec![Waited::Turn {
-                            holder: holder.0,
-                            since,
-                        }],
-                    },
-                    _ => Now::Round {
-                        cell: cell.to_string(),
-                        run: run.0,
-                        round,
-                        since,
-                        at: runs_at(said),
-                    },
+                Now::Round {
+                    cell: cell.to_string(),
+                    run: run.0,
+                    round,
+                    since,
+                    at: runs_at(said),
                 }
             }
             Decision::Paused { cell } if held == Some(Holder::Everything) => everything(cell)?,
-            Decision::Paused { cell } => Now::paused(work, cell)?,
+            Decision::Paused { cell } => Now::paused(work, cell, paused_for)?,
             // A run at rest that goes on holds its next round while something holds it back: the engine leaves a work
             // so only then, as when the run's last round failed and the work was paused.
-            Decision::GoOn { cell, .. } if held == Some(Holder::Pause) => Now::paused(work, cell)?,
+            Decision::GoOn { cell, .. } if held == Some(Holder::Pause) => Now::paused(work, cell, paused_for)?,
             Decision::GoOn { cell, .. } if held == Some(Holder::Everything) => everything(cell)?,
-            // A cell that would run or go on, and does not, is held by the wait every work shares, where it holds now
-            // and holds the cell's rounds: the engine leaves a work so only then. It is said before a slot.
+            // A cell that would run or go on, and does not, is held by the stop of the engine where one stands, else by
+            // the wait every work shares, where it holds now and holds the cell's rounds: the engine leaves a work so
+            // only then. Each is said before a slot.
+            Decision::Run { cell, .. } | Decision::GoOn { cell, .. } if outages.stopping.is_some() => {
+                stopped(cell).ok_or_else(|| Broken("no stop stands".to_string()))?
+            }
+            Decision::Wait { at, on }
+                if (on == &[WaitedOf::Slot] || on == &[WaitedOf::Turn]) && outages.stopping.is_some() =>
+            {
+                stopped(at).ok_or_else(|| Broken("no stop stands".to_string()))?
+            }
             Decision::Run { cell, .. } | Decision::GoOn { cell, .. } if shared(cell) => waits_shared(cell),
-            Decision::Wait { at, on } if on == &[WaitedOf::Slot] && shared(at) => waits_shared(at),
+            Decision::Wait { at, on } if (on == &[WaitedOf::Slot] || on == &[WaitedOf::Turn]) && shared(at) => {
+                waits_shared(at)
+            }
+            Decision::GoOn { cell, .. } if held == Some(Holder::Turn) => Now::Waits {
+                at: cell.to_string(),
+                on: vec![turned()?],
+            },
             Decision::GoOn { cell, .. } if held == Some(Holder::Slot) => Now::Waits {
                 at: cell.to_string(),
                 on: vec![Waited::Slot {}],
@@ -2519,6 +2673,7 @@ impl Now {
                             WaitedOf::Limit { runs } => Waited::Limit { runs: *runs },
                             WaitedOf::Calls { runs } => Waited::Calls { runs: *runs },
                             WaitedOf::Slot => Waited::Slot {},
+                            WaitedOf::Turn => turned()?,
                             WaitedOf::Answer { question } => Waited::Answer {
                                 question: question.clone(),
                             },
@@ -2527,11 +2682,12 @@ impl Now {
                     })
                     .collect::<Result<_, Broken>>()?,
             },
-            Decision::Run { cell, .. } | Decision::GoOn { cell, .. } | Decision::Abandon { cell, .. } => {
-                Now::Next { cell: cell.to_string() }
-            }
+            Decision::Run { cell, .. }
+            | Decision::GoOn { cell, .. }
+            | Decision::Hurry { cell, .. }
+            | Decision::Abandon { cell, .. } => Now::Next { cell: cell.to_string() },
             // A stalled work that its own pause holds is shown paused: it is the pauser's to let on.
-            Decision::Stalled { at, .. } if decide::paused(&work.records) => Now::paused(work, at)?,
+            Decision::Stalled { at, .. } if decide::paused(&work.records) => Now::paused(work, at, paused_for)?,
             Decision::Stalled { at, on, by } => {
                 let on: Vec<CellKey> = (on.iter())
                     .map(|key| key_of(&kept, key))
@@ -2564,13 +2720,16 @@ impl Now {
         })
     }
 
-    /// The work's pause at the cell it would go on at, with who paused it and why.
-    pub(crate) fn paused(work: &Work, at: &CellId) -> Result<Now, Broken> {
+    /// The work's pause at the cell it would go on at, with who paused it, why, and the items it waits for, `open`
+    /// being those of them that have not merged or been cancelled.
+    pub(crate) fn paused(work: &Work, at: &CellId, open: &[ItemNumber]) -> Result<Now, Broken> {
         let pause = decide::pause(&work.records).ok_or_else(|| Broken("the work has no pause".to_string()))?;
         Ok(Now::Paused {
             at: at.to_string(),
             by: Pauser::of(pause.by),
             why: pause.why.clone(),
+            waits_for: pause.waits_for.clone(),
+            open: open.iter().map(|item| item.0).collect(),
         })
     }
 }
@@ -2580,34 +2739,59 @@ impl Now {
 /// cell it stands at is said beside it by every reader, and the sentence does not name it.
 fn stalled_words(words: &flow::agents::StalledWords, on: &[CellKey], by: &[Stalling]) -> String {
     use flow::agents::fill;
-    let name = |name: &str| fill(&words.name, &[("name", name)]);
-    let keys = |keys: &[CellKey]| {
-        keys.iter()
-            .map(|key| name(&key.words))
-            .collect::<Vec<_>>()
-            .join(&words.and)
-    };
     let writers = match by.is_empty() {
         true => words.none.clone(),
         false => {
-            let cells: Vec<String> = by.iter().map(|stalling| name(&stalling.cell)).collect();
+            let cells: Vec<String> = by.iter().map(|stalling| name_words(words, &stalling.cell)).collect();
             fill(&words.only, &[("cells", &cells.join(&words.or))])
         }
     };
     let waits = match on.is_empty() {
-        false => fill(&words.waits, &[("keys", &keys(on)), ("writers", &writers)]),
+        false => fill(&words.waits, &[("keys", &keys_words(words, on)), ("writers", &writers)]),
         true => fill(&words.last, &[("writers", &writers)]),
     };
     let unrun = (by.iter()).map(|stalling| {
         let why = match &stalling.why {
-            Unrun::Skipped { on } => fill(&words.skipped, &[("keys", &keys(on))]),
+            Unrun::Skipped { on } => skipped_why(words, on),
             Unrun::NothingNew {} => words.nothing_new.clone(),
             Unrun::Held {} => words.held.clone(),
         };
-        fill(&words.unrun, &[("cell", &name(&stalling.cell)), ("why", &why)])
+        unrun_words(words, &stalling.cell, &why)
     });
     let parts: Vec<String> = std::iter::once(waits).chain(unrun).collect();
     flow::agents::sentence(&parts.join(&words.then))
+}
+
+/// Why a cell does not run where its condition does not hold, in one sentence in the words of a stalled work: the cell,
+/// and the keys of its `when` that keep it from running.
+fn skipped_words(words: &flow::agents::StalledWords, cell: &str, on: &[CellKey]) -> String {
+    flow::agents::sentence(&unrun_words(words, cell, &skipped_why(words, on)))
+}
+
+/// A cell that does not run, and because of what, in the words of a stalled work.
+fn unrun_words(words: &flow::agents::StalledWords, cell: &str, because: &str) -> String {
+    flow::agents::fill(
+        &words.unrun,
+        &[("cell", &name_words(words, cell)), ("because", because)],
+    )
+}
+
+/// That a cell is skipped, its keys not holding, in the words of a stalled work.
+fn skipped_why(words: &flow::agents::StalledWords, on: &[CellKey]) -> String {
+    flow::agents::fill(&words.skipped, &[("keys", &keys_words(words, on))])
+}
+
+/// A key or a cell, in the words of a stalled work.
+fn name_words(words: &flow::agents::StalledWords, name: &str) -> String {
+    flow::agents::fill(&words.name, &[("name", name)])
+}
+
+/// Keys joined as a stalled work says them.
+fn keys_words(words: &flow::agents::StalledWords, keys: &[CellKey]) -> String {
+    (keys.iter())
+        .map(|key| name_words(words, &key.words))
+        .collect::<Vec<_>>()
+        .join(&words.and)
 }
 
 /// A key of a cell's `when` or `requires` as the page shows it: a named test with its words, or a key on a block's value
@@ -2639,7 +2823,6 @@ impl Person {
     fn of(who: &Who) -> Person {
         match who {
             Who::Owner => Person::Owner,
-            Who::Architect => Person::Architect,
         }
     }
 }
@@ -2655,10 +2838,40 @@ impl Maker {
 }
 
 impl Spent {
+    /// What a round, a keep-warm ping or a fork took as its record says it, counted as one round that was under way
+    /// this long. A record that says it wrote more tokens to the cache than it sent and did not read from it is
+    /// broken.
+    pub(crate) fn of(took: &work::Spent, working_ms: u64) -> Result<Spent, Broken> {
+        let (input_tokens, cache_written_tokens, unsplit_tokens) = match took.cache_written_tokens {
+            Some(written) => match took.uncached_tokens.checked_sub(written) {
+                Some(fresh) => (fresh, written, 0),
+                None => {
+                    return Err(Broken(format!(
+                        "a record says {written} tokens were written to the cache of the {} sent and not read from it",
+                        took.uncached_tokens
+                    )));
+                }
+            },
+            None => (0, 0, took.uncached_tokens),
+        };
+        Ok(Spent {
+            usd_micros: took.usd_micros,
+            input_tokens,
+            cache_written_tokens,
+            unsplit_tokens,
+            cached_tokens: took.cached_tokens,
+            output_tokens: took.output_tokens,
+            working_ms,
+            rounds: 1,
+        })
+    }
+
     pub(crate) fn with(self, other: Spent) -> Spent {
         Spent {
             usd_micros: self.usd_micros + other.usd_micros,
             input_tokens: self.input_tokens + other.input_tokens,
+            cache_written_tokens: self.cache_written_tokens + other.cache_written_tokens,
+            unsplit_tokens: self.unsplit_tokens + other.unsplit_tokens,
             cached_tokens: self.cached_tokens + other.cached_tokens,
             output_tokens: self.output_tokens + other.output_tokens,
             working_ms: self.working_ms + other.working_ms,
@@ -2679,20 +2892,50 @@ impl Spent {
     }
 }
 
-/// What the keep-warm pings of the work that ended at a time `within` takes took, each counted as a round.
-pub(crate) fn pinged(work: &work::Work, within: &dyn Fn(u64) -> bool) -> Spent {
-    (work.pinged.iter())
-        .filter(|p| work.time_of(p.at).is_some_and(|at| within(at.0)))
-        .fold(Spent::default(), |sum, p| {
-            sum.with(Spent {
-                usd_micros: p.spent.usd_micros,
-                input_tokens: p.spent.input_tokens,
-                cached_tokens: p.spent.cached_tokens,
-                output_tokens: p.spent.output_tokens,
-                working_ms: 0,
-                rounds: 1,
-            })
+/// What the work's calls beside its rounds that ended at a time `within` took, each counted as a round: its keep-warm
+/// pings and its forks, apart.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Beside {
+    pub pinged: Spent,
+    pub forked: Spent,
+}
+
+impl Beside {
+    /// What all of them took together.
+    pub(crate) fn all(&self) -> Spent {
+        self.pinged.with(self.forked)
+    }
+}
+
+/// What each call of the work beside its rounds that ended at a time `within` took, each counted as a round, with the
+/// time of its place: the one reading of what a work spent beside its rounds that the pages share
+/// ([`work::Work::spent_beside_rounds`]).
+pub(crate) fn beside_rounds(
+    work: &work::Work,
+    within: &dyn Fn(u64) -> bool,
+) -> Result<Vec<(u64, work::BesideKind, Spent)>, Broken> {
+    (work.spent_beside_rounds().into_iter())
+        .filter_map(|call| {
+            let at = work.time_of(call.at).map(|at| at.0).filter(|at| within(*at))?;
+            Some(Spent::of(&call.spent, 0).map(|one| (at, call.kind, one)))
         })
+        .collect()
+}
+
+/// What the work's calls beside its rounds that ended at a time `within` took, the keep-warm pings and the forks apart.
+pub(crate) fn spent_beside_rounds(work: &work::Work, within: &dyn Fn(u64) -> bool) -> Result<Beside, Broken> {
+    Ok(beside_rounds(work, within)?
+        .into_iter()
+        .fold(Beside::default(), |sum, (_, kind, one)| match kind {
+            work::BesideKind::Ping => Beside {
+                pinged: sum.pinged.with(one),
+                ..sum
+            },
+            work::BesideKind::Fork => Beside {
+                forked: sum.forked.with(one),
+                ..sum
+            },
+        }))
 }
 
 impl WorkPage {
@@ -2742,7 +2985,7 @@ impl WorkPage {
                                 block: input.block.to_string(),
                                 current: number(input.current)?,
                                 known: number(input.consumed)?,
-                                changed: input.new,
+                                changed: !input.new_versions.is_empty(),
                             })
                         })
                         .collect::<Result<_, Broken>>()?,
@@ -2826,12 +3069,14 @@ impl WorkPage {
             project: kept.item.project.clone(),
             tags: kept.item.tags.clone(),
             history: ItemHistory::of(kept.item),
-            outline: OutlineView::of(kept.on.outline(), records, &|id| kept.came_from(id).cloned()),
+            outline: OutlineView::of(kept.on.outline(), &kept.flow.card, records, &|id| {
+                kept.came_from(id).cloned()
+            }),
             flow: (!ended).then(|| Flow::of(kept.flow)),
             cells: if ended { Vec::new() } else { cells },
             blocks,
             steps,
-            questions: QuestionPage::all(&kept),
+            questions: QuestionPage::all(&kept)?,
             speaking: if ended { Vec::new() } else { Speaking::all(&kept) },
         }))
     }
@@ -2857,9 +3102,16 @@ impl Cause {
     fn of(cause: &CauseOf, records: &Records) -> Result<Cause, Broken> {
         Ok(match cause {
             CauseOf::NoRecord => Cause::NoRecord,
-            CauseOf::Changed { block, was, behind } => Cause::Changed {
+            // The version the cell last worked from, as the run began; a cause recorded before that was recorded has
+            // the `was` it recorded, the one it consumed.
+            CauseOf::Changed {
+                block,
+                was,
+                worked,
+                behind,
+            } => Cause::Changed {
                 block: block.to_string(),
-                was: was.map(|at| numbered(records, block, at)).transpose()?,
+                worked_from: worked.or(*was).map(|at| numbered(records, block, at)).transpose()?,
                 behind: *behind,
             },
             CauseOf::Results { calls } => Cause::Results {
@@ -2983,7 +3235,11 @@ impl Act {
                 value,
             },
             Act::LetGo { cell } => service::Act::LetGo { cell: CellId(cell) },
-            Act::Pause {} => service::Act::Pause,
+            Act::GoOn { call } => service::Act::GoOn { call: CallId(call) },
+            Act::Pause { why, waits_for } => service::Act::Pause {
+                why,
+                waits_for: waits_for.into_iter().map(ItemNumber).collect(),
+            },
             Act::Resume {} => service::Act::Resume,
             Act::Cancel { why } => service::Act::Cancel { why },
             Act::Result { call, result } => service::Act::Result {
@@ -3023,6 +3279,7 @@ impl NewItem {
             project,
             depends_on: self.depends_on.into_iter().map(ItemNumber).collect(),
             tags: self.tags,
+            continues: self.continues.map(Continues::kept),
             flow: self.flow,
             writes: (self.writes.into_iter())
                 .map(|write| driver::FirstWrite {
@@ -3031,6 +3288,8 @@ impl NewItem {
                     value: write.value,
                 })
                 .collect(),
+            why: self.why,
+            waits_for: self.waits_for.into_iter().map(ItemNumber).collect(),
         })
     }
 }
@@ -3047,6 +3306,10 @@ impl Engine {
                 by: Pauser::of(paused.by),
             }),
             keep_warm: driver.keeping_warm(),
+            stopping: driver.stopping().map(|stop| Stopping {
+                since: stop.since.0,
+                at_once: stop.at_once,
+            }),
         }
     }
 }
@@ -3058,6 +3321,8 @@ impl Changed {
             items: changed.items,
             copies: changed.copies,
             accounts: changed.accounts,
+            observations: changed.observations,
+            going: changed.going,
         }
     }
 }
@@ -3070,8 +3335,7 @@ fn numbered(records: &Records, block: &BlockId, at: Seq) -> Result<u64, Broken> 
 
 /// The deciding code's view of the work, which the driver holds, in the room what holds every work at once leaves it.
 pub(crate) fn viewed_at(driver: &Driver, number: WorkNumber, at_once: &driver::AtOnce) -> Result<View, Broken> {
-    (driver.view_at(number, at_once))
-        .ok_or_else(|| Broken(format!("the driver shows work {} and has no view of it", number.0)))
+    (driver.view_at(number, at_once)).ok_or_else(|| Broken(format!("the driver shows {number} and has no view of it")))
 }
 
 /// The link of the CI run a round or a call runs as, where what carries it out says it does.
@@ -3197,80 +3461,20 @@ impl Ask {
 
 impl Unmet {
     fn of(unmet: &UnmetOf, records: &Records) -> Result<Unmet, Broken> {
-        Ok(match unmet {
-            UnmetOf::AsksNothing => Unmet::AsksNothing,
-            UnmetOf::NotAnOutput { block } => Unmet::NotAnOutput {
-                block: block.to_string(),
-            },
-            UnmetOf::WrittenTwice { block } => Unmet::WrittenTwice {
-                block: block.to_string(),
-            },
-            UnmetOf::NoValue { block } => Unmet::NoValue {
-                block: block.to_string(),
-            },
-            UnmetOf::NotAValue { block, value } => Unmet::NotAValue {
-                block: block.to_string(),
-                value: value.clone(),
-            },
-            UnmetOf::NotAChoice { block } => Unmet::NotAChoice {
-                block: block.to_string(),
-            },
-            UnmetOf::Unreadable { why } => Unmet::Unreadable { why: why.clone() },
-            UnmetOf::NotHandedIn { block } => Unmet::NotHandedIn {
-                block: block.to_string(),
-            },
-            UnmetOf::NothingBut { block, value, besides } => Unmet::NothingBut {
-                block: block.to_string(),
-                value: value.clone(),
-                besides: besides.iter().map(BlockId::to_string).collect(),
-            },
-            UnmetOf::NotRunBy { block } => Unmet::NotRunBy {
-                block: block.to_string(),
-            },
-            UnmetOf::DealtWithTwice { block } => Unmet::DealtWithTwice {
-                block: block.to_string(),
-            },
-            UnmetOf::DealtWithNothing => Unmet::DealtWithNothing,
-            UnmetOf::WrittenOver { block, version } => Unmet::WrittenOver {
-                block: block.to_string(),
-                version: numbered(records, block, *version)?,
-            },
-            UnmetOf::ChoiceChanged { block } => Unmet::ChoiceChanged {
-                block: block.to_string(),
-            },
-            UnmetOf::AsksAndWorks => Unmet::AsksAndWorks,
-            UnmetOf::NotWatched { name } => Unmet::NotWatched { name: name.clone() },
-            UnmetOf::NotATool { name } => Unmet::NotATool { name: name.clone() },
-            UnmetOf::UnchangedNotWritten { block } => Unmet::UnchangedNotWritten {
-                block: block.to_string(),
-            },
-            UnmetOf::QuestionTaken { name } => Unmet::QuestionTaken { name: name.clone() },
-            UnmetOf::NoSuchQuestion { name } => Unmet::NoSuchQuestion { name: name.clone() },
-            UnmetOf::QuestionTwice { name } => Unmet::QuestionTwice { name: name.clone() },
-            UnmetOf::NotAnOption { name } => Unmet::NotAnOption { name: name.clone() },
-            UnmetOf::NotAnswerable { name } => Unmet::NotAnswerable { name: name.clone() },
-            UnmetOf::NotAnswered { name } => Unmet::NotAnswered { name: name.clone() },
-            UnmetOf::Unexplained { path } => Unmet::Unexplained { path: path.clone() },
-            UnmetOf::NotATest { path } => Unmet::NotATest { path: path.clone() },
-            UnmetOf::Uncommitted { changes } => Unmet::Uncommitted {
-                changes: changes.clone(),
-            },
-            UnmetOf::Merging { changes } => Unmet::Merging {
-                changes: changes.clone(),
-            },
-            UnmetOf::TreeUnchanged { name } => Unmet::TreeUnchanged { name: name.clone() },
-            UnmetOf::Unanswered { block } => Unmet::Unanswered {
-                block: block.to_string(),
-            },
-            UnmetOf::WordOwed { name, watched } => Unmet::WordOwed {
+        let mut values = Vec::new();
+        for (name, recorded) in unmet.values() {
+            let value = match recorded {
+                Recorded::Text(text) => text,
+                Recorded::Version { block, at } => numbered(records, &block, at)?.to_string(),
+            };
+            values.push(UnmetValue {
                 name: name.to_string(),
-                watched: watched.iter().map(BlockId::to_string).collect(),
-            },
-            UnmetOf::NoPoint { block, value, name } => Unmet::NoPoint {
-                block: block.to_string(),
-                value: value.clone(),
-                name: name.to_string(),
-            },
+                value,
+            });
+        }
+        Ok(Unmet {
+            key: unmet.key().to_string(),
+            values,
         })
     }
 }
@@ -3310,7 +3514,11 @@ fn in_detail(
                 .map(|m| Missed {
                     read: m.read,
                     held: m.held,
-                    differs: m.differs.clone(),
+                    differs: match &m.cause {
+                        driver::cache::Cause::Differs(parts) => parts.clone(),
+                        driver::cache::Cause::Unknown | driver::cache::Cause::Fault => Vec::new(),
+                    },
+                    unknown: m.cause == driver::cache::Cause::Unknown,
                 });
             round.session = line.map(|line| {
                 let on_line = |other: RunId| line_of(other) == Some(line);
@@ -3405,14 +3613,7 @@ pub(crate) fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
                 Some(ended) => {
                     let spent = (work.spent.get(&(run, number)))
                         .ok_or_else(|| Broken(format!("round {number} of run {} ended and took nothing", run.0)))?;
-                    Some(Spent {
-                        usd_micros: spent.usd_micros,
-                        input_tokens: spent.input_tokens,
-                        cached_tokens: spent.cached_tokens,
-                        output_tokens: spent.output_tokens,
-                        working_ms: ended.saturating_sub(began),
-                        rounds: 1,
-                    })
+                    Some(Spent::of(spent, ended.saturating_sub(began))?)
                 }
             };
             let took = took.flatten();
@@ -3502,6 +3703,8 @@ pub struct Outages {
     pub host: Option<Outage>,
     /// Who set the pause of everything, where it holds; none where it does not.
     pub everything: Option<Pauser>,
+    /// When the engine was asked to stop, where a stop stands; none where none does.
+    pub stopping: Option<u64>,
 }
 
 impl Outages {
@@ -3513,6 +3716,7 @@ impl Outages {
             agents: at_once.agents.as_ref().map(|outage| Outage::of(outage, agents)),
             host: at_once.host.as_ref().map(|outage| Outage::of(outage, host)),
             everything: at_once.everything.map(|paused| Pauser::of(paused.by)),
+            stopping: at_once.stopping.map(|stop| stop.since.0),
         }
     }
 }
@@ -3566,6 +3770,12 @@ impl Outage {
                 UntilOf::Looked { at } => Until::Looked { at: at.0 },
             },
             holds,
+            first: outage
+                .goes_first()
+                .then_some(outage.trying)
+                .flatten()
+                .map(|work| work.0),
+            may_move: outage.may_move,
         }
     }
 }
@@ -3590,8 +3800,8 @@ impl Failure {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    //! A work's levels, the words of a stalled work, who each version is named by, and what a work is read by of the
-    //! version of its flow it is on.
+    //! A work's levels, the words of a stalled work, who each version is named by, a call recorded as a question, and
+    //! what a work is read by of the version of its flow it is on.
 
     use std::collections::BTreeMap;
     use std::sync::Arc;
@@ -3617,6 +3827,7 @@ pub(crate) mod tests {
             options: Vec::new(),
             recommends: None,
             answer: None,
+            skipped: None,
         };
         let answered = QuestionPage {
             answer: Some(AnswerPage {
@@ -3644,8 +3855,32 @@ pub(crate) mod tests {
         assert_eq!(QuestionPage::ahead(&questions, &[]), 2);
     }
 
+    /// A call recorded as a question for a person, which the engine no longer makes, is read as it was recorded.
+    #[test]
+    fn a_call_recorded_as_a_question_for_a_person_is_read_as_one() {
+        let mut work = Work::default();
+        work.calls.insert(
+            CallId(47),
+            CallOf::Asked(AskOf::Person {
+                who: Who::Owner,
+                question: "Which name?".to_string(),
+            }),
+        );
+        let Ok(Call::Question { who, question }) = call_of(&work, CallId(47)) else {
+            panic!("the call is read as a question");
+        };
+        assert!(matches!(who, Person::Owner));
+        assert_eq!(question, "Which name?");
+        assert!(call_of(&work, CallId(48)).is_err());
+    }
+
     /// A writer the owner's request runs, and the merge, with the repository's words beside it.
     pub(crate) fn flow() -> flow::Compiled {
+        flow_with("")
+    }
+
+    /// The same, the writer's file holding these lines besides.
+    pub(crate) fn flow_with(own: &str) -> flow::Compiled {
         let text = r#"
             name = "small"
             order = ["write", "merge"]
@@ -3660,13 +3895,15 @@ pub(crate) mod tests {
             [blocks.merged]
             shown = true
         "#;
-        let write = "title = \"Write\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Write.\"\n\
-                     watches = [\"request\"]\noutputs = [\"text\"]\n[kinds]\nrequest = \"last_and_latest\"\n";
+        let write = format!(
+            "title = \"Write\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Write.\"\n{own}\
+             watches = [\"request\"]\noutputs = [\"text\"]\n[kinds]\nrequest = \"last_and_latest\"\n"
+        );
         let merge =
             "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"text\"]\noutputs = [\"merged\"]\n";
         let source = Source {
             flow: text.to_string(),
-            cells: [("write", write), ("merge", merge)]
+            cells: [("write", write.as_str()), ("merge", merge)]
                 .iter()
                 .map(|(id, text)| (id.to_string(), text.to_string()))
                 .collect(),
@@ -3699,6 +3936,7 @@ pub(crate) mod tests {
                 project: None,
                 depends_on: Vec::new(),
                 tags: Vec::new(),
+                continues: None,
             };
             Stored {
                 head: store::WorkHead {
@@ -3735,8 +3973,8 @@ pub(crate) mod tests {
     }
 
     // A work's level and its cell's are what the rule that gives a round its level says (the route's test shows a line
-    // that raises it): where the rule refuses the item's level, neither is said, and only an agent's cell has a level.
-    // How far the cell's line raises it is the line's, as an agent's cell stands, whatever the rule says.
+    // that raises it): where the rule refuses the item's level, neither is said, and only an agent's cell has a level,
+    // a raise and nothing holding it.
     #[test]
     fn a_works_level_and_its_cells_are_the_rules_and_none_where_it_refuses_or_no_agent_runs() {
         let flow = flow();
@@ -3744,31 +3982,47 @@ pub(crate) mod tests {
             name: name.to_string(),
             desc: format!("Work of level {name}"),
         };
-        let levels = Levels::new(["1", "2", "3"].map(level), "2", Some("2")).expect("the levels are made");
+        let levels = Levels::new(["1", "2", "3"].map(level), "2", Some("2"), Some("3")).expect("the levels are made");
         let of = |item: Option<&str>, now: &Now| levels_of(&levels, item, &flow, now);
         let at = |cell: &str| Now::Next { cell: cell.to_string() };
         let given = |level: &str| Some(level.to_string());
-        assert_eq!(of(Some("1"), &at("write")), (given("1"), given("1"), Some(0)));
+        assert_eq!(of(Some("1"), &at("write")), (given("1"), given("1"), Some(0), None));
         assert_eq!(
             of(None, &at("write")),
-            (given("2"), given("2"), Some(0)),
+            (given("2"), given("2"), Some(0), None),
             "an item of no level is at the default"
         );
         assert_eq!(
             of(Some("1"), &at("merge")),
-            (given("1"), None, None),
+            (given("1"), None, None, None),
             "an engine cell's act runs on no level"
         );
         assert_eq!(
             of(Some("1"), &Now::Merged),
-            (given("1"), None, None),
+            (given("1"), None, None, None),
             "a work that ended stands at no cell"
         );
-        assert_eq!(of(Some("9"), &at("write")), (None, None, Some(0)), "no level");
+        assert_eq!(of(Some("9"), &at("write")), (None, None, None, None), "no level");
         assert_eq!(
             of(Some("3"), &at("write")),
-            (None, None, Some(0)),
+            (None, None, None, None),
             "above the highest an item may be at"
+        );
+    }
+
+    // A question of a cell that does not run says why in the words a stalled work says a cell does not run in, so that
+    // the same thing reads the same wherever it is said.
+    #[test]
+    fn a_question_of_a_skipped_cell_says_why_in_the_words_of_a_stalled_work() {
+        let flow = flow();
+        let words = &flow.waits.stalled;
+        let key = |words: &str| CellKey {
+            test: words.to_string(),
+            words: words.to_string(),
+        };
+        assert_eq!(
+            skipped_words(words, "review", &[key("big = yes"), key("ready")]),
+            "`review` does not run, because it is skipped, `big = yes` and `ready` not holding."
         );
     }
 
@@ -3839,10 +4093,14 @@ pub(crate) mod tests {
                      request = \"last_and_latest\"\nwrite_questions = \"all\"\nwrite_words = \"all\"\n";
         let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"text\", \"main\"]\n\
                      outputs = [\"merged\"]\n";
+        compiled(text, &[("write", write), ("merge", merge)])
+    }
+
+    /// The flow of this definition and these cells' files, with the repository's words beside it.
+    fn compiled(text: &str, cells: &[(&str, &str)]) -> flow::Compiled {
         let source = Source {
             flow: text.to_string(),
-            cells: [("write", write), ("merge", merge)]
-                .iter()
+            cells: (cells.iter())
                 .map(|(id, text)| (id.to_string(), text.to_string()))
                 .collect(),
             files: [(
@@ -3858,6 +4116,126 @@ pub(crate) mod tests {
             ..Has::default()
         };
         compile(&source, &has).expect("the definition compiles")
+    }
+
+    /// A design the owner's `deep` turns on, a writer, and the merge: each of the first two may ask the owner and be
+    /// spoken to.
+    fn skipping() -> flow::Compiled {
+        let text = r#"
+            name = "skipping"
+            order = ["design", "write", "merge"]
+            [limits]
+            runs = 3
+            returns = 2
+            calls = 3
+            [lines.main]
+            [blocks.request]
+            people = true
+            [blocks.deep]
+            values = ["yes", "no"]
+            people = true
+            [blocks.main]
+            outside = "main"
+            [blocks.design]
+            [blocks.text]
+            [blocks.design_questions]
+            outside = "answer"
+            [blocks.design_words]
+            outside = "words"
+            [blocks.write_questions]
+            outside = "answer"
+            [blocks.write_words]
+            outside = "words"
+            [blocks.merged]
+            shown = true
+        "#;
+        let asks = |title: &str, block: &str, own: &str| {
+            format!(
+                "title = \"{title}\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Do it.\"\n\
+                 watches = [\"request\", \"{own}_questions\", \"{own}_words\"]\n\
+                 outputs = [\"{block}\", \"{own}_questions\", \"{own}_words\"]\n{when}{reads}[kinds]\n\
+                 request = \"last_and_latest\"\n{own}_questions = \"all\"\n{own}_words = \"all\"\n{kind}",
+                when = if own == "design" {
+                    "when = { deep = \"yes\" }\n"
+                } else {
+                    ""
+                },
+                reads = if own == "write" { "reads = [\"design\"]\n" } else { "" },
+                kind = if own == "write" { "design = \"latest\"\n" } else { "" }
+            )
+        };
+        let (design, write) = (asks("Design", "design", "design"), asks("Write", "text", "write"));
+        let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"text\", \"main\"]\n\
+                     outputs = [\"merged\"]\n";
+        compiled(text, &[("design", &design), ("write", &write), ("merge", merge)])
+    }
+
+    // A question of a cell whose condition does not hold says why its cell does not run, in the words a stalled work
+    // says it in; one of a cell that runs says nothing, and the cell applying again takes what was said away.
+    #[test]
+    fn a_question_of_a_skipped_cell_is_drawn_with_why_and_one_of_a_cell_that_runs_with_none() {
+        use decide::{Questioned, Started};
+
+        let flow = skipping();
+        let mut work = Work::default();
+        let r = &mut work.records;
+        let wrote = |block: &str, value: Option<&str>, at: u64| Written {
+            block: block.into(),
+            by: Outsider::Person,
+            matters: true,
+            value: value.map(str::to_string),
+            empty: false,
+            said_to: None,
+            at: Seq(at),
+        };
+        r.written.push(wrote("request", None, 1));
+        r.written.push(wrote("deep", Some("no"), 2));
+        for (run, cell, at) in [(1, "design", 3), (2, "write", 4)] {
+            r.started.push(Started {
+                run: RunId(run),
+                cell: cell.into(),
+                at: Seq(at),
+                because: Vec::new(),
+                basis: BTreeMap::new(),
+            });
+        }
+        let asked = |name: &str, cell: &str, run: u64, at: u64| Questioned {
+            name: name.to_string(),
+            cell: cell.into(),
+            run: RunId(run),
+            engine: false,
+            waits: true,
+            withdrawn: false,
+            at: Seq(at),
+        };
+        r.questions.push(asked("how", "design", 1, 5));
+        r.questions.push(asked("which", "write", 2, 6));
+        let said = |work: &Work| -> BTreeMap<String, Option<String>> {
+            let stored = Stored::new("skipping");
+            let on = driver::On::installed_flow(&flow);
+            let kept = stored.kept(&flow, &on, work);
+            let pages = QuestionPage::all(&kept).expect("the questions are drawn");
+            pages.into_iter().map(|q| (q.name, q.skipped)).collect()
+        };
+        let skipped = said(&work);
+        assert_eq!(
+            skipped["how"].as_deref(),
+            Some("`design` does not run, because it is skipped, `deep = yes` not holding.")
+        );
+        assert_eq!(skipped["which"], None);
+        // Answered, its question says nothing of why its cell does not run.
+        let mut answered = work.clone();
+        answered.records.answers.push(decide::Answered {
+            question: "how".to_string(),
+            version: Seq(5),
+            option: 1,
+            why: None,
+            at: Seq(7),
+        });
+        assert_eq!(said(&answered)["how"], None);
+        // The owner turns the design on: its cell applies, and its question says nothing of why it does not run.
+        work.records.written.push(wrote("deep", Some("yes"), 8));
+        assert_eq!(said(&work)["how"], None);
     }
 
     // Each version is named by who wrote it as a round is told it (decision a-version-is-told-by-the-line-that-wrote-it),
@@ -3956,6 +4334,51 @@ pub(crate) mod tests {
         assert_eq!(named("write_questions", 13), outside);
     }
 
+    // What a return was sent back for is given as the key its words have in `sent_back.toml` and the values recorded,
+    // each under the name of the field that holds it: a recorded block stays `block` where the file's words name the
+    // datum or group the cell watches, and a version is the number it has among its datum's versions (decision
+    // a-sent-back-reason-is-shown-by-its-key).
+    #[test]
+    fn a_return_sent_back_is_given_by_its_key_and_the_values_recorded() {
+        let mut records = Records::default();
+        for at in [3, 5] {
+            records.written.push(Written {
+                block: "plan".into(),
+                by: Outsider::Person,
+                matters: true,
+                value: None,
+                empty: false,
+                said_to: None,
+                at: Seq(at),
+            });
+        }
+        let given = |unmet: UnmetOf| serde_json::to_value(Unmet::of(&unmet, &records).expect("the reason is given"));
+        let value = |name: &str, value: &str| serde_json::json!({ "name": name, "value": value });
+        assert_eq!(
+            given(UnmetOf::NotATest {
+                path: "src/lib.rs".into()
+            })
+            .expect("JSON"),
+            serde_json::json!({ "key": "not_a_test", "values": [value("path", "src/lib.rs")] }),
+        );
+        assert_eq!(
+            given(UnmetOf::NotRunBy { block: "plan".into() }).expect("JSON"),
+            serde_json::json!({ "key": "not_run_by", "values": [value("block", "plan")] }),
+        );
+        assert_eq!(
+            given(UnmetOf::WrittenOver {
+                block: "plan".into(),
+                version: Seq(5)
+            })
+            .expect("JSON"),
+            serde_json::json!({ "key": "written_over", "values": [value("block", "plan"), value("version", "2")] }),
+        );
+        assert_eq!(
+            given(UnmetOf::DealtWithNothing).expect("JSON"),
+            serde_json::json!({ "key": "dealt_with_nothing", "values": [] }),
+        );
+    }
+
     // Acceptance 13: a work on no version kept no stretches as it ended and is decided by no flow, so its bar is drawn
     // from its records alone: a round a model's where it had a try and the tools' where it had none, and what it waited
     // for between them not known (decision a-work-keeps-what-its-time-went-to).
@@ -4010,7 +4433,9 @@ pub(crate) mod tests {
         let kept = stored.kept(&flow, &on, &work);
         let all = HeldAll {
             everything: Vec::new(),
-            cannot_run: None,
+            stops: Vec::new(),
+            cannot_run: Vec::new(),
+            turns: Vec::new(),
         };
         let third = (BAR_CELLS / 3) as usize;
         let drawn = bar(kept, &all, Time(10_000));
@@ -4083,7 +4508,7 @@ pub(crate) mod tests {
         let (installed, on, work) = asked_on_an_earlier_version();
         let stored = Stored::new("asking");
         let kept = stored.kept(&installed, &on, &work);
-        let numbered: Vec<_> = (QuestionPage::all(&kept).into_iter())
+        let numbered: Vec<_> = (QuestionPage::all(&kept).expect("the questions are read").into_iter())
             .map(|q| (q.name, q.version))
             .collect();
         assert_eq!(numbered, [("which".to_string(), Some(1))]);
@@ -4151,6 +4576,122 @@ pub(crate) mod tests {
         compile(&source, &has).expect("the deliver flow compiles")
     }
 
+    // What a round, a ping or a fork took is told in the kinds its record tells. Tokens a record does not tell apart
+    // are counted as neither sent fresh nor written to the cache; one that says it wrote more to the cache than it
+    // sent and did not read from it is refused, and not shown as nothing.
+    #[test]
+    fn a_record_tells_the_cache_written_from_the_sent_fresh_only_where_it_says_and_a_wrong_one_is_refused() {
+        let took = |uncached_tokens, cache_written_tokens| work::Spent {
+            usd_micros: 7,
+            uncached_tokens,
+            cache_written_tokens,
+            cached_tokens: 100,
+            output_tokens: 3,
+            ..Default::default()
+        };
+        let told = |spent: Spent| {
+            (
+                spent.input_tokens,
+                spent.cache_written_tokens,
+                spent.unsplit_tokens,
+                spent.cached_tokens,
+                spent.output_tokens,
+            )
+        };
+        let apart = Spent::of(&took(5_100, Some(5_000)), 40).expect("the record is sound");
+        assert_eq!(told(apart), (100, 5_000, 0, 100, 3));
+        assert_eq!((apart.usd_micros, apart.working_ms, apart.rounds), (7, 40, 1));
+        let not_apart = Spent::of(&took(5_100, None), 0).expect("the record is sound");
+        assert_eq!(told(not_apart), (0, 0, 5_100, 100, 3), "in neither of the two");
+        // Every token it sent and did not read from the cache was written to it.
+        let all_written = Spent::of(&took(5_000, Some(5_000)), 0).expect("the record is sound");
+        assert_eq!(told(all_written), (0, 5_000, 0, 100, 3));
+        assert_eq!(
+            Spent::of(&took(5_000, Some(5_001)), 0),
+            Err(Broken(
+                "a record says 5001 tokens were written to the cache of the 5000 sent and not read from it".to_string()
+            ))
+        );
+    }
+
+    // What a work spent beside its rounds is told by kind, each call counted as a round, and by when it ended: a ping and
+    // a fork that ended at different times. Microseconds.
+    #[test]
+    fn what_a_work_spent_beside_its_rounds_is_told_by_kind_and_by_when_each_call_ended() {
+        let mut work = Work::default();
+        for (from, at) in [(1, 1_000), (10, 5_000)] {
+            work.moments.push(work::Moment {
+                from: decide::Seq(from),
+                at: Time(at),
+            });
+        }
+        work.pinged.push(work::Pinged {
+            at: decide::Seq(2),
+            line: "engineer".to_string(),
+            session: 0,
+            // Kept before the tokens written to the cache were kept apart: its 5 are sent fresh or written, not told.
+            spent: work::Spent {
+                usd_micros: 20_000,
+                uncached_tokens: 5,
+                cache_written_tokens: None,
+                cached_tokens: 100,
+                output_tokens: 1,
+                ..Default::default()
+            },
+            failed: None,
+        });
+        work.forked.push(work::Forked {
+            at: decide::Seq(11),
+            run: decide::RunId(1),
+            round: 1,
+            usd_micros: 300_000,
+            uncached_tokens: 120,
+            cache_written_tokens: Some(100),
+            cached_tokens: 18_100,
+            output_tokens: 30,
+        });
+        let each =
+            |usd_micros, (input_tokens, cache_written_tokens, unsplit_tokens), cached_tokens, output_tokens| Spent {
+                usd_micros,
+                input_tokens,
+                cache_written_tokens,
+                unsplit_tokens,
+                cached_tokens,
+                output_tokens,
+                working_ms: 0,
+                rounds: 1,
+            };
+        let all = spent_beside_rounds(&work, &|_| true).expect("the records are sound");
+        assert_eq!(
+            all.pinged,
+            each(20_000, (0, 0, 5), 100, 1),
+            "a ping not told apart counts in neither"
+        );
+        assert_eq!(all.forked, each(300_000, (20, 100, 0), 18_100, 30));
+        assert_eq!((all.all().usd_micros, all.all().rounds), (320_000, 2));
+        assert_eq!(
+            (
+                all.all().input_tokens,
+                all.all().cache_written_tokens,
+                all.all().unsplit_tokens
+            ),
+            (20, 100, 5),
+            "the tokens of the two are told apart as far as the records tell them"
+        );
+        let early = spent_beside_rounds(&work, &|at| at < 2_000).expect("the records are sound");
+        assert_eq!(
+            (early.pinged.rounds, early.forked.rounds),
+            (1, 0),
+            "only the ping had ended"
+        );
+        let kinds: Vec<work::BesideKind> = beside_rounds(&work, &|_| true)
+            .expect("the records are sound")
+            .into_iter()
+            .map(|(_, kind, _)| kind)
+            .collect();
+        assert_eq!(kinds, [work::BesideKind::Ping, work::BesideKind::Fork]);
+    }
+
     // The bar of a work going on is the one it keeps as it ends (decision a-work-keeps-what-its-time-went-to): drawn
     // live, each cell less than half of which ran is decided at its middle alone, and drawn from what the work kept,
     // read in the stretch that holds the middle. Seven times the writer's round fails, the owner lets the work on while
@@ -4206,21 +4747,178 @@ pub(crate) mod tests {
         let now = Time(t + 500);
         let all = HeldAll {
             everything,
-            cannot_run: None,
+            stops: Vec::new(),
+            cannot_run: Vec::new(),
+            turns: Vec::new(),
         };
         let stored = Stored::new(&flow.name);
         let on = driver::On::installed_flow(&flow);
         let live = bar(stored.kept(&flow, &on, &work), &all, now);
-        let stretches = driver::time::stretches(&stored.kept(&flow, &on, &work), &all.everything, None, now);
+        let stretches = driver::time::stretches(
+            &stored.kept(&flow, &on, &work),
+            &all.everything,
+            &all.stops,
+            &[],
+            Vec::new(),
+            now,
+        );
         let mut ended = work.clone();
         ended.kept_time.push(work::KeptTime {
             at: work.tick(),
             stretches,
+            turn: Some(Vec::new()),
         });
         assert_eq!(live, bar(stored.kept(&flow, &on, &ended), &all, now));
         for went in ['m', 'o', 'p', '.'] {
             assert!(live.contains(went), "{live}");
         }
+    }
+
+    // The bar draws the wait for the turn to check and merge, `q`, where another work of the work's project held the
+    // turn while the work would have begun a round of a cell that takes it, and draws it alike live and from what the
+    // work kept as it ended; where none held it, the same time is `.`. The work is paused from 1000 to 3000, let on
+    // then, and begins its round at 6000. Milliseconds.
+    #[test]
+    fn the_bar_draws_the_wait_for_the_turn_live_and_as_kept_and_nothing_where_none_held_it() {
+        use decide::run::Failure;
+        use engine::{Effect, Event, Gate};
+
+        let flow = flow_with("takes_turn = true\n");
+        let mut work = Work::default();
+        let wrote = Event::Wrote {
+            block: "request".into(),
+            by: Outsider::Person,
+            content: "Greet.".to_string(),
+            matters: true,
+            value: None,
+        };
+        let effects = engine::handle(&flow, &mut work, Time(0), wrote).expect("the request is taken");
+        let run = effects
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::Round { run, .. } => Some(*run),
+                _ => None,
+            })
+            .expect("the writer's round begins");
+        let failed = || Event::Failed {
+            run,
+            why: "it broke".to_string(),
+            failure: Failure::Other,
+            resets: None,
+            spent: work::Spent::default(),
+        };
+        engine::handle(&flow, &mut work, Time(1000), failed()).expect("the round fails");
+        let free = decide::Room::FREE;
+        engine::handle_held(&flow, &mut work, Time(3000), Event::Resumed, free, Gate::Agents).expect("it is let on");
+        engine::handle_held(&flow, &mut work, Time(6000), Event::Look, free, Gate::Open).expect("it is looked at");
+        engine::handle(&flow, &mut work, Time(7000), failed()).expect("the round fails again");
+        let held = |turns| HeldAll {
+            everything: Vec::new(),
+            stops: Vec::new(),
+            cannot_run: Vec::new(),
+            turns,
+        };
+        // Another work of the same project (an item of no project), and one of another project.
+        let span = work::TurnSpan {
+            from: Time(2000),
+            until: Some(Time(6000)),
+        };
+        let elsewhere = (Some("other".to_string()), WorkNumber(3), vec![span]);
+        let own = (None, WorkNumber(1), vec![span]);
+        let all = held(vec![(None, WorkNumber(2), vec![span]), elsewhere.clone(), own.clone()]);
+        let stored = Stored::new(&flow.name);
+        let on = driver::On::installed_flow(&flow);
+        let shape = |bar: String| {
+            let mut cells: Vec<char> = bar.chars().collect();
+            cells.dedup();
+            cells.into_iter().collect::<String>()
+        };
+        let now = Time(9000);
+        let live = bar(stored.kept(&flow, &on, &work), &all, now);
+        assert_eq!(shape(live.clone()), "moqm");
+        // Held by no other work of its project, only by the work itself and one of another project: nothing says what it
+        // waited for.
+        let none = bar(stored.kept(&flow, &on, &work), &held(vec![elsewhere, own]), now);
+        assert_eq!(shape(none), "mo.m");
+        let kept = stored.kept(&flow, &on, &work);
+        let stretches = driver::time::stretches(&kept, &[], &[], &[], all.turns_of_others(&kept), now);
+        let mut ended = work.clone();
+        ended.kept_time.push(work::KeptTime {
+            at: work.tick(),
+            stretches,
+            turn: Some(Vec::new()),
+        });
+        assert_eq!(live, bar(stored.kept(&flow, &on, &ended), &all, now));
+    }
+
+    // What the page says of a work that waits for its project's turn to check and merge: that it waits for it, whose it
+    // is and since when the work has wanted it, as the driver gives them, said at a cell the walk waits at and at one
+    // whose run at rest the engine holds. The stop of the engine, which holds every round, is said in its place. Where
+    // the driver names no turn, the page's data is at fault and the work is not shown as waiting for one. Fails where
+    // the page says the wait as another, drops what the driver gave, or says it before the stop.
+    #[test]
+    fn a_work_that_waits_for_the_turn_is_said_to_wait_for_it_with_whose_it_is_and_since_when_and_the_stop_comes_first()
+    {
+        let flow = flow_with("takes_turn = true\n");
+        let mut work = Work::default();
+        work.records.written.push(Written {
+            block: "request".into(),
+            by: Outsider::Person,
+            matters: true,
+            value: None,
+            empty: false,
+            said_to: None,
+            at: Seq(1),
+        });
+        let stored = Stored::new(&flow.name);
+        let on = driver::On::installed_flow(&flow);
+        // Another work of the project holds the turn: the walk of this one waits for it at the writer.
+        let room = decide::Room {
+            turn: false,
+            ..decide::Room::FREE
+        };
+        let waits = decide::decide_in(&flow.flow, &work.records, room);
+        assert_eq!(
+            waits,
+            Decision::Wait {
+                at: "write".into(),
+                on: vec![WaitedOf::Turn]
+            }
+        );
+        let at_rest = Decision::GoOn {
+            cell: "write".into(),
+            run: RunId(1),
+        };
+        let now = |decision: &Decision, held: Option<Holder>, stopping: Option<u64>, turn| {
+            let outages = Outages {
+                agents: None,
+                host: None,
+                everything: None,
+                stopping,
+            };
+            let others = Others {
+                waited_for: Vec::new(),
+                paused_for: Vec::new(),
+                turn,
+            };
+            Now::of(stored.kept(&flow, &on, &work), decision, held, &outages, &[], &others)
+        };
+        let turn = Some((WorkNumber(7), Time(500)));
+        let waits_for_it = Now::Waits {
+            at: "write".to_string(),
+            on: vec![Waited::Turn { holder: 7, since: 500 }],
+        };
+        assert_eq!(now(&waits, None, None, turn), Ok(waits_for_it.clone()));
+        assert_eq!(now(&at_rest, Some(Holder::Turn), None, turn), Ok(waits_for_it));
+        // The stop of the engine holds every round, and is said instead.
+        let stopped = Now::Waits {
+            at: "write".to_string(),
+            on: vec![Waited::Stopping { since: 900 }],
+        };
+        assert_eq!(now(&waits, None, Some(900), turn), Ok(stopped.clone()));
+        assert_eq!(now(&at_rest, Some(Holder::Turn), Some(900), turn), Ok(stopped));
+        // A work the driver gives no turn that is another's waits for none.
+        assert!(matches!(now(&waits, None, None, None), Err(Broken(_))));
     }
 
     // A new session begun because what a new one would begin with changed is given to the page with the tokens of
@@ -4247,5 +4945,166 @@ pub(crate) mod tests {
         assert_eq!(settled(true, false, false), CellState::NotYet);
         assert_eq!(settled(true, true, true), CellState::Again);
         assert_eq!(settled(true, true, false), CellState::Done);
+    }
+
+    // What a return was sent back for reaches the page as the key its words have and every value the reason records,
+    // each under the name of its field and in the order the reason holds them: a list is one value for each of its
+    // elements, and what a gate or a dialogue names, the changes a round left and the answer marked `tree` that changed
+    // nothing of the tree are given as the page reads them (`Unmet` of `client/src/works-api.ts`). Milliseconds.
+    #[test]
+    fn each_reason_a_return_was_sent_back_reaches_the_page_by_its_key_with_every_value_it_records() {
+        let block = |name: &str| BlockId::from(name);
+        type Case = (UnmetOf, &'static str, Vec<(&'static str, &'static str)>);
+        let cases: Vec<Case> = vec![
+            (
+                UnmetOf::NothingBut {
+                    block: block("tree_ok"),
+                    value: "yes".to_string(),
+                    besides: vec![block("code"), block("plan")],
+                },
+                "nothing_but",
+                vec![
+                    ("block", "tree_ok"),
+                    ("value", "yes"),
+                    ("besides", "code"),
+                    ("besides", "plan"),
+                ],
+            ),
+            (
+                UnmetOf::WordOwed {
+                    name: block("review"),
+                    watched: vec![block("code")],
+                },
+                "word_owed",
+                vec![("name", "review"), ("watched", "code")],
+            ),
+            (
+                UnmetOf::NoPoint {
+                    block: block("verdict"),
+                    value: "no".to_string(),
+                    name: block("review"),
+                },
+                "no_point",
+                vec![("block", "verdict"), ("value", "no"), ("name", "review")],
+            ),
+            (
+                UnmetOf::NotWatched {
+                    name: "opinions".to_string(),
+                },
+                "not_watched",
+                vec![("name", "opinions")],
+            ),
+            (
+                UnmetOf::Uncommitted {
+                    changes: " M src/a.rs".to_string(),
+                },
+                "uncommitted",
+                vec![("changes", " M src/a.rs")],
+            ),
+            (
+                UnmetOf::Merging {
+                    changes: "the merge is under way".to_string(),
+                },
+                "merging",
+                vec![("changes", "the merge is under way")],
+            ),
+            (
+                UnmetOf::TreeUnchanged {
+                    name: "tree_question".to_string(),
+                },
+                "tree_unchanged",
+                vec![("name", "tree_question")],
+            ),
+            (
+                UnmetOf::NotAnEntry {
+                    line: "an entry".to_string(),
+                },
+                "not_an_entry",
+                vec![("line", "an entry")],
+            ),
+            (
+                UnmetOf::Unanswered { block: block("plan") },
+                "unanswered",
+                vec![("block", "plan")],
+            ),
+        ];
+        for (unmet, key, values) in cases {
+            let Ok(page) = Unmet::of(&unmet, &Records::default()) else {
+                panic!("{unmet:?} does not reach the page");
+            };
+            let given: Vec<(&str, &str)> = page
+                .values
+                .iter()
+                .map(|v| (v.name.as_str(), v.value.as_str()))
+                .collect();
+            assert_eq!(page.key, key, "{unmet:?}");
+            assert_eq!(given, values, "{unmet:?}");
+        }
+    }
+
+    // A session begun for a reason the engine no longer gives (the owner's asking, a size past the limit, another
+    // account) is still in the records of a work kept before, and is given to the page as that reason, with what it
+    // says: the page words it as it did.
+    #[test]
+    fn a_session_begun_for_a_reason_the_engine_no_longer_gives_is_still_given_as_that_reason() {
+        use serde_json::json;
+        let given = |why: Why| serde_json::to_value(SessionWhy::of(&why)).expect("it is JSON");
+        assert_eq!(given(Why::Owner), json!({"kind": "owner"}));
+        assert_eq!(
+            given(Why::Limit {
+                context: 612_000,
+                limit: 500_000
+            }),
+            json!({"kind": "limit", "context": 612_000, "limit": 500_000})
+        );
+        assert_eq!(
+            given(Why::Account {
+                was: Some("work".to_string())
+            }),
+            json!({"kind": "account"})
+        );
+        assert_eq!(given(Why::Account { was: None }), json!({"kind": "account"}));
+        assert_eq!(
+            given(Why::Model {
+                was: "claude-opus-4-1".to_string()
+            }),
+            json!({"kind": "model", "was": "claude-opus-4-1"})
+        );
+    }
+
+    // The page names, for why a cell ran, the version the cell last worked from as the run began, which is the one a
+    // message to it names: the cell's own write or the owner's ruling that is later than the version it consumed. A
+    // cause recorded before that was recorded has the version it consumed. Milliseconds; the one test of which number
+    // of a cause the page takes.
+    #[test]
+    fn the_page_names_the_version_a_cell_last_worked_from_and_the_one_it_consumed_where_none_was_recorded() {
+        let mut records = Records::default();
+        for at in [1, 2, 4] {
+            records.written.push(Written {
+                block: "plan".into(),
+                by: Outsider::Person,
+                matters: true,
+                value: None,
+                empty: false,
+                said_to: None,
+                at: Seq(at),
+            });
+        }
+        let plan = BlockId::from("plan");
+        let cause = |was, worked| CauseOf::Changed {
+            block: plan.clone(),
+            was,
+            worked,
+            behind: false,
+        };
+        let named = |cause: CauseOf| match Cause::of(&cause, &records).expect("the versions are the work's") {
+            Cause::Changed { worked_from, .. } => worked_from,
+            other => panic!("{other:?}"),
+        };
+        // It consumed the first version, and last worked from the third, which the owner ruled on.
+        assert_eq!(named(cause(Some(Seq(1)), Some(Seq(4)))), Some(3));
+        // A cause kept without it names the version consumed, and one that consumed none and worked from none, none.
+        assert_eq!(named(cause(Some(Seq(2)), None)), Some(2));
+        assert_eq!(named(cause(None, None)), None);
     }
 }

@@ -20,7 +20,7 @@ use std::sync::Arc;
 use decide::CallId;
 use flow::agents::{ResultGiven, Tool, fill};
 use serde::Deserialize;
-use service::{CallReply, ToolCall, Tools as ToolsTrait, WITHDRAWN};
+use service::{CallReply, ToolCall, Tools as ToolsTrait};
 use store::WorkNumber;
 
 use crate::git;
@@ -28,7 +28,7 @@ use crate::held::{Held, Stop};
 use crate::host::{Asking, Branch, Host, Named};
 use crate::settings::Project;
 
-pub use query::{QUERY, Querying};
+pub use query::{Limits, QUERY, Querying};
 
 /// The name of the tool that runs the work's tests and checks.
 pub const RUN_TESTS: &str = "run_tests";
@@ -44,8 +44,8 @@ struct Inner<H> {
     data: PathBuf,
     /// The installation's part of the names of the works' worktrees.
     tag: String,
-    /// What the agent is told of a request it cannot be read, from `agents/tools/run_tests.toml`.
-    unread: Option<String>,
+    /// What the tools say in the words beside the flows.
+    said: Said,
     held: Held<(WorkNumber, CallId), CallReply>,
     /// The tool `query`, closed until the settings open it.
     query: Querying,
@@ -57,30 +57,56 @@ enum Answer {
     Withdrawn,
 }
 
+/// What the tools say in the words beside the flows, beside what each tool's own file says.
+#[derive(Clone, Debug, Default)]
+pub struct Said {
+    /// What an agent is told of a request of `run_tests` that cannot be read, from `agents/tools/run_tests.toml`:
+    /// `{error}` what the reading said.
+    pub unread: Option<String>,
+    /// What it is told where the check could not be run: `{why}` what stopped it.
+    pub could_not: String,
+    /// The result of a call withdrawn, from `agents/calls.toml`.
+    pub withdrawn: String,
+    /// What it is told of a tool the engine does not have, from `agents/calls.toml`: `{name}` the name, `{tools}` the
+    /// tools there are.
+    pub no_such_tool: String,
+}
+
+impl Said {
+    /// What the tools say in the words these files beside the flows hold: of the tool `run_tests` what its own file
+    /// says, and of the calls the engine ends itself what `agents/calls.toml` says; or why the tool's file lacks what
+    /// the engine says where its check could not be run.
+    pub fn of(beside: &flow::agents::Agents) -> Result<Self, String> {
+        let tool = beside.tools.get(RUN_TESTS);
+        let could_not = (tool.and_then(|tool| tool.could_not_check.clone())).filter(|text| !text.trim().is_empty());
+        let could_not = could_not.ok_or_else(|| {
+            let file = beside.root.join("agents/tools").join(format!("{RUN_TESTS}.toml"));
+            format!("{}: could_not_check must not be missing or empty", file.display())
+        })?;
+        Ok(Said {
+            unread: tool.and_then(|tool| tool.unread.clone()),
+            could_not,
+            withdrawn: beside.calls.withdrawn.clone(),
+            no_such_tool: beside.calls.no_such_tool.clone(),
+        })
+    }
+}
+
 impl<H: Host> Tools<H> {
     /// The tools on this host in this project, with this data directory, which is an absolute path, the
-    /// installation's tag, and what an agent is told of a request of `run_tests` that cannot be read, `{error}` what
-    /// the reading said.
-    pub fn new(host: H, project: Project, data: PathBuf, tag: String, unread: Option<String>) -> Self {
+    /// installation's tag, the tool `query` and what they say in the words beside the flows.
+    pub fn new(host: H, project: Project, data: PathBuf, tag: String, query: Querying, said: Said) -> Self {
         Tools {
             inner: Arc::new(Inner {
                 host,
                 project,
                 data,
                 tag,
-                unread,
+                said,
                 held: Held::new(),
-                query: Querying::closed(),
+                query,
             }),
         }
-    }
-
-    /// The tools with the tool `query` as this says it is.
-    pub fn querying(mut self, query: Querying) -> Self {
-        Arc::get_mut(&mut self.inner)
-            .expect("the tools are not shared yet")
-            .query = query;
-        self
     }
 }
 
@@ -93,7 +119,7 @@ impl<H: Host> ToolsTrait for Tools<H> {
         let Some(stop) = self.inner.held.hold(key, reply) else {
             return;
         };
-        let mut stop = stop.saying(saying).hosting(hosting);
+        let mut stop = stop.saying(saying).hosting(hosting).test_time(call.test_time);
         let inner = self.inner.clone();
         tokio::spawn(async move {
             let answered = if call.name == QUERY {
@@ -118,13 +144,15 @@ impl<H: Host> ToolsTrait for Tools<H> {
                 let name = crate::acts::name(&call.flow, &call.kept, call.work, &inner.project.commits);
                 let branch = Branch {
                     work: call.work,
+                    item: call.item.number,
                     title: &name,
                     about: &about,
                     place: &place,
+                    continues: None,
                 };
                 let tools = flow::form::tools(&call.flow);
                 let told = Told {
-                    unread: inner.unread.as_deref(),
+                    said: &inner.said,
                     tools: &tools,
                 };
                 let asked = Call {
@@ -136,7 +164,7 @@ impl<H: Host> ToolsTrait for Tools<H> {
             };
             let result = match answered {
                 Answer::Result(result) => result,
-                Answer::Withdrawn => WITHDRAWN.to_string(),
+                Answer::Withdrawn => inner.said.withdrawn.clone(),
             };
             if let Some(reply) = inner.held.take(key) {
                 reply.done(result);
@@ -147,7 +175,7 @@ impl<H: Host> ToolsTrait for Tools<H> {
     fn withdraw(&self, call: ToolCall, reply: CallReply) {
         self.prune(&call);
         if let Some(reply) = self.inner.held.stop((call.work, call.call), reply) {
-            reply.done(WITHDRAWN.to_string());
+            reply.done(self.inner.said.withdrawn.clone());
         }
     }
 }
@@ -276,10 +304,9 @@ fn cut(result: &str, given: Option<&ResultGiven>, file: &str) -> String {
     format!("{}\n\n{words}", &result[..at])
 }
 
-/// What a result of `answer` says that is the flow's: the words an unreadable request is told in, and the tools the
-/// flow gives its agents.
+/// What a result of `answer` says that is the flow's: the words the tools say, and the tools the flow gives its agents.
 struct Told<'a> {
-    unread: Option<&'a str>,
+    said: &'a Said,
     tools: &'a [&'a str],
 }
 
@@ -302,13 +329,20 @@ async fn answer(
     let name = call.name;
     if name != RUN_TESTS {
         let tools = told.tools.join(", ");
-        return Answer::Result(format!("No such tool: {name}. The tools are: {tools}."));
+        let places = [("name", name), ("tools", tools.as_str())];
+        return Answer::Result(fill(&told.said.no_such_tool, &places));
     }
     let checked = match asked(call.input) {
         Err(why) => Ok(Some(
-            told.unread.map_or(why.clone(), |words| fill(words, &[("error", &why)])),
+            told.said
+                .unread
+                .as_deref()
+                .map_or(why.clone(), |words| fill(words, &[("error", &why)])),
         )),
-        Ok(named) => run_tests(host, project, branch, &named, Asking::Call(call.id), stop).await,
+        Ok(named) => {
+            let could_not = &told.said.could_not;
+            run_tests(host, project, branch, &named, Asking::Call(call.id), stop, could_not).await
+        }
     };
     match checked {
         Ok(Some(said)) | Err(said) => Answer::Result(said),
@@ -325,8 +359,9 @@ async fn run_tests(
     named: &Named,
     asking: Asking,
     stop: &mut Stop,
+    could_not: &str,
 ) -> Result<Option<String>, String> {
-    let could_not = |why: String| format!("The check could not be run: {why}");
+    let could_not = |why: String| fill(could_not, &[("why", &why)]);
     let found = conflict::found(project, branch.place, &host.kept_main()).await;
     if let Some(said) = found.map_err(could_not)? {
         return Ok(Some(said));
@@ -334,8 +369,8 @@ async fn run_tests(
     host.run_tests(branch, named, asking, stop).await.map_err(could_not)
 }
 
-/// A request of `run_tests`: the tests and the checks it names, each list left out where it names none, and the commit
-/// to run them on, left out for the last commit of the work's branch.
+/// A request of `run_tests`: the tests, the checks and the measurements it names, each list left out where it names none,
+/// and the commit to run them on, left out for the last commit of the work's branch.
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Request {
@@ -343,6 +378,8 @@ struct Request {
     tests: Vec<String>,
     #[serde(default)]
     checks: Vec<String>,
+    #[serde(default)]
+    measure: Vec<String>,
     #[serde(default)]
     commit: Option<String>,
 }
@@ -363,11 +400,25 @@ fn asked(input: &str) -> Result<Named, String> {
         }
         taken
     };
+    let measure = once(request.measure);
+    // A measurement is named, never written as a command: a name is data to the workflow that times it (principle
+    // agent-writing-is-data), so none holds a character a shell would treat specially.
+    if let Some(wrong) = measure.iter().find(|name| !name.chars().all(measurement_character)) {
+        return Err(format!(
+            "the measurement {wrong:?} holds a character that is none of a letter, a digit, and `_-./:`"
+        ));
+    }
     Ok(Named {
         tests: once(request.tests),
         checks: once(request.checks),
+        measure,
         commit: (request.commit.map(|c| c.trim().to_string())).filter(|c| !c.is_empty()),
     })
+}
+
+/// Whether a character may be in the name of a measurement.
+fn measurement_character(c: char) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '/' | ':')
 }
 
 #[cfg(test)]
@@ -388,7 +439,7 @@ mod tests {
             "/../../flow/agents/tools/run_tests.toml"
         ));
         let tool: flow::agents::Tool = toml::from_str(text).expect("the file of run_tests reads");
-        Local::new(repo.project.clone()).saying(Some(&tool))
+        Local::new(repo.project.clone(), repo.check.clone()).saying(Some(&tool))
     }
 
     async fn answered(repo: &Repo, name: &str) -> String {
@@ -406,16 +457,23 @@ mod tests {
         let place = repo.place(WORK);
         let branch = Branch {
             work: WORK,
+            item: store::ItemNumber(36),
             title: "Greet the user",
             about: "",
             place: &place,
+            continues: None,
         };
         let call = Call {
             id: CallId(1),
             name,
             input,
         };
-        match answer(host, &repo.project, &branch, &TOLD, &call, &mut Stop::never()).await {
+        let said = said();
+        let told = Told {
+            said: &said,
+            tools: &["query", "run_tests"],
+        };
+        match answer(host, &repo.project, &branch, &told, &call, &mut Stop::never()).await {
             Answer::Result(result) => result,
             Answer::Withdrawn => panic!("nothing withdrew it"),
         }
@@ -538,22 +596,85 @@ mod tests {
         assert!(!old.exists() && !young.exists());
     }
 
-    /// The words an unreadable request is told in, as a file of the flow gives them.
-    const TOLD: Told<'static> = Told {
-        unread: Some("The request cannot be read: {error}"),
-        tools: &["query", "run_tests"],
-    };
+    /// What the tools say, in words of the shape the files beside the flows give them and unlike what they say, so that
+    /// a result in these words is read from them and from no text of the code.
+    pub(super) fn said() -> Said {
+        Said {
+            unread: Some("The request cannot be read: {error}".to_string()),
+            could_not: "No check ran ({why}).".to_string(),
+            withdrawn: "Dropped, no answer came.".to_string(),
+            no_such_tool: "{name} is no tool here; the tools are {tools}.".to_string(),
+        }
+    }
+
+    // The engine starts only where the tool's file says what it tells of a check that could not be run: where the file
+    // has none, or an empty one, it is refused naming the file and the key.
+    #[test]
+    fn a_tool_file_without_the_words_for_a_check_that_could_not_be_run_is_refused_naming_its_file() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+        let beside = flow::agents::read(&root).expect("what is written beside the flows is read");
+        for (what, words) in [("missing", None), ("empty", Some(" ".to_string()))] {
+            let mut beside = beside.clone();
+            beside.tools.get_mut(RUN_TESTS).unwrap().could_not_check = words;
+            let refused = Said::of(&beside).expect_err(what);
+            assert!(refused.contains("run_tests.toml"), "{what}: {refused}");
+            assert!(refused.contains("could_not_check"), "{what}: {refused}");
+        }
+    }
+
+    // What the tools say comes from the files of this repository's flows.
+    #[test]
+    fn the_files_beside_the_flows_give_the_tools_every_sentence() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+        let beside = flow::agents::read(&root).expect("what is written beside the flows is read");
+        let said = Said::of(&beside).expect("the tool's file says it");
+        let (unread, could_not) = (said.unread.unwrap(), said.could_not);
+        assert!(
+            unread.contains("{error}") && could_not.contains("{why}"),
+            "{unread} {could_not}"
+        );
+        assert!(said.no_such_tool.contains("{name}") && said.no_such_tool.contains("{tools}"));
+        assert!(said.withdrawn.starts_with("Withdrawn: "), "{}", said.withdrawn);
+        // The words the other tests give the tools are not these, so that a test that reads a result in them is read
+        // from the words it is given.
+        let fixture = tests::said();
+        assert_ne!(fixture.could_not, said_of_files().could_not);
+        assert_ne!(fixture.withdrawn, said_of_files().withdrawn);
+        assert_ne!(fixture.no_such_tool, said_of_files().no_such_tool);
+    }
+
+    fn said_of_files() -> Said {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+        let beside = flow::agents::read(&root).expect("what is written beside the flows is read");
+        Said::of(&beside).expect("the tool's file says it")
+    }
+
+    // The tools say what the files hold whatever that is: words changed in the files are the words of the results.
+    #[test]
+    fn the_tools_say_the_words_of_the_files_whatever_they_are() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+        let mut beside = flow::agents::read(&root).expect("what is written beside the flows is read");
+        beside.calls.withdrawn = "word one".to_string();
+        beside.calls.no_such_tool = "word two {name} {tools}".to_string();
+        beside.tools.get_mut(RUN_TESTS).unwrap().could_not_check = Some("word three {why}".to_string());
+        let said = Said::of(&beside).expect("the tool's file says it");
+        assert_eq!(said.withdrawn, "word one");
+        assert_eq!(said.no_such_tool, "word two {name} {tools}");
+        assert_eq!(said.could_not, "word three {why}");
+    }
 
     #[tokio::test]
     async fn the_tests_say_whether_they_passed_with_what_they_said() {
         let repo = Repo::new("echo all is well");
-        git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+        git::start(&repo.project, &repo.place(WORK), "main", "main")
+            .await
+            .unwrap();
         assert_eq!(
             answered(&repo, RUN_TESTS).await,
             "The check `echo all is well` passed. What it said:\nall is well\n"
         );
         let failing = Repo::new("echo it broke; exit 2");
-        git::start(&failing.project, &failing.place(WORK), "main")
+        git::start(&failing.project, &failing.place(WORK), "main", "main")
             .await
             .unwrap();
         let said = answered(&failing, RUN_TESTS).await;
@@ -564,7 +685,9 @@ mod tests {
     #[tokio::test]
     async fn what_the_tests_said_is_given_whole_to_be_kept_whole() {
         let repo = Repo::new("seq 1 3000");
-        git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+        git::start(&repo.project, &repo.place(WORK), "main", "main")
+            .await
+            .unwrap();
         let said = answered(&repo, RUN_TESTS).await;
         assert!(
             said.contains("\n1\n2\n3\n") && said.ends_with("\n2999\n3000\n"),
@@ -578,7 +701,9 @@ mod tests {
         // token for GitHub is one such.
         assert!(std::env::var("CARGO_PKG_NAME").is_ok(), "cargo runs the tests");
         let repo = Repo::new("env");
-        git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+        git::start(&repo.project, &repo.place(WORK), "main", "main")
+            .await
+            .unwrap();
         let said = answered(&repo, RUN_TESTS).await;
         assert!(said.contains("\nHOME=") || said.contains(":\nHOME="), "{said}");
         assert!(!said.contains("CARGO_PKG_NAME="), "{said}");
@@ -592,7 +717,7 @@ mod tests {
         for name in ["ci", "check", "check_before"] {
             assert_eq!(
                 answered(&repo, name).await,
-                format!("No such tool: {name}. The tools are: query, run_tests.")
+                format!("{name} is no tool here; the tools are query, run_tests.")
             );
         }
     }
@@ -610,7 +735,9 @@ mod tests {
     #[tokio::test]
     async fn withdrawn_tests_are_stopped_where_they_run() {
         let repo = Repo::new("sleep 30");
-        git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+        git::start(&repo.project, &repo.place(WORK), "main", "main")
+            .await
+            .unwrap();
         let held: Held<u8, ()> = Held::new();
         let mut stop = held.hold(1, ()).expect("held");
         let began = Instant::now();
@@ -622,30 +749,30 @@ mod tests {
         let place = repo.place(WORK);
         let branch = Branch {
             work: WORK,
+            item: store::ItemNumber(36),
             title: "Greet the user",
             about: "",
             place: &place,
+            continues: None,
         };
         let call = Call {
             id: CallId(1),
             name: RUN_TESTS,
             input: "",
         };
-        let asked = answer(&host, &repo.project, &branch, &TOLD, &call, &mut stop);
+        let said = said();
+        let told = Told {
+            said: &said,
+            tools: &["query", "run_tests"],
+        };
+        let asked = answer(&host, &repo.project, &branch, &told, &call, &mut stop);
         let (answer, ()) = tokio::join!(asked, withdrawing);
         assert!(matches!(answer, Answer::Withdrawn));
         assert!(began.elapsed() < Duration::from_secs(20), "the command was stopped");
     }
 
-    // The pull request the tool brings up to date is named as the work's merge is: by the work's number before the work
-    // wrote a name for it, and never by the title of its item, which is in the owner's language. The host is asked by
-    // the call, which it finds what it ran for again by after the engine started again.
-    #[tokio::test]
-    async fn the_host_is_asked_by_the_call_and_given_the_name_of_the_works_merge_never_its_items_title() {
-        let repo = Repo::new("true");
-        git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
-        let host = Fake::new("unused").runs("The tests passed.");
-        let tools = Tools::new(host, repo.project.clone(), repo.data.clone(), TAG.to_string(), None);
+    /// A call of `run_tests` of the work, as the loop makes it.
+    fn run_tests_call() -> ToolCall {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/flow");
         let has = flow::Has {
             sources: ["tree", "main"].map(str::to_string).into(),
@@ -659,8 +786,9 @@ mod tests {
             project: None,
             depends_on: Vec::new(),
             tags: Vec::new(),
+            continues: None,
         };
-        let call = ToolCall {
+        ToolCall {
             work: WORK,
             flow: Arc::new(flow),
             run: decide::RunId(1),
@@ -669,12 +797,112 @@ mod tests {
             input: String::new(),
             item: store::Item::new(store::ItemNumber(1), work::Time(0), first, Vec::new()),
             kept: Arc::new(work::Work::default()),
-        };
+            test_time: None,
+        }
+    }
+
+    // The pull request the tool brings up to date is named as the work's merge is: by the work's number before the work
+    // wrote a name for it, and never by the title of its item, which is in the owner's language. The host is asked by
+    // the call, which it finds what it ran for again by after the engine started again.
+    #[tokio::test]
+    async fn the_host_is_asked_by_the_call_and_given_the_name_of_the_works_merge_never_its_items_title() {
+        let repo = Repo::new("true");
+        git::start(&repo.project, &repo.place(WORK), "main", "main")
+            .await
+            .unwrap();
+        let host = Fake::new("unused").runs("The tests passed.");
+        let tools = Tools::new(
+            host,
+            repo.project.clone(),
+            repo.data.clone(),
+            TAG.to_string(),
+            Querying::new(Limits::FIXED, None, &repo.data, ""),
+            said(),
+        );
+        let call = run_tests_call();
         let (to, mut said) = tokio::sync::mpsc::unbounded_channel();
         tools.call(call, CallReply::new(WORK, CallId(2), to));
         said.recv().await.expect("the call is answered");
-        assert_eq!(tools.inner.host.titles(), ["Work 1"]);
+        assert_eq!(tools.inner.host.titles(), ["Work W1"]);
         assert_eq!(tools.inner.host.askings(), [Asking::Call(CallId(2))]);
+    }
+
+    // The local host runs the project's check command and reads no JUnit: a call that runs it says the host gives no
+    // time of any test, so that the work's records tell a host that gives none from a run that ran no test.
+    #[tokio::test]
+    async fn the_local_host_says_it_gives_no_time_of_any_test_for_a_call_that_runs_the_check() {
+        let repo = Repo::new("true");
+        git::start(&repo.project, &repo.place(WORK), "main", "main")
+            .await
+            .unwrap();
+        let place = repo.place(WORK);
+        let branch = Branch {
+            work: WORK,
+            item: store::ItemNumber(36),
+            title: "Greet the user",
+            about: "",
+            place: &place,
+            continues: None,
+        };
+        let (to, mut said) = tokio::sync::mpsc::unbounded_channel();
+        let reply = CallReply::new(WORK, CallId(7), to);
+        let mut stop = Stop::never().hosting(reply.hosting());
+        let named = Named {
+            tests: vec!["a".to_string()],
+            ..Named::default()
+        };
+        (local(&repo)
+            .run_tests(&branch, &named, Asking::Call(CallId(7)), &mut stop)
+            .await)
+            .expect("it runs")
+            .expect("nothing stopped it");
+        let mut readings = Vec::new();
+        while let Ok(message) = said.try_recv() {
+            if let service::Message::Happened {
+                event: engine::Event::Timed { reading },
+                ..
+            } = message
+            {
+                readings.push(reading);
+            }
+        }
+        assert_eq!(
+            readings,
+            [work::Reading {
+                asking: "call/7".to_string(),
+                source: work::Source::Command,
+                commit: String::new(),
+                workflow: String::new(),
+                jobs: Vec::new(),
+                tests: Vec::new(),
+            }]
+        );
+    }
+
+    // A call of a tool that is withdrawn with nothing of it running has the result of a call withdrawn, in the words
+    // the tools were given.
+    #[tokio::test]
+    async fn a_tool_call_withdrawn_has_the_result_the_words_given_the_tools_say() {
+        let repo = Repo::new("true");
+        let tools = Tools::new(
+            Fake::new("unused"),
+            repo.project.clone(),
+            repo.data.clone(),
+            TAG.to_string(),
+            Querying::new(Limits::FIXED, None, &repo.data, ""),
+            said(),
+        );
+        let call = run_tests_call();
+        let (to, mut down) = tokio::sync::mpsc::unbounded_channel();
+        tools.withdraw(call, CallReply::new(WORK, CallId(2), to));
+        let Some(service::Message::Happened {
+            event: engine::Event::Done { result, .. },
+            ..
+        }) = down.recv().await
+        else {
+            panic!("the call has its result");
+        };
+        assert_eq!(result, said().withdrawn);
     }
 
     #[test]
@@ -690,6 +918,7 @@ mod tests {
                 ],
                 checks: vec!["lint".to_string()],
                 commit: Some("HEAD~1".to_string()),
+                ..Named::default()
             }
         );
         for whole in ["", "  ", "{}", r#"{"tests": [], "checks": [], "commit": " "}"#] {
@@ -702,6 +931,23 @@ mod tests {
             "tools::tests::a",
         ] {
             assert!(asked(wrong).is_err(), "{wrong:?}");
+        }
+    }
+
+    // The measurements a request names are names, each once and trimmed, and a name is data: one that holds a character a
+    // shell would treat specially, or white space inside it, is refused saying which, and nothing is named. Well under
+    // a millisecond alone; no other test holds what a measurement's name may hold.
+    #[test]
+    fn a_request_names_measurements_each_once_and_none_that_a_shell_would_read_as_more_than_a_name() {
+        let named = asked(r#"{"measure": ["design-lint", " design-lint ", "", "a/b.c:d_e"]}"#).expect("read");
+        assert_eq!(named.measure, ["design-lint", "a/b.c:d_e"]);
+        assert!(named.tests.is_empty() && named.checks.is_empty() && !named.is_empty());
+        for wrong in [
+            "a b", "a;b", "$HOME", "a`b`", "a\"b", "a'b", "a|b", "a&b", "a>b", "(a)", "a*",
+        ] {
+            let input = serde_json::json!({ "measure": [wrong] }).to_string();
+            let said = asked(&input).expect_err(wrong);
+            assert!(said.contains(&format!("{wrong:?}")), "{wrong}: {said}");
         }
     }
 
@@ -720,7 +966,9 @@ mod tests {
     #[tokio::test]
     async fn the_host_is_asked_for_what_the_request_names_and_what_it_says_is_the_result() {
         let repo = Repo::new("true");
-        let started = git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+        let started = git::start(&repo.project, &repo.place(WORK), "main", "main")
+            .await
+            .unwrap();
         crate::git::tests::commit(&started.place.dir, "greeting.txt", "Hello, you.\n");
         let host = Fake::new("main").runs("ran what was named");
         let input = r#"{"tests": ["a"], "checks": ["lint"]}"#;
@@ -729,7 +977,7 @@ mod tests {
         let named = Named {
             tests: vec!["a".to_string()],
             checks: vec!["lint".to_string()],
-            commit: None,
+            ..Named::default()
         };
         assert_eq!(
             host.asked(),
@@ -740,7 +988,9 @@ mod tests {
     #[tokio::test]
     async fn tests_whose_project_runs_whole_say_the_names_are_not_run_apart() {
         let repo = Repo::new("echo all is well");
-        git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+        git::start(&repo.project, &repo.place(WORK), "main", "main")
+            .await
+            .unwrap();
         let said = answered_with(&repo, RUN_TESTS, r#"{"tests": ["tools::tests::a"]}"#, &[]).await;
         assert!(
             said.starts_with(
@@ -754,12 +1004,36 @@ mod tests {
     #[tokio::test]
     async fn a_commit_named_where_the_check_runs_on_the_worktree_is_refused_and_the_command_is_not_run() {
         let repo = Repo::new("echo all is well");
-        git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+        git::start(&repo.project, &repo.place(WORK), "main", "main")
+            .await
+            .unwrap();
         let said = answered_with(&repo, RUN_TESTS, r#"{"tests": ["a"], "commit": "HEAD"}"#, &[]).await;
         assert_eq!(
             said,
             "Nothing was run: the check runs on your worktree as it is, so no commit can be named. Ask again with none."
         );
+    }
+
+    // Where the check is the project's command, it runs the tests alone: a measurement named is refused and nothing is
+    // run, and the local words, which say what the tool does there, name no measurement. Milliseconds alone, as the
+    // test beside it; the one test of the local host's refusal of a measurement.
+    #[tokio::test]
+    async fn a_measurement_named_where_the_check_runs_the_tests_alone_is_refused_and_the_command_is_not_run() {
+        let repo = Repo::new("echo all is well");
+        git::start(&repo.project, &repo.place(WORK), "main", "main")
+            .await
+            .unwrap();
+        let said = answered_with(&repo, RUN_TESTS, r#"{"tests": ["a"], "measure": ["design-lint"]}"#, &[]).await;
+        assert_eq!(
+            said,
+            "Nothing was run: the check runs the project's tests alone, so no measurement can be named."
+        );
+        let text = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../flow/agents/tools/run_tests.toml"
+        ));
+        let tool: flow::agents::Tool = toml::from_str(text).expect("the file of run_tests reads");
+        assert!(!tool.words_local.expect("words for the local host").contains("measure"));
     }
 
     #[tokio::test]
@@ -768,7 +1042,7 @@ mod tests {
         let host = Fake::new("main");
         let said = answered_on(&host, &repo, RUN_TESTS, "").await;
         let why = crate::host::fake::NO_TOOLS;
-        assert_eq!(said, format!("The check could not be run: {why}"));
+        assert_eq!(said, format!("No check ran ({why})."));
         assert_eq!(host.asked(), [Asked::RunTests(Named::default())]);
     }
 }

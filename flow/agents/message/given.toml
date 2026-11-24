@@ -1,5 +1,5 @@
 # How the content of a datum a cell is given is put into its session, by the kind the cell gives it in (design
-# statements 17 to 19): `latest`, its latest version whole, where the session lacks it; `last_and_latest`, what changed
+# document `data-and-context`, 17 to 19): `latest`, its latest version whole, where the session lacks it; `last_and_latest`, what changed
 # since the version the cell last worked from, or the whole where the session lacks that one or the change would be
 # longer; `all`, each version the session lacks, whole. `{choice}` in a text is `choice` below for a datum that is a
 # choice, and nothing for another. Filled in a run: `number`, `last_number`, `first_number`, `value`, `content`;
@@ -17,6 +17,14 @@ held_new = "## `{block}`, version {number}{by}, already in this session"
 # writes, and what the outside writes, what taking main in reads for a round among it.
 by_line = ", written on the line `{line}`"
 by_owner = ", written by the owner"
+
+# How a datum whose file says `names_tree_entries` is given in place of its names, one to a line: each entry it names
+# whole, as the design tree's latest version on the work's branch has it, those of one file after `file`, `{path}` the
+# file's path, the files in the order of the kinds of the tree's format (`agents/tree.toml`) and then by path; and after
+# them, each name that version does not hold as `gone`, `{reference}` the name as it was written.
+[entries]
+file = "From `{path}`:"
+gone = "{reference}: the design tree's latest version on the work's branch holds no such entry."
 
 [latest]
 text = "## `{block}`, version {number}{choice}{by}\n\n{content}"

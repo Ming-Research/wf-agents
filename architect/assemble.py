@@ -23,6 +23,8 @@ OWN = [HERE / "rules.md", HERE / "notes.md"]
 # The settings an architect works by, as prefixes of their names; a project's are added as its own.
 SETTINGS = ["owner.", "agents.slots", "agents.work_budget_usd", "agents.levels.", "items."]
 PROJECT_SETTINGS = ["main", "github.repository"]
+# The rules of the design tree, which the engine gives every agent as words of its own (`agents/session.toml`).
+TREE_RULES = "flow/agents/tree_rules.md"
 
 
 def fail(why: str) -> None:
@@ -97,7 +99,7 @@ def main() -> None:
     run(["git", "-C", str(root), "fetch", "-q", remote, main_branch])
     ref = f"{remote}/{main_branch}"
 
-    declaration = tomllib.loads(on_main(root, ref, "flow/project.toml"))
+    declaration = tomllib.loads(on_main(root, ref, "wf-agents.toml"))
     session = tomllib.loads(on_main(root, ref, "flow/agents/session.toml"))
     rule_sets = tomllib.loads(on_main(root, ref, "flow/agents/rules/rules.toml"))
     names = tomllib.loads(on_main(root, ref, "flow/agents/installation.toml"))["names"]
@@ -107,13 +109,12 @@ def main() -> None:
         return heading.format(path=path, text=text.strip())
 
     general = f"flow/agents/rules/{rule_sets['general']['file']}"
+    constitution = declaration["files"]["constitution"]["path"]
     parts = [
         *(part(str(own.relative_to(root)), named(own.read_text(), names, values)) for own in OWN),
         installation(values, project),
-        *(
-            part(declaration["files"][kind]["path"], on_main(root, ref, declaration["files"][kind]["path"]))
-            for kind in ("constitution", "tree_rules")
-        ),
+        part(constitution, on_main(root, ref, constitution)),
+        part(TREE_RULES, on_main(root, ref, TREE_RULES)),
         part(general, named(on_main(root, ref, general), names, values)),
     ]
     head = f"<!-- Made by assemble.py from {ref} and the engine's settings: run it again rather than edit this file. -->"

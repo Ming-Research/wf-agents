@@ -25,7 +25,7 @@ fn held_as(kept: Work) -> (Db, Store, WorkNumber, Work) {
 }
 
 /// Each way of changing an entry the store holds: the table that holds it, and the entry it changes.
-type Change = fn(&mut Work) -> (&'static str, Entry);
+pub(super) type Change = fn(&mut Work) -> (&'static str, Entry);
 
 fn changes() -> Vec<Change> {
     vec![
@@ -167,6 +167,11 @@ fn changes() -> Vec<Change> {
             r.on.model = "another model".to_string();
             ("ran", Entry::At(r.at))
         },
+        |w| {
+            let p = &mut w.pulls[0];
+            p.number += 1;
+            ("pulls", Entry::At(p.at))
+        },
     ]
 }
 
@@ -219,11 +224,12 @@ fn removals() -> Vec<Change> {
         |w| ("moments", Entry::At(w.moments.pop().expect("a moment").from)),
         |w| ("sessions", Entry::At(w.sessions.pop().expect("a session").at)),
         |w| ("ran", Entry::At(w.ran.pop().expect("a try").at)),
+        |w| ("pulls", Entry::At(w.pulls.pop().expect("a pull").at)),
     ]
 }
 
 /// Saving the work is refused as diverged at the entry, and the database is as it was.
-fn refused(
+pub(super) fn refused(
     db: &Db,
     store: &mut Store,
     work: WorkNumber,
@@ -243,7 +249,7 @@ fn a_work_changed_at_an_entry_the_store_holds_is_refused_for_every_table_and_not
     let (db, mut store, work, kept) = held();
     let changes = changes();
     let tables: BTreeSet<&str> = changes.iter().map(|change| change(&mut kept.clone()).0).collect();
-    assert_eq!(tables.len(), 24, "a table has no change: {tables:?}");
+    assert_eq!(tables.len(), 25, "a table has no change: {tables:?}");
     for change in changes {
         let mut given = kept.clone();
         let (table, entry) = change(&mut given);
@@ -310,6 +316,11 @@ fn a_work_of_the_new_form_changed_at_or_lacking_an_entry_the_store_holds_is_refu
             ("put_in", Entry::At(e.at))
         },
         |w| {
+            let e = &mut w.records.hurried[0];
+            e.version = Seq(e.version.0 + 1);
+            ("hurried", Entry::At(e.at))
+        },
+        |w| {
             let e = &mut w.filled[0];
             e.fills.pop();
             ("filled", Entry::At(e.at))
@@ -330,6 +341,12 @@ fn a_work_of_the_new_form_changed_at_or_lacking_an_entry_the_store_holds_is_refu
             (
                 "put_in",
                 Entry::At(w.records.put_in.pop().expect("a version put in").at),
+            )
+        },
+        |w| {
+            (
+                "hurried",
+                Entry::At(w.records.hurried.pop().expect("a round told to hand in").at),
             )
         },
         |w| ("filled", Entry::At(w.filled.pop().expect("a filling").at)),

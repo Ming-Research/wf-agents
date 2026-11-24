@@ -33,7 +33,7 @@ fn state<'a>(summary: &'a Value, cell: &str) -> &'a Value {
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_tools_call_and_an_act_under_way_are_calls_where_they_say_they_run_and_an_act_waits_for_the_turn() {
+async fn a_tools_call_and_an_act_under_way_are_calls_where_they_say_they_run() {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(dir.path().join("store.sqlite")).unwrap();
     let mut script = trial_script();
@@ -41,12 +41,11 @@ async fn a_tools_call_and_an_act_under_way_are_calls_where_they_say_they_run_and
     let rounds = &mut script.flows.get_mut("trial").unwrap().rounds;
     let merge = rounds.iter_mut().find(|r| r.cell == "merge").unwrap();
     merge.took.ms = Some(4000);
-    merge.turn = Some(7);
     merge.at = Some(MERGE.to_string());
     let running = running_scripted(Box::new(store), dir, script);
     let router = &running.router;
     greeted(router).await;
-    let answer = json!({ "kind": "result", "call": 2, "result": "Yes." });
+    let answer = json!({ "kind": "goOn", "call": 2 });
     assert_eq!(post(router, ACTS, &answer).await.0, StatusCode::NO_CONTENT);
 
     // The build's call of the CI runs as the run it says, since it was made; the build is a cell with a call under way.
@@ -60,7 +59,7 @@ async fn a_tools_call_and_an_act_under_way_are_calls_where_they_say_they_run_and
             "at": "build",
             "on": [{
                 "kind": "call",
-                "call": 5,
+                "call": 4,
                 "who": null,
                 "what": { "kind": "tool", "name": "ci", "input": "the work's branch" },
                 "made": made,
@@ -70,20 +69,8 @@ async fn a_tools_call_and_an_act_under_way_are_calls_where_they_say_they_run_and
     );
     assert_eq!(state(&called, "build"), "calling");
 
-    // The merge's act waits for the project's turn, which work 7 holds, since its round began: its cell waits, and
-    // runs nothing yet.
-    let turn = until(router, |s| s["now"]["on"][0]["kind"] == "turn").await;
-    let since = turn["now"]["on"][0]["since"].as_u64().unwrap();
-    assert_eq!(
-        turn["now"],
-        json!({ "kind": "waits", "at": "merge", "on": [{ "kind": "turn", "holder": 7, "since": since }] })
-    );
-    assert_eq!(state(&turn, "merge"), "resting");
-
-    // Its turn taken, it runs as the CI run it says: a round under way, the cell's call.
-    let runs = until(router, |s| s["now"]["kind"] == "round").await;
-    assert_eq!(runs["now"]["cell"], "merge");
-    assert_eq!(runs["now"]["since"], since);
+    // The merge's act runs as the CI run it says: a round under way, the cell's call.
+    let runs = until(router, |s| s["now"]["kind"] == "round" && s["now"]["cell"] == "merge").await;
     assert_eq!(runs["now"]["at"], MERGE);
     assert_eq!(state(&runs, "merge"), "calling");
 
@@ -108,10 +95,10 @@ async fn a_stretch_of_the_bar_nothing_ran_in_says_what_the_work_waited_for() {
     let running = running();
     let router = &running.router;
     greeted(router).await;
-    // The plan's question waits for the owner half a minute; answered, the plan's next round begins, and the work is
+    // The plan's run waits at its limit for the owner half a minute; let go on, its next round begins, and the work is
     // paused under it, which holds the build half a minute more.
     pass(30_000).await;
-    let answer = json!({ "kind": "result", "call": 2, "result": "Yes." });
+    let answer = json!({ "kind": "goOn", "call": 2 });
     assert_eq!(post(router, ACTS, &answer).await.0, StatusCode::NO_CONTENT);
     assert_eq!(
         post(router, ACTS, &json!({ "kind": "pause" })).await.0,
@@ -128,6 +115,6 @@ async fn a_stretch_of_the_bar_nothing_ran_in_says_what_the_work_waited_for() {
         .unwrap()
         .to_string();
     assert_eq!(bar.chars().count(), 96, "{bar}");
-    // A model's round, the wait for the owner's answer, the plan's next round, the pause, and the build's round.
+    // A model's rounds, the wait for the owner, the plan's next round, the pause, and the build's round.
     assert_eq!(runs_of(&bar), "mompm", "{bar}");
 }

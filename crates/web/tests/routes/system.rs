@@ -9,7 +9,7 @@ use crate::{START, get_json, greeted, pass, post, refused, running_scripted, tri
 
 const DAY: u64 = 24 * 60 * 60 * 1000;
 
-/// The trial item, its plan asking nothing, added and let on: within a minute it has merged.
+/// The trial item, its plan's first round handing in the plan, added and let on: within a minute it has merged.
 async fn merged() -> crate::Running {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(dir.path().join("store.sqlite")).unwrap();
@@ -40,6 +40,9 @@ async fn all_time_gives_the_merge_and_what_was_spent_on_each_cell_and_model() {
     let running = merged().await;
     let router = &running.router;
     let system = get_json(router, "/api/v1/system").await;
+    // What the calls of the rounds under way have come to is a route of its own, and nothing is under way once the work
+    // has merged.
+    assert_eq!(get_json(router, "/api/v1/system/under-way").await, json!([]));
     let work = get_json(router, "/api/v1/works/1").await;
     let spent = work["summary"]["spent"].clone();
     assert_eq!(system["from"], Value::Null);
@@ -81,8 +84,7 @@ async fn all_time_gives_the_merge_and_what_was_spent_on_each_cell_and_model() {
     let (week, before) = (START - DAY, START - 8 * DAY);
     let weeks = get_json(router, &format!("/api/v1/system?weeks={week},{before}")).await;
     assert_eq!(weeks["from"], before, "the span begins with its earliest week");
-    let nothing =
-        json!({ "usdMicros": 0, "inputTokens": 0, "cachedTokens": 0, "outputTokens": 0, "workingMs": 0, "rounds": 0 });
+    let nothing = json!({ "usdMicros": 0, "inputTokens": 0, "cacheWrittenTokens": 0, "unsplitTokens": 0, "cachedTokens": 0, "outputTokens": 0, "workingMs": 0, "rounds": 0 });
     assert_eq!(
         weeks["weeks"],
         json!([
@@ -127,14 +129,14 @@ async fn a_round_that_failed_is_given_with_its_cause() {
     let mut script = trial_script();
     let plan = script.flows.get_mut("trial").unwrap();
     let mut failing = plan.rounds[0].clone();
-    failing.run = 2;
+    failing.round = 4;
     failing.asks = None;
     failing.fails = Some(WHY.to_string());
     plan.rounds.push(failing);
     let running = running_scripted(Box::new(store), dir, script);
     let router = &running.router;
     greeted(router).await;
-    let answer = json!({ "kind": "result", "call": 2, "result": "Yes, by name." });
+    let answer = json!({ "kind": "goOn", "call": 2 });
     assert_eq!(
         post(router, "/api/v1/works/1/acts", &answer).await.0,
         StatusCode::NO_CONTENT
@@ -185,12 +187,15 @@ fn planned(driver: &mut driver::Driver, at: u64, ms: u64, usd: u64) -> store::Wo
         project: "trial".to_string(),
         depends_on: Vec::new(),
         tags: Vec::new(),
+        continues: None,
         flow: "trial".to_string(),
         writes: vec![driver::FirstWrite {
             block: decide::BlockId("request".to_string()),
             content: "Please.".to_string(),
             value: None,
         }],
+        why: None,
+        waits_for: Vec::new(),
     };
     let (_, work, _) = driver.add(work::Time(at), new).unwrap();
     happened(driver, at, work, engine::Event::Resumed);
@@ -235,6 +240,15 @@ fn planned(driver: &mut driver::Driver, at: u64, ms: u64, usd: u64) -> store::Wo
     };
     happened(driver, at + ms, work, build);
     work
+}
+
+/// A line of the history of five rounds of the cell itself.
+fn history_line(value: f64) -> driver::history::Line {
+    driver::history::Line {
+        value,
+        samples: 5,
+        scope: driver::history::Scope::Cell,
+    }
 }
 
 // What the System view and a work's page are given of how rounds went against the lines of their history, as the
@@ -288,9 +302,9 @@ fn what_went_past_the_lines_of_its_history_and_what_is_under_way_are_given_again
     assert_eq!(under_way.len(), 3, "{system}");
     assert_eq!(under_way[0]["cell"], "build");
     assert_eq!(under_way[0]["time"], Value::Null);
-    assert_eq!(
-        under_way[0]["bounds"],
-        json!({ "added": null, "rate": null, "cost": null })
+    assert!(
+        under_way.iter().all(|u| u.get("bounds").is_none()),
+        "what the calls of a round have come to is the under-way route's, not the system's: {system}"
     );
     let last = &under_way[2];
     assert_eq!(
@@ -301,9 +315,37 @@ fn what_went_past_the_lines_of_its_history_and_what_is_under_way_are_given_again
         last["time"],
         json!({ "value": 380_000, "line": line(180_000, 3, "flow"), "past": true })
     );
+    // What the calls of the last round have come to, as its carrier says it: a prompt of 12,000 tokens after three calls
+    // that grew it by 4,000, against lines of 3,000 and 1,500 for the growth over the round and for each call after the
+    // first and of 400,000 for the cost, of which the growth is past both, and the cost past none. No round says
+    // anything before its carrier does.
+    assert!(web::system::Going::of(&driver).is_empty());
+    let lines = driver::history::Lines {
+        added: Some(history_line(3_000.0)),
+        rate: Some(history_line(1_500.0)),
+        cost: Some(history_line(400_000.0)),
+        ..driver::history::Lines::default()
+    };
+    let says = driver::Going::of(&lines, 3, Some(12_000), 4_000, 250_000);
+    let (run, round) = (last["run"].as_u64().unwrap(), last["round"].as_u64().unwrap() as usize);
+    let under = driver::Under::Round {
+        run: decide::RunId(run),
+        round,
+    };
+    assert!(driver.along(third, under, Some(driver::Along::Going(says))));
+    let going = serde_json::to_value(web::system::Going::of(&driver)).unwrap();
+    let figure = |value: u64, line: u64, past: bool| json!({ "value": value, "line": { "value": line, "samples": 5, "scope": "cell" }, "past": past });
     assert_eq!(
-        last["bounds"],
-        json!({ "added": line(100, 3, "flow"), "rate": line(50, 3, "flow"), "cost": line(98_000, 3, "flow") })
+        going,
+        json!([{
+            "work": third.0,
+            "run": run,
+            "round": round,
+            "context": 12_000,
+            "added": figure(4_000, 3_000, true),
+            "perCall": figure(2_000, 1_500, true),
+            "cost": figure(250_000, 400_000, false),
+        }])
     );
     // A work's page gives each of its rounds the same.
     let page = web::works::WorkPage::of(&driver, &crate::levels(), third, now)
@@ -316,21 +358,110 @@ fn what_went_past_the_lines_of_its_history_and_what_is_under_way_are_given_again
     assert_eq!(plan["rounds"][0]["judged"], past[0]["judged"]);
 }
 
+// A fork's cost counts in the System view as a keep-warm ping's does, in the total, the week it ended in and the
+// work's spend, and a work whose only spend in a span is a fork is listed for that span. One work of the trial flow,
+// its plan costing 1,000 millionths of a dollar and a fork of its round, long after, 7,000; the span that begins
+// between them. Milliseconds.
+#[test]
+fn what_a_work_spent_on_a_fork_is_counted_in_the_system_view_in_its_total_its_week_and_its_work() {
+    const S: u64 = 1000;
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path().join("store.sqlite")).unwrap();
+    let flow = flow::compile(
+        &flow::read(&crate::trial_dir().join("flow")).unwrap(),
+        &crate::trial_has(&flow::Source::default()),
+    )
+    .unwrap();
+    let policy = driver::Policy {
+        samples: 2,
+        model: Box::new(|_, _| Some(opus().model)),
+        changed: None,
+        warm: None,
+    };
+    let (mut driver, _) =
+        driver::Driver::open(Box::new(store), vec![flow], 10, Some(policy), work::Time(START)).unwrap();
+    let work = planned(&mut driver, START, 10 * S, 1_000);
+    let run = driver.work(work).unwrap().work.records.rounds[0].run;
+    let spent = engine::Spent {
+        usd_micros: 7_000,
+        uncached_tokens: 10,
+        cached_tokens: 20,
+        output_tokens: 3,
+        ..engine::Spent::default()
+    };
+    happened(
+        &mut driver,
+        START + 60 * S,
+        work,
+        engine::Event::Forked { run, round: 1, spent },
+    );
+    let now = work::Time(START + 600 * S);
+    let usd = |value: &Value| value["usdMicros"].as_u64().unwrap();
+    let all = serde_json::to_value(web::system::System::of(&driver, now, &[]).unwrap()).unwrap();
+    assert_eq!(
+        (usd(&all["spent"]), &all["spent"]["rounds"]),
+        (8_000, &json!(1)),
+        "{all}"
+    );
+    assert_eq!(usd(&all["pinged"]), 0, "a fork is no ping: {all}");
+    assert_eq!(usd(&all["byWork"][0]["spent"]), 8_000, "{all}");
+    // The span that begins after the plan ended holds the fork alone: its spend, no round, and its work listed.
+    let span = [START + 30 * S];
+    let late = serde_json::to_value(web::system::System::of(&driver, now, &span).unwrap()).unwrap();
+    assert_eq!(
+        (usd(&late["spent"]), &late["spent"]["rounds"]),
+        (7_000, &json!(0)),
+        "{late}"
+    );
+    assert_eq!(late["byWork"].as_array().unwrap().len(), 1, "{late}");
+    assert_eq!(usd(&late["byWork"][0]["spent"]), 7_000, "{late}");
+    assert_eq!(usd(&late["weeks"][0]["spent"]), 7_000, "{late}");
+    assert_eq!(usd(&late["weeks"][0]["pinged"]), 0, "{late}");
+    // The work's page, which the list of the works reads its Cost from, counts the fork in what the work spent and
+    // gives it apart, in no round.
+    let page = web::works::WorkPage::of(&driver, &crate::levels(), work, now)
+        .unwrap()
+        .unwrap();
+    let page = serde_json::to_value(page).unwrap();
+    let summary = &page["summary"];
+    assert_eq!(usd(&summary["spent"]), 8_000, "{summary}");
+    assert_eq!(summary["spent"]["rounds"], all["spent"]["rounds"], "{summary}");
+    assert_eq!(
+        (usd(&summary["forked"]), &summary["forked"]["rounds"]),
+        (7_000, &json!(1)),
+        "{summary}"
+    );
+    assert_eq!(usd(&summary["pinged"]), 0, "{summary}");
+}
+
 /// A work of the trial flow added and let on at `at`, whose plan asks for a tool at once and has the result, of this
 /// many bytes, two seconds later: the call, the work it is of, and when it had its result.
 fn answered(driver: &mut driver::Driver, at: u64, bytes: usize) -> (store::WorkNumber, decide::CallId, u64) {
+    let (work, call) = asking(driver, at);
+    let done = at + 2_000;
+    let result = "x".repeat(bytes);
+    happened(driver, done, work, engine::Event::Done { call, result });
+    (work, call, done)
+}
+
+/// A work of the trial flow added and let on at `at`, whose plan asks for a tool at once: the work, and the call, which
+/// has no result yet.
+fn asking(driver: &mut driver::Driver, at: u64) -> (store::WorkNumber, decide::CallId) {
     let new = driver::NewItem {
         title: "Ask".to_string(),
         level: "2".to_string(),
         project: "trial".to_string(),
         depends_on: Vec::new(),
         tags: Vec::new(),
+        continues: None,
         flow: "trial".to_string(),
         writes: vec![driver::FirstWrite {
             block: decide::BlockId("request".to_string()),
             content: "Please.".to_string(),
             value: None,
         }],
+        why: None,
+        waits_for: Vec::new(),
     };
     let (_, work, _) = driver.add(work::Time(at), new).unwrap();
     happened(driver, at, work, engine::Event::Resumed);
@@ -357,10 +488,7 @@ fn answered(driver: &mut driver::Driver, at: u64, bytes: usize) -> (store::WorkN
             _ => None,
         })
         .expect("the tool is called");
-    let done = at + 2_000;
-    let result = "x".repeat(bytes);
-    happened(driver, done, work, engine::Event::Done { call, result });
-    (work, call, done)
+    (work, call)
 }
 
 // What the System view and a work's page are given of how the results of calls of a tool went against the line of
@@ -429,4 +557,220 @@ fn a_call_past_its_line_by_the_size_of_its_result_alone_is_given_with_its_size_a
         .find(|row| row["call"] == call.0)
         .expect("the call's row");
     assert_eq!(row["size"], past[0]["size"]);
+}
+
+// While a stop of the engine stands, the engine's state gives it, a work that would begin a round says it waits for
+// the engine to start again, and the System view gives each round under way how much longer it is expected to take,
+// with the engine's expected end, the latest of them: here two builds are under way, of which no build ever ended.
+// The first, fifty seconds in, has taken longer than any round of the flow had when it began, the plan's ten
+// seconds; the second, ten seconds in, has twenty to go by the one plan, of thirty seconds, that took longer then; so
+// the engine is expected to end once a round longer than any before has. Before the stop no stop is given, and the
+// rests are. A few milliseconds; the one test of the stop as the pages are given it.
+#[test]
+fn a_stop_is_given_with_the_rests_of_what_is_under_way_and_holds_a_work_that_would_begin_a_round() {
+    const S: u64 = 1000;
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path().join("store.sqlite")).unwrap();
+    let flow = flow::compile(
+        &flow::read(&crate::trial_dir().join("flow")).unwrap(),
+        &crate::trial_has(&flow::Source::default()),
+    )
+    .unwrap();
+    let policy = driver::Policy {
+        samples: 2,
+        model: Box::new(|_, _| Some(opus().model)),
+        changed: None,
+        warm: None,
+    };
+    let (mut driver, _) =
+        driver::Driver::open(Box::new(store), vec![flow], 10, Some(policy), work::Time(START)).unwrap();
+    let first = planned(&mut driver, START, 10 * S, 1_000);
+    let second = planned(&mut driver, START + 20 * S, 30 * S, 1_000);
+    let now = work::Time(START + 60 * S);
+    let before = serde_json::to_value(web::system::System::of(&driver, now, &[]).unwrap()).unwrap();
+    assert_eq!(before["stopping"], Value::Null, "{before}");
+    let rests: Vec<&Value> = before["underWay"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|u| &u["rest"])
+        .collect();
+    assert_eq!(
+        rests,
+        [
+            &json!({ "kind": "longer" }),
+            &json!({ "kind": "expected", "ms": 20_000 })
+        ]
+    );
+
+    driver.ask_to_stop(work::Time(START + 52 * S), false).unwrap();
+    let engine = serde_json::to_value(web::works::Engine::of(&driver)).unwrap();
+    assert_eq!(engine["stopping"], json!({ "since": START + 52 * S, "atOnce": false }));
+    let new = driver::NewItem {
+        title: "Plan".to_string(),
+        level: "2".to_string(),
+        project: "trial".to_string(),
+        depends_on: Vec::new(),
+        tags: Vec::new(),
+        continues: None,
+        flow: "trial".to_string(),
+        writes: vec![driver::FirstWrite {
+            block: decide::BlockId("request".to_string()),
+            content: "Please.".to_string(),
+            value: None,
+        }],
+        why: None,
+        waits_for: Vec::new(),
+    };
+    let (_, held, _) = driver.add(work::Time(START + 55 * S), new).unwrap();
+    let todos = driver
+        .happened(work::Time(START + 55 * S), held, engine::Event::Resumed)
+        .unwrap();
+    assert!(
+        !todos
+            .iter()
+            .any(|todo| matches!(todo.effect, engine::Effect::Round { .. })),
+        "no round begins while a stop stands: {todos:?}"
+    );
+    let page = web::works::WorkPage::of(&driver, &crate::levels(), held, now)
+        .unwrap()
+        .unwrap();
+    let page = serde_json::to_value(page).unwrap();
+    assert_eq!(
+        page["summary"]["now"],
+        json!({ "kind": "waits", "at": "plan", "on": [{ "kind": "stopping", "since": START + 52 * S }] })
+    );
+
+    let system = serde_json::to_value(web::system::System::of(&driver, now, &[]).unwrap()).unwrap();
+    let works: Vec<&Value> = system["underWay"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|u| &u["work"])
+        .collect();
+    assert_eq!(works, [&json!(first.0), &json!(second.0)]);
+    assert_eq!(
+        system["stopping"],
+        json!({ "since": START + 52 * S, "atOnce": false, "rest": { "kind": "longer" } })
+    );
+    assert!(!driver.may_end(), "two rounds are under way");
+}
+
+// What a program run for a work left running in its group as it ended, which its carrier stopped, is kept by the store
+// and given in the System view, the latest first, with which program it was: here a try of the build's round, with the
+// cell it belongs to, a keep-warm ping of the engineer's session, a fork of the build's round, and the check a call of
+// the plan's ran, with its tool; once the driver is opened again on the store. One that names no round under way, a
+// fork of a round that never began, a call never made or a call that has its result is refused. A few milliseconds; the one test of the count from its event to what the
+// page and `wf-agents system` read.
+#[test]
+fn what_a_program_left_running_is_kept_and_given_in_the_system_view() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("store.sqlite");
+    let open = |at: u64| {
+        let flow = flow::compile(
+            &flow::read(&crate::trial_dir().join("flow")).unwrap(),
+            &crate::trial_has(&flow::Source::default()),
+        )
+        .unwrap();
+        let store = Store::open(&path).unwrap();
+        driver::Driver::open(Box::new(store), vec![flow], 10, None, work::Time(at))
+            .unwrap()
+            .0
+    };
+    let mut driver = open(START);
+    let work = planned(&mut driver, START, 10_000, 1_000);
+    let build = driver.work(work).unwrap().work.records.started.last().unwrap().run;
+    let try_of = |round: usize| work::Left::Try {
+        run: build,
+        round,
+        attempt: 1,
+    };
+    let left = engine::Event::LeftBehind {
+        of: try_of(1),
+        processes: 2,
+    };
+    happened(&mut driver, START + 12_000, work, left);
+    let ping = work::Left::Ping {
+        line: "engineer".to_string(),
+        session: 0,
+    };
+    let pinged = engine::Event::LeftBehind { of: ping, processes: 1 };
+    happened(&mut driver, START + 13_000, work, pinged);
+    let fork_of = |round: usize| engine::Event::LeftBehind {
+        of: work::Left::Fork { run: build, round },
+        processes: 4,
+    };
+    happened(&mut driver, START + 13_500, work, fork_of(1));
+    assert!(
+        matches!(
+            driver.happened(work::Time(START + 13_600), work, fork_of(2)),
+            Err(driver::Failed::Refused(engine::Refused::NoSuchRound { run, round: 2 })) if run == build
+        ),
+        "a fork of a round that never began is refused"
+    );
+    let not_under_way = engine::Event::LeftBehind {
+        of: try_of(2),
+        processes: 1,
+    };
+    assert!(
+        driver
+            .happened(work::Time(START + 14_000), work, not_under_way)
+            .is_err(),
+        "a try of a round not under way is refused"
+    );
+    // The check a call ran is counted while the call has no result; of a call never made, or one that has its result,
+    // it is refused.
+    let (asked, call) = asking(&mut driver, START + 15_000);
+    let of_call = |call| engine::Event::LeftBehind {
+        of: work::Left::Call { call },
+        processes: 3,
+    };
+    happened(&mut driver, START + 16_000, asked, of_call(call));
+    let refused = |driver: &mut driver::Driver, at: u64, event| match driver.happened(work::Time(at), asked, event) {
+        Err(driver::Failed::Refused(refused)) => refused,
+        other => panic!("not refused: {other:?}"),
+    };
+    let never = decide::CallId(call.0 + 100);
+    assert!(matches!(
+        refused(&mut driver, START + 17_000, of_call(never)),
+        engine::Refused::NoSuchCall(c) if c == never
+    ));
+    let done = engine::Event::Done {
+        call,
+        result: "passed".to_string(),
+    };
+    happened(&mut driver, START + 18_000, asked, done);
+    assert!(matches!(
+        refused(&mut driver, START + 19_000, of_call(call)),
+        engine::Refused::AlreadyDone(c) if c == call
+    ));
+    let run_of_call = driver.work(asked).unwrap().work.records.called[0].run;
+    drop(driver);
+    let driver = open(START + 20_000);
+    let system =
+        serde_json::to_value(web::system::System::of(&driver, work::Time(START + 20_000), &[]).unwrap()).unwrap();
+    assert_eq!(
+        system["leftBehind"],
+        json!([
+            {
+                "work": asked.0, "item": asked.0,
+                "of": { "kind": "call", "cell": "plan", "run": run_of_call.0, "call": call.0, "tool": "search" },
+                "at": START + 16_000, "processes": 3
+            },
+            {
+                "work": work.0, "item": work.0,
+                "of": { "kind": "fork", "cell": "build", "run": build.0, "round": 1 },
+                "at": START + 13_500, "processes": 4
+            },
+            {
+                "work": work.0, "item": work.0, "of": { "kind": "ping", "line": "engineer", "session": 0 },
+                "at": START + 13_000, "processes": 1
+            },
+            {
+                "work": work.0, "item": work.0,
+                "of": { "kind": "try", "cell": "build", "run": build.0, "round": 1, "attempt": 1 },
+                "at": START + 12_000, "processes": 2
+            }
+        ])
+    );
 }

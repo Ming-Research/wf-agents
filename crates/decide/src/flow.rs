@@ -128,7 +128,7 @@ pub enum FlowFault {
     Twice(CellId),
     /// The cell's condition reads a block the cell itself writes, and another writer writes it too. A cell that is the
     /// block's only writer may: the block says which of two cells is in charge, which the cell decides for its own
-    /// next round (design document `data-and-context`, 46).
+    /// next round (design document `data-and-context`, 27).
     ConditionOnOwnOutput(CellId),
     /// The last cell has a condition: a work ends when its last cell has a record, so the last cell always runs.
     LastHasCondition(CellId),
@@ -276,6 +276,10 @@ pub struct Cell {
     /// Whether each round of the cell takes one of the slots, which bound how many such rounds go on at once: an
     /// agent's rounds do, and the engine's own acts do not.
     pub slot: bool,
+    /// Whether the cell takes the turn of its work's project: the works of a project take turns at the cells that do,
+    /// one work at a time, each from its first round of such a cell while its walk stays at them
+    /// ([`crate::room::holds_turn`]).
+    pub turn: bool,
     /// Of each dialogue the cell holds as the maker with a cell that judges or doubts what it makes (design document
     /// `data-and-context`, 36), by the dialogue's block, the blocks the other side watches that the cell writes: an
     /// answer to a point is a version of the dialogue, or a change of one of these (41).
@@ -307,7 +311,7 @@ impl Cell {
     }
 
     /// A cell of this name that always applies, that nothing runs, that writes nothing, has a limit of three runs and
-    /// of three calls and takes a slot for each of its rounds: what a definition starts from.
+    /// of three calls, takes a slot for each of its rounds and takes no turn: what a definition starts from.
     pub fn new(id: &str) -> Self {
         Self {
             id: id.into(),
@@ -319,6 +323,7 @@ impl Cell {
             limit: 3,
             calls: 3,
             slot: true,
+            turn: false,
             dialogues: BTreeMap::new(),
             verdicts: BTreeMap::new(),
             judges: BTreeMap::new(),

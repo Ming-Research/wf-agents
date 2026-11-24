@@ -1,0 +1,29 @@
+# The engine writes a version as a call of `run_tests` of the work ends, and only where its text differs from the
+# latest: what the CI measured of the tests the work's runs reported, against the history of the project's merged
+# checks. A cell reads it and none is run by it. The engine judges no test's time: whoever reads this does.
+what = "How long the tests the work's runs reported took, as the project's CI measured them, with where they stand among the project's tests and what the latest merges added. A test's time differs a great deal from run to run, so read each against its history, never alone."
+from = "test_times"
+
+# What the engine writes, each text filled in a run. A line of a test fills `{name}`, `{unit}`, `{millis}` (the median of
+# its readings in the work's runs), `{readings}` (how many there are), `{share}` (how many percent of the project's tests
+# it is slower than), `{before}` and `{line}` (the median of its times in merged checks, and the line they give);
+# `{checks}` is how many merged checks the project has, `{needed}` how many a comparison needs; `{left}` and `{millis}`
+# of `more` how many tests are not listed and what they take; `{share}` and `{suite}` of `sum` what the tests take of
+# what the project's tests typically take in a merged check; `{merges}`, `{median}` and `{largest}` what the latest
+# merges added.
+[writes]
+no_times = "The host this work runs on gives no time of any test, so no test's time is known here."
+none_read = "No run of this work has reported a test's time yet."
+basis = "Worked out from {checks} merged checks of the project."
+not_compared = "The project has {checks} merged checks and a comparison needs {needed}, so none is made here."
+covers = "It covers only the tests this work's runs reported: a test in the diff that is not listed here was not measured."
+new_title = "Tests in no merged check, each with the median of its readings in this work's runs:"
+all_title = "Tests this work's runs reported, each with the median of its readings (which of them are new cannot be told yet):"
+slowed_title = "Tests a merged check has that took longer in this work's runs than their own history says:"
+test_new = "- {name} ({unit}): {millis} ms in {readings} readings; slower than {share} % of the project's tests."
+test_plain = "- {name} ({unit}): {millis} ms in {readings} readings."
+test_slowed = "- {name} ({unit}): {millis} ms in {readings} readings; its merged checks took {before} ms at the median, and the line of their history is {line} ms."
+more = "And {left} more, {millis} ms together."
+sum = "Together the tests in no merged check take {millis} ms, {share} % of the {suite} ms the project's tests typically take in a merged check."
+sum_alone = "Together these tests take {millis} ms."
+merges = "The latest {merges} merges added {median} ms of tests at the median, and {largest} ms at the most."

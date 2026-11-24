@@ -28,6 +28,7 @@ mod rounds;
 mod skipping;
 mod stalling;
 mod stopping;
+mod turn;
 mod waiting;
 mod ways_back;
 mod written_over;
@@ -56,12 +57,23 @@ fn runs(cell: &str, because: Vec<Cause>, basis: Versions<'_>) -> Decision {
     }
 }
 
-/// A block that runs the cell is new to it, which consumed the version `was`; `behind` where cells after it wrote every
-/// new version.
+/// A block that runs the cell is new to it, which consumed the version `was` and worked from it; `behind` where cells
+/// after it wrote every new version.
 fn changed(block: &str, was: Option<Seq>, behind: bool) -> Cause {
     Cause::Changed {
         block: block.into(),
         was,
+        worked: was,
+        behind,
+    }
+}
+
+/// As [`changed`], the cell having last worked from the version `worked`, one it wrote itself after the one it consumed.
+fn changed_worked(block: &str, was: Option<Seq>, worked: Option<Seq>, behind: bool) -> Cause {
+    Cause::Changed {
+        block: block.into(),
+        was,
+        worked,
         behind,
     }
 }

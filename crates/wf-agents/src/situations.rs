@@ -4,15 +4,15 @@
 //! message, built by the builder the engine sends it with (`context::message`); and the form of a return, made as the
 //! engine gives it to the agents' program (`flow::form`). What a run fills is left open as `{name}`, and a setting a
 //! text names is given beside its name where a run gives it, its value left open as `{name}` too: the command reads
-//! nothing of an installation or a work. The project's files the system prompt holds are read from a checkout where one
-//! is given, and are left out where none is.
+//! nothing of an installation or a work. The project's declaration (`wf-agents.toml`) and the files of it the system
+//! prompt holds are read from a checkout where one is given, and are left out where none is.
 
 use std::fmt::Write as _;
 use std::path::Path;
 
 use context::Values;
 use context::situations::{self, Named};
-use flow::agents::Agents;
+use flow::agents::{Agents, DECLARATION, Declaration};
 use flow::{CellSpec, Compiled, Kind};
 
 /// What the command is given.
@@ -23,7 +23,7 @@ pub struct Asked<'a> {
     pub out: &'a Path,
     /// The one cell written, by its id; every agent's cell where none is.
     pub cell: Option<&'a str>,
-    /// The project's checkout, whose files the system prompt holds.
+    /// The project's checkout, whose declaration and files the system prompt holds.
     pub project: Option<&'a Path>,
 }
 
@@ -47,8 +47,15 @@ pub fn write(asked: &Asked, has: &flow::Has) -> Result<Vec<String>, String> {
     if let (Some(id), true) = (asked.cell, cells.is_empty()) {
         return Err(format!("{} has no agent's cell {id}", compiled.name));
     }
+    // The project's declaration, read from its checkout where one is given: its settings, and where its files are.
+    let declaration = match asked.project {
+        Some(checkout) => Some(declaration(checkout, &beside)?),
+        None => None,
+    };
     // A setting a text names is given beside its name as a run gives it, its value the place `{name}`.
-    let named = flow::system::Settings::of(&beside.project, &beside.installation, |key| Some(format!("{{{key}}}")));
+    let named = flow::system::Settings::of(declaration.as_ref(), &beside.installation, |key| {
+        Some(format!("{{{key}}}"))
+    });
     // The blocks whose versions the engine compares itself, which a session that holds none of is told unread.
     let compared = carry::compared(&compiled);
     let mut said = Vec::new();
@@ -60,8 +67,8 @@ pub fn write(asked: &Asked, has: &flow::Has) -> Result<Vec<String>, String> {
         }
         std::fs::create_dir_all(&at).map_err(|e| format!("{}: {e}", at.display()))?;
         let form = flow::form::form(&compiled, &beside, cell.line.as_deref().unwrap_or_default())?;
-        let system = system(&beside, &compiled, cell, asked.project, &named)?;
-        let all = situations::situations(&compiled, &beside, cell, driver::sessions::SESSION, &compared);
+        let system = system(&beside, declaration.as_ref(), &compiled, cell, asked.project, &named)?;
+        let all = situations::situations(&compiled, &beside, cell, &compared);
         for (n, situation) in all.iter().enumerate() {
             let sent = context::message(&compiled, &beside, cell, &situation.situation, Values::Slots(&named));
             let message = context::message::text(&sent);
@@ -69,7 +76,7 @@ pub fn write(asked: &Asked, has: &flow::Has) -> Result<Vec<String>, String> {
             let text = file(situation, &system, &message, &form);
             std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))?;
         }
-        let every = situations::combinations(&compiled, &beside, cell, driver::sessions::SESSION, &compared);
+        let every = situations::combinations(&compiled, &beside, cell, &compared);
         said.push(format!(
             "{}: {} situations, in {}; {every} combinations of each datum's own state",
             cell.id.as_str(),
@@ -80,17 +87,26 @@ pub fn write(asked: &Asked, has: &flow::Has) -> Result<Vec<String>, String> {
     Ok(said)
 }
 
+/// The declaration of the project, read from the root of its checkout as the engine reads one from a project's main;
+/// or why it cannot be read.
+fn declaration(checkout: &Path, beside: &Agents) -> Result<Declaration, String> {
+    let path = checkout.join(DECLARATION);
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    Declaration::read(&text, &path.display().to_string(), beside)
+}
+
 /// The system prompt of the cell's line, put together as the engine puts it together (`flow::system::prompt`): each
 /// place the engine fills left as `{name}`, and each setting named given beside its name as these settings give it.
 fn system(
     beside: &Agents,
+    declaration: Option<&Declaration>,
     flow: &Compiled,
     cell: &CellSpec,
     project: Option<&Path>,
     named: &flow::system::Settings,
 ) -> Result<String, String> {
     let read = |path: &str| Ok(project.and_then(|checkout| std::fs::read_to_string(checkout.join(path)).ok()));
-    let parts = flow::system::parts(beside, flow, cell, read).map_err(|wrong| wrong.join("; "))?;
+    let parts = flow::system::parts(beside, declaration, flow, cell, read).map_err(|wrong| wrong.join("; "))?;
     let open = |name: &str| Some(format!("{{{name}}}"));
     flow::system::prompt(&parts, named, open).map_err(|wrong| wrong.join("; "))
 }

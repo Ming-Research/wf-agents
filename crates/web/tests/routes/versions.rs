@@ -28,12 +28,15 @@ fn kept(path: &Path) {
             project: "trial".to_string(),
             depends_on: Vec::new(),
             tags: Vec::new(),
+            continues: None,
             flow: "trial".to_string(),
             writes: vec![driver::FirstWrite {
                 block: decide::BlockId("request".to_string()),
                 content: "Please.".to_string(),
                 value: None,
             }],
+            why: None,
+            waits_for: Vec::new(),
         };
         driver.add(at(0), new).unwrap();
     }
@@ -50,6 +53,7 @@ fn kept(path: &Path) {
     let paused = Event::Paused {
         by: decide::Pauser::Owner,
         why: None,
+        waits_for: Vec::new(),
     };
     driver.happened(at(1500), first, paused).unwrap();
     let handed = engine::Handed {

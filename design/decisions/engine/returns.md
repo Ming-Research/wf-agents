@@ -9,8 +9,9 @@ A return is one of two kinds, never both: `tools` asks the engine for tools and 
 - rejected: an agent proposed keeping the name `calls` for the kind that asks for tools, so that it could also hold pauses and rulings; the owner rejected it, because pauses and rulings already have their own mechanisms, and the kind holds only tools.
 
 ### decision a-return-says-what-it-dealt-with
-A return that does the cell's work names in `dealt_with` which of the things that made the round run it dealt with; only those are consumed, and anything it leaves out runs the cell again.
+A return that does the cell's work names in `dealt_with` which of what ran the round it dealt with; only those are consumed, and what it leaves out runs the cell again. Idle names are ignored.
 - replaced: Counting every trigger a round was told of as dealt with once the round ended was on main; the owner changed it, because a cell stopped during its run could not be told apart from one with nothing to change, and then one rule covers stopping, waiting on a call and answering first alike.
+- replaced: Sending back a return that names a thing its cell is given that did not run the round, or names one twice, or lists in `meaning_unchanged` an output it does not write, was on main; the owner changed it, because these change nothing and rewording the send-back did not lessen them.
 
 ### decision one-form-for-a-line
 All rounds of a line are given one form of return: the engine's fields, the flow's tools, and each block the line's cells write, as a field of `outputs` under the block's name, in its own shape.
@@ -47,8 +48,13 @@ A return names a group of blocks the cell watches in `dealt_with` by the group's
 - rejected: an agent proposed that the owner change the cell's file, or the flow, so that the cell watches no group; the owner rejected it, because the engine was to match the flow's definition, and a flow without groups would lose what groups are for.
 - rejected: an agent proposed letting the cell go on past its limit from the page; the owner rejected it, because the fault was in the engine and was to be fixed there, not worked around.
 
+### decision a-sent-back-return-is-completed-by-what-is-missing
+A return sent back is completed by the next, which gives only what the send-back lists; one that asked for calls or could not be read is given whole again. Each return is kept as it came.
+- replaced: Sending a return back to be handed in whole again was on main; the owner changed it, because each send-back made the cell write again what was right, and the cell could write something else wrong in doing so.
+- rejected: an agent proposed keeping the return whole as it was and no completing, only no longer sending back for names that change nothing; the owner rejected it, because a real error still made the cell rewrite the whole return, and it might write another part wrong.
+
 ### decision a-return-hands-in-what-its-cell-must-every-time
-A return that asks for no call must hand in the blocks its cell must write, unless it has a question its cell waits for, comes from a round entered while the cell waits, or only answers the owner.
+A return with no call must hand in the blocks its cell must write, unless it asks a question its cell waits for, only answers the owner, or is of a round entered while it waits or told to hand in.
 - replaced: Requiring those blocks of every return that asks for no call, including one with a question its cell waits for, was on main; the owner changed it, because a cell stopped by a question then had to force a value, and the work stops at the cell until the answer comes.
 - rejected: the owner proposed deleting the rule, so that a cell testing the change would not give its verdict before any result; the owner rejected it, because the rule asks for the blocks only in a return that makes no call, so a review that asks for the tests gives its verdict after the results.
 

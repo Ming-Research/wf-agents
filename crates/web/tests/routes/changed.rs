@@ -83,6 +83,33 @@ impl Rounds for Repository {
     }
 }
 
+/// The trial's acts, whose repository cannot say what git said of any work.
+struct NoGit {
+    acts: Arc<dyn Rounds>,
+}
+
+impl Rounds for NoGit {
+    fn give(&self, round: Round, reply: RoundReply) {
+        self.acts.give(round, reply);
+    }
+
+    fn stop(&self, round: Round, reply: RoundReply) {
+        self.acts.stop(round, reply);
+    }
+
+    fn seen(&self, _: OfWork) -> Pin<Box<dyn Future<Output = Result<Seen, String>> + Send + '_>> {
+        Box::pin(async { Err("git is not there".to_string()) })
+    }
+
+    fn changes(&self, _: OfWork) -> Pin<Box<dyn Future<Output = Result<Option<Changes>, String>> + Send + '_>> {
+        Box::pin(async { Err("git is not there".to_string()) })
+    }
+
+    fn diff(&self, _: OfWork, _: String) -> Pin<Box<dyn Future<Output = Result<Option<Diff>, String>> + Send + '_>> {
+        Box::pin(async { Err("git is not there".to_string()) })
+    }
+}
+
 /// The script's agents, whose first round says, as the host would as it checks the work, the pull request it is
 /// checked through.
 struct Pulling {
@@ -143,7 +170,7 @@ async fn a_work_that_merged_keeping_no_pull_request_is_given_the_one_its_merge_n
         get_json(router, "/api/v1/works/1").await["summary"]["pull"],
         Value::Null
     );
-    let answer = json!({ "kind": "result", "call": 2, "result": "Yes." });
+    let answer = json!({ "kind": "goOn", "call": 2 });
     assert_eq!(
         post(router, "/api/v1/works/1/acts", &answer).await.0,
         StatusCode::NO_CONTENT
@@ -189,11 +216,11 @@ async fn each_file_a_work_changed_and_the_diff_of_one_are_given_and_what_there_i
     let none = StatusCode::NOT_FOUND;
     assert_eq!(
         refused(router, "/api/v1/works/1/changes/diff?path=src%2Fb.rs").await,
-        (none, "Work 1 changed no file src/b.rs.".to_string())
+        (none, "W1 changed no file src/b.rs.".to_string())
     );
     assert_eq!(
         refused(router, "/api/v1/works/9/changes").await,
-        (none, "There is no work 9.".to_string())
+        (none, "There is no work W9.".to_string())
     );
     let (status, words) = refused(router, "/api/v1/works/1/changes/diff").await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
@@ -205,9 +232,34 @@ async fn each_file_a_work_changed_and_the_diff_of_one_are_given_and_what_there_i
         refused(&scripted.router, "/api/v1/works/1/changes").await,
         (
             none,
-            "Work 1 has no change to tell yet: its branch is not made.".to_string()
+            "W1 has no change to tell yet: its branch is not made.".to_string()
         )
     );
     let summary = get_json(&scripted.router, "/api/v1/works/1").await["summary"].clone();
     assert_eq!((&summary["changed"], &summary["pull"]), (&Value::Null, &Value::Null));
+}
+
+// Where git cannot say what a work changed, the routes that ask it answer 500 with the reason, and the work's summary is
+// still given, with what its records say and nothing of what git would have said.
+#[tokio::test(start_paused = true)]
+async fn where_git_cannot_say_what_a_work_changed_its_routes_answer_500_and_its_summary_is_given_without_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path().join("store.sqlite")).unwrap();
+    let mut carriers = Scripted::new(trial_script()).carriers();
+    carriers.acts = Arc::new(NoGit {
+        acts: carriers.acts.clone(),
+    });
+    let running = running_carried(Box::new(store), dir, carriers);
+    let router = &running.router;
+    greeted(router).await;
+    let summary = get_json(router, "/api/v1/works/1").await["summary"].clone();
+    assert_eq!((&summary["changed"], &summary["pull"]), (&Value::Null, &Value::Null));
+    assert_eq!(summary["number"], 1, "{summary}");
+    let broken = StatusCode::INTERNAL_SERVER_ERROR;
+    let said = "It cannot be shown: git is not there.".to_string();
+    assert_eq!(refused(router, "/api/v1/works/1/changes").await, (broken, said.clone()));
+    assert_eq!(
+        refused(router, "/api/v1/works/1/changes/diff?path=src%2Fa.rs").await,
+        (broken, said)
+    );
 }

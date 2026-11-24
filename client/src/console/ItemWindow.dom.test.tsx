@@ -5,11 +5,12 @@ import { act } from 'react';
 import { type Root, createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { ItemTitlesProvider } from '../itemNumbers';
 import { levelWords } from '../marks';
 import { outlineOf } from '../testing';
 import { cellNowWords } from '../works/marks';
 import { NO_LEVEL, stateOf, stoppedAt } from '../works/words';
-import type { Act, CellNow, Item, Now, Question, Speaking, Wait, WorkPage } from '../works-api';
+import type { Act, CellNow, Item, Items, Now, Question, Speaking, Wait, WorkPage } from '../works-api';
 import type { Block, Flow } from '../api';
 import { FLOW, fixtureItems } from './fixtures';
 import { ItemPanel, type PageState } from './ItemWindow';
@@ -94,12 +95,14 @@ const answered =
   };
 
 /// Draws the panel of item `n`, or of this item, as the console does, in the same root as the panel drawn before it, if
-/// any; `asEngineer` draws item `n` with the engineer's flow's cell ids.
+/// any; `asEngineer` draws item `n` with the engineer's flow's cell ids, and `read` is the items the page has read,
+/// which give the numbers of items in its texts their titles.
 function draw(
   n: number | Item,
   send: (work: number, what: Act) => Promise<unknown>,
   page?: PageState,
   asEngineer = false,
+  read: Items | null = null,
 ) {
   const item = typeof n !== 'number' ? n : asEngineer ? engineer(itemOf(n)) : itemOf(n);
   if (root === undefined) {
@@ -110,12 +113,14 @@ function draw(
   const r = root;
   act(() =>
     r.render(
-      <ItemPanel
-        item={item}
-        page={page === undefined ? (asEngineer ? engineer(pageOf(item)) : pageOf(item)) : page}
-        act={send}
-        onTitle={() => undefined}
-      />,
+      <ItemTitlesProvider items={read}>
+        <ItemPanel
+          item={item}
+          page={page === undefined ? (asEngineer ? engineer(pageOf(item)) : pageOf(item)) : page}
+          act={send}
+          onTitle={() => undefined}
+        />
+      </ItemTitlesProvider>,
     ),
   );
   return container;
@@ -174,7 +179,7 @@ function held() {
 describe('the panel of the item selected', () => {
   it('heads with the number, the title and the project, and says where the item stands and what its work does', () => {
     const el = draw(12, answered([]));
-    expect(text(el, '.drawer-id')).toEqual(['12']);
+    expect(text(el, '.drawer-id')).toEqual(['#12']);
     expect(text(el, '.drawer-title')).toEqual(['Show the cost of a work']);
     expect(text(el, '.drawer-belongs')).toEqual(['wf-agents']);
     const [itemLine, workLine] = lines(el);
@@ -192,6 +197,10 @@ describe('the panel of the item selected', () => {
     expect(card.querySelector('.cw-choice-by')).toBe(null);
     expect(card.querySelector('button')?.title).toBe('Run the cell again past its limit');
     expect(el.querySelector('.cw-item > .status-line a.link.mono')?.getAttribute('href')).toBe('#/works/12');
+    // The work is named as the engine names one, by its link's words and its title.
+    const link = el.querySelector('.cw-item > .status-line a.link.mono') as HTMLElement;
+    expect(link.textContent).toBe('W12');
+    expect(link.title).toBe('Open W12');
   });
 
   it('says the items a work waits for once, on its line, as the engine gives them', () => {
@@ -263,19 +272,17 @@ describe('the panel of the item selected', () => {
     }
   });
 
-  it('says on the work\'s line what the work waits for and who gives it, and a question a cell asked at the plan\'s end', () => {
+  it("says on the work's line what the work waits for and who gives it, and a run at its limit as a card under the state line", () => {
     const el = draw(20, answered([]));
     const [, workLine] = lines(el);
     expect(workLine).toContain('Waiting for you implement Implement');
     expect(noKeys(el)).toBe(true);
-    const asked = el.querySelector('[data-wait="call-12"]') as HTMLElement;
-    expect(text(asked, '.cw-choice-q')).toEqual(['May a page keep its stream open while hidden?']);
-    // It holds the work: on the red tint, with no line to say so.
-    expect(asked.className).toBe('cw-choice cw-choice-holds');
-    // Its frame names the cell it belongs to, broken around the words as a fieldset's legend breaks it: the cell by
-    // its id, and the line that cell runs on after it.
-    expect(asked.tagName).toBe('FIELDSET');
-    expect(text(asked, '.cw-choice-by')).toEqual(['implement builder']);
+    const card = el.querySelector('[data-wait="limit"]') as HTMLElement;
+    expect(text(card, '.cw-choice-q')).toEqual(["The cell's run had 2 returns sent back, which is its limit."]);
+    // It holds the work: on the red tint, with no line to say so, and it is no question: it has no frame of a cell.
+    expect(card.className).toBe('cw-choice cw-choice-holds');
+    expect(card.tagName).toBe('DIV');
+    expect(card.querySelector('.cw-choice-by')).toBeNull();
   });
 
   it("says a message to the chosen cell's line, names the cell the engine says it reaches, and then the one it gave it to", async () => {
@@ -861,12 +868,13 @@ function drawQuestions(
   questions: Question[],
   send: (work: number, what: Act) => Promise<unknown>,
   waits: Wait[] = [],
+  read: Items | null = null,
 ) {
   const i = itemOf(12);
   const item: Item = { ...i, work: { ...i.work, now, waits } };
   const p = pageOf(item);
   if (p === null || !('page' in p)) throw new Error('no page');
-  return draw(item, send, { page: { ...p.page, questions } });
+  return draw(item, send, { page: { ...p.page, questions } }, false, read);
 }
 
 /// Picks the option at this place of the question at that place.
@@ -930,6 +938,21 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
     expect(sent).toEqual([[12, { kind: 'answer', question: 'measure', version: 30, option: 2 }]]);
   });
 
+  it("says why the cell of a question does not run, in the stall's words, on a question that holds nothing, and says nothing on one that runs", async () => {
+    const why = '`design` does not run, because it is skipped, `deep = yes` not holding.';
+    const el = drawAsking(
+      { kind: 'next', cell: 'implement' },
+      [],
+      [question('folded', { skipped: why }), question('plain')],
+    );
+    // A question is drawn once the texts that may point to it are read.
+    await act(async () => undefined);
+    const cards = [...el.querySelectorAll('.cw-choice')];
+    expect(cards.map((c) => c.querySelector('.cw-choice-skipped')?.textContent ?? null)).toEqual([why, null]);
+    // It holds nothing: the card is plain, as one the work has gone on past.
+    expect(cards.map((c) => c.className)).toEqual(['cw-choice', 'cw-choice']);
+  });
+
   it('shows a question the work goes on past by the option it recommends, not counted while no merge waits on it, and sends its answer', async () => {
     const sent: Sent = [];
     const later = question('later', { recommends: 2 });
@@ -955,7 +978,7 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
       'This work changes files the project protects.',
       '`flow/agents/tools/run_tests.toml`: The tool needs a longer timeout.',
       '```diff\n-ms = 1000\n+ms = 2000\n```',
-      '`flow/project.toml`: it gives none.',
+      '`wf-agents.toml`: it gives none.',
       '```diff\n+name = "x"\n```',
     ].join('\n\n');
     const protectedFiles = question('protected_files', {
@@ -984,10 +1007,10 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
     await act(async () => undefined);
     const card = el.querySelector('[data-wait="answer-protected_files"]') as HTMLElement;
     expect(card.className).toBe('cw-choice cw-choice-holds');
-    expect(text(card, '.cw-choice-q p code')).toEqual(['flow/agents/tools/run_tests.toml', 'flow/project.toml']);
+    expect(text(card, '.cw-choice-q p code')).toEqual(['flow/agents/tools/run_tests.toml', 'wf-agents.toml']);
     expect(text(card, '.cw-choice-q p').slice(1)).toEqual([
       'flow/agents/tools/run_tests.toml: The tool needs a longer timeout.',
-      'flow/project.toml: it gives none.',
+      'wf-agents.toml: it gives none.',
     ]);
     openDiffs(card);
     expect(diffLines(card)).toEqual(['ms = -[1000] +[2000]', '+[name = "x"]']);
@@ -1018,5 +1041,33 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
     expect(el.querySelector('.cw-option, .cw-radio')).toBeNull();
     expect(el.querySelector('.cw-settled-taken svg')?.getAttribute('aria-label')).toBe('The option you took');
     expect(el.querySelector('.cw-confirm')).toBeNull();
+  });
+
+  it('draws the number of an item in the options of a question answered as a link, and in those still to pick as plain words, which stand in buttons', async () => {
+    const worded = [
+      { does: 'Link item 46 as written', follows: 'Only #46 and the words after item' },
+      { does: 'Drop it', follows: 'Nothing changes' },
+    ];
+    const el = drawQuestions(
+      { kind: 'next', cell: 'implement' },
+      [question('old', { options: worded, answer: { option: 2, at: 40, why: null } }), question('new', { options: worded })],
+      answered([]),
+      [],
+      { items: [{ number: 46, title: 'Link the numbers' } as Item] },
+    );
+    await act(async () => undefined);
+    // The answered question opens folded; its options are read once it is shown whole.
+    act(() => (el.querySelector('.cw-choice-turn') as HTMLButtonElement).click());
+    const links = [...el.querySelectorAll('.cw-settled a')];
+    expect(links.map((a) => [a.getAttribute('href'), a.getAttribute('title'), a.textContent])).toEqual([
+      ['#/console/items/46', '#46 Link the numbers', '46'],
+      ['#/console/items/46', '#46 Link the numbers', '#46'],
+    ]);
+    // The words are as they were written, in both questions.
+    expect(text(el, '.cw-settled .cw-option-label')).toEqual(['Link item 46 as writtenRecommended', 'Drop it']);
+    expect(text(el, '.cw-option .cw-option-label')).toEqual(['Link item 46 as writtenRecommended', 'Drop it']);
+    // The options still to pick are buttons, and no link stands in a button.
+    expect(el.querySelectorAll('.cw-option')).toHaveLength(2);
+    expect(el.querySelectorAll('.cw-option a')).toHaveLength(0);
   });
 });

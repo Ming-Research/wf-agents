@@ -179,7 +179,7 @@ fn next(
         let called = work
             .spent
             .get(&(round.run, k))
-            .is_some_and(|s| s.cached_tokens + s.input_tokens > 0);
+            .is_some_and(|s| s.cached_tokens + s.uncached_tokens > 0);
         let began = work::sessions::start(work, round.run, k);
         if let Some(ended) = ended
             && called
@@ -235,6 +235,7 @@ fn coming_back(flow: &Compiled, work: &Work, decision: &Decision) -> BTreeSet<St
     match decision {
         Decision::Run { cell, .. }
         | Decision::GoOn { cell, .. }
+        | Decision::Hurry { cell, .. }
         | Decision::Abandon { cell, .. }
         | Decision::Paused { cell }
         | Decision::Wait { at: cell, .. } => at.push(cell.clone()),

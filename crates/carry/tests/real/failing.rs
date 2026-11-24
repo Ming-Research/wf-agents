@@ -180,7 +180,7 @@ async fn a_session_lost_on_a_later_run_is_begun_again_with_the_task_and_the_runs
     // The build's question waits for the owner: the work waits at the build until the owner answers.
     real.until(|real| real.waited_question(work).is_some()).await;
     real.answer(work);
-    let answer = "answered: option 1, the first name";
+    let answer = "answered:\n- option 1, the first name";
     real.until(|real| ended(&real.decision(work))).await;
     let calls = real.calls();
     // The plan, the build's question, its query of the check once the owner answered, the run entered for the check's
@@ -202,12 +202,11 @@ async fn a_session_lost_on_a_later_run_is_begun_again_with_the_task_and_the_runs
     );
 }
 
-/// The fake whose first call prints an error that cost eighty cents, every later call saying the session has cost
-/// eighty-five.
+/// The fake whose first call prints an error that cost eighty cents, every later call saying it spent five cents.
 fn erring() -> Fake {
     Fake {
         error_first: true,
-        cost: "0.85",
+        cost: "0.05",
         ..Fake::default()
     }
 }
@@ -228,7 +227,7 @@ async fn a_failed_round_whose_result_says_what_it_cost_is_charged_it_and_the_nex
     assert!(decide::pause(&kept.records).is_none(), "the work is paused");
     let failed = kept.spent[&(plan_run, 1)];
     assert_eq!(
-        (failed.usd_micros, failed.input_tokens, failed.output_tokens),
+        (failed.usd_micros, failed.uncached_tokens, failed.output_tokens),
         (800_000, 1000, 300)
     );
 
@@ -309,4 +308,8 @@ async fn a_failed_round_that_takes_the_work_over_its_budget_says_both() {
         .expect("a reason");
     assert!(why.contains(crate::GAVE_UP), "{why}");
     assert!(why.contains("over its budget of $0.50"), "{why}");
+    // The failure is said by a sentence of the words beside the flows with its cause after a colon, then the budget's
+    // sentence follows, so that the reason reads as sentences through.
+    assert!(why.starts_with("The round failed too. The cause: "), "{why}");
+    assert!(why.contains(". It has spent $"), "{why}");
 }

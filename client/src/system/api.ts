@@ -4,6 +4,8 @@
 // The routes:
 // - `GET  /api/v1/system?weeks=`: how the system went over the weeks given, each by when it begins, the earliest first,
 //   until now (`System`). The page cuts the weeks at Monday's midnight in the browser's time zone.
+// - `GET  /api/v1/system/under-way`: what the calls of each agent's round under way have come to so far (`Going`),
+//   read each time the stream of changes says `going`.
 // - `GET  /api/v1/settings`: the installation's settings as their file writes them (`SettingsPage`).
 // - `POST /api/v1/settings`: the owner's change of a few keys (`SettingsChange`), answered with what changed (`Saved`).
 // - `GET  /api/v1/settings/accounts`: the accounts the agents' program may run under, as the engine holds them
@@ -125,9 +127,48 @@ export interface System {
   failed: FailedRound[];
   /// What ended in the span past the line of its history, the latest first.
   past: Past[];
-  /// The rounds and the calls of tools under way now, the oldest first.
+  /// The rounds and the calls of tools under way now, the oldest first, each with how long it has taken so far against
+  /// its line.
   underWay: UnderWay[];
+  /// What the merged checks of each project say of how long its tests and jobs took. The page draws none of it: it is
+  /// given in the data and by `wf-agents system`.
+  tests?: TestTimes[];
+  /// The stop the engine was asked for, while it stands, with how much longer it is expected to run. Absent from an
+  /// engine that keeps none.
+  stopping?: Stop | null;
 }
+
+/// What the merged checks of a project say of the time of its tests and jobs; each work named is the one whose merge
+/// the thing was measured at.
+export interface TestTimes {
+  project: string | null;
+  /// How many merged checks the project has.
+  checks: number;
+  /// The tests that took longer than their own history says in the latest merged check and in the one before.
+  slowed: { work: number; unit: string; name: string; millis: number; median: number; line: number }[];
+  /// The series of the CI's times that grew: `tests` is the sum of the tests' times, any other is a job's name.
+  grown: { of: string; work: number; before: number; after: number; above: number; n: number; needed: number }[];
+  /// The latest merges, the earliest first.
+  merges: {
+    work: number;
+    jobs: { name: string; millis: number }[];
+    testsMillis: number;
+    added: number;
+    addedMillis: number;
+  }[];
+}
+
+/// A stop of the engine that stands: since when it was asked for, whether at once, and how much longer the engine is
+/// expected to run, which is the longest rest of the rounds under way.
+export interface Stop {
+  since: number;
+  atOnce: boolean;
+  rest: Rest;
+}
+
+/// How much longer something under way is expected to take, by its history: about this many milliseconds more, or
+/// longer than anything of its history took.
+export type Rest = { kind: 'expected'; ms: number } | { kind: 'longer' };
 
 /// What ended past the line of its history: a round whose cost or time went past its line, and a call of a tool whose
 /// time or whose result's size did.
@@ -158,7 +199,8 @@ export type UnderWay =
       round: number;
       began: number;
       time: Against | null;
-      bounds: Bounds | null;
+      /// How much longer it is expected to take. Absent from an engine that says none.
+      rest?: Rest | null;
     }
   | {
       kind: 'call';
@@ -172,12 +214,25 @@ export type UnderWay =
       time: Against | null;
     };
 
-/// The lines an agent's round under way is judged by beside its time: what its context grows by over the round and
-/// for each call after the first, and what it costs among the rounds on its model.
-export interface Bounds {
-  added: Line | null;
-  rate: Line | null;
-  cost: Line | null;
+/// A measure of a round under way, with the line the run guard or the history of its model judges it by where the
+/// history gives one; `past` as the engine judges it.
+export interface Figure {
+  value: number;
+  line: Line | null;
+  past: boolean;
+}
+
+/// What the calls of an agent's round under way have come to so far, each none before a call tells it: the whole prompt
+/// of the latest call in tokens, the tokens the context has grown by over the round and for each call after the first
+/// (from the second call), and what the calls cost in millionths of a dollar, priced from the calls.
+export interface Going {
+  work: number;
+  run: number;
+  round: number;
+  context: number | null;
+  added: Figure | null;
+  perCall: Figure | null;
+  cost: Figure | null;
 }
 
 /// What kind of value the page may change a key to: a name on one line, a whole number, or one of the levels.
@@ -255,6 +310,15 @@ export interface UsageWindow {
   allowed: boolean;
 }
 
+/// A move the engine made: at this time it took the account `to`, which the agents ran under in place of the account
+/// `from`, whose usage limit it left; `leftResets` is when that limit resets, where it was said.
+export interface AccountMove {
+  at: number;
+  from: string | null;
+  to: string;
+  leftResets: number | null;
+}
+
 export interface AccountsPage {
   /// The time now, by the engine's clock.
   now: number;
@@ -262,6 +326,10 @@ export interface AccountsPage {
   accounts: Account[];
   /// The account the agents run under; none where none is in use, and no agent's round runs.
   inUse: string | null;
+  /// Whether the owner has let the engine move to another account at the usage limit of the one in use.
+  movingOn: boolean;
+  /// The latest moves the engine made at a usage limit, newest first.
+  moves: AccountMove[];
   /// The command that makes a token.
   command: string;
   /// Why no account can be added now, as where what keeps the tokens is missing; none where one can.
@@ -273,11 +341,12 @@ export interface Looking {
   looking: string[];
 }
 
-/// What the owner does to an account.
+/// What the owner does to an account, or lets the engine do at a usage limit.
 export type AccountAsked =
   | { kind: 'add'; name: string; token: string }
   | { kind: 'take'; name: string }
-  | { kind: 'remove'; name: string };
+  | { kind: 'remove'; name: string }
+  | { kind: 'setMovingOn'; on: boolean };
 
 /// What came of it: of an account added, whether its token is at its usage limit and when that resets; of one removed,
 /// why its token could not be let go of, where it could not.
@@ -304,6 +373,8 @@ async function send<T>(path: string, body: unknown): Promise<T> {
 export interface SystemSource {
   /// How the system went over these weeks, each by when it begins, the earliest first.
   loadSystem(weeks: number[]): Promise<System>;
+  /// What the calls of each agent's round under way have come to so far.
+  loadUnderWay(): Promise<Going[]>;
   loadSettings(): Promise<SettingsPage>;
   saveSettings(change: SettingsChange): Promise<Saved>;
   loadAccounts(): Promise<AccountsPage>;
@@ -315,6 +386,7 @@ export interface SystemSource {
 /// The interface.
 export const INTERFACE: SystemSource = {
   loadSystem: (weeks) => read<System>(`/api/v1/system?weeks=${weeks.join(',')}`),
+  loadUnderWay: () => read<Going[]>('/api/v1/system/under-way'),
   loadSettings: () => read<SettingsPage>('/api/v1/settings'),
   saveSettings: (change) => send<Saved>('/api/v1/settings', change),
   loadAccounts: () => read<AccountsPage>('/api/v1/settings/accounts'),
@@ -325,6 +397,7 @@ export const INTERFACE: SystemSource = {
 /// The fixtures, loaded only when asked for. What the owner changes is only logged.
 export const FIXTURES: SystemSource = {
   loadSystem: async (weeks) => (await import('./fixtures')).fixtureSystem(weeks),
+  loadUnderWay: async () => (await import('./fixtures')).fixtureUnderWay(),
   loadSettings: async () => (await import('./fixtures')).fixtureSettings(),
   saveSettings: async (change) => {
     console.info('settings', change);
@@ -333,7 +406,7 @@ export const FIXTURES: SystemSource = {
   loadAccounts: async () => (await import('./fixtures')).fixtureAccounts(),
   account: async (asked) => {
     // The token is logged nowhere.
-    console.info('settings/accounts', asked.kind, asked.name);
+    console.info('settings/accounts', asked.kind);
     return { atLimit: false, resets: null, notLetGo: null };
   },
   look: async () => ({ looking: [] }),

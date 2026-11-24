@@ -16,7 +16,7 @@ export interface Line {
   name: string;
   /// In the order of the walk.
   cells: string[];
-  /// How many levels above its item's its rounds run at, never above the highest an item may be at.
+  /// How many levels above its item's its rounds run at, never above the highest one round may run at.
   levelsAbove: number;
   /// The file it is written in, from the flow's directory.
   file: string;
@@ -90,7 +90,7 @@ export interface Group {
 }
 
 /// What the context of a cell's session must hold of a block the cell is given when the cell runs: its latest
-/// version, the version the cell last consumed and the latest, or every version.
+/// version, the version the cell last worked from and the latest, or every version.
 export type InputKind = 'latest' | 'lastAndLatest' | 'all';
 
 /// One key of a cell's `when` or `requires`: a block or a datum with the value it must have (`deep_needed = "yes"`),
@@ -113,6 +113,8 @@ export interface Cell {
   effort: string | null;
   /// The work's branch takes the latest main in as each run of the cell starts.
   takesMain: boolean;
+  /// The cell takes the turn of the work's project: the works of a project check and merge one at a time.
+  takesTurn: boolean;
   /// When it runs: every key of its `when` holds, in the order written; none is always.
   when: Condition[];
   /// What the work waits for before it: every key of its `requires`, in the order written.
@@ -262,8 +264,10 @@ export type What =
   | { kind: 'verdictOfDialogues'; verdict: string; dialogues: string[] }
   /// The agent's cell hands in a verdict and judges in no dialogue its points could go in.
   | { kind: 'verdictWithoutDialogue'; verdict: string }
-  /// The cell watches or reads a datum of another line's own.
-  | { kind: 'lineDataOfAnother'; block: string; line: string }
+  /// The block names entries of the design tree, and no datum of the flow is the design tree.
+  | { kind: 'entriesWithoutTree'; block: string }
+  /// The cell is given a block that names entries of the design tree in another kind than its latest.
+  | { kind: 'entriesNotLatest'; block: string }
   /// The flow names a cell for the engine to ask in that cannot change the work or cannot be spoken to.
   | { kind: 'cannotBeAskedIn'; cell: string }
   | { kind: 'engineIsGiven'; block: string }
@@ -386,6 +390,8 @@ export type Given =
       /// What each engine's cell's act writes, by the cell's id.
       acts: Record<string, ActWords>;
       unknown: Unknown[];
+      /// What was not checked for want of the project's declaration, and why; none where it was read.
+      unchecked: string | null;
     }
   | { state: 'notCompiled' }
   | { state: 'unread'; why: string };

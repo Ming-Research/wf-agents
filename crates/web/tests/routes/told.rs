@@ -214,22 +214,22 @@ async fn a_round_under_way_is_given_its_message_and_nothing_back() {
         tries: vec![tried("The owner answered.", Back::Nothing)],
         left_out: 0,
     };
-    let running = keeping(BTreeMap::from([((1, 3, 1), told)]));
+    let running = keeping(BTreeMap::from([((1, 1, 4), told)]));
     let router = &running.router;
     greeted(router).await;
-    let answer = json!({ "kind": "result", "call": 2, "result": "Yes, by name." });
+    let answer = json!({ "kind": "goOn", "call": 2 });
     assert_eq!(
         post(router, "/api/v1/works/1/acts", &answer).await.0,
         StatusCode::NO_CONTENT
     );
-    // The plan, entered again for the answer, has its round under way for a second and a half.
+    // The plan's run, let go on, has its fourth round under way for a second and a half.
     pass(100).await;
     assert_eq!(
         get_json(router, "/api/v1/works/1").await["summary"]["now"]["kind"],
         "round"
     );
     assert_eq!(
-        get_json(router, "/api/v1/works/1/runs/3/rounds/1/told").await,
+        get_json(router, "/api/v1/works/1/runs/1/rounds/4/told").await,
         json!({
             "tries": [{ "message": "The owner answered.", "cut": null, "back": { "kind": "nothing" }, "ran": null }],
             "leftOut": 0,
@@ -311,15 +311,15 @@ async fn a_round_there_is_none_of_is_refused_with_why() {
     let none = StatusCode::NOT_FOUND;
     assert_eq!(
         refused(router, "/api/v1/works/9/runs/1/rounds/1/told").await,
-        (none, "There is no work 9.".to_string())
+        (none, "There is no work W9.".to_string())
     );
     assert_eq!(
         refused(router, "/api/v1/works/1/runs/1/rounds/7/told").await,
-        (none, "Work 1 has no round 7 of run 1.".to_string())
+        (none, "W1 has no round 7 of run 1.".to_string())
     );
     assert_eq!(
         refused(router, "/api/v1/works/1/runs/5/rounds/1/told").await,
-        (none, "Work 1 has no round 1 of run 5.".to_string())
+        (none, "W1 has no round 1 of run 5.".to_string())
     );
     let (status, words) = refused(router, "/api/v1/works/1/runs/1/rounds/one/told").await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
@@ -388,11 +388,11 @@ async fn what_the_agent_of_a_round_did_from_its_start_is_read_from_its_carrier_e
     // A round the records lack is refused; one whose carrier keeps nothing of it is given nothing.
     assert_eq!(
         refused(router, "/api/v1/works/1/runs/1/rounds/7/doing").await,
-        (StatusCode::NOT_FOUND, "Work 1 has no round 7 of run 1.".to_string())
+        (StatusCode::NOT_FOUND, "W1 has no round 7 of run 1.".to_string())
     );
     assert_eq!(
         refused(router, "/api/v1/works/9/runs/1/rounds/1/doing").await,
-        (StatusCode::NOT_FOUND, "There is no work 9.".to_string())
+        (StatusCode::NOT_FOUND, "There is no work W9.".to_string())
     );
     let scripted = running();
     greeted(&scripted.router).await;
@@ -512,7 +512,7 @@ async fn what_a_rounds_agent_does_is_sent_as_it_comes_to_the_page_following_it_a
     // A round the records lack is refused before any stream opens.
     assert_eq!(
         refused(router, "/api/v1/works/1/runs/1/rounds/7/doing/stream").await,
-        (StatusCode::NOT_FOUND, "Work 1 has no round 7 of run 1.".to_string())
+        (StatusCode::NOT_FOUND, "W1 has no round 7 of run 1.".to_string())
     );
 }
 
@@ -529,15 +529,15 @@ async fn the_system_prompt_a_session_began_with_is_given_by_the_session_s_number
     for (path, words) in [
         (
             "/api/v1/works/1/lines/engineer/sessions/1/system",
-            "Work 1 kept no system prompt of session 1 of engineer.",
+            "W1 kept no system prompt of session 1 of engineer.",
         ),
         (
             "/api/v1/works/1/lines/reviewer/sessions/0/system",
-            "Work 1 kept no system prompt of session 0 of reviewer.",
+            "W1 kept no system prompt of session 0 of reviewer.",
         ),
         (
             "/api/v1/works/9/lines/engineer/sessions/0/system",
-            "There is no work 9.",
+            "There is no work W9.",
         ),
     ] {
         assert_eq!(refused(router, path).await, (none, words.to_string()), "{path}");

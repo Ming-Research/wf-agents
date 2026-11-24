@@ -86,17 +86,14 @@ fn what_happened_to_a_work_gives_what_is_to_be_done_for_it_next() {
     let (judge, ..) = h.round(w);
     assert_ne!(judge, write);
     assert_eq!(todos, vec![round_todo(w, judge, "judge", 1, Given::Task)]);
-    // The judge asks the owner: the work waits for the owner.
-    let todos = h.returns(w, Came::asks(vec![question(Who::Owner)]));
+    // The judge asks for a tool: the work waits for its result.
+    let todos = h.returns(w, Came::asks(vec![tool("search")]));
     let (call, _) = one_call(&todos);
     assert_eq!(
         h.decision(w),
         Decision::Wait {
             at: "judge".into(),
-            on: vec![Waited::Call {
-                call,
-                on: Some(Who::Owner),
-            }],
+            on: vec![Waited::Call { call, on: None }],
         }
     );
     let todos = h.answer(w, call);
@@ -230,7 +227,8 @@ fn a_pause_holds_back_only_what_would_begin_a_round() {
             w,
             Event::Paused {
                 by: Pauser::Owner,
-                why: None
+                why: None,
+                waits_for: Vec::new(),
             }
         ),
         vec![]
@@ -254,7 +252,8 @@ fn a_pause_holds_back_only_what_would_begin_a_round() {
             w,
             Event::Paused {
                 by: Pauser::Owner,
-                why: None
+                why: None,
+                waits_for: Vec::new(),
             }
         ),
         vec![]

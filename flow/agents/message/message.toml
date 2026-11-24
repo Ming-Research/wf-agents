@@ -22,6 +22,10 @@ compacted = "Your session was compacted during this round. Here is everything th
 # `{number}` its version, and `{do}` what the cell does when its words are new, as the part `new` below says it.
 said = "## `{block}`, version {number}, said while this round is running\n\n{entry}\n\nIt is new to this round{do}\n\nStop where you are and hand in your answer now, in an `outcome` that names `{block}` in its `dealt_with`."
 
+# What the owner says, or answers, that the work reaches first, given to a round under way as `said` is: `{entry}`,
+# `{block}` and `{number}` as there. The round hands in what it has and its work goes on in a later round.
+hurried = "## `{block}`, version {number}, said while this round is running\n\n{entry}\n\nStop where you are and hand in what you have now, in an `outcome`; leave out of `dealt_with` what you did not finish."
+
 # `{taken}` is each block in `each`, `{block}` its name and `{number}` the version it is kept as, with `between`
 # between two of them.
 [[parts]]
@@ -38,7 +42,7 @@ text = "# {title}"
 [[parts]]
 part = "work"
 kind = "latest"
-text = "Work W{work}, on the item #{item} \"{item_title}\"."
+text = "Work {work}, on the item {item} \"{item_title}\"."
 
 # The engine writes it in one line, in these words: `text` where main was merged into the work's branch, `{main}` its head
 # merged in and `{merge}` the commit of the merge; `conflict` where it does not merge, `{files}` the files in conflict;
@@ -87,14 +91,17 @@ part = "results"
 [[parts]]
 part = "sent_back"
 
-# Each datum the cell watches that is new to it (design document `data-and-context`, 11): its name, the version the
-# cell last consumed and the latest (`since`, or `first` where it consumed none), and what the cell does for it (`do`,
-# from the cell's definition), the first time too; then `after`.
+# Each datum the cell watches that is new to it (design document `data-and-context`, 10 and 11): its name, the version
+# the cell last worked from (`since`, none where it worked from none), each version new to it that changed the datum's
+# meaning (`changed_one` or `changed_many`, joined by `between`; none where none did), and what the cell does for it
+# (`do`, from the cell's definition), the first time too; then `after`.
 [[parts]]
 part = "new"
 text = "## Why you are run\n"
 each = "\n- `{datum}`{versions}{do}"
-since = ", new since version {last}, now version {latest}"
-first = ", version {latest}"
+since = ", new since version {last}"
+changed_one = ", version {changed} changed its meaning"
+changed_many = ", versions {changed} changed their meaning"
+between = ", "
 do = ": {do}"
 after = "\n\nOnly these ran this cell. In `dealt_with`, name each one you have dealt with, by the name between its backquotes, without the backquotes. Any you leave out runs this cell again."

@@ -447,6 +447,18 @@ describe('a when or a requires of several keys', () => {
   });
 });
 
+describe("a cell that takes the project's turn", () => {
+  it('says in its panel that it takes the turn, and a cell that does not says nothing of it', () => {
+    const panelOf = (takesTurn: boolean) => {
+      const page = draw({ state: 'compiled', flow: flowOf([cell('check', { takesTurn })], {}) });
+      click(page.querySelector('thead .cell-head .head-button'));
+      return page.querySelector('section[aria-label="Cell check"]') as HTMLElement;
+    };
+    expect(texts(panelOf(true), '.status-line')).toEqual(['takes_turn true']);
+    expect(texts(panelOf(false), '.status-line')).toEqual([]);
+  });
+});
+
 describe('what an agent is sent', () => {
   const text = (t: string): SentPiece => ({ piece: 'text', text: t });
   const part = (fields: Partial<SentPart> & Pick<SentPart, 'what' | 'carried' | 'name' | 'source'>): SentPart => ({
@@ -536,6 +548,7 @@ describe('what an agent is sent', () => {
       query: { source: 'agents/tools/query.toml', words: [['what', [text('Reads what the engine holds.')]]] },
     },
     unknown: [],
+    unchecked: null,
   });
   /// A part of a panel, by its label.
   const partOf = (panel: HTMLElement, label: string) =>
@@ -585,6 +598,26 @@ describe('what an agent is sent', () => {
     expect(items(partOf(panel, 'Message'))[2]).toBe(
       '8 new agents/message/message.toml Why: request request opinions opinions after Name them.',
     );
+  });
+
+  it('says what was not checked for want of the project’s declaration, and why, above the unknown names', () => {
+    const shown = given();
+    if (shown.state !== 'compiled') throw new Error('compiled');
+    const why = 'The names of the project’s settings were not checked, since no declaration of the project was read.';
+    shown.unchecked = why;
+    shown.unknown = [{ name: 'no_such_thing', source: 'rules/general.md' }];
+    const page = draw({ state: 'compiled', flow: small() }, shown);
+    click(page.querySelectorAll('thead .cell-head .head-button')[0]);
+    const panel = page.querySelector('section[aria-label="Cell plan"]') as HTMLElement;
+    expect(texts(panel, '.panel-part-label')).toEqual([
+      'watches 2',
+      'Not checked',
+      'Unknown names 1',
+      'program 4',
+      'System prompt 1',
+      'Message 2',
+    ]);
+    expect(partOf(panel, 'Not checked').querySelector('p')?.textContent).toBe(why);
   });
 
   it('says the file a task is written in beside the task', () => {

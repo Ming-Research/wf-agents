@@ -11,8 +11,10 @@ import type { ReactNode } from 'react';
 
 import { ConditionGlyph, DataGlyphs, LineGlyph, ToolGlyph } from './Chart';
 import { type Mark, NO_MARK } from './matrix';
+import { TrackBlock, type TrackKind } from './console/track';
 import { Sign } from './parts';
 import { RUN_STATES, type RunState, lookStyle, pulses } from './works/state-marks';
+import type { Held } from './works-api';
 import { NO_LEVEL, keysLine, linesAdded, linesRemoved } from './works/words';
 
 /// A mark the page draws: of the flow's definition, as its files' keys name it; of a line between cells; of who
@@ -42,7 +44,24 @@ export type MarkKey =
   | 'unread'
   | 'filesChanged'
   | RunState
+  | TrackMark
   | ConsoleMark;
+
+/// A colour of the time track the item window draws for a work, drawn here as a sample for the console's legend: a
+/// model that ran, the tools that ran, and what the work waited for while nothing ran.
+export type TrackMark = `track${Capitalize<TrackKind>}`;
+
+/// The mark of each kind of stretch a track draws, so that the legend lists every colour the track has.
+export const TRACK_MARKS: Record<TrackKind, TrackMark> = {
+  model: 'trackModel',
+  tool: 'trackTool',
+  owner: 'trackOwner',
+  paused: 'trackPaused',
+  items: 'trackItems',
+  turn: 'trackTurn',
+  gap: 'trackGap',
+  unknown: 'trackUnknown',
+};
 
 /// A mark of the console's tree, drawn on its canvas (`console/snap.ts`) and here as a sample for its legend: a card by
 /// how its work stands, a shadow, the tags and rows of a card, what joins the cards, and the map of the columns.
@@ -180,6 +199,18 @@ const ofRun = (state: RunState, name: string): Entry => ({
   draw: (words) => <StateMark state={state} title={words} />,
 });
 
+/// A sample of a colour of the time track: the track's own block in a small box, saying on pointing at it what the
+/// colour is.
+function TrackSample({ kind }: { kind: TrackKind }) {
+  return (
+    <span className="legend-track">
+      <TrackBlock kind={kind} />
+    </span>
+  );
+}
+
+const ofTrack = (kind: TrackKind, name: string): Entry => ({ name, draw: () => <TrackSample kind={kind} /> });
+
 /// The table: every mark, its part and its name.
 export const MARKS: Record<MarkKey, Entry> = {
   line: { name: 'line', draw: () => <LineGlyph on /> },
@@ -215,6 +246,14 @@ export const MARKS: Record<MarkKey, Entry> = {
   notYet: ofRun('notYet', 'not yet'),
   skipped: ofRun('skipped', 'skipped'),
   notRun: ofRun('notRun', 'did not run'),
+  trackModel: ofTrack('model', 'model ran'),
+  trackTool: ofTrack('tool', 'tools ran'),
+  trackOwner: ofTrack('owner', 'waits for you'),
+  trackPaused: ofTrack('paused', 'pause'),
+  trackItems: ofTrack('items', 'waits for items'),
+  trackTurn: ofTrack('turn', 'waits for turn'),
+  trackGap: ofTrack('gap', 'nothing ran'),
+  trackUnknown: ofTrack('unknown', 'not known'),
   cardStopped: { name: 'stopped', draw: () => <CardSample look="stopped" /> },
   cardRunning: { name: 'running', draw: () => <CardSample look="running" /> },
   cardWaiting: { name: 'waiting', draw: () => <CardSample look="waiting" /> },
@@ -264,9 +303,10 @@ export const MARKS: Record<MarkKey, Entry> = {
 /// A mark's name.
 export const markName = (key: MarkKey): string => MARKS[key].name;
 
-/// The looks of the level a work's cell really runs at, its item's level raised as far as the cell's line says, lowest
-/// first: the first muted, the second in the text's colour, the third in the accent, and each above it in the accent
-/// and strong. Each colour is a token's name, as small text takes it (decision a-level-looks-as-the-level-it-runs-at).
+/// The looks of the level a work's cell really runs at, its item's level raised as far as the cell's line gets it,
+/// lowest first: the first muted, the second in the text's colour, the third in the accent, and each above it in the
+/// accent and strong. Each colour is a token's name, as small text takes it (decision
+/// a-level-looks-as-the-level-it-runs-at).
 export const LEVEL_LOOKS = [
   { colour: '--muted', strong: false },
   { colour: '--text', strong: false },
@@ -276,34 +316,49 @@ export const LEVEL_LOOKS = [
 
 export type LevelLook = (typeof LEVEL_LOOKS)[number];
 
-/// A level as a card and the item's window write it: `L2`, and `L2+1` where the cell's line raises it one above.
+/// A level as a card and the item's window write it: `L2`, and `L2+1` where the cell really runs one level above it.
 export const levelWords = (level: string, raise: number): string => (raise > 0 ? `L${level}+${raise}` : `L${level}`);
 
-/// The look of a level raised so far, by the number the level's name is and the raise, past the highest an item may be
-/// at too; a level whose name is no number takes the second.
+/// The look of the level a cell runs at, by the number the level's name is and how far it is raised; a level whose
+/// name is no number takes the second.
 export function levelLook(level: string, raise: number): LevelLook {
   const real = /^\d+$/.test(level) ? Number(level) + raise : 2;
   return LEVEL_LOOKS[Math.min(LEVEL_LOOKS.length, Math.max(1, real)) - 1];
 }
 
-/// The level a work's cell runs at, `L2` or `L2+1`, in its look, saying on pointing at it its keys, `level 2,
-/// levels_above 1`; where the engine gives no level, a dash, and why on pointing at it.
-export function LevelMark({ level, raise }: { level: string | null; raise: number }) {
+/// What pointing at a work's level says, as the keys of the definitions name it: the item's `level`, the line's
+/// `levels_above` where it asks for any, and, where a round was held below what its line asks, the setting that held it
+/// with the level it held the cell at (`cellLevel`). Where the engine gives no level, why it gives none.
+export function levelPointed(level: string | null, raise: number, held: Held | null, cellLevel: string | null): string {
+  if (level === null) return NO_LEVEL.level;
+  const keys: [string, string][] = [['level', level]];
+  const asks = held === null ? raise : held.asks;
+  if (asks > 0) keys.push(['levels_above', String(asks)]);
+  if (held !== null && held.by !== null && cellLevel !== null) keys.push([held.by, cellLevel]);
+  return keysLine(keys);
+}
+
+/// The level a work's cell runs at, `L2` or `L2+1`, in its look, saying on pointing at it what `levelPointed` says;
+/// where the engine gives no level, a dash.
+export function LevelMark({ level, raise, held = null, cellLevel = null }: {
+  level: string | null;
+  raise: number;
+  held?: Held | null;
+  cellLevel?: string | null;
+}) {
   if (level === null) {
     return (
-      <span className="mono muted" title={NO_LEVEL.level}>
+      <span className="mono muted" title={levelPointed(null, raise, held, cellLevel)}>
         {NO_LEVEL.shown}
       </span>
     );
   }
   const look = levelLook(level, raise);
-  const keys: [string, string][] = [['level', level]];
-  if (raise > 0) keys.push(['levels_above', String(raise)]);
   return (
     <span
       className="mono"
       style={{ color: `var(${look.colour})`, fontWeight: look.strong ? 'var(--weight-strong)' : undefined }}
-      title={keysLine(keys)}
+      title={levelPointed(level, raise, held, cellLevel)}
     >
       {levelWords(level, raise)}
     </span>

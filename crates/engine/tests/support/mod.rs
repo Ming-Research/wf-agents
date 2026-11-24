@@ -523,7 +523,7 @@ impl Driver {
     pub fn spent(&self, run: RunId) -> Spent {
         Spent {
             usd_micros: run.0,
-            input_tokens: self.clock % 997,
+            uncached_tokens: self.clock % 997,
             cached_tokens: 0,
             output_tokens: 1,
             ..Default::default()
@@ -553,7 +553,7 @@ impl Driver {
         }
     }
 
-    /// What the driver holds that it can do now: everything, but a call for a person only while people act.
+    /// What the driver holds that it can do now: everything, but the owner's call at a limit only while people act.
     pub fn doable(&self, people: bool) -> Vec<Effect> {
         (self.held.iter())
             .filter(|e| match e {

@@ -4,6 +4,10 @@
 //! went past the lines of their history, and what is under way now against its own (crate `driver`, module `judged`).
 //! What else goes on now the view reads from the items and the engine, as the bar and the works do.
 //!
+//! `GET /api/v1/system/under-way` gives, apart from it and light to read, what the calls of each agent's round under way
+//! have come to so far against the lines the run guard judges the round by ([`Going`]): it changes with every call, which
+//! no record of a work holds, and the page reads it each time the engine's stream of changes says `going`.
+//!
 //! The span is the weeks the page gives, `weeks`: when each begins, in milliseconds since 1970, the earliest first. The
 //! page cuts them at Monday's midnight in the owner's time zone, which knows when its clocks change and the engine does
 //! not. The span begins with the first and lasts until now; with no week given, it is all time, not cut into weeks. A
@@ -56,7 +60,7 @@ pub struct System {
     pub now: u64,
     /// When the span begins: its first week; none for all time.
     pub from: Option<u64>,
-    /// What every round that ended in the span took, and every keep-warm ping: `rounds` counts the rounds alone.
+    /// What every round that ended in the span took, and every keep-warm ping and fork: `rounds` counts the rounds alone.
     pub spent: Spent,
     /// What the keep-warm pings that ended in the span took, each counted as a round.
     #[serde(default)]
@@ -85,9 +89,174 @@ pub struct System {
     #[serde(default)]
     pub past: Vec<Past>,
     /// The rounds and the calls of tools under way now, the oldest first, each with how long it has taken so far
-    /// against its line, and an agent's round with the other lines it is judged by as it runs.
+    /// against its line.
     #[serde(default)]
     pub under_way: Vec<UnderWay>,
+    /// What the merged checks of each project say of how long its tests and jobs took: the tests that got slower, the
+    /// CI series that grew, and the latest merges each with what its check took and what it added.
+    #[serde(default)]
+    pub tests: Vec<TestTimes>,
+    /// The tries of the span whose program left processes running in its group as it ended, which were stopped, the
+    /// latest first: what they did no one read, and what they took is counted nowhere.
+    #[serde(default)]
+    pub left_behind: Vec<LeftBehind>,
+    /// The stop the engine was asked for, while it stands, with how long it is expected to take to end.
+    #[serde(default)]
+    pub stopping: Option<Stop>,
+}
+
+/// A stop of the engine that stands: since when it was asked for, whether at once, and how much longer the engine is
+/// expected to run: the longest rest of the rounds under way, which it ends after; nothing where none is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Stop {
+    pub since: u64,
+    pub at_once: bool,
+    pub rest: Rest,
+}
+
+/// How much longer something under way is expected to take, by its history ([`driver::judged::Rest`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum Rest {
+    /// About this many milliseconds more.
+    Expected { ms: u64 },
+    /// It has taken longer than anything of its history.
+    Longer {},
+}
+
+impl Rest {
+    fn of(rest: driver::judged::Rest) -> Rest {
+        match rest {
+            driver::judged::Rest::Expected(ms) => Rest::Expected { ms: ms.round() as u64 },
+            driver::judged::Rest::Longer => Rest::Longer {},
+        }
+    }
+
+    /// The later of two rests: longer than any before where either is.
+    fn latest(self, other: Rest) -> Rest {
+        match (self, other) {
+            (Rest::Expected { ms: a }, Rest::Expected { ms: b }) => Rest::Expected { ms: a.max(b) },
+            _ => Rest::Longer {},
+        }
+    }
+}
+
+/// How much longer the rounds of what is under way are expected to take, all of them: the latest of their rests, a
+/// round with none taken as longer than any before, and none to come where no round is under way. A stop that waits
+/// for them ends then.
+pub fn rest_of_rounds(under_way: &[UnderWay]) -> Rest {
+    (under_way.iter())
+        .filter_map(|under_way| match under_way {
+            UnderWay::Round { rest, .. } => Some(rest.unwrap_or(Rest::Longer {})),
+            UnderWay::Call { .. } => None,
+        })
+        .fold(Rest::Expected { ms: 0 }, Rest::latest)
+}
+
+/// What the merged checks of a project say of the time of its tests and jobs (crate `driver`, module `timed`): each
+/// work named is the one whose merge the thing was measured at.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestTimes {
+    pub project: Option<String>,
+    /// How many merged checks the project has: a judgment needs [`driver::history::HISTORY_SAMPLES`] of them, and the
+    /// growth of the CI twice as many.
+    pub checks: usize,
+    /// The tests that took longer than their own history says in the latest merged check and in the one before.
+    pub slowed: Vec<SlowedTest>,
+    /// The series of the CI's times that grew.
+    pub grown: Vec<Grown>,
+    /// The latest merges, the earliest first.
+    pub merges: Vec<MergeTimes>,
+}
+
+/// A test that got slower.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SlowedTest {
+    pub work: u64,
+    pub unit: String,
+    pub name: String,
+    pub millis: u64,
+    /// The median of its earlier times and the line they give, in milliseconds.
+    pub median: u64,
+    pub line: u64,
+}
+
+/// A series of the checks' times that grew: `of` is `tests`, the sum of the tests' times, or the name of a job.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Grown {
+    pub of: String,
+    /// The work whose merge the series stepped at.
+    pub work: u64,
+    /// The median of the `n` values before the latest `n`, and of the latest `n`, in milliseconds.
+    pub before: u64,
+    pub after: u64,
+    pub above: usize,
+    pub n: usize,
+    pub needed: usize,
+}
+
+/// What a merged check took: each job, the tests in all, and the tests it added to the check before it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeTimes {
+    pub work: u64,
+    pub jobs: Vec<JobTime>,
+    pub tests_millis: u64,
+    pub added: usize,
+    pub added_millis: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JobTime {
+    pub name: String,
+    pub millis: u64,
+}
+
+impl TestTimes {
+    /// What the driver worked out of a project's merged checks, as the system says it.
+    fn of(tested: driver::timed::Tested) -> TestTimes {
+        TestTimes {
+            project: tested.project,
+            checks: tested.checks,
+            slowed: (tested.slowed.into_iter())
+                .map(|s| SlowedTest {
+                    work: s.work.0,
+                    unit: s.unit,
+                    name: s.name,
+                    millis: s.millis,
+                    median: s.median.round() as u64,
+                    line: s.line.round() as u64,
+                })
+                .collect(),
+            grown: (tested.growth.into_iter())
+                .map(|g| Grown {
+                    of: g.of,
+                    work: g.work.0,
+                    before: g.before.round() as u64,
+                    after: g.after.round() as u64,
+                    above: g.above,
+                    n: g.n,
+                    needed: g.needed,
+                })
+                .collect(),
+            merges: (tested.series.into_iter())
+                .map(|row| MergeTimes {
+                    work: row.work.0,
+                    jobs: (row.jobs.into_iter())
+                        .map(|(name, millis)| JobTime { name, millis })
+                        .collect(),
+                    tests_millis: row.tests_millis,
+                    added: row.added,
+                    added_millis: row.added_millis,
+                })
+                .collect(),
+        }
+    }
 }
 
 /// A week: what its rounds took, and how many of each thing that is counted happened in it.
@@ -96,7 +265,7 @@ pub struct System {
 pub struct Week {
     /// When it begins, as the page gave it.
     pub start: u64,
-    /// What its rounds and its keep-warm pings took: `rounds` counts the rounds alone.
+    /// What its rounds, its keep-warm pings and its forks took: `rounds` counts the rounds alone.
     pub spent: Spent,
     /// What the keep-warm pings that ended in it took, each counted as a round.
     #[serde(default)]
@@ -214,6 +383,44 @@ pub struct FailedRound {
     pub spent: Spent,
 }
 
+/// A program run for a work that left processes running in its group as it ended, which were stopped then: which
+/// program, and how many.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LeftBehind {
+    pub work: u64,
+    pub item: u64,
+    pub of: LeftOf,
+    pub at: u64,
+    pub processes: usize,
+}
+
+/// What a program that left processes running was run for ([`work::Left`]), with the cell of the run it was run for.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum LeftOf {
+    /// A try of a round of a run of an agent's cell.
+    Try {
+        cell: String,
+        run: u64,
+        round: usize,
+        attempt: usize,
+    },
+    /// The project's check, run by a round of a run of an act's cell.
+    Act { cell: String, run: u64, round: usize },
+    /// The project's check, run for a call of the tool by a run of the cell.
+    Call {
+        cell: String,
+        run: u64,
+        call: u64,
+        tool: String,
+    },
+    /// A keep-warm ping of the session of this number of the line.
+    Ping { line: String, session: u32 },
+    /// A fork of the session of a round of a run of an agent's cell.
+    Fork { cell: String, run: u64, round: usize },
+}
+
 /// What ended past the line of its history.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
@@ -258,7 +465,7 @@ impl Past {
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum UnderWay {
     /// A round of a run of the cell, which began then: how long it has taken so far against its line, where enough
-    /// rounds tell one, and for an agent's round the other lines it is judged by as it runs.
+    /// rounds tell one, and how much longer it is expected to take.
     Round {
         work: u64,
         item: u64,
@@ -267,7 +474,8 @@ pub enum UnderWay {
         round: usize,
         began: u64,
         time: Option<Against>,
-        bounds: Option<Bounds>,
+        #[serde(default)]
+        rest: Option<Rest>,
     },
     /// A call of the tool by a run of the cell, made then, with no result yet: how long it has taken so far against
     /// its line, where enough calls of the tool tell one.
@@ -293,27 +501,61 @@ impl UnderWay {
     }
 }
 
-/// The lines an agent's round under way is judged by beside its time, each none where too few rounds tell it: the
-/// run guard stops the round where its context grows past both `added` and `rate`, and what it costs is read against
-/// `cost` once it ends.
+/// What the calls to the model of an agent's round under way have come to so far, each measure none before a call
+/// tells it: what `GET /api/v1/system/under-way` gives for each round. The lines are those the run guard judges the
+/// round by, as they were when it began.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Bounds {
-    /// The tokens its context grows by over the round.
-    pub added: Option<Line>,
-    /// The tokens its context grows by for each call after the first.
-    pub rate: Option<Line>,
-    /// What it costs, in millionths of a dollar, among the rounds on the model its try runs on.
-    pub cost: Option<Line>,
+pub struct Going {
+    pub work: u64,
+    pub run: u64,
+    pub round: usize,
+    /// The whole prompt of the latest call, in tokens.
+    pub context: Option<u64>,
+    /// The tokens the context has grown by over the round.
+    pub added: Option<Figure>,
+    /// The tokens the context has grown by for each call after the first, from the second call.
+    pub per_call: Option<Figure>,
+    /// What the calls cost so far, in millionths of a dollar, priced from the calls.
+    pub cost: Option<Figure>,
 }
 
-impl Bounds {
-    fn of(lines: &driver::history::Lines) -> Bounds {
-        Bounds {
-            added: lines.added.as_ref().map(Line::of),
-            rate: lines.rate.as_ref().map(Line::of),
-            cost: lines.cost.as_ref().map(Line::of),
+/// A measure of a round under way, with the line it is judged by where the history gives one, and whether it is past
+/// it, as the driver judges it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Figure {
+    pub value: u64,
+    pub line: Option<Line>,
+    pub past: bool,
+}
+
+impl Figure {
+    fn of(figure: &driver::Figure) -> Figure {
+        Figure {
+            value: figure.value.round() as u64,
+            line: figure.line.as_ref().map(Line::of),
+            past: figure.past(),
         }
+    }
+}
+
+impl Going {
+    /// What each agent's round under way has come to, by its work, run and round.
+    pub fn of(driver: &Driver) -> Vec<Going> {
+        let mut going: Vec<Going> = (driver.rounds_come_to().into_iter())
+            .map(|(work, run, round, going)| Going {
+                work: work.0,
+                run: run.0,
+                round,
+                context: going.context,
+                added: going.added.as_ref().map(Figure::of),
+                per_call: going.per_call.as_ref().map(Figure::of),
+                cost: going.cost.as_ref().map(Figure::of),
+            })
+            .collect();
+        going.sort_by_key(|g| (g.work, g.run, g.round));
+        going
     }
 }
 
@@ -338,6 +580,9 @@ impl System {
             failed: Vec::new(),
             past: Vec::new(),
             under_way: Vec::new(),
+            tests: driver.tested().into_iter().map(TestTimes::of).collect(),
+            left_behind: Vec::new(),
+            stopping: None,
         };
         let judged = driver.judged(None, now);
         let mut counted: BTreeMap<u64, Week> = (weeks.iter())
@@ -369,27 +614,69 @@ impl System {
                     week.added += 1;
                 }
             }
-            let pinged = crate::works::pinged(kept.work, &within);
-            system.pinged = system.pinged.with(pinged);
-            system.spent = system.spent.with(pinged.as_no_round());
-            for ping in &kept.work.pinged {
-                let Some(at) = kept.work.time_of(ping.at).map(|at| at.0).filter(|at| within(*at)) else {
-                    continue;
-                };
+            let beside = crate::works::spent_beside_rounds(kept.work, &within)?;
+            system.pinged = system.pinged.with(beside.pinged);
+            system.spent = system.spent.with(beside.all().as_no_round());
+            for (at, kind, one) in crate::works::beside_rounds(kept.work, &within)? {
                 if let Some(week) = week_of(&mut counted, at) {
-                    let one = Spent {
-                        usd_micros: ping.spent.usd_micros,
-                        input_tokens: ping.spent.input_tokens,
-                        cached_tokens: ping.spent.cached_tokens,
-                        output_tokens: ping.spent.output_tokens,
-                        working_ms: 0,
-                        rounds: 1,
-                    };
-                    week.pinged = week.pinged.with(one);
+                    if kind == work::BesideKind::Ping {
+                        week.pinged = week.pinged.with(one);
+                    }
                     week.spent = week.spent.with(one.as_no_round());
                 }
             }
-            let mut of_work = pinged.as_no_round();
+            for left in &kept.work.left_behind {
+                let Some(at) = kept.work.time_of(left.at).map(|at| at.0).filter(|at| within(*at)) else {
+                    continue;
+                };
+                let cell_of = |of: RunId| runs.iter().find(|run| run.run == of.0).map(|run| run.cell.clone());
+                let of = match &left.of {
+                    work::Left::Try { run, round, attempt } => cell_of(*run).map(|cell| LeftOf::Try {
+                        cell,
+                        run: run.0,
+                        round: *round,
+                        attempt: *attempt,
+                    }),
+                    work::Left::Act { run, round } => cell_of(*run).map(|cell| LeftOf::Act {
+                        cell,
+                        run: run.0,
+                        round: *round,
+                    }),
+                    work::Left::Call { call } => (runs.iter()).find_map(|run| {
+                        let made = run.calls.iter().find(|c| c.call == call.0)?;
+                        let tool = match &made.what {
+                            Call::Tool { name, .. } => name.clone(),
+                            _ => return None,
+                        };
+                        Some(LeftOf::Call {
+                            cell: run.cell.clone(),
+                            run: run.run,
+                            call: call.0,
+                            tool,
+                        })
+                    }),
+                    work::Left::Ping { line, session } => Some(LeftOf::Ping {
+                        line: line.clone(),
+                        session: *session,
+                    }),
+                    work::Left::Fork { run, round } => cell_of(*run).map(|cell| LeftOf::Fork {
+                        cell,
+                        run: run.0,
+                        round: *round,
+                    }),
+                };
+                let Some(of) = of else {
+                    continue;
+                };
+                system.left_behind.push(LeftBehind {
+                    work,
+                    item,
+                    of,
+                    at,
+                    processes: left.processes,
+                });
+            }
+            let mut of_work = beside.all().as_no_round();
             for run in &runs {
                 let (number, cell) = (kept.head.number, &run.cell);
                 for call in &run.calls {
@@ -443,7 +730,7 @@ impl System {
                             round: round.number,
                             began: round.began,
                             time: shown.time,
-                            bounds: of_round.and_then(|judged| judged.lines.as_ref()).map(Bounds::of),
+                            rest: of_round.and_then(|judged| judged.rest).map(Rest::of),
                         }),
                         Some(ended) if within(ended) => {
                             let past = |against: Option<Against>| against.is_some_and(|a| a.past);
@@ -511,7 +798,7 @@ impl System {
                     }
                 }
             }
-            if of_work.rounds > 0 || pinged.rounds > 0 {
+            if of_work.rounds > 0 || beside.all().rounds > 0 {
                 system.by_work.push(WorkSpent {
                     work,
                     item,
@@ -525,8 +812,7 @@ impl System {
                         item,
                         at,
                         from: runs.iter().flat_map(|run| &run.rounds).map(|round| round.began).min(),
-                        spent: (runs.iter().fold(Spent::default(), |sum, run| sum.with(run.spent)))
-                            .with(crate::works::pinged(kept.work, &|_| true).as_no_round()),
+                        spent: spent_in_all(&runs, kept.work)?,
                     });
                     if let Some(week) = week_of(&mut counted, at) {
                         week.merged += 1;
@@ -563,8 +849,22 @@ impl System {
         system.failed.sort_by_key(|x| std::cmp::Reverse(x.ended));
         system.past.sort_by_key(|x| std::cmp::Reverse(x.ended()));
         system.under_way.sort_by_key(UnderWay::began);
+        system.left_behind.sort_by_key(|x| std::cmp::Reverse(x.at));
+        // The engine ends once the last round under way has: as the latest of their rests says.
+        system.stopping = driver.stopping().map(|stop| Stop {
+            since: stop.since.0,
+            at_once: stop.at_once,
+            rest: rest_of_rounds(&system.under_way),
+        });
         Ok(system)
     }
+}
+
+/// What a work took in all, whenever it was: what its runs' rounds took, and its calls beside its rounds, its keep-warm
+/// pings and its forks, counted in no round.
+fn spent_in_all(runs: &[Run], work: &work::Work) -> Result<Spent, Broken> {
+    Ok((runs.iter().fold(Spent::default(), |sum, run| sum.with(run.spent)))
+        .with(crate::works::spent_beside_rounds(work, &|_| true)?.all().as_no_round()))
 }
 
 /// The week a time falls in, where the span is cut into weeks: the latest that begins at it or before.
@@ -603,6 +903,15 @@ fn models(kept: Kept<'_>) -> BTreeMap<(u64, usize), String> {
     (kept.work.ran.iter())
         .map(|ran| ((ran.run.0, ran.round), ran.on.model.clone()))
         .collect()
+}
+
+/// Answers `GET /api/v1/system/under-way`: what the calls of each agent's round under way have come to so far. Read from
+/// what the engine keeps in memory, so that a page reads it each time it is told it changed ([`service::Changed`]).
+pub(crate) async fn under_way(State(handle): State<Handle>) -> Response {
+    match handle.read(Going::of).await {
+        Ok(going) => Json(going).into_response(),
+        Err(refusal) => refused(&refusal),
+    }
 }
 
 /// Answers `GET /api/v1/system`.
@@ -659,5 +968,49 @@ mod tests {
         let none = driver::On::NotKept { end: End::Merged };
         let kept = stored.kept(&installed, &none, &work);
         assert_eq!(RanOn::of(kept, "merge", None), RanOn::NotRecorded);
+    }
+
+    // What a merged work took in all is its runs' rounds and its calls beside them, its pings and its forks, in no
+    // round. Milliseconds; the merged works of the System view are the only reader of this sum.
+    #[test]
+    fn what_a_work_took_in_all_counts_its_forks_beside_its_pings_and_in_no_round() {
+        let mut work = Work::default();
+        work.moments.push(work::Moment {
+            from: decide::Seq(1),
+            at: Time(1_000),
+        });
+        work.pinged.push(work::Pinged {
+            at: decide::Seq(2),
+            line: "engineer".to_string(),
+            session: 0,
+            spent: work::Spent {
+                usd_micros: 20_000,
+                uncached_tokens: 5,
+                cache_written_tokens: Some(2),
+                ..Default::default()
+            },
+            failed: None,
+        });
+        work.forked.push(work::Forked {
+            at: decide::Seq(3),
+            run: RunId(1),
+            round: 1,
+            usd_micros: 300_000,
+            uncached_tokens: 120,
+            cache_written_tokens: Some(100),
+            cached_tokens: 18_100,
+            output_tokens: 30,
+        });
+        let spent = spent_in_all(&[], &work).expect("the records are sound");
+        assert_eq!(
+            (
+                spent.usd_micros,
+                spent.input_tokens,
+                spent.cache_written_tokens,
+                spent.cached_tokens,
+                spent.rounds
+            ),
+            (320_000, 23, 102, 18_100, 0)
+        );
     }
 }

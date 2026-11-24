@@ -152,12 +152,23 @@ interface RoundSpec {
   fails?: string;
 }
 
-const nothing = (): Spent => ({ usdMicros: 0, inputTokens: 0, cachedTokens: 0, outputTokens: 0, workingMs: 0, rounds: 0 });
+const nothing = (): Spent => ({
+  usdMicros: 0,
+  inputTokens: 0,
+  cacheWrittenTokens: 0,
+  unsplitTokens: 0,
+  cachedTokens: 0,
+  outputTokens: 0,
+  workingMs: 0,
+  rounds: 0,
+});
 
 function add(a: Spent, b: Spent): Spent {
   return {
     usdMicros: a.usdMicros + b.usdMicros,
     inputTokens: a.inputTokens + b.inputTokens,
+    cacheWrittenTokens: a.cacheWrittenTokens + b.cacheWrittenTokens,
+    unsplitTokens: a.unsplitTokens + b.unsplitTokens,
     cachedTokens: a.cachedTokens + b.cachedTokens,
     outputTokens: a.outputTokens + b.outputTokens,
     workingMs: a.workingMs + b.workingMs,
@@ -320,11 +331,15 @@ class History {
     this.next(minutes);
     round.ended = this.time;
     const input = Math.round(14_000 + minutes * 3_100);
+    // Nearly all of what a round sends and does not read from the cache it writes to it.
+    const fresh = Math.round(input * 0.02);
     const cached = Math.round(input * 0.7);
     const output = Math.round(600 + minutes * 450);
     round.spent = {
       usdMicros: Math.round((spec.usd ?? (input * 3 + cached * 0.3 + output * 15) / 1_000_000) * 1_000_000),
-      inputTokens: input,
+      inputTokens: fresh,
+      cacheWrittenTokens: input - fresh,
+      unsplitTokens: 0,
       cachedTokens: cached,
       outputTokens: output,
       workingMs: minutes * MINUTE,
@@ -461,7 +476,7 @@ class History {
             const meaning = this.meaningAt(i.block, i.current);
             const by = this.versions.get(i.block)?.find((v) => v.number === meaning)?.by;
             const behind = by?.kind === 'run' && (order.get(by.cell) ?? 0) > (order.get(cellId) ?? 0);
-            return { kind: 'changed', block: i.block, was: i.known, behind };
+            return { kind: 'changed', block: i.block, workedFrom: i.known, behind };
           });
     return { cell: cellId, needs, inputs };
   }
@@ -640,11 +655,12 @@ function long(start: number): Built {
       { block: 'solution', content: prose('Solution', ['Dollars to the cent', 'Tokens in thousands']) },
       { block: 'code', content: 'a sketch of the column' },
     ],
-    sentBack: [{ kind: 'notAnOutput', block: 'code' }],
+    sentBack: [{ key: 'not_an_output', values: [{ name: 'block', value: 'code' }] }],
   });
   h.round(deep, { minutes: 2, hands: [{ block: 'solution', content: prose('Solution', ['Dollars to the cent', 'Tokens in thousands']) }] });
   h.finish(deep);
-  // The implementation asks the owner a question and rests at it...
+  // The implementation asks the owner a question, as a work recorded before the engine stopped making them did, and
+  // rests at it...
   const first = h.start('implement');
   h.round(first, {
     minutes: 6,
@@ -741,26 +757,36 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
   }
 
   {
-    // Waiting for the owner's answer to a question.
+    // A run at its limit of calls made.
     const h = new History(hours(5));
     h.wrote('request', 'owner', REQUEST_TEXT('List the works of every item, those that wait for the owner first.'));
     const run = h.start('plan');
     h.round(run, {
-      asks: [{ kind: 'question', who: 'owner', question: 'Should the list show the works of cancelled items, or leave them out?' }],
+      asks: [
+        { kind: 'tool', name: 'read', input: '{"block":"request"}', result: 'List the works of every item…' },
+        { kind: 'tool', name: 'read', input: '{"path":"client/src/works/WorkView.tsx"}', result: '// The works page…' },
+      ],
     });
-    const call = run.calls[0].call;
-    const asked: Wait = {
-      key: `call-${call}`,
-      why: 'Should the list show the works of cancelled items, or leave them out?',
-      ends: { kind: 'reply', call },
+    h.round(run, {
+      asks: [
+        { kind: 'tool', name: 'read', input: '{"path":"client/src/works/placing.ts"}', result: '// Where a work stands…' },
+        { kind: 'tool', name: 'read', input: '{"path":"client/src/works/words.ts"}', result: '// The words of the works page…' },
+      ],
+    });
+    const limit = { kind: 'atLimit' as const, limit: { of: 'calls' as const, made: 4 } };
+    const call = h.atLimit(run, limit);
+    const atLimit: Wait = {
+      key: 'limit',
+      why: "The cell's run made 4 calls, which is its limit.",
+      ends: { kind: 'goOn', call },
     };
     keep({
       page: h.page(
         43,
         143,
         'List every work',
-        { kind: 'waits', at: 'plan', on: [{ kind: 'call', call, who: 'owner', what: run.calls[0].what }] },
-        { waits: [asked] },
+        { kind: 'waits', at: 'plan', on: [{ kind: 'call', call, who: 'owner', what: limit }] },
+        { waits: [atLimit] },
       ),
       history: h,
     });
@@ -777,11 +803,11 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
     const run = h.start('implement');
     h.round(run, {
       hands: [{ block: 'code', content: 'commit 1a2b3c4' }, { block: 'code', content: 'commit 1a2b3c5' }],
-      sentBack: [{ kind: 'writtenTwice', block: 'code' }],
+      sentBack: [{ key: 'written_twice', values: [{ name: 'block', value: 'code' }] }],
     });
     h.round(run, {
       hands: [{ block: 'code', content: 'commit 1a2b3c6' }, { block: 'answer_review', content: 'x', value: 'done' }],
-      sentBack: [{ kind: 'notAChoice', block: 'answer_review' }],
+      sentBack: [{ key: 'not_a_choice', values: [{ name: 'block', value: 'answer_review' }] }],
     });
     h.round(run, { hands: [{ block: 'solution', content: 'a solution' }] });
     const limit = { kind: 'atLimit' as const, limit: { of: 'returns' as const, sentBack: 2 } };

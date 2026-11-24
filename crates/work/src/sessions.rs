@@ -4,11 +4,12 @@
 //! one, or something makes its session hold only a summary: each is an entry of the work, [`Session`], with why. A
 //! session the program lost is begun again under the same id, and a compacted one goes on under it; every other new
 //! session has an id of its own, so that a round finds its session by counting the line's new sessions recorded before
-//! its first try began ([`start`], [`of_round`]), and needs nothing stored but the records.
+//! the round began ([`start`], [`of_round`]), and needs nothing stored but the records: a new session recorded while a
+//! round of the line is under way is the line's next round's, whatever the round has recorded of itself since.
 //! What each try of a round ran on is recorded as the try begins ([`RanOn`]), so that what a session was begun on is
 //! the records' too ([`began_on`]).
 
-use decide::{RunId, Seq};
+use decide::{CallId, RunId, Seq};
 use serde::{Deserialize, Serialize};
 
 use crate::{Spent, Work};
@@ -35,6 +36,36 @@ pub struct Ran {
     /// before tries were recorded has no record, so the records are not counted to find a try's.
     pub attempt: usize,
     pub on: RanOn,
+}
+
+/// A program the engine ran for the work ended by itself and left processes running in its process group, which its
+/// carrier stopped before it gave the program's end (decision `what-a-program-leaves-is-stopped`): which program, and
+/// how many it stopped. No one read what they would have printed, and what they took is counted nowhere else.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LeftBehind {
+    /// The place of the entry in the order of what happened to the work.
+    pub at: Seq,
+    pub of: Left,
+    /// How many processes were stopped: one or more.
+    pub processes: usize,
+}
+
+/// What a program that left processes running was run for.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum Left {
+    /// A try of an agent's round: the round's number in its run and the try's in its round, the first of each being
+    /// one, as [`Ran`] numbers them.
+    Try { run: RunId, round: usize, attempt: usize },
+    /// The project's check, run by a round of an engine's act, its number in its run, the first being one.
+    Act { run: RunId, round: usize },
+    /// The project's check, run for a call of a tool.
+    Call { call: CallId },
+    /// A keep-warm ping of the session of this number of the line, its sessions counted from none.
+    Ping { line: String, session: u32 },
+    /// A fork of the session of the round of this number of the run, the first being one, as [`crate::Forked`] names
+    /// the round it was asked of.
+    Fork { run: RunId, round: usize },
 }
 
 /// What a try of an agent's round ran on, as its carrier chose it as the try began: the level, the model of that
@@ -102,56 +133,6 @@ impl Why {
     pub fn own_id(&self) -> bool {
         !matches!(self, Why::Lost | Why::Compacted)
     }
-
-    /// The names of its kinds, each the name of the words of it where the flow says what the engine writes of a new
-    /// session: [`Why::named`] gives a kind's name from here, by [`Why::kind`].
-    pub const KINDS: [&'static str; 10] = [
-        "limit",
-        "model",
-        "changed",
-        "account",
-        "owner",
-        "flagged",
-        "guarded",
-        "too_long",
-        "lost",
-        "compacted",
-    ];
-
-    /// Its kind's place among [`Why::KINDS`]. The match names every kind, so that a kind added to `Why` is given a
-    /// name there before the engine builds.
-    fn kind(&self) -> usize {
-        match self {
-            Why::Limit { .. } => 0,
-            Why::Model { .. } => 1,
-            Why::Changed { .. } => 2,
-            Why::Account { .. } => 3,
-            Why::Owner => 4,
-            Why::Flagged => 5,
-            Why::Guarded => 6,
-            Why::TooLong => 7,
-            Why::Lost => 8,
-            Why::Compacted => 9,
-        }
-    }
-
-    /// Its kind, by its name among [`Why::KINDS`], and the places the words of it fill in a run, each with its value.
-    pub fn named(&self) -> (&'static str, Vec<(&'static str, String)>) {
-        let places = match self {
-            Why::Limit { context, limit } => vec![("context", context.to_string()), ("limit", limit.to_string())],
-            Why::Model { was } => vec![("was", was.clone())],
-            // The context left is the owner's to read, from the record: the agents of the new session are not told it.
-            Why::Changed { .. }
-            | Why::Account { .. }
-            | Why::Owner
-            | Why::Flagged
-            | Why::Guarded
-            | Why::TooLong
-            | Why::Lost
-            | Why::Compacted => Vec::new(),
-        };
-        (Self::KINDS[self.kind()], places)
-    }
 }
 
 /// Where the round of this number of the run began; none where the records hold no such round.
@@ -161,19 +142,21 @@ pub fn began_at(work: &Work, run: RunId, number: usize) -> Option<Seq> {
 }
 
 /// Where the round of this number of the run takes its session from: the line's sessions recorded before this place
-/// are the ones it counts. A round runs in the session its line is in as its first try begins, so this is where its
-/// first try's record is; where it has none and has ended (a round kept before tries were recorded, or one that failed
-/// before its program ran), where it began; and where it has none and has not ended, or has not begun, the next place,
-/// since its first try is yet to begin. A round under way as the engine opens and records a new session of its line
-/// before giving it again, as for a flag of a store kept before sessions were recorded, so runs in that session.
+/// are the ones it counts. A round runs in the session its line is in as the round begins, which is what the carrier
+/// decides it from, the work as it was kept as the round was handed out; so this is where the round began, whatever is
+/// recorded after it, such as a new session the line begins as the carrier takes main in, before the round's first try.
+/// Where the records hold no such round, it is the next place.
 pub fn start(work: &Work, run: RunId, number: usize) -> Seq {
-    let first = (work.ran.iter()).find(|r| r.run == run && r.round == number);
-    let ended = work.records.returned.iter().filter(|r| r.run == run).count() >= number;
-    match (first, began_at(work, run, number)) {
-        (Some(first), _) => first.at,
-        (None, Some(began)) if ended => began,
-        _ => work.tick(),
-    }
+    began_at(work, run, number).unwrap_or_else(|| work.tick())
+}
+
+/// Where the first try of the round of this number of the run began, which is when its first call to the model was
+/// made: what the prompt cache is asked about, and not [`start`], where the round's session is decided, which comes
+/// before it by as long as the carrier takes to take main in. Where the round has no try recorded, it is [`start`].
+pub fn first_try_at(work: &Work, run: RunId, number: usize) -> Seq {
+    (work.ran.iter())
+        .find(|t| t.run == run && t.round == number)
+        .map_or_else(|| start(work, run, number), |t| t.at)
 }
 
 /// The line's sessions, in the order they were recorded.
@@ -190,7 +173,7 @@ pub fn number_at(work: &Work, line: &str, at: Seq) -> u32 {
 
 /// Whether the round took tokens: it reached the model.
 fn spent(s: &Spent) -> bool {
-    s.input_tokens + s.cached_tokens + s.output_tokens > 0
+    s.uncached_tokens + s.cached_tokens + s.output_tokens > 0
 }
 
 /// Whether the round of this number of the run put its message into its session: it reached the model, or its last
@@ -239,24 +222,6 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn each_kind_of_a_new_session_has_a_name_of_its_own_among_the_kinds() {
-        let every = [
-            Why::Limit { context: 2, limit: 1 },
-            Why::Model { was: "m".to_string() },
-            Why::Changed { context: Some(3) },
-            Why::Account { was: None },
-            Why::Owner,
-            Why::Flagged,
-            Why::Guarded,
-            Why::TooLong,
-            Why::Lost,
-            Why::Compacted,
-        ];
-        let names: Vec<&str> = every.iter().map(|w| w.named().0).collect();
-        assert_eq!(names, Why::KINDS);
-    }
-
     /// A work whose one run has rounds begun at these places, each ended after it with these tokens, and these
     /// sessions recorded.
     fn work(rounds: &[(u64, u64)], sessions: &[(u64, Why)]) -> Work {
@@ -271,7 +236,7 @@ mod tests {
                 run: RunId(1),
             });
             let spent = Spent {
-                input_tokens: *tokens,
+                uncached_tokens: *tokens,
                 ..Spent::default()
             };
             work.spent.insert((RunId(1), n), spent);
@@ -325,6 +290,28 @@ mod tests {
     }
 
     #[test]
+    fn a_session_recorded_after_a_round_began_is_not_the_rounds_even_when_its_first_try_follows() {
+        // Round 2 begins at 3 in session 0, as its carrier decides it from the work as it was kept then; a new session
+        // is recorded at 5, as the carrier takes main in, and the round's first try is recorded at 6, after it.
+        let mut w = work(&[(1, 10), (3, 10), (8, 10)], &[(5, Why::Changed { context: Some(7) })]);
+        w.records.returned[1].at = Seq(7);
+        w.ran.push(ran(6, RunId(1), 2));
+        assert_eq!(of(&w, 2), (0, false), "the round goes on in the session it began in");
+        assert_eq!(
+            of(&w, 3),
+            (1, true),
+            "the round that begins after the new session begins it"
+        );
+        let mut kept = work(&[(1, 10), (3, 10)], &[]);
+        kept.records.returned.truncate(1);
+        assert_eq!(
+            of(&kept, 2),
+            of(&w, 2),
+            "what the carrier decided from the work as kept as the round began is what the records say"
+        );
+    }
+
+    #[test]
     fn a_session_the_program_lost_is_begun_again_under_its_id() {
         let w = work(&[(1, 10), (3, 10), (6, 10)], &[(4, Why::Lost)]);
         assert_eq!(
@@ -352,7 +339,7 @@ mod tests {
             w.records.returned.push(Returned { at: Seq(at), run });
         }
         let tokens = Spent {
-            input_tokens: 10,
+            uncached_tokens: 10,
             ..Spent::default()
         };
         for key in [(one, 1), (one, 2), (two, 1)] {

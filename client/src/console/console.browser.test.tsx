@@ -1,18 +1,18 @@
 // The console in a real browser (Chromium, through Vitest's browser mode): the tree is drawn by WebGL, which happy-dom
-// does not have, and its motion is the frames the browser draws. These pin what the console on `old-main` did, which
-// had no tests of its own for it: a scroll over a column moves that column and rests where the scroll stops, as far as
+// does not have, and its motion is the frames the browser draws. These pin what the console does: a scroll over a column moves that column and rests where the scroll stops, as far as
 // leaves three rows on the screen; a sideways scroll or a drag moves the columns sideways, no further than leaves half
 // of the first or the last column on the screen; a click selects the item under the pointer, and a click on a shadow
 // the item it points to, brought to the middle; the tree drawn again stands where it stood, the item selected kept; an
 // item revealed comes into the room the panel leaves, or to the middle when it is above or below what is seen; the
 // columns beside the one scrolled follow it, each where what joins it to the next near the middle of the screen is
-// level, and never faster than half again the one it follows; the view stands through a change of height or theme; and
+// level, only the way the one it follows moves and never faster than half again; the view stands through a change of height or theme; and
 // once destroyed, the scene listens to nothing. The pointer and the wheel are events sent to the canvas at the points
 // the test works out from where the columns stand (`place`), so that each lands where the test means; the keys are the
-// browser's own. They pin as well what the old console did not do: a click on an item's funnel folds what is under it
+// browser's own. They pin as well: a click on an item's funnel folds what is under it
 // into a dot and a click on the dot shows it again, both selecting nothing, the fold turning over its time; the
-// console keeps that choice over its own rule; a lit way turns into the cards it joins along its own curve; and the way
-// to a work the engine runs a call for is lit, as to one whose round runs.
+// console keeps that choice over its own rule; a lit way turns into the cards it joins along its own curve; the way to
+// a work the engine runs a call for is lit, as to one whose round runs; and the item selected flashes once when asked,
+// as a click on its title in the panel asks, and then draws nothing that stands again while only the lights move.
 
 import '../styles/tokens.css';
 import '../styles/parts.css';
@@ -24,14 +24,31 @@ import { userEvent } from 'vitest/browser';
 import { DEFAULT_ACCENT, pickAccent, PRESETS, tones } from '../accent';
 import { apart, lchOf } from '../colour';
 import { MARKS } from '../marks';
-import type { Items, Now } from '../works-api';
+import { useBarItems } from '../Engine';
+import { NO_LEVEL } from '../works/words';
+import type { Changed, Items, Now } from '../works-api';
+import { FIXTURES, type Source as PageSource, SourceContext } from '../works/source';
 import { fixtureSource } from './fixtures';
 import { FIND_SAYS } from './find';
 import { CONSOLE_MARKS } from './help';
-import type { Heard } from './source';
 import { ConsolePage } from './index';
 import type { Shown, ShownWork } from './items';
-import { DOT_AT, FOLD_MS, KEEP, NODE_W, PACE, PITCH, ROW, SnapScene, themed, UNFOLD_MS } from './snap';
+import {
+  DIM,
+  DOT_AT,
+  FLASH_MS,
+  FOLD_MS,
+  KEEP,
+  NODE_W,
+  PACE,
+  PITCH,
+  ROW,
+  RUN,
+  SnapScene,
+  themed,
+  UNFOLD_MS,
+} from './snap';
+import { TRACK_KINDS, TRACK_WORDS } from './track';
 
 const WIDTH = 1000;
 const HEIGHT = 640;
@@ -68,6 +85,8 @@ const running = (number: number): ShownWork => {
     last: null,
     level: '2',
     raise: 0,
+    cellLevel: '2',
+    held: null,
     lines: null,
   };
 };
@@ -182,6 +201,75 @@ describe('the tree in columns', () => {
     expect(told).toHaveBeenLastCalledWith(expect.objectContaining({ id: 1 }));
     click(x, HEIGHT - 20);
     expect(told).toHaveBeenLastCalledWith(null);
+  });
+
+  it('says on pointing at the level on a card what the item window says of it, in every case, and turns the pointer to no hand over it', async () => {
+    const worked = (id: number, work: Partial<ShownWork>): Shown => ({ ...card(id), work: { ...running(id), ...work } });
+    // The card's own middle stands at the screen's, with the level in its second row, under the number.
+    const said = (item: Shown) => {
+      scene.show([item]);
+      settle(scene);
+      const left = scene.place().left;
+      // Off every card first, so that nothing said for the last card stands.
+      move(WIDTH - 10, HEIGHT - 10);
+      scene.step();
+      expect(canvas().title).toBe('');
+      for (let y = line - ROW; y <= line + ROW; y += 2) {
+        for (let x = left + 4; x < left + 80; x += 4) {
+          move(x, y);
+          scene.step();
+          if (canvas().title !== '') return { title: canvas().title, cursor: canvas().style.cursor };
+        }
+      }
+      return { title: '', cursor: canvas().style.cursor };
+    };
+    // Held by the highest level a round may run at: written at the level it runs at, and what held it said.
+    expect(said(worked(1, { level: '3', raise: 0, cellLevel: '3', held: { asks: 1, by: 'agents.highest_level' } }))).toEqual({
+      title: 'level 3, levels_above 1, agents.highest_level 3',
+      cursor: '',
+    });
+    // Raised, and held by nothing: its keys alone.
+    expect(said(worked(2, { level: '3', raise: 1, cellLevel: '4', held: null }))).toEqual({
+      title: 'level 3, levels_above 1',
+      cursor: '',
+    });
+    expect(said(worked(3, { level: '2', raise: 0, cellLevel: '2', held: null })).title).toBe('level 2');
+    // A work whose engine gives no level: a dash, and why there is none.
+    expect(said(worked(4, { level: null, raise: 0, cellLevel: null, held: null })).title).toBe(NO_LEVEL.level);
+  });
+
+  it("writes the number of each card, a shadow's and a deliverable's too, as #n, and starts every title past the widest number the whole tree holds, folded items included", () => {
+    const under = { open: 1, done: 0, cancelled: 0, elsewhere: 0 };
+    // 445, the only number of three digits, stands under item 5, which the tree can fold away.
+    const tree = (folded: boolean) => [
+      { ...card(5, [card(445)]), fold: { folded, under } },
+      card(57),
+      { ...card(7), deliver: true },
+      card(9, [shadow(57)]),
+    ];
+    const texts = () => scene.drawnNumbers().map((n) => `${n.text}${n.shadow ? ' (shadow)' : ''}`);
+    const titles = () => new Set(scene.drawnNumbers().map((n) => n.titleAt));
+    scene.show(tree(false));
+    settle(scene);
+    expect(texts()).toEqual(['#5', '#445', '#57', '#7', '#9', '#57 (shadow)']);
+    expect(titles().size).toBe(1);
+    const [column] = titles();
+    // Folded away, the only card of three digits is not drawn, and no title moves for it.
+    scene.show(tree(true));
+    for (let k = 0; k <= FOLD_MS / 16; k += 1) scene.step();
+    expect(texts()).toEqual(['#5', '#57', '#7', '#9', '#57 (shadow)']);
+    expect([...titles()]).toEqual([column]);
+    // Shown again, the cards that stayed are kept, and the shadow's number is still said.
+    scene.show(tree(false));
+    settle(scene);
+    expect(texts()).toEqual(['#5', '#445', '#57', '#7', '#9', '#57 (shadow)']);
+    expect([...titles()]).toEqual([column]);
+    // A tree of numbers of two digits at most has a narrower column.
+    scene.show([card(5), card(57), shadow(57)]);
+    settle(scene);
+    expect(texts()).toEqual(['#5', '#57', '#57 (shadow)']);
+    expect(titles().size).toBe(1);
+    expect([...titles()][0]).toBeLessThan(column);
   });
 
   it('folds the items under a card at a click on its funnel and shows them at a click on the dot they fold into, selecting nothing, each fold turning over its time', async () => {
@@ -301,6 +389,154 @@ describe('the tree in columns', () => {
     scene.show(tree(true));
     for (let k = 0; k < FOLD_MS / 32; k += 1) scene.step(16);
     endsAtCard();
+  });
+
+  it('makes nothing again for a tree that draws the same, as a new read of the items gives it, and of one changed only the card that changed', () => {
+    const tree = (title: string) => [card(1, [card(2), { ...card(3), title }, card(4)])];
+    scene.show(tree('Item 3'));
+    expect(scene.stats.made).toBe(4);
+    settle(scene);
+    const place = JSON.stringify(scene.place());
+    const redraws = scene.stats.redraws;
+    // The same tree, read again: no card is made, and the next frame draws nothing of what stands again.
+    scene.show(structuredClone(tree('Item 3')));
+    expect(scene.stats.made).toBe(0);
+    scene.step();
+    expect(scene.stats.redraws).toBe(redraws);
+    expect(JSON.stringify(scene.place())).toBe(place);
+    // Item 3 retitled: its card alone is made again, and the others are kept as they were.
+    scene.show(tree('A new title'));
+    expect(scene.stats.made).toBe(1);
+    expect(scene.stats.items).toBe(4);
+  });
+
+  it('draws a frame in which only the lights move without drawing the cards, the funnels or the map again', () => {
+    scene.show([card(1, [{ ...card(2), begun: true, work: running(2) }])]);
+    settle(scene);
+    scene.step();
+    const redraws = scene.stats.redraws;
+    // The light runs down the way into item 2 frame after frame; nothing else moves.
+    for (let k = 0; k < 10; k += 1) {
+      scene.step(50);
+      expect(scene.litWays().map((w) => w.id)).toEqual([2]);
+    }
+    expect(scene.stats.redraws).toBe(redraws);
+    // The pointer coming over the tree draws what stands again.
+    move(50, line);
+    scene.step();
+    expect(scene.stats.redraws).toBe(redraws + 1);
+  });
+
+  it('flashes the soft light of the item selected once, in view, without moving the tree, and once it has come to rest draws nothing that stands again while only the lights move', () => {
+    scene.show([card(1, [{ ...card(2), begun: true, work: running(2) }])]);
+    scene.select(2);
+    settle(scene);
+    // Frames a second long bring the dimming of the items not selected, and all else that eases, to rest.
+    for (let k = 0; k < 3; k += 1) scene.step(1000);
+    const place = JSON.stringify(scene.place());
+    const rest = scene.chosenLight() as { id: number; out: number; alpha: number };
+    expect(rest.id).toBe(2);
+    let redraws = scene.stats.redraws;
+    scene.step(50);
+    expect(scene.stats.redraws).toBe(redraws);
+    // Item 2 is in view: brought into view, it stays where it is, and its light as it was.
+    scene.reveal(2, WIDTH);
+    scene.step();
+    expect(JSON.stringify(scene.place())).toBe(place);
+    expect(scene.chosenLight()).toEqual(rest);
+    // Flashed, its light is wider and stronger from the next frame, more than twice as wide at its height, and back at
+    // rest by the end of the flash's time, the tree unmoved.
+    scene.flash(2);
+    const lights: { out: number; alpha: number }[] = [];
+    for (let k = 0; k < FLASH_MS / 16; k += 1) {
+      scene.step(16);
+      lights.push(scene.chosenLight() as { out: number; alpha: number });
+    }
+    expect(lights[0].out).toBeGreaterThan(rest.out);
+    expect(lights[0].alpha).toBeGreaterThan(rest.alpha);
+    expect(Math.max(...lights.map((l) => l.out))).toBeGreaterThan(2 * rest.out);
+    expect(scene.chosenLight()).toEqual(rest);
+    expect(JSON.stringify(scene.place())).toBe(place);
+    // Then the light runs down the way into item 2 frame after frame, and nothing that stands is drawn again.
+    redraws = scene.stats.redraws;
+    for (let k = 0; k < 10; k += 1) {
+      scene.step(50);
+      expect(scene.litWays().map((w) => w.id)).toEqual([2]);
+    }
+    expect(scene.stats.redraws).toBe(redraws);
+  });
+
+  it('moves only the light down a way from frame to frame, what stands of the way built once where it stands, and again where it moves', () => {
+    scene.show([card(1, [{ ...card(2), begun: true, work: running(2) }])]);
+    settle(scene);
+    scene.step();
+    const builds = scene.stats.wayBuilds;
+    // The light runs down the way into item 2 frame after frame, a whole run and the dark after it, burning at each
+    // card's end as it passes: the way's line, glow and strands, and the lights at rest at the cards' ends, are not
+    // built again.
+    for (let k = 0; k < (RUN.beat + RUN.dark) / 50 + 2; k += 1) {
+      scene.step(50);
+      expect(scene.litWays().map((w) => w.id)).toEqual([2]);
+    }
+    expect(scene.stats.wayBuilds).toBe(builds);
+    // Moved sideways, the way is built again where it now stands.
+    wheel(100, 0);
+    scene.step();
+    expect(scene.stats.wayBuilds).toBe(builds + 1);
+    expect(scene.litWays().map((w) => w.id)).toEqual([2]);
+    // A knob that changes a number the ways are drawn by has them built again at the next frame.
+    const wide = RUN.far;
+    RUN.far = wide + 1;
+    scene.step();
+    RUN.far = wide;
+    expect(scene.stats.wayBuilds).toBe(builds + 2);
+  });
+
+  it('blurs a layer of glow only in a frame in which it draws something', () => {
+    scene.show([card(1, [{ ...card(2), begun: true, work: running(2) }])]);
+    settle(scene);
+    /// How many layers each frame blurs over a whole run of the light and the dark after it.
+    const run = () =>
+      Array.from({ length: Math.ceil((RUN.beat + RUN.dark) / 16) }, () => {
+        scene.step(16);
+        return scene.stats.blurs;
+      });
+    // While the light runs, the glow it lights is blurred; in the dark, with nothing pointed at or selected, nothing is.
+    const free = run();
+    expect(Math.max(...free)).toBeGreaterThan(0);
+    expect(free.filter((b) => b === 0).length).toBeGreaterThanOrEqual(Math.floor(RUN.dark / 16) - 1);
+    // The soft light of the item selected is blurred in every frame, the dark's too, until the item is let go.
+    scene.select(2);
+    expect(Math.min(...run())).toBeGreaterThan(0);
+    scene.select(null);
+    expect(run().filter((b) => b === 0).length).toBeGreaterThanOrEqual(Math.floor(RUN.dark / 16) - 1);
+  });
+
+  it('draws no frame while the page is hidden, nor while its view is, and draws again once both show', async () => {
+    scene.show([card(1, [{ ...card(2), begun: true, work: running(2) }])]);
+    await drew();
+    const page = (state: DocumentVisibilityState) => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+      document.dispatchEvent(new Event('visibilitychange'));
+    };
+    try {
+      page('hidden');
+      const frames = scene.stats.frames;
+      await drew();
+      await drew();
+      expect(scene.stats.frames).toBe(frames);
+      // The page shown again while the view is hidden draws nothing either.
+      scene.setShown(false);
+      page('visible');
+      await drew();
+      await drew();
+      expect(scene.stats.frames).toBe(frames);
+      scene.setShown(true);
+      await expect.poll(() => scene.stats.frames).toBeGreaterThan(frames);
+    } finally {
+      Reflect.deleteProperty(document, 'visibilityState');
+      document.dispatchEvent(new Event('visibilitychange'));
+    }
   });
 
   it("draws each item on the map in the colour of its card's state: running, in a call, for the owner, halted, paused, not begun, done or cancelled", () => {
@@ -601,6 +837,25 @@ describe('the tree in columns', () => {
     expect(was[1] - start[1]).toBeLessThanOrEqual(PACE * 3 + 1e-6);
   });
 
+  it('never moves the column beside the one scrolled against it where the items have none to three under them', () => {
+    // As the items near the middle change, the wants on the second column pull it now one way, now the other.
+    const under = [3, 2, 2, 3, 1, 0, 0, 2, 3, 1, 0, 2];
+    scene.show(under.map((n, k) => card(k + 1, Array.from({ length: n }, (_, j) => card(100 + 4 * k + j)))));
+    settle(scene);
+    move(50, line);
+    for (const way of [1, -1, 1, -1]) {
+      for (let k = 0; k < 200; k += 1) {
+        const was = scene.place().columns.map((c) => c.at);
+        wheel(0, way * 0.1 * ROW);
+        scene.step();
+        const now = scene.place().columns.map((c) => c.at);
+        const moved = [now[0] - was[0], now[1] - was[1]];
+        expect(moved[1] * Math.sign(moved[0])).toBeGreaterThanOrEqual(-1e-9);
+        if (moved[0] === 0) expect(moved[1]).toBe(0);
+      }
+    }
+  });
+
   it('makes the column scrolled the one the others follow, and brings the first column after it', async () => {
     scene.show(pairs());
     settle(scene);
@@ -744,6 +999,8 @@ describe('a scene destroyed', () => {
   it('listens to nothing once destroyed', async () => {
     const add = vi.spyOn(window, 'addEventListener');
     const remove = vi.spyOn(window, 'removeEventListener');
+    const docAdd = vi.spyOn(document, 'addEventListener');
+    const docRemove = vi.spyOn(document, 'removeEventListener');
     const mediaAdd = vi.spyOn(MediaQueryList.prototype, 'addEventListener');
     const mediaRemove = vi.spyOn(MediaQueryList.prototype, 'removeEventListener');
     const sized = vi.spyOn(ResizeObserver.prototype, 'disconnect');
@@ -760,6 +1017,10 @@ describe('a scene destroyed', () => {
       calls.filter(([type, fn]) => !gone.some(([t, f]) => t === type && f === fn)).map(([type]) => type);
     expect(add.mock.calls.length).toBeGreaterThan(0);
     expect(left(add.mock.calls, remove.mock.calls)).toEqual([]);
+    // On the document it listens for the page being hidden and shown, and no more once destroyed.
+    const visibility = (calls: unknown[][]) => calls.filter(([type]) => type === 'visibilitychange');
+    expect(visibility(docAdd.mock.calls)).toHaveLength(1);
+    expect(left(visibility(docAdd.mock.calls), docRemove.mock.calls)).toEqual([]);
     expect(mediaAdd.mock.calls.length).toBeGreaterThan(0);
     expect(left(mediaAdd.mock.calls, mediaRemove.mock.calls)).toEqual([]);
     expect(sized).toHaveBeenCalled();
@@ -931,8 +1192,8 @@ describe('the console page', () => {
     expect(JSON.parse(kept() ?? '')).toEqual({ 27: 'folded' });
   });
 
-  /// The search's field, and the paths of the rows it finds.
-  const field = () => container.querySelector('.console-find input') as HTMLInputElement;
+  /// The search's field, while the search is open, and the numbers of the rows it finds.
+  const field = () => container.querySelector('.console-find input') as HTMLInputElement | null;
   const found = () => [...container.querySelectorAll('.console-found-row > .mono')].map((s) => s.textContent);
   /// The box of a kind of item over the tree.
   const box = (name: string) =>
@@ -940,48 +1201,70 @@ describe('the console page', () => {
       .find((l) => l.textContent === name)
       ?.querySelector('input') as HTMLInputElement;
 
-  it('gives the keys to the search at `/`, finds by number, by path and by a part of the title, and empties at Escape', async () => {
-    const scene = await drawn();
+  it('shows the search only from `/`, over the middle of the top of the console, finds by number and by a part of the title, and closes at a press elsewhere or Escape', async () => {
+    await drawn();
+    // Nothing of it shows until `/`.
+    expect(field()).toBeNull();
     await userEvent.keyboard('/');
-    expect(document.activeElement).toBe(field());
-    expect(field().value).toBe('');
-    // By its number: item 27, done, shown by its path under 26, its root.
-    await userEvent.fill(field(), '27');
-    await expect.poll(found).toEqual(['26-27']);
+    await expect.poll(() => document.activeElement !== null && document.activeElement === field()).toBe(true);
+    expect(field()?.value).toBe('');
+    // By its number: item 27, done.
+    await userEvent.fill(field() as HTMLInputElement, '27');
+    await expect.poll(found).toEqual(['#27']);
     expect(container.querySelector('.console-found-row .console-found-standing')?.textContent).toBe('Done');
-    // By a path from its root: the item it names, and the items under it.
-    await userEvent.fill(field(), '26-27');
-    await expect.poll(found).toEqual(['26-27', '26-27-30', '26-27-31']);
-    // As a path stands while it is typed a digit at a time: `26-2` names 26-27, 26-28 and 26-29, each with the items
-    // under it.
-    await userEvent.fill(field(), '26-2');
-    await expect.poll(found).toEqual([
-      '26-27',
-      '26-27-30',
-      '26-27-31',
-      '26-28',
-      '26-28-32',
-      '26-29',
-      '26-29-33',
-      '26-29-34',
-    ]);
-    // The list's frame reaches past the right edge of the tree's first column, so that no card shows beside it.
-    const frame = (container.querySelector('.console-found') as HTMLElement).getBoundingClientRect();
-    const canvas = (container.querySelector('canvas') as HTMLCanvasElement).getBoundingClientRect();
-    expect(frame.right).toBeGreaterThanOrEqual(canvas.left + scene.place().left + NODE_W);
-    // Nothing found is said in the list's own frame, on its ground.
-    await userEvent.fill(field(), 'nowhere at all');
+    // Numbers joined by `-` name no path; nothing found is said in the list's own frame, on its ground.
+    await userEvent.fill(field() as HTMLInputElement, '26-27');
     await expect.poll(() => container.querySelector('.console-found > .console-found-none')?.textContent).toBe(
       FIND_SAYS.none,
     );
-    // By a part of the title, in any case, over every item, done or not.
-    await userEvent.fill(field(), 'FOLD');
-    await expect.poll(found).toEqual(['26', '26-27', '26-27-30', '26-27-31']);
-    // Escape empties the field and gives the keys back.
+    // It stands over the middle of the console, in its top third, and the list under the field is as wide as the field.
+    const whole = (container.querySelector('.console') as HTMLElement).getBoundingClientRect();
+    const search = (container.querySelector('.console-find') as HTMLElement).getBoundingClientRect();
+    expect(Math.abs(search.left + search.width / 2 - (whole.left + whole.width / 2))).toBeLessThan(1);
+    expect(search.top - whole.top).toBeLessThan(whole.height / 3);
+    const list = (container.querySelector('.console-found') as HTMLElement).getBoundingClientRect();
+    expect(Math.abs(list.width - (field() as HTMLInputElement).getBoundingClientRect().width)).toBeLessThan(1);
+    // By a part of the title, in any case, over every item, done or not, by number.
+    await userEvent.fill(field() as HTMLInputElement, 'FOLD');
+    await expect.poll(found).toEqual(['#26', '#27', '#30', '#31']);
+    // A press elsewhere closes it and keeps what was typed for the next time it opens.
+    (document.activeElement as HTMLElement | null)?.blur();
+    await expect.poll(field).toBeNull();
+    await userEvent.keyboard('/');
+    await expect.poll(() => field()?.value).toBe('FOLD');
+    // Escape empties it, closes it and gives the keys back.
     await userEvent.keyboard('{Escape}');
-    expect(field().value).toBe('');
-    expect(document.activeElement).not.toBe(field());
-    expect(container.querySelector('.console-found')).toBeNull();
+    await expect.poll(field).toBeNull();
+    expect(document.activeElement?.closest('.console-find') ?? null).toBeNull();
+    await userEvent.keyboard('/');
+    await expect.poll(() => field()?.value).toBe('');
+  });
+
+  it('dims the tree while it is open, lighting what it finds as round the item under the pointer, and lets the pointer choose a row', async () => {
+    const scene = await drawn();
+    const near = (id: number, to: number) => Math.abs((scene.brightness(id) ?? -1) - to);
+    // Open, with nothing typed, every item dims.
+    await userEvent.keyboard('/');
+    await expect.poll(() => near(1, DIM)).toBeLessThan(0.01);
+    expect(near(26, DIM)).toBeLessThan(0.01);
+    await userEvent.fill(field() as HTMLInputElement, 'Fold the items under');
+    await expect.poll(found).toEqual(['#26']);
+    // Item 26, found, lights up; item 1, drawn and not found, stays dimmed.
+    await expect.poll(() => near(26, 1)).toBeLessThan(0.01);
+    expect(near(1, DIM)).toBeLessThan(0.01);
+    // The pointer chooses the row it is over, as the arrow keys do.
+    await userEvent.fill(field() as HTMLInputElement, 'fold');
+    await expect.poll(found).toEqual(['#26', '#27', '#30', '#31']);
+    const rows = () => [...container.querySelectorAll('.console-found-row')];
+    await userEvent.hover(rows()[2] as HTMLElement);
+    await expect
+      .poll(() => rows().map((r) => r.getAttribute('aria-selected')))
+      .toEqual(['false', 'false', 'true', 'false']);
+    // Closed, it dims nothing any more.
+    await userEvent.keyboard('{Escape}');
+    await expect.poll(field).toBeNull();
+    await expect.poll(() => near(1, 1)).toBeLessThan(0.01);
+    expect(near(26, 1)).toBeLessThan(0.01);
   });
 
   it('opens the folds over an item it picks, ticking the box of its kind where it was not, and selects it', async () => {
@@ -989,21 +1272,24 @@ describe('the console page', () => {
     expect(box('Done').checked).toBe(false);
     // Item 30 is done, and folded away under 27, done too.
     await userEvent.keyboard('/');
-    await userEvent.fill(field(), '26-27-30');
-    await expect.poll(found).toEqual(['26-27-30']);
+    await userEvent.fill(field() as HTMLInputElement, '30');
+    await expect.poll(found).toEqual(['#30']);
     await userEvent.keyboard('{Enter}');
     await expect.poll(title).toBe('Draw a fold as a dot');
     expect(box('Done').checked).toBe(true);
     expect(JSON.parse(localStorage.getItem('wf-agents.console-folds') ?? '{}')).toEqual({ 27: 'unfolded' });
-    expect(field().value).toBe('');
+    // The pick closed the search and emptied it.
+    await expect.poll(field).toBeNull();
+    await userEvent.keyboard('/');
+    await expect.poll(() => field()?.value).toBe('');
   });
 
   it('ticks Cancelled for a cancelled item it picks with a click, and selects it', async () => {
     await drawn();
     expect(box('Cancelled').checked).toBe(false);
     await userEvent.keyboard('/');
-    await userEvent.fill(field(), 'flat list');
-    await expect.poll(found).toEqual(['35']);
+    await userEvent.fill(field() as HTMLInputElement, 'flat list');
+    await expect.poll(found).toEqual(['#35']);
     await userEvent.click(container.querySelector('.console-found-row') as HTMLElement);
     await expect.poll(title).toBe('Try the tree as a flat list');
     expect(box('Cancelled').checked).toBe(true);
@@ -1040,6 +1326,14 @@ describe('the console page', () => {
     const marks = listed("The console's marks");
     expect(marks).toHaveLength(CONSOLE_MARKS.length);
     CONSOLE_MARKS.forEach((key, k) => expect(marks[k]?.endsWith(` ${MARKS[key].name}`)).toBe(true));
+    // Every colour of the time track is there as a swatch of its own, saying what it is on pointing at it, the wait for
+    // the project's turn to check and merge among them, in a colour no other kind of stretch has.
+    const swatch = (kind: string) =>
+      container.querySelector(`.console-help-panel ul[aria-label="The console's marks"] .legend-track .us-${kind}`);
+    TRACK_KINDS.forEach((kind) => expect(swatch(kind)?.getAttribute('title')).toBe(TRACK_WORDS[kind]));
+    expect(swatch('turn')?.getAttribute('title')).toBe('Waiting for its turn to check and merge');
+    const colour = (kind: string) => getComputedStyle(swatch(kind) as Element).backgroundColor;
+    for (const other of TRACK_KINDS.filter((kind) => kind !== 'turn')) expect(colour('turn')).not.toBe(colour(other));
     // Once the pointer leaves, it takes the pointer no more at once, and is hidden once it has faded.
     await userEvent.unhover(mark);
     await expect.poll(() => panel().classList.contains('shown')).toBe(false);
@@ -1081,9 +1375,13 @@ describe('the console page', () => {
     try {
       // With Ctrl held, or while the owner types in a field, n goes nowhere.
       key('n', { ctrlKey: true });
-      key('n', {}, field());
+      await userEvent.keyboard('/');
+      await expect.poll(field).not.toBeNull();
+      key('n', {}, field() as HTMLInputElement);
       await drew();
       expect(title()).toBeNull();
+      await userEvent.keyboard('{Escape}');
+      await expect.poll(field).toBeNull();
       // The items with stops, in the tree's order: 1 (two), 15 under 5 under it, 7, 20 (two), 12, 4 and 25. With
       // nothing selected, n goes to item 1's first stop; then to its second; then to 15's.
       await walkTo('n', 1);
@@ -1171,7 +1469,7 @@ describe('the console page', () => {
   it('frames a question that holds the work at nothing yet in orange, as its count on the card, and one that holds it in red', async () => {
     const scene = await drawn();
     // Item 1 waits for the answer to stale-runs; stale-limit, asked as well, holds it at nothing yet.
-    const items = await fixtureSource().loadItems();
+    const items = await fixtureSource().items.loadItems();
     const one = items.items.find((i) => i.number === 1);
     expect([one?.work.waits?.map((w) => w.key), one?.work.ahead]).toEqual([['answer-stale-runs'], 1]);
     scene.select(1);
@@ -1190,12 +1488,20 @@ describe('the console page', () => {
     expect(getComputedStyle(frame('answer-stale-runs') as HTMLElement).borderTopColor).toBe(colour('--red'));
   });
 
-  it('brings the panel out with the item selected, and on Escape lets the item go and folds the panel', async () => {
+  it('brings the panel out with the item selected, flashes its card at a click on its title, and on Escape lets the item go and folds the panel', async () => {
     const scene = await drawn();
     expect(folded()).toBe(true);
     scene.select(12);
     await expect.poll(title).toBe('Show the cost of a work');
     expect(folded()).toBe(false);
+    // Once the tree stands where the panel brought the item, its soft light is at rest; a click on the title, which
+    // leaves the keys where they were, flashes it, wider at the next frame.
+    settle(scene);
+    const rest = scene.chosenLight() as { id: number; out: number };
+    expect(rest.id).toBe(12);
+    (container.querySelector('.drawer-title button') as HTMLButtonElement).click();
+    scene.step();
+    expect(scene.chosenLight()?.out).toBeGreaterThan(rest.out);
     await userEvent.keyboard('{Escape}');
     await expect.poll(folded).toBe(true);
     expect(title()).toBeNull();
@@ -1234,6 +1540,29 @@ describe('the console page, opened at an item the address names', () => {
       container.remove();
     }
   });
+
+  it('ticks the box of the item\'s kind where it is not ticked, and selects the item, as it does for one picked from the search', async () => {
+    localStorage.clear();
+    const container = document.createElement('div');
+    container.style.cssText = 'position: fixed; inset: 0; display: flex';
+    document.body.append(container);
+    delete (window as { consoleScene?: SnapScene }).consoleScene;
+    const root = createRoot(container);
+    // Item 35 is cancelled, and Cancelled is not ticked at first.
+    root.render(<ConsolePage source={fixtureSource()} named={35} />);
+    try {
+      await expect.poll(() => container.querySelector('.drawer-title')?.textContent ?? null).toBe('Try the tree as a flat list');
+      const cancelled = [...container.querySelectorAll<HTMLLabelElement>('.console-shows label')]
+        .find((l) => l.textContent === 'Cancelled')
+        ?.querySelector('input');
+      expect(cancelled?.checked).toBe(true);
+      expect(container.querySelector('aside.cw')?.classList.contains('cw-open')).toBe(true);
+    } finally {
+      root.unmount();
+      container.remove();
+      localStorage.clear();
+    }
+  });
 });
 
 describe('the console page, as things happen', () => {
@@ -1242,7 +1571,7 @@ describe('the console page, as things happen', () => {
     const answers: Array<() => void> = [];
     let asked = 0;
     let answered = 0;
-    const stream: { on: ((heard: Heard) => void) | null } = { on: null };
+    const stream: { opened: (() => void) | null } = { opened: null };
     const container = document.createElement('div');
     container.style.cssText = 'position: fixed; inset: 0; display: flex';
     document.body.append(container);
@@ -1252,21 +1581,25 @@ describe('the console page, as things happen', () => {
       <ConsolePage
         source={{
           ...source,
-          loadItems: () => {
-            asked += 1;
-            return new Promise<Items>((answer) => answers.push(() => answer(source.loadItems()))).finally(() => {
-              answered += 1;
-            });
-          },
-          changes: (on) => {
-            stream.on = on;
-            return () => undefined;
+          items: {
+            loadItems: () => {
+              asked += 1;
+              return new Promise<Items>((answer) => answers.push(() => answer(source.items.loadItems()))).finally(
+                () => {
+                  answered += 1;
+                },
+              );
+            },
+            changes: (_, opened) => {
+              stream.opened = opened;
+              return () => undefined;
+            },
           },
         }}
       />,
     );
     await expect.poll(() => asked).toBe(1);
-    for (let i = 0; i < 3; i += 1) stream.on?.('everything');
+    for (let i = 0; i < 3; i += 1) stream.opened?.();
     expect(asked).toBe(1);
     answers.shift()?.();
     await expect.poll(() => asked).toBe(2);
@@ -1277,7 +1610,53 @@ describe('the console page, as things happen', () => {
     root.unmount();
     container.remove();
   });
+
+  it("reads the items once for the whole page at each change, the console sharing the bar's read", async () => {
+    const made = fixtureSource();
+    let reads = 0;
+    const told = new Set<(c: Changed) => void>();
+    // The page's source, whose items the bar reads, and which the console names as what it reads its items from.
+    const page: PageSource = {
+      ...FIXTURES,
+      loadItems: () => {
+        reads += 1;
+        return made.items.loadItems();
+      },
+      changes: (onChanged) => {
+        told.add(onChanged);
+        return () => told.delete(onChanged);
+      },
+    };
+    const container = document.createElement('div');
+    container.style.cssText = 'position: fixed; inset: 0; display: flex';
+    document.body.append(container);
+    delete (window as { consoleScene?: SnapScene }).consoleScene;
+    const root = createRoot(container);
+    root.render(
+      <SourceContext.Provider value={page}>
+        <BarCount />
+        <ConsolePage source={{ ...made, items: page }} />
+      </SourceContext.Provider>,
+    );
+    try {
+      await expect.poll(() => (window as { consoleScene?: SnapScene }).consoleScene?.stats.items ?? 0).toBeGreaterThan(0);
+      await expect.poll(() => container.querySelector('.bar-count')?.textContent ?? '0').not.toBe('0');
+      expect(reads).toBe(1);
+      // A change of a work: the store reads at once, for both.
+      for (const on of told) on({ works: [1], items: false, copies: false, accounts: false, observations: false });
+      expect(reads).toBe(2);
+    } finally {
+      root.unmount();
+      container.remove();
+    }
+  });
 });
+
+/// How many items the bar read, as its count of what waits reads them.
+function BarCount() {
+  const { items } = useBarItems();
+  return <span className="bar-count">{items?.items.length ?? 0}</span>;
+}
 
 describe('the console page, when a work cannot be read', () => {
   it('says so in the panel, and reads it again when the stream opens again', async () => {

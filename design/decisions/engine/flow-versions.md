@@ -30,7 +30,7 @@ A work kept before versions were is on no version where it had ended as the flow
 - rejected: an agent proposed rebuilding each such work's version from the repository's history, with the compiler reading the old formats again; the owner rejected it, because the versions would be guesses, the compiler would keep old readings for good, and finding them needs one flow's cell names.
 
 ### decision a-work-keeps-what-its-time-went-to
-As a work ends, the engine keeps what its time went to as its version reads it, and an ended work's bar is drawn from that; one that kept none shows its waits as not known.
+As a work ends, the engine keeps what its time went to as its version reads it, and when it held its project's turn; an ended work's bar is drawn from the first, the others' bars read the second.
 - rejected: an agent proposed drawing the bar of a work that ended from its records alone, a pause as a pause and every other wait as not known; the owner rejected it, because no ended work would show what waited on the owner or on items, and reading those again would need a second definition.
 - replaced: Reading what a work's time went to anew from its whole flow at each look was on main; the owner changed it, because a version no longer installed is compiled no more, so what its time went to could not be read again.
 

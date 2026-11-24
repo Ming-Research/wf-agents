@@ -10,6 +10,7 @@ mod failing;
 mod forking;
 mod items;
 mod observing;
+mod pulling;
 mod starting;
 mod studying;
 mod waiting;
@@ -24,8 +25,9 @@ pub fn trial() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../service/tests/trial/flow")
 }
 
-/// A script for the trial flow whose rounds and tools take a few milliseconds: the plan asks the owner, the build
-/// asks for the CI, and the review is content at once.
+/// A script for the trial flow whose rounds and tools take a few milliseconds: the plan's first three rounds are sent
+/// back, so that its run reaches its limit of returns and waits for the owner, the build asks for the CI, and the review
+/// is content at once.
 pub const SCRIPT: &str = r#"
 [took]
 ms = 20
@@ -36,7 +38,17 @@ ms = 20
 
 [[flows.trial.rounds]]
 cell = "plan"
-asks = [{ question = "Should the greeting name the user?" }]
+asks = []
+
+[[flows.trial.rounds]]
+cell = "plan"
+round = 2
+asks = []
+
+[[flows.trial.rounds]]
+cell = "plan"
+round = 3
+asks = []
 
 [[flows.trial.rounds]]
 cell = "build"
@@ -74,8 +86,8 @@ pub fn run(data: &Path, script: &Path) -> Command {
     run_on(data, &trial(), script, 0)
 }
 
-/// `wf-agents run` on this flow and port.
-pub fn run_on(data: &Path, flow: &Path, script: &Path, port: u16) -> Command {
+/// `wf-agents run` on this flow and port, with no word of whether the data directory's store is made.
+pub fn run_plain_on(data: &Path, flow: &Path, script: &Path, port: u16) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_wf-agents"));
     command
         .arg("run")
@@ -87,6 +99,34 @@ pub fn run_on(data: &Path, flow: &Path, script: &Path, port: u16) -> Command {
         .arg(script);
     command.args(["--port", &port.to_string()]);
     command
+}
+
+/// `wf-agents run` on this flow and port, making the data directory's store where it holds none.
+pub fn run_on(data: &Path, flow: &Path, script: &Path, port: u16) -> Command {
+    let mut command = run_plain_on(data, flow, script, port);
+    if !data.join("store.sqlite").exists() {
+        command.arg("--new");
+    }
+    command
+}
+
+/// A line of a list without what it ends with that changes from one run to the next: when something last happened to
+/// the work, which the list says by how long ago.
+pub fn plain_line(line: &str) -> &str {
+    if let Some(cut) = line.strip_suffix(" (nothing has happened yet)") {
+        return cut;
+    }
+    match line.rfind(" (last happened ") {
+        Some(at) if line.ends_with(" ago)") => &line[..at],
+        _ => line,
+    }
+}
+
+/// Every line of a text, as [`plain_line`] gives it.
+pub fn plain(text: &str) -> String {
+    let lines: Vec<&str> = text.lines().map(plain_line).collect();
+    let end = if text.ends_with('\n') { "\n" } else { "" };
+    format!("{}{end}", lines.join("\n"))
 }
 
 /// A running engine, stopped when it is dropped.
@@ -129,6 +169,18 @@ impl Engine {
             child,
             port,
             _output: output,
+        }
+    }
+
+    /// Waits for the engine to end by itself, as a stop ends it, and gives how it ended; fails after ten seconds.
+    pub fn ended(&mut self) -> std::process::ExitStatus {
+        let start = Instant::now();
+        loop {
+            if let Some(status) = self.child.try_wait().expect("the engine is waited for") {
+                return status;
+            }
+            assert!(start.elapsed() < Duration::from_secs(10), "the engine did not end");
+            std::thread::sleep(Duration::from_millis(20));
         }
     }
 

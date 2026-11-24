@@ -19,8 +19,13 @@ pub enum Went {
     Owner,
     /// A pause held the work, its own or the pause of everything.
     Paused,
+    /// A stop of the engine held the work, from when it was asked for to when the engine started again; the bar draws
+    /// it as a pause.
+    Stopping,
     /// The work waited for the items its item depends on.
     Items,
+    /// The work waited for its turn to check and merge: another work of its project held the turn.
+    Turn,
     /// Anything else, a stalled work among it.
     Other,
 }
@@ -34,10 +39,21 @@ pub struct Stretch {
     pub went: Went,
 }
 
+/// A stretch of time in which a work held the turn of its project, from a time up to another: none while it holds it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TurnSpan {
+    pub from: Time,
+    pub until: Option<Time>,
+}
+
 /// What a work's time went to from its first round to its last, kept as it ended, at a place of its own in the order of
-/// what happened to it. A work reopened and ended again keeps it again; the latest is the work's.
+/// what happened to it, with each stretch it held the turn of its project, which the time of the project's other works
+/// that waited for the turn is read by. A work reopened and ended again keeps it again; the latest is the work's.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeptTime {
     pub at: Seq,
     pub stretches: Vec<Stretch>,
+    /// Each stretch the work held the turn, in order, as the flow it ended on decided it. None for a work that kept its
+    /// time before the turn was worked out from records: it is read as one that never held it.
+    pub turn: Option<Vec<TurnSpan>>,
 }

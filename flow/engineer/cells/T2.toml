@@ -15,19 +15,23 @@ repository's rules. Do not review the code or the design tree.
 2. Was each new or extended test red on the code before the change, where its kind needs that, as a run shows?
 3. For each test the change removes, skips, narrows or weakens: is what it checked still checked, or is a technical
    reason given?
-4. Is each new test worth its time: what does it catch that no other test does, and why can it not be smaller?
+4. Is the time of the change's tests worth a question? Judge it from `test_times`: it says what the CI measured of the
+   tests the work's runs reported and where they stand among the project's tests. Where it shows time worth asking
+   about, list the tests in one point, each with what it must show it catches that no other test catches and why it
+   cannot be smaller, faster or folded into another. A test in the diff that `test_times` does not list was not
+   measured: say what must be shown. Where `test_times` says the host gives no test's time, ask nothing about time.
 5. Where the cost per operation or request can change, is what could get slower measured?
 6. Does the change touch a kind that `needs_testing` names?
 
 In the why of `test_ok`, answer each question by its number: what you checked and what you found. In the why of
 `needs_testing`, give the kind the change touches, or say that it touches none. A question you did not check is a point:
-say what must be shown. Write every point in `test_review` at once: this is your one chance, and nothing that could be
-raised now is raised later. Leave out preferences: the engineer fixes nearly everything a review raises, so a wrong
-point makes good code worse. If `test_ok` is yes, leave `test_review` out of your return. Once you have said yes to
-`needs_testing`, keep it while the part of the change that made you say so is still there.
+say what must be shown. Write every point in `test_review` at once. Leave out preferences: the engineer fixes nearly
+everything a review raises, so a wrong point makes good code worse. If `test_ok` is yes, leave `test_review` out of your
+return. Once you have said yes to `needs_testing`, keep it while the part of the change that made you say so is still
+there.
 '''
 watches = ["change", "test_review"]
-reads = ["plan", "background", "tree"]
+reads = ["plan", "background", "tree", "tree_entries", "test_times"]
 outputs = ["test_review", "test_ok", "needs_testing"]
 must_write = ["test_ok", "needs_testing"]
 
@@ -43,6 +47,8 @@ test_review = """Look at what changed: accept each answer in `test_review` or sa
 [kinds]
 # Given as the files that changed since the tree this session read.
 tree = "last_and_latest"
+# The entries of the design tree the plan was worked from, whole.
+tree_entries = "latest"
 test_review = "all"
 code = "last_and_latest"
 title = "latest"
@@ -54,3 +60,4 @@ acceptance = "last_and_latest"
 tests = "last_and_latest"
 head = "last_and_latest"
 background = "latest"
+test_times = "latest"

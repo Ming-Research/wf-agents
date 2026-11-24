@@ -16,14 +16,14 @@ gives a result before the change that does not fit its kind, fix it and run it a
 tests does, say so in `testing`. If a test is red after the change, check it against its reference first, and hand on
 only what stays red. Commit your tests on the work's branch.
 
-Hand in `tests`, and write what stays red or suspect in `testing`, every point at once: this is your one chance, and
-nothing that could be raised now is raised later. If `testing_ok` is yes, leave `testing` out of your return.
+Hand in `tests`, and write what stays red or suspect in `testing`, every point at once. If `testing_ok` is yes, leave
+`testing` out of your return.
 '''
 when = { needs_testing = "yes" }
 # Run when the test review asks for it, and again when the implementation answers its red tests, not on every version of
 # the code: run on each, it found nothing in half its runs.
 watches = ["needs_testing", "acceptance", "testing"]
-reads = ["background", "plan_agent", "code", "evidence"]
+reads = ["background", "plan_agent", "code", "evidence", "tree", "tree_entries"]
 outputs = ["tests", "testing", "testing_ok"]
 must_write = ["testing_ok"]
 
@@ -41,3 +41,7 @@ plan_agent = "latest"
 code = "last_and_latest"
 acceptance = "latest"
 testing = "all"
+# The entries of the design tree the plan was worked from, whole, and the files of the tree that changed since, so that
+# what the testing judges by is what the plan's writer worked from.
+tree_entries = "latest"
+tree = "last_and_latest"

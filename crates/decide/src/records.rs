@@ -49,6 +49,11 @@ pub struct Records {
     /// began with. Records kept before a version reached a round so have none, and read so.
     #[serde(default)]
     pub put_in: Vec<PutIn>,
+    /// Each time the round of a run, which was under way, was told to hand in what it has now, because the owner turned
+    /// to a cell before it. The engine writes it as it begins to tell the round, so that it tells it once; whether
+    /// the round was given the telling is a [`PutIn`]. Records kept before a round was told so have none, and read so.
+    #[serde(default)]
+    pub hurried: Vec<Hurried>,
     /// Every write of a block by a person or from outside the work.
     pub written: Vec<Written>,
     /// Each version of a question put to the owner: asked, asked anew or withdrawn under its name (design document
@@ -136,6 +141,7 @@ impl Records {
             finished: kept(&self.finished, |e| e.at, place),
             abandoned: kept(&self.abandoned, |e| e.at, place),
             put_in: kept(&self.put_in, |e| e.at, place),
+            hurried: kept(&self.hurried, |e| e.at, place),
             written: kept(&self.written, |e| e.at, place),
             questions: kept(&self.questions, |e| e.at, place),
             answers: kept(&self.answers, |e| e.at, place),
@@ -270,6 +276,18 @@ pub struct PutIn {
     pub at: Seq,
 }
 
+/// The engine began to tell the round of the run, which was under way, to hand in what it has now, for this version of a
+/// block the owner wrote: the owner turned to a cell before the run's, which is to run first (design document
+/// `data-and-context`, 35). It tells a round once for a version.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Hurried {
+    pub run: RunId,
+    pub block: BlockId,
+    /// The version of the block the owner wrote, named by the place of the entry that wrote it.
+    pub version: Seq,
+    pub at: Seq,
+}
+
 /// A person, or something outside the work, wrote a block.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Written {
@@ -332,11 +350,10 @@ pub enum Outsider {
     Outside,
 }
 
-/// A person who can give what a work waits for.
+/// A person who can give what a work waits for: the owner, at a limit a cell reached.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Who {
     Owner,
-    Architect,
 }
 
 /// The owner let the cell go on after it reached its limit.
@@ -355,10 +372,15 @@ pub struct Pause {
     /// pauses, and read so.
     #[serde(default)]
     pub by: Pauser,
-    /// Why the work was paused, where whoever paused it said: the engine always says, the owner does not. None for a
-    /// letting on.
+    /// Why the work was paused, where whoever paused it said: the engine always says, the owner where they will. None
+    /// for a letting on.
     #[serde(default)]
     pub why: Option<String>,
+    /// The items, by their numbers, that the pause waits for: the owner's pause says them where it is made for the
+    /// items' merging or cancelling, and the work waits no more once each has ended. None for the engine's pause and
+    /// for a letting on.
+    #[serde(default)]
+    pub waits_for: Vec<u64>,
 }
 
 /// Who pauses a work: the owner, or the engine itself, as when a round failed or the work spent more than it may.
@@ -380,9 +402,15 @@ pub enum Cause {
     /// consumed, that the cell did not write itself (design document `data-and-context`, 6). `was` is the version the
     /// cell consumed, `None` where it consumed none; the run starts from the latest, as its `basis` says. `behind` says
     /// every such new version was written by a cell after this one: a judging cell's opinion on what it wrote, for one.
+    /// `worked` is the version the cell last worked from as the run began: the latest of the one it consumed, one a run
+    /// of it wrote and one the owner ruled on, which a message and the page name alike (design document
+    /// `data-and-context`, 10). `was` stays the consumed version, the one the walk reads back. A cause recorded before
+    /// `worked` was recorded has none, and is read as the version it names in `was`.
     Changed {
         block: BlockId,
         was: Option<Seq>,
+        #[serde(default)]
+        worked: Option<Seq>,
         behind: bool,
     },
     /// The calls the cell's earlier runs asked for, as their returns were taken, all have their results, which no

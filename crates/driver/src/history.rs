@@ -4,7 +4,7 @@
 //!
 //! A line stands past the largest value of the history by as much as that is past its median: `2 × largest − median`,
 //! in the quantity's own units, so that it reaches as far out as the history itself does. A round is judged against
-//! the rounds of its own cell where at least as many of them as the settings say (`history.samples`) tell the quantity,
+//! the rounds of its own cell where at least [`HISTORY_SAMPLES`] of them tell the quantity,
 //! with a median above nothing, since a history with no scale gives no line; otherwise against every round of the
 //! flow, where a median of nothing is usual and only a history of nothing at all gives no line; and with fewer there
 //! too, it is not judged. A round that went past the lines of a signal that stops a round, stopped or let run, never
@@ -15,6 +15,11 @@ use decide::run::Failure;
 use decide::{CellId, RunId};
 use flow::Compiled;
 use work::{Back, Measures, Spent, Work};
+
+/// How many values a history needs at least before it gives a line: 19, of which a value of the same kind is the largest
+/// one time in twenty, so that a line from fewer would stand on too little. It is the same for every installation, and
+/// the policy a judgment is made under carries it ([`crate::Policy`]).
+pub const HISTORY_SAMPLES: usize = 19;
 
 /// The line of a history: past its largest value by as much as that is past its median. None for an empty one.
 pub fn line(values: &[f64]) -> Option<f64> {
@@ -224,6 +229,9 @@ pub struct Lines {
     pub work_spent: Option<Line>,
     /// How long the rounds of a work of the flow take in all, in milliseconds, as the flow's other works' have.
     pub work_time: Option<Line>,
+    /// For the engine's own rounds: how long one test of the project's CI may run before it is stopped, in
+    /// milliseconds, as the history of the project's merged checks says it ([`crate::timed::test_time`]).
+    pub test_time: Option<f64>,
 }
 
 impl Lines {
@@ -262,15 +270,18 @@ impl Lines {
             time: whole(&|s| s.ms.map(|ms| ms as f64)),
             work_spent: None,
             work_time: None,
+            test_time: None,
         }
     }
 }
 
-/// What a work has spent in all, in millionths of a dollar, its keep-warm pings with its rounds, and how long its rounds
+/// What a work has spent in all, in millionths of a dollar, its keep-warm pings and its forks with its rounds, and how long its rounds
 /// have taken in all, in milliseconds, as its records say.
 pub fn totals(work: &Work) -> (f64, f64) {
-    let pinged: u64 = work.pinged.iter().map(|p| p.spent.usd_micros).sum();
-    let spent: u64 = work.spent.values().map(|s| s.usd_micros).sum::<u64>() + pinged;
+    let beside: u64 = (work.spent_beside_rounds().iter())
+        .map(|call| call.spent.usd_micros)
+        .sum();
+    let spent: u64 = work.spent.values().map(|s| s.usd_micros).sum::<u64>() + beside;
     let r = &work.records;
     let mut ms = 0u64;
     let mut counted: Vec<RunId> = Vec::new();
@@ -429,6 +440,35 @@ pub fn works_line(others: &[f64], least: usize) -> Option<Line> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn what_a_work_has_spent_in_all_counts_its_rounds_its_pings_and_its_forks() {
+        let mut work = Work::default();
+        let cost = |usd_micros| work::Spent {
+            usd_micros,
+            ..work::Spent::default()
+        };
+        work.spent.insert((decide::RunId(1), 1), cost(1_000_000));
+        work.pinged.push(work::Pinged {
+            at: decide::Seq(5),
+            line: "engineer".to_string(),
+            session: 0,
+            spent: cost(20_000),
+            failed: None,
+        });
+        assert_eq!(totals(&work).0, 1_020_000.0);
+        work.forked.push(work::Forked {
+            at: decide::Seq(6),
+            run: decide::RunId(1),
+            round: 1,
+            usd_micros: 300_000,
+            uncached_tokens: 0,
+            cache_written_tokens: None,
+            cached_tokens: 0,
+            output_tokens: 0,
+        });
+        assert_eq!(totals(&work).0, 1_320_000.0, "a fork counts in what the work spent");
+    }
 
     #[test]
     fn a_line_stands_past_the_largest_value_by_as_much_as_that_is_past_the_median() {

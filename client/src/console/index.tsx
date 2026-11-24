@@ -14,14 +14,13 @@
 // brings it out again. The window coming out over the item selected, or an item selected half under it or half off the
 // screen, moves the tree only until the item is wholly within what the window leaves. Escape lets the item go while the
 // tree has the keys, and slides the window in while it has them. Each time the interface says something happened, the
-// items are read again, at most one read at a time and one more after it, and drawn where they stand, the item selected
-// and the panel as they were; when the stream opens again after a cut, everything is. An item the address names is
-// selected once the tree shows it, as from a notification of a question it waits on. The page's shell mounts it lazily
-// (`lazy.tsx`).
+// items are read again, once for the whole page, as the bar's count and the list of works read them (works/source.ts),
+// at most one read at a time and one more after it, and drawn where they stand, the item selected and the panel as they
+// were; when the stream opens again after a cut, everything is. An item the address names is selected once the tree
+// shows it, as from a notification of a question it waits on. The page's shell mounts it lazily (`lazy.tsx`).
 //
-// Brought over from the console of the engine on `old-main` (`client/src/pages/Console.tsx`): the window slides over
-// the tree, which keeps its whole width under it (`Drawer`, in the page's parts, which the flow view's panel and a
-// work's item on its page are in too).
+// The window slides over the tree, which keeps its whole width under it (`Drawer`, in the page's parts, which the flow
+// view's panel and a work's item on its page are in too).
 
 import './console.css';
 
@@ -29,9 +28,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Drawer } from '../parts';
 import { CHOICE_KEYS, useKeptFolds, useKeptTicks } from '../kept';
+import { replaceHash } from '../route';
 import { WIDTH_KEYS } from '../sizes';
 import type { Items, WorkPage } from '../works-api';
-import { oneAtATime } from '../works/source';
+import { useItemsOf } from '../works/source';
 import { goalMock } from './mock';
 import { fakeShown } from './fake';
 import { Find } from './find';
@@ -64,8 +64,11 @@ export function ConsolePage({
   const panel = useRef<HTMLElement>(null);
   const host = useRef<HTMLDivElement>(null);
   const scene = useRef<SnapScene | null>(null);
-  const [data, setData] = useState<Items | undefined>(undefined);
-  const [failed, setFailed] = useState<string | null>(null);
+  // The items, read once for every part of the page that reads them from the same feed: on the interface, the bar's
+  // count and the list of works share this read.
+  const items = useItemsOf(source.items);
+  const data = items.value ?? undefined;
+  const failed = items.failed;
   const [undrawn, setUndrawn] = useState<string | null>(null);
   const [selected, setSelected] = useState<Shown | null>(null);
   // The panel: whether it is out, and whether its handle brought it out, which keeps it out once the item is let go.
@@ -74,6 +77,10 @@ export function ConsolePage({
   // Which kinds of item the tree shows, open, done and cancelled each ticked or not, and what stands over them.
   const [shows, tick] = useKeptTicks(CHOICE_KEYS.consoleShows, ['open'], STANDINGS);
   const showsNow = useRef(shows);
+  const tickNow = useRef(tick);
+  useEffect(() => {
+    tickNow.current = tick;
+  }, [tick]);
   // Which items the owner folded and which he unfolded, as he last chose: the others fold as the tree's rule says.
   const [folds, turnFold] = useKeptFolds(CHOICE_KEYS.consoleFolds);
   const foldsNow = useRef(folds);
@@ -82,31 +89,9 @@ export function ConsolePage({
     turnFoldNow.current = turnFold;
   }, [turnFold]);
 
-  // The items, read at first and again each time something happened, at most one read at a time.
+  // What happened, told to the reading of the work of the item selected.
   const heard = useRef<(h: Heard) => void>(() => undefined);
-  useEffect(() => {
-    let alive = true;
-    const reads = oneAtATime(() =>
-      source.loadItems().then(
-        (items) => {
-          if (!alive) return;
-          setData(items);
-          setFailed(null);
-        },
-        (e: unknown) => alive && setFailed(e instanceof Error ? e.message : String(e)),
-      ),
-    );
-    reads.ask();
-    const stop = source.changes((h) => {
-      if (h === 'everything' || h.items || h.works.length > 0) reads.ask();
-      heard.current(h);
-    });
-    return () => {
-      alive = false;
-      reads.stop();
-      stop();
-    };
-  }, [source]);
+  useEffect(() => source.changes((h) => heard.current(h)), [source]);
 
   useEffect(() => {
     const el = host.current;
@@ -128,8 +113,7 @@ export function ConsolePage({
           // a-views-choices-are-kept-in-the-browser); an address of one of its waits stands while it is selected.
           if (activeNow.current) {
             const at = id === null ? '#/console' : `#/console/items/${id}`;
-            const hash = window.location.hash;
-            if (hash !== at && !(id !== null && hash.startsWith(`${at}/waits/`))) window.location.replace(at);
+            if (!(id !== null && window.location.hash.startsWith(`${at}/waits/`))) replaceHash(at);
           }
           setWin((w) => {
             if (id !== null) return w.open ? w : { open: true, byHand: false };
@@ -160,10 +144,18 @@ export function ConsolePage({
   const latestData = useRef<Items | undefined>(undefined);
   // The item the address names, until the tree shows it and it is selected.
   const toSelect = useRef<number | undefined>(named);
+  // Selects the item the address names once the tree shows it; where its kind is not ticked, the box is ticked first
+  // and the item is selected as the tree is drawn again, as for an item picked from the search.
   const selectNamed = () => {
     const id = toSelect.current;
     if (id === undefined || scene.current === null) return;
-    if (!latestData.current?.items.some((i) => i.number === id)) return;
+    const found = latestData.current?.items.find((i) => i.number === id);
+    if (found === undefined) return;
+    const standing = standingOf(found);
+    if (!showsNow.current.has(standing)) {
+      tickNow.current(standing, true);
+      return;
+    }
     toSelect.current = undefined;
     scene.current.select(id);
   };
@@ -178,16 +170,14 @@ export function ConsolePage({
     toSelect.current = named;
     selectNamed();
   }, [named]);
-  // The search's field, which `/` gives the keys to. An item picked from it is selected as one the address names: the
-  // folds over it open, and where its kind is not ticked, its box is ticked first, so that the tree shows it.
-  const findField = useRef<HTMLInputElement>(null);
+  // Whether the search is open: `/` opens it, and it closes itself. An item picked from it is selected as one the
+  // address names: the folds over it open, and where its kind is not ticked, its box is ticked first, so that the tree
+  // shows it.
+  const [finding, setFinding] = useState(false);
   const pick = (id: number) => {
-    const found = latestData.current?.items.find((i) => i.number === id);
-    if (found === undefined) return;
+    if (latestData.current?.items.some((i) => i.number === id) !== true) return;
     toSelect.current = id;
-    const standing = standingOf(found);
-    if (showsNow.current.has(standing)) selectNamed();
-    else tick(standing, true);
+    selectNamed();
   };
 
   // The walk of the stops by n and N, and by the button under each stop: the item the walk last went to and the place
@@ -260,7 +250,7 @@ export function ConsolePage({
     if (!active) return;
     const key = (e: KeyboardEvent) => {
       // `e` folds the items under the card the pointer is over away, or shows them again, as a click on its funnel or
-      // its dot does; `/` gives the keys to the search; `n` goes to the next stop and `N` to the one before. None while
+      // its dot does; `/` opens the search; `n` goes to the next stop and `N` to the one before. None while
       // the owner types in a field, nor with Ctrl, Alt or Meta held.
       if (e.key === 'e' || e.key === '/' || e.key === 'n' || e.key === 'N') {
         const to = e.target as HTMLElement | null;
@@ -268,7 +258,7 @@ export function ConsolePage({
         if (to && (to.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(to.tagName))) return;
         if (e.key === '/') {
           e.preventDefault();
-          findField.current?.focus();
+          setFinding(true);
         } else if (e.key === 'n' || e.key === 'N') {
           e.preventDefault();
           walkOnNow.current(e.key === 'n' ? 1 : -1);
@@ -330,7 +320,6 @@ export function ConsolePage({
               </label>
             ))}
           </div>
-          <Find data={data} field={findField} onPick={pick} />
           {failed !== null && <p className="console-message">The page could not read the items: {failed}</p>}
           {undrawn !== null && <p className="console-message">The browser could not draw the tree: {undrawn}</p>}
         </div>
@@ -360,7 +349,10 @@ export function ConsolePage({
               latestData.current !== undefined &&
               scene.current?.show(shownTree(latestData.current, showsNow.current, foldsNow.current))
             }
-            onTitle={() => scene.current?.reveal(item.number, room(open))}
+            onTitle={() => {
+              scene.current?.reveal(item.number, room(open));
+              scene.current?.flash(item.number);
+            }}
             stop={stopAsked !== null && stopAsked.item === item.number ? stopAsked : undefined}
             onStopChosen={(at) => {
               walk.current = { item: item.number, at };
@@ -372,6 +364,14 @@ export function ConsolePage({
           />
         )}
       </Drawer>
+      {finding && (
+        <Find
+          data={data}
+          onPick={pick}
+          onClose={() => setFinding(false)}
+          onFound={(ids) => scene.current?.find(ids)}
+        />
+      )}
     </div>
   );
 }

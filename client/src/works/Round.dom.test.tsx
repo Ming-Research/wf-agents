@@ -138,10 +138,11 @@ describe("a round's part of a run's panel", () => {
     // The records' keys, and what the page works out from them said plainly.
     expect(keys(pair(first, 'Took'))).toEqual([
       'usd_micros in dollars $0.09',
-      'input_tokens 20,200',
+      'input_tokens 404',
+      'cache_written_tokens 19,796',
       'cached_tokens 14,140',
       'output_tokens 1,500',
-      'cached_tokens / (input_tokens + cached_tokens) 41%',
+      'cached_tokens / (input_tokens + cache_written_tokens + cached_tokens) 41%',
     ]);
     expect(keys(pair(first, 'Context'))).toEqual(['context_tokens 34,340', 'compactions 0']);
     expect(pair(first, 'Missed')).toBeUndefined();
@@ -152,13 +153,31 @@ describe("a round's part of a run's panel", () => {
     const run = page.steps.find((s) => s.kind === 'run');
     if (run?.kind !== 'run') throw new Error('no run');
     const second = run.rounds[1];
-    second.missed = { read: 1_200, held: 34_340, differs: ['model'] };
+    second.missed = { read: 1_200, held: 34_340, differs: ['model'], unknown: false };
     second.estimated = true;
     const panel = await runPanel(page, 0, sourceOf());
     const round = roundPart(panel, 2);
     expect(keys(pair(round, 'Missed'))).toEqual(['first_read 1,200', 'held 34,340', 'differs model']);
     expect(keys(pair(round, 'Took')).at(-1)).toBe('priced true');
   });
+
+  // A round's miss says why in its `differs` key: the parts that differed, that the records do not say, or none, which
+  // is a fault of wf-agents.
+  const why: [string, { differs: string[]; unknown: boolean }, string][] = [
+    ['names what differed from the call before', { differs: ['program_tools'], unknown: false }, 'differs program_tools'],
+    ['says that the records do not say why', { differs: [], unknown: true }, 'differs unknown'],
+    ['says that nothing differed, a fault of wf-agents', { differs: [], unknown: false }, 'differs none'],
+  ];
+  for (const [title, missed, said] of why) {
+    it(`a round that missed its cache ${title}`, async () => {
+      const page = fixtureWork(41);
+      const run = page.steps.find((s) => s.kind === 'run');
+      if (run?.kind !== 'run') throw new Error('no run');
+      run.rounds[1].missed = { read: 1_200, held: 34_340, ...missed };
+      const panel = await runPanel(page, 0, sourceOf());
+      expect(keys(pair(roundPart(panel, 2), 'Missed')).at(-1)).toBe(said);
+    });
+  }
 
   it('names its times by what they were and never by a number, and says why it ran again', async () => {
     const panel = await runPanel(fixtureWork(41), 0, sourceOf());
@@ -269,9 +288,10 @@ describe('what a work used', () => {
     expect(totals.map((k) => k.textContent)).toEqual([
       'usd_micros in dollars',
       'input_tokens',
+      'cache_written_tokens',
       'cached_tokens',
       'output_tokens',
-      'cached_tokens / (input_tokens + cached_tokens)',
+      'cached_tokens / (input_tokens + cache_written_tokens + cached_tokens)',
       'rounds',
       "rounds of agents' cells",
       'sent_back',
@@ -297,5 +317,44 @@ describe('what a work used', () => {
     const gaps = [...panel.querySelectorAll('.usage-timeline .us-gap')].map((g) => g.getAttribute('title') ?? '');
     expect(gaps.length).toBeGreaterThan(0);
     for (const gap of gaps) expect(gap).toMatch(/^Not running: from .+, to .+, for \d+[smhd]/);
+  });
+
+  // The forks of a work are listed after its totals, with their count and spend by the same keys as the rounds', where
+  // it asked any, and not otherwise. One page drawn three times in a few tens of milliseconds; the data test cannot see
+  // the line, which is the only place the owner reads the count of forks.
+  it('lists its forks after its totals where it asked any, and no line where it asked none', async () => {
+    const labels = async (forked: WorkPage['summary']['forked']) => {
+      const page = fixtureWork(41);
+      const drawn = drawWork({ ...page, summary: { ...page.summary, forked } }, sourceOf());
+      await settle();
+      const window = drawn.querySelector('aside') as HTMLElement;
+      await click(button(window, 'Usage'));
+      const panel = window.querySelector('.drawer-body') as HTMLElement;
+      return [...panel.querySelectorAll('.usage-totals .keys > span > span:first-child')].map((k) => k.textContent);
+    };
+    const spent = {
+      usdMicros: 300_000,
+      inputTokens: 10,
+      cacheWrittenTokens: 5,
+      unsplitTokens: 0,
+      cachedTokens: 20,
+      outputTokens: 3,
+      workingMs: 0,
+      rounds: 2,
+    };
+    const without = await labels(undefined);
+    expect(without).not.toContain('forks');
+    expect(await labels({ ...spent, rounds: 0 })).toEqual(without);
+    const withForks = await labels(spent);
+    expect(withForks.slice(0, without.length)).toEqual(without);
+    expect(withForks.slice(without.length)).toEqual([
+      'forks',
+      'usd_micros in dollars',
+      'input_tokens',
+      'cache_written_tokens',
+      'cached_tokens',
+      'output_tokens',
+      'cached_tokens / (input_tokens + cache_written_tokens + cached_tokens)',
+    ]);
   });
 });

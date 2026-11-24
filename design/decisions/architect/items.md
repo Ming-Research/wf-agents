@@ -11,15 +11,17 @@ From the top down, items are related by dependency, never by class: a parent wai
 An item depends on another only when it uses the other's result; two works touching the same code are not a dependency, only a reason not to start them side by side.
 - rejected: an agent proposed that, of two works changing the same code, the one that fewer items wait for depend on the other; the owner rejected it, because whether one depends on another is a matter of logic, not of code.
 
-### decision a-work-is-worth-a-run-of-the-flow
-A work is big enough to be worth a run of the flow, about ten rounds and half an hour, and at most what one engineer finishes in a day; a smaller change is joined into an item that carries it.
+### decision a-work-is-at-most-a-day
+A work is at most what one engineer finishes in a day; a small work runs alone where no item on its topic carries it, since a small work goes through the flow quickly.
+- replaced: A work big enough to be worth a run of the flow, a smaller change being joined into an item that carries it, was on main; the owner changed it, because small works went through the flow quickly when the engine ran them.
 - rejected: an agent proposed works of one engineer, one branch, one CI run and one merge each, taking at most a day, which made 141 items on a trial; the owner rejected it, because every work pays for the whole flow.
 - replaced: A work limited in size only from above, except that a change as small as a rewording could not run alone, was on main; the owner changed it, because the flow, as heavy as it is now, is for one large thing at a time, and a small change cannot go through three independent reviews quickly.
 - rejected: an agent proposed conditions in the flow so that two of its reviews run only when they are needed; the owner rejected it, because those conditions cannot be written, and a lighter flow for small works had been turned down before.
 - rejected: an agent proposed letting a change too small for a work be made by hand outside the flow; the owner rejected it, because a change made by hand would bypass the flow by which the project develops itself.
 
-### decision only-related-items-are-joined
-Items not yet begun are joined so that no item too small wastes a run, but only related things of one kind, related by what they deliver and never by the code they touch.
+### decision items-are-joined-by-topic
+Items not yet begun are joined by topic: one thing, or things so close or alike that one engineer does them as one, never by the code they touch, and never unrelated things to make an item bigger.
+- replaced: Joining so that no item too small wastes a run, only related things of one kind, was on main; the owner changed it, because small works ran quickly, and joining for size put unrelated things into one item.
 - replaced: Joining items only when they are nearly one thing, follow one another or change one place, and never to save a run, was on main; the owner changed it, because a run of the flow is not light, so joining is mainly to keep an item that is too small from wasting a run.
 - rejected: an agent proposed joining unrelated items when each is small and in one repository; the owner rejected it, because joining must never put unrelated things together, only related things of one kind.
 - rejected: an agent proposed counting changes of the same code as one work and as related; the owner rejected it, because that contradicted the rule that a dependency is a matter of logic and not of code.
@@ -51,14 +53,15 @@ Work whose need can be judged only once a result is in is not an item: it is wri
 An item's title says the work to be done, never a state that reads as done.
 - rejected: an agent proposed a title that states the result wanted, such as that more than half of the architect's calls are technical; the owner rejected it, because a title is an action, not a result.
 
-### decision a-background-opens-with-three-paragraphs
-An item's background opens with three short paragraphs: what it is to do, why (with one case, and only the conclusion about a cause), and the result wanted; never how to do it.
+### decision a-background-tells-the-story
+An item's background tells a reader new to the problem, in about 300 characters as a guide: the part of the system, what happened with one case, why it is a problem, and what is to be done.
+- replaced: A background of three short paragraphs, opening with what the item is to do in a sentence, was on main; the owner changed it, because the backgrounds began with no subject and named things they never said what they were.
 - replaced: A single first paragraph saying what the item is, why it is to be done, what brought it about and the result wanted was on main; the owner changed it, because the three mixed into one paragraph read badly.
 
 ### decision which-item-starts-first
-Among the items that can start, one that makes a red main green goes first, then what the owner said comes first, then the one that most items not on hold wait for; there is no policy.
+Among the items that can start, one that makes a red main green goes first, then what the owner said comes first, then the one that most items not paused wait for; there is no policy.
 - rejected: an agent proposed that the policy and the dependencies decide which item that can start goes first, as on the board; the owner rejected it, because the new system has no policy.
 
-### decision nothing-is-held-without-a-reason
-An item that is not to start yet is held with what it waits for, an item's merge or the owner's word, and no item is held without such a reason.
+### decision nothing-is-paused-without-a-reason
+An item that is not to start yet is paused with `--why` saying what it waits for, an item's merge, named with `--waits-for`, or the owner's word, and no item is paused without such a reason.
 - rejected: an agent proposed ordering the items by the holds they had, which said the owner wanted them after a fix list; the owner rejected it, because he had asked for no hold, and the architect must hold nothing without a reason, judging only by the project's needs.
