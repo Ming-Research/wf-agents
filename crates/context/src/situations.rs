@@ -14,7 +14,7 @@
 //! before it, and holds each part of the message kept alike for both, and what that cell's return handed in, where it
 //! writes any block and handed one in; after a return of it that handed in nothing only where that cell must write no
 //! block, since a return that ends the run of a cell that must write one hands it in, and a question its cell waits for
-//! holds the work at that cell, here and where another cell of the line was read first in a session begun anew.
+//! holds the work at that cell; so is a cell of the line before this one that was read first in a session begun anew.
 //!
 //! What it watches that ran it is each datum or group alone, those whose blocks one cell's return writes together, and
 //! all of them at once. On a first entry, where everything written is new to the cell, every datum it watches that the
@@ -973,8 +973,11 @@ impl<'a> Reach<'a> {
                     let (holds, after_hand_in) = self.after(other);
                     let id = other.id.as_str().to_lowercase();
                     add(holds.clone(), after_hand_in, Some(format!("after_{id}")));
-                    // A cell that must write a block hands in at least that with the return that ends its run.
-                    let hands_nothing = other.must_write.is_empty();
+                    // A cell before this one in the order that must write a block hands in at least that with the return
+                    // that ends its run, and one that is not ended has something new again and is run before this one. A
+                    // cell after it may have had its run stopped, which hands nothing in, and this one run then.
+                    let earlier = self.before.iter().any(|b| b.id == other.id);
+                    let hands_nothing = !earlier || other.must_write.is_empty();
                     if hands_nothing {
                         add(holds.clone(), false, Some(format!("after_{id}_nothing_handed_in")));
                     }

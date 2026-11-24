@@ -2464,7 +2464,7 @@ impl Between {
 /// the attempts at the lines still open may carry together.
 const LADDER_STEPS: usize = 30;
 const ATTEMPTS: usize = 150;
-const LADDER_ROUNDS: usize = 6000;
+const LADDER_ROUNDS: usize = 3000;
 
 /// One attempt of [`between_rounds`].
 struct Attempt {
@@ -2832,7 +2832,7 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
     // What is open is tried by what the owner and the outside do between two rounds of one session.
     let open: Vec<&String> = wanted.iter().filter(|line| !reached.real.contains(*line)).collect();
     if !open.is_empty() {
-        let each = (LADDER_ROUNDS / open.len()).max(100);
+        let each = (LADDER_ROUNDS / open.len()).clamp(100, 500);
         let started = reached.rounds;
         for line in &open {
             if reached.real.contains(*line) {
