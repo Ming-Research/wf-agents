@@ -332,16 +332,16 @@ struct History {
 /// whether it changes its meaning.
 #[derive(Clone)]
 struct Say {
-    writes: Vec<(&'static str, bool)>,
+    writes: Vec<(String, bool)>,
     /// Whether it asks the owner a question, which its cell does not wait for.
     asks: bool,
 }
 
 impl Say {
     /// Hands in these blocks, each as changing its meaning.
-    fn all(blocks: &[&'static str]) -> Say {
+    fn all(blocks: &[&str]) -> Say {
         Say {
-            writes: blocks.iter().map(|b| (*b, true)).collect(),
+            writes: blocks.iter().map(|b| (b.to_string(), true)).collect(),
             asks: false,
         }
     }
@@ -353,9 +353,9 @@ impl Say {
     }
 
     /// Hands in these blocks, each as changing its meaning, and these, each as changing nothing in it.
-    fn with(changed: &[&'static str], unchanged: &[&'static str]) -> Say {
-        let mut writes: Vec<(&'static str, bool)> = changed.iter().map(|b| (*b, true)).collect();
-        writes.extend(unchanged.iter().map(|b| (*b, false)));
+    fn with(changed: &[&str], unchanged: &[&str]) -> Say {
+        let mut writes: Vec<(String, bool)> = changed.iter().map(|b| (b.to_string(), true)).collect();
+        writes.extend(unchanged.iter().map(|b| (b.to_string(), false)));
         Say { writes, asks: false }
     }
 }
@@ -769,16 +769,8 @@ impl History {
     /// Carries what the work gives until the round next is of this cell, which it leaves to be carried. Says where the work
     /// stood where it does not come to one: the directed test is stale.
     fn until(&mut self, reached: &mut Reached, cell: &str) -> Result<(), String> {
-        for _ in 0..300 {
-            match self.sim.round() {
-                Some(round) if round.cell.as_str() == cell => return Ok(()),
-                Some(round) => self.carry(&round, reached),
-                None => match self.sim.calls().first() {
-                    Some(call) => self.sim.done(*call, "the rows"),
-                    None if self.lets_go() => {}
-                    None => break,
-                },
-            }
+        if self.until_within(reached, cell, 300) {
+            return Ok(());
         }
         // What the last return sent back was sent back for, where a run goes on sending its returns back.
         let last_run = (self.sim.work.given.iter().rev())
@@ -798,6 +790,30 @@ impl History {
             format!("{:?}", decide(&self.sim.flow.flow, &self.sim.work.records)),
             self.trace.iter().rev().take(4).collect::<Vec<_>>()
         ))
+    }
+
+    /// Carries what the work gives, in at most this many steps, until the round next is of this cell, which it leaves to be
+    /// carried. Says whether it came to one.
+    fn until_within(&mut self, reached: &mut Reached, cell: &str, steps: usize) -> bool {
+        for _ in 0..steps {
+            match self.sim.round() {
+                Some(round) if round.cell.as_str() == cell => return true,
+                Some(round) => self.carry(&round, reached),
+                None => match self.sim.calls().first() {
+                    Some(call) => self.sim.done(*call, "the rows"),
+                    None if self.lets_go() => {}
+                    None => return false,
+                },
+            }
+        }
+        false
+    }
+
+    /// Carries the round under way.
+    fn carry_round(&mut self, reached: &mut Reached) {
+        if let Some(round) = self.sim.round() {
+            self.carry(&round, reached);
+        }
     }
 
     /// Carries the round of this cell that comes next.
@@ -1103,7 +1119,7 @@ impl History {
             let percent = self.prefer.get(block.as_str()).copied().unwrap_or(self.writes);
             let listed = said
                 .as_ref()
-                .and_then(|s| s.writes.iter().find(|(b, _)| *b == block.as_str()).copied());
+                .and_then(|s| s.writes.iter().find(|(b, _)| b == block.as_str()).map(|(_, m)| *m));
             let near = !self.focus || {
                 let named = (self.target.as_ref()).is_none_or(|t| t.near.iter().any(|n| n == block.as_str()));
                 named || self.rng.chance(8)
@@ -1122,7 +1138,7 @@ impl History {
                 });
                 let content = value.clone().unwrap_or_else(|| self.content(block.as_str()));
                 let matters = match listed {
-                    Some((_, matters)) => matters || value.is_some(),
+                    Some(matters) => matters || value.is_some(),
                     None => self.matters(&block, value.as_deref()),
                 };
                 writes.push(Handed {
@@ -1176,6 +1192,23 @@ impl History {
                 matters: true,
                 value,
             });
+        }
+        // Where nothing happens by chance, a run the owner's words ran answers them, as a cell that is told something does.
+        if self.steady {
+            let ran_by = (decide::told(&self.sim.flow.flow, &self.sim.work.records, round.run))
+                .map(|told| told.ran_by)
+                .unwrap_or_default();
+            if let Some(words) = spoken::words_of(&self.sim.flow, &cell.id).cloned() {
+                if ran_by.contains(&words) && !writes.iter().any(|w| w.block == words) {
+                    let content = self.content(words.as_str());
+                    writes.push(Handed {
+                        block: words,
+                        content,
+                        matters: true,
+                        value: None,
+                    });
+                }
+            }
         }
         let mut came = Came::hands_in(writes);
         if self.nothing_dealt.contains(cell.id.as_str()) && self.rng.chance(80) {
@@ -2211,17 +2244,18 @@ fn main_taken_in(reached: &mut Reached, passed: History) -> Result<(), String> {
     Ok(())
 }
 
-/// The directed tests of the engineer's flow, each a history that is brought to a round by what its cells hand in and what
-/// the owner and the outside write between two rounds of one line's session, which the random steps reach only by chance.
-/// Each begins from the work as it stands once the plan is written, the change is made, every review has been run, the
-/// tester has raised a point and the implementation has answered it, and no other point has been raised.
-fn directed_tests(reached: &mut Reached) {
-    let mut passed = History::directed(0);
-    passed.force.insert("deep_needed".to_string(), "no".to_string());
-    passed.says.insert(
-        "R1".to_string(),
-        vec![Say::all(&["plan_owner", "plan_agent", "acceptance"]).asking()],
-    );
+/// The work as it stands once the plan is written, the change is made, every review has been run, the tester has raised a
+/// point and the implementation has answered it, and no other point has been raised; with the design cells run too where
+/// `deep` says the plan needs them.
+fn first_pass(reached: &mut Reached, deep: bool) -> History {
+    let mut passed = History::directed(u64::from(deep));
+    let needed = if deep { "yes" } else { "no" };
+    passed.force.insert("deep_needed".to_string(), needed.to_string());
+    let mut plan = vec!["plan_owner", "plan_agent", "acceptance"];
+    if deep {
+        plan.push("deep_needed");
+    }
+    passed.says.insert("R1".to_string(), vec![Say::all(&plan).asking()]);
     passed.says.insert(
         "I1".to_string(),
         vec![
@@ -2233,6 +2267,14 @@ fn directed_tests(reached: &mut Reached) {
         .says
         .insert("T4".to_string(), vec![Say::with(&["testing"], &["tests"])]);
     passed.drain(reached);
+    passed
+}
+
+/// The directed tests of the engineer's flow, each a history that is brought to a round by what its cells hand in and what
+/// the owner and the outside write between two rounds of one line's session, which the random steps reach only by chance.
+/// Each begins from the work as it stands after [`first_pass`]. Says, of each, how many lines it reached that no other
+/// reached before it.
+fn directed_tests(reached: &mut Reached, passed: &History) -> Vec<String> {
     let scripts: [(&str, Directed); 7] = [
         ("one review answered", one_review_answered),
         ("all three answered", all_three_answered),
@@ -2242,11 +2284,179 @@ fn directed_tests(reached: &mut Reached) {
         ("the check failing twice", the_check_failing_twice),
         ("main taken in", main_taken_in),
     ];
+    let mut log = Vec::new();
     for (name, script) in scripts {
-        if let Err(why) = script(reached, passed.clone()) {
+        let (lines, rounds) = (reached.real.len(), reached.rounds);
+        let result = script(reached, passed.clone());
+        log.push(format!(
+            "directed test {name}: {} lines, {} rounds{}",
+            reached.real.len() - lines,
+            reached.rounds - rounds,
+            if result.is_err() { ", stale" } else { "" }
+        ));
+        if let Err(why) = result {
             reached.stale.push(format!("{name}: {why}"));
         }
     }
+    log
+}
+
+/// What the owner and the outside do between two rounds of one line's session, to a datum.
+#[derive(Clone)]
+enum Between {
+    /// A person or the outside writes the block.
+    Put(String),
+    /// The owner says some words to the cell, which are the datum.
+    Words(String),
+    /// The cell, run by the owner's words, hands in the block.
+    Writes(String, String),
+    /// The cell, run by the owner's words, asks a question, and the owner answers it: the datum is its questions.
+    Asks(String),
+}
+
+impl Between {
+    /// What is done between two rounds, as it needs the work: says whether the work was brought to it.
+    fn done(&self, history: &mut History, reached: &mut Reached) -> bool {
+        match self {
+            Between::Put(block) => history.put(block),
+            Between::Words(cell) => history.say_to(cell),
+            Between::Writes(cell, block) => {
+                history.says.insert(cell.clone(), vec![Say::all(&[block.as_str()])]);
+                history.say_to(cell);
+                if !history.until_within(reached, cell, LADDER_STEPS) {
+                    return false;
+                }
+                history.carry_round(reached);
+            }
+            Between::Asks(cell) => {
+                history.says.insert(cell.clone(), vec![Say::all(&[]).asking()]);
+                history.say_to(cell);
+                if !history.until_within(reached, cell, LADDER_STEPS) {
+                    return false;
+                }
+                history.carry_round(reached);
+                history.answers_all();
+            }
+        }
+        true
+    }
+
+    /// Whether it needs a round of the cell it writes through, which the work cannot then wait at.
+    fn needs_a_round(&self) -> bool {
+        matches!(self, Between::Writes(..) | Between::Asks(_))
+    }
+}
+
+/// How many steps a directed attempt waits for a round of a cell, and how many rounds the attempts at the lines still open
+/// may carry together.
+const LADDER_STEPS: usize = 30;
+const LADDER_ROUNDS: usize = 4000;
+
+/// Tries to bring the work to a round that stands in the state of a datum this line says, by what the owner and the outside
+/// do to the datum between two rounds of one line's session: from each base, the line's session is reopened or not, a cell
+/// of the line before the target's, or the target's, runs, and the datum is written before it, after it, or after the
+/// target's own run began, as the owner's words, a person's or the outside's hand, or the cell that writes it. Every
+/// attempt carries its rounds through the history's own checks, so that all the lines they stand in are reached. Says how
+/// many rounds it carried.
+fn between_rounds(bases: &[&History], line: &str, reached: &mut Reached, budget: usize) -> usize {
+    let started = reached.rounds;
+    for base in bases {
+        let target = Target::of(&base.sim, line);
+        let Some(datum) = target.datum.clone() else {
+            return 0;
+        };
+        let flow = &base.sim.flow;
+        let Some(own) = (flow.cells.iter().find(|c| c.id.as_str() == target.cell)).and_then(|c| c.line.clone()) else {
+            return 0;
+        };
+        let mates: Vec<String> = (flow.cells.iter())
+            .filter(|c| c.line.as_ref() == Some(&own))
+            .map(|c| c.id.as_str().to_string())
+            .collect();
+        let at = mates.iter().position(|m| *m == target.cell).unwrap_or(0);
+        let mut firsts = vec![target.cell.clone()];
+        if at > 0 {
+            firsts.push(mates[at - 1].clone());
+            firsts.push(mates[0].clone());
+        }
+        firsts.dedup();
+        let mut ways: Vec<Between> = Vec::new();
+        if base.scene.writes.iter().any(|w| *w == datum) {
+            ways.push(Between::Put(datum.clone()));
+        }
+        for cell in &flow.cells {
+            if spoken::words_of(flow, &cell.id).is_some_and(|w| w.as_str() == datum) {
+                ways.push(Between::Words(cell.id.as_str().to_string()));
+            }
+            if format!("{}_questions", cell.id.as_str().to_lowercase()) == datum {
+                ways.push(Between::Asks(cell.id.as_str().to_string()));
+            }
+        }
+        if let Some(declared) = flow.blocks.get(&BlockId::from(datum.as_str())) {
+            for writer in declared
+                .writers
+                .cells
+                .iter()
+                .filter(|w| spoken::words_of(flow, w).is_some())
+            {
+                ways.push(Between::Writes(writer.as_str().to_string(), datum.clone()));
+            }
+        }
+        let watched = (flow.cells.iter().find(|c| c.id.as_str() == target.cell))
+            .is_some_and(|c| c.watches.iter().any(|t| t.blocks.iter().any(|b| b.as_str() == datum)));
+        for position in 0..3 {
+            for reopen in [false, true] {
+                for first in &firsts {
+                    for way in &ways {
+                        // A datum written through a cell's round cannot be written while the target's round is awaited.
+                        if position == 2 && way.needs_a_round() {
+                            continue;
+                        }
+                        for wake in [true, false] {
+                            // A datum the cell does not watch runs it by nothing: the owner's words do.
+                            if !wake && (!watched || position == 2) {
+                                continue;
+                            }
+                            if reached.rounds - started > budget {
+                                return reached.rounds - started;
+                            }
+                            let mut history = (*base).clone();
+                            if reopen {
+                                history.sim.anew(&own, Why::Owner);
+                            }
+                            let brought = (|| {
+                                if position == 0 && !way.done(&mut history, reached) {
+                                    return false;
+                                }
+                                history.say_to(first);
+                                if !history.until_within(reached, first, LADDER_STEPS) {
+                                    return false;
+                                }
+                                history.carry_round(reached);
+                                if position == 1 && !way.done(&mut history, reached) {
+                                    return false;
+                                }
+                                if wake {
+                                    history.say_to(&target.cell);
+                                }
+                                if position == 2 && !way.done(&mut history, reached) {
+                                    return false;
+                                }
+                                history.until_within(reached, &target.cell, LADDER_STEPS)
+                            })();
+                            if brought {
+                                history.carry_round(reached);
+                            }
+                            if reached.real.contains(line) {
+                                return reached.rounds - started;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    reached.rounds - started
 }
 
 /// Searches the engineer's flow for rounds that stand in the lines wanted. Each run is steered at a line not yet reached,
@@ -2263,7 +2473,15 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
     let mut reached = Reached::default();
     let mut log = Vec::new();
     let begun = std::time::Instant::now();
-    directed_tests(&mut reached);
+    let (passed, deep) = (first_pass(&mut reached, false), first_pass(&mut reached, true));
+    log.push(format!(
+        "after the first passes, {:?}: {} lines open, {} rounds {:?}",
+        begun.elapsed(),
+        wanted.difference(&reached.real).count(),
+        reached.rounds,
+        reached.of_cell
+    ));
+    log.extend(directed_tests(&mut reached, &passed));
     log.push(format!(
         "after the directed tests, {:?}: {} lines open",
         begun.elapsed(),
@@ -2434,6 +2652,29 @@ fn search(wanted: &BTreeSet<String>, seed: u64) -> (Reached, Vec<String>) {
                 reached.archive.values().map(Vec::len).sum::<usize>()
             ));
         }
+    }
+    // What is open is tried by what the owner and the outside do between two rounds of one session.
+    let open: Vec<&String> = wanted.iter().filter(|line| !reached.real.contains(*line)).collect();
+    if !open.is_empty() {
+        let each = (LADDER_ROUNDS / open.len()).max(100);
+        let mut spent = 0;
+        for line in &open {
+            if reached.real.contains(*line) {
+                continue;
+            }
+            spent += between_rounds(
+                &[&passed, &deep],
+                line,
+                &mut reached,
+                each.min(LADDER_ROUNDS.saturating_sub(spent)),
+            );
+        }
+        log.push(format!(
+            "the attempts between two rounds of a session, {:?}: {} of {} open lines reached, {spent} rounds",
+            begun.elapsed(),
+            open.iter().filter(|line| reached.real.contains(**line)).count(),
+            open.len()
+        ));
     }
     (reached, log)
 }
