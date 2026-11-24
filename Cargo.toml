@@ -42,15 +42,3 @@ opt-level = 3
 
 [profile.ci.package.flow]
 opt-level = 1
-
-[profile.ci.package.context]
-opt-level = 3
-
-[profile.ci.package.engine]
-opt-level = 3
-
-[profile.ci.package.decide]
-opt-level = 3
-
-[profile.ci.package.work]
-opt-level = 3
