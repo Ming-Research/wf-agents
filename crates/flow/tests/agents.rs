@@ -269,6 +269,7 @@ fn what_the_engine_writes_as_it_works_is_read_alone_as_read_reads_it() {
     assert_eq!(writes.acts.start.continued, read.acts.start.continued);
     assert!(read.acts.start.continued.contains("{continues}"));
     assert_eq!(writes.acts.deliver.between, read.acts.deliver.between);
+    assert_eq!(writes.acts.conclude.text, read.acts.conclude.text);
 }
 
 #[test]

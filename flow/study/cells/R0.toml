@@ -1,0 +1,27 @@
+# Why this cell exists: so that the design tree is read before any work on the item. The principles and decisions it
+# holds bind every later step, and one missed costs dearly: the entries it names are given whole to the study's session
+# wherever it lacks them.
+title = "Understand the problem and the design tree"
+kind = "agent"
+line = "study"
+effort = "high"
+takes_main = true
+task = '''
+First, understand what the item's `background` asks for, just enough to know where to look in the design tree. Then
+read the tree for this work, as the tree's rules say. Hand in `tree_entries`: every entry of the tree that bears on the
+item. Read nothing else the `background` names in this run.
+'''
+watches = ["background"]
+reads = ["tree"]
+outputs = ["tree_entries"]
+must_write = ["tree_entries"]
+
+# What the cell does when each datum it watches is new; a datum with none is the task's alone.
+[do]
+background = """Look at what changed since the version you last worked from (all of it, if you have worked from none), read what the change touches, and hand in `tree_entries` as it now stands."""
+
+[kinds]
+# Given as the files that changed since the tree this session read.
+tree = "last_and_latest"
+# It says what the item asks for, and so where in the tree to look.
+background = "last_and_latest"

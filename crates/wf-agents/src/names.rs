@@ -14,10 +14,12 @@
 //! act `check`, the flow `deliver` and the act `deliver`, the blocks `title`, `code`, `tests` and `checked`, each a
 //! place, and the group `change` and the block `merged`, kinds of what the interface sends) is left out, as nothing
 //! tells the two apart in a text; the name of an event the page listens for is the browser's word, and is no name of a
-//! flow; and a name that is a plain word, such as `plan` or `found`, is found inside a longer text only where it is
-//! written as a name, between backticks, and never as a key, since prose and the code's own words use it for its
-//! meaning. A name with a digit or an `_` is no word, and is found wherever it stands, but in the path of a drawing,
-//! and a regular expression is no text at all.
+//! flow; in the code that reads the host's replies (`crates/carry/src/host/`), a plain word given as the index of a
+//! value, as in `reply["conclusion"]`, is a field of a reply from outside, read by its sender's word, and is no name of
+//! a flow either, though a flow's block may have the same name; and a name that is a plain word, such as `plan` or
+//! `found`, is found inside a longer text only where it is written as a name, between backticks, and never as a key,
+//! since prose and the code's own words use it for its meaning. A name with a digit or an `_` is no word, and is found
+//! wherever it stands, but in the path of a drawing, and a regular expression is no text at all.
 //!
 //! It reads every source of the repository once and compiles the two flows, 0.9 s on CI. It is worth that: a name
 //! written in the code holds for one flow alone, and nothing else finds it until a flow renames the thing and the code
@@ -543,6 +545,31 @@ fn listened(lines: &[&str], literal: &Literal) -> bool {
     })
 }
 
+/// The code that reads the host's replies, by its path from the repository's root: the one place whose code names the
+/// fields of a reply from outside.
+const HOST_REPLIES: &str = "crates/carry/src/host/";
+
+/// Whether a literal, in the source at `at`, is a field of a reply from the host: a plain word given as the index of a
+/// value on its line, `reply["conclusion"]`, in the code that reads the host's replies. A name with a digit or an `_`
+/// is never one, nor is a list of words, `["a", "b"]`, or an array after `!` or `=`, nor an index anywhere else.
+fn replied(at: &str, lines: &[&str], literal: &Literal) -> bool {
+    if !at.starts_with(HOST_REPLIES) || no_word(&literal.text) {
+        return false;
+    }
+    let line = literal.line.checked_sub(1).and_then(|i| lines.get(i));
+    line.is_some_and(|l| {
+        ['\'', '"'].iter().any(|q| {
+            let index = format!("[{q}{}{q}]", literal.text);
+            l.match_indices(&index).any(|(begins, _)| {
+                l[..begins]
+                    .chars()
+                    .next_back()
+                    .is_some_and(|c| ident(c) || c == ']' || c == ')')
+            })
+        })
+    })
+}
+
 /// The names the flows give that are not the engine's own: each cell, line, group and block of every flow the
 /// repository defines, without what the engine declares.
 fn flow_names() -> BTreeSet<String> {
@@ -728,7 +755,11 @@ fn no_source_names_a_cell_line_group_or_block_of_a_flow() {
         let at = path.strip_prefix(&root).unwrap_or(&path).display().to_string();
         let text = fs::read_to_string(&path).unwrap_or_default();
         let lines: Vec<&str> = text.lines().collect();
-        for literal in scanned.literals.iter().filter(|l| !listened(&lines, l)) {
+        for literal in scanned
+            .literals
+            .iter()
+            .filter(|l| !listened(&lines, l) && !replied(&at, &lines, l))
+        {
             for name in named(&literal.text, &names) {
                 found.push(format!("{at}:{}: {name} in \"{}\"", literal.line, literal.text));
             }
@@ -901,6 +932,43 @@ fn a_flow_gives_its_own_name_beside_those_of_its_cells_lines_groups_and_blocks()
             .into_iter()
             .collect()
     );
+}
+
+#[test]
+fn a_plain_word_given_as_the_index_of_a_value_is_a_field_of_a_reply_only_where_the_host_is_read() {
+    let lines = [
+        r#"let a = run["conclusion"].as_str();"#,
+        r#"let b = rows[0]["conclusion"];"#,
+        r#"let c = ["conclusion", "other"];"#,
+        r#"let d = vec!["conclusion"];"#,
+        r#"let e = names(["conclusion"]);"#,
+        r#"let f = run["plan_owner"];"#,
+        r#"let g = run["conclusion_of"]["plan_owner"];"#,
+        "const h = run['conclusion'];",
+    ];
+    let host = "crates/carry/src/host/github/gh.rs";
+    let at = |at: &str, line: usize, text: &str| {
+        let literal = Literal {
+            text: text.to_string(),
+            line,
+        };
+        replied(at, &lines, &literal)
+    };
+    assert!(at(host, 1, "conclusion"));
+    assert!(at(host, 2, "conclusion"));
+    assert!(!at(host, 3, "conclusion"));
+    assert!(!at(host, 4, "conclusion"));
+    assert!(!at(host, 5, "conclusion"));
+    assert!(!at(host, 6, "plan_owner"));
+    assert!(!at(host, 7, "plan_owner"));
+    assert!(at(host, 8, "conclusion"));
+    for elsewhere in [
+        "crates/engine/src/walk.rs",
+        "crates/carry/src/acts.rs",
+        "client/src/works.ts",
+    ] {
+        assert!(!at(elsewhere, 1, "conclusion"), "{elsewhere}");
+    }
 }
 
 #[test]

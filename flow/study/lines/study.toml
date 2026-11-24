@@ -1,0 +1,7 @@
+# The study reads and changes no file: nothing it commits is merged, and what a follow-up needs of it is in its
+# conclusion.
+reads_only = true
+rules = ["general", "engineering"]
+# Not below the deep research, whose question it also answers, and with no review or deep research behind it (decision
+# the-deep-research-and-the-plan-review-run-above).
+levels_above = 1

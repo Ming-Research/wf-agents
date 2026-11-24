@@ -1754,6 +1754,7 @@ pub struct Acts {
     pub check: Check,
     pub merge: Merge,
     pub deliver: Deliver,
+    pub conclude: Conclude,
     pub tree: Tree,
 }
 
@@ -1784,6 +1785,13 @@ pub struct Deliver {
     pub one: String,
     pub many: String,
     pub between: String,
+}
+
+/// `agents/acts/conclude.toml`.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Conclude {
+    pub text: String,
 }
 
 /// `agents/acts/check.toml`.
@@ -2172,6 +2180,7 @@ pub fn acts(root: &Path) -> Result<Acts, String> {
         check: file(&at.join("check.toml"))?,
         merge: file(&at.join("merge.toml"))?,
         deliver: file(&at.join("deliver.toml"))?,
+        conclude: file(&at.join("conclude.toml"))?,
         tree,
     })
 }

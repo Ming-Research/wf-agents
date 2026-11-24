@@ -1,0 +1,5 @@
+what = "The study's conclusion, in `owner.language`, with technical terms in English: what was found and where each fact was checked, then what follows for the items: each item to make, with what it is to do, why and what it depends on, and each choice that is the owner's and is still to be put in the items that follow."
+shown = true
+words = '''
+`conclusion`: write the conclusion as it now stands, not how it came about. The items that follow are made from it
+alone.'''

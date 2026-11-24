@@ -935,9 +935,9 @@ const SOURCES: [&str; 10] = [
 ];
 
 /// The names of the acts of the engine's own that carry out an engine cell: `start` makes the place a work is done
-/// in, `check` checks the work before its merge, `merge` merges it, and `deliver` says that a deliverable item, made
-/// of the items it depends on, is delivered.
-const ACTS: [&str; 4] = ["start", "check", "merge", "deliver"];
+/// in, `check` checks the work before its merge, `merge` merges it, `deliver` says that a deliverable item, made of
+/// the items it depends on, is delivered, and `conclude` says that a study is concluded.
+const ACTS: [&str; 5] = ["start", "check", "merge", "deliver", "conclude"];
 
 /// The names of the tools an agent may ask the engine for in its return: `query`, one read-only query on the engine's
 /// records, and `run_tests`, which runs named tests and checks, or all of them, where the host checks the work. A cell
