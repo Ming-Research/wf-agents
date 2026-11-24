@@ -12,7 +12,8 @@ tree = "design/"
 
 # Transitional: how an entry is found and referred to, as the engine installed before the tree's format became the
 # flow's reads it from here. This engine does not use it and refuses one that differs from `agents/tree.toml`. It goes,
-# with `files.tree_rules` and `project.tree_check` below, `design/README.md`, `design/lint.py` and the measurement
+# with `files.tree_rules` and `project.tree_check` below, `design/README.md`, `design/lint.py`, its test
+# `design/lint_test.py` (which the full workflow on main runs until this change merges) and the measurement
 # `measure/design-lint`, in the change that follows the install of the build that carries the tree's rules and its
 # check, which puts the refusal of this table back.
 [tree_format]

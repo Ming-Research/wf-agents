@@ -18,8 +18,8 @@
 //! ([`entries`]).
 //!
 //! Where the work's own change against main changes the tree, the files of the tree at the commit are held to the
-//! forms of the tree's rules ([`unformed`]), as a round of a line that may change the work ends, and as the check
-//! before the merge looks at the commit that would merge.
+//! forms of the tree's rules ([`unformed`]), as a round of a line that may change more than the project's tests ends,
+//! and as the check before the merge looks at the commit that would merge.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;

@@ -4,11 +4,11 @@
 //! name entries of the tree, checked as it is handed in and given as the entries it names; and a change of the tree
 //! held to the forms of the tree's rules.
 
-use decide::run::Unmet;
+use decide::run::{Failure, Unmet};
 use decide::{RunId, Writer};
 use service::Act;
 use store::WorkNumber;
-use work::Given;
+use work::{Back, Given};
 
 use crate::{FORMED_FILE, Fake, GREETING_ENTRY, GREETING_FILE, NO_SUCH_ENTRY, On, Real, ended, git_in};
 
@@ -215,6 +215,29 @@ async fn a_build_that_asks_for_a_call_with_the_tree_out_of_its_forms_is_held_to_
         None,
         "the round that put the tree right left it in its forms"
     );
+}
+
+// A round whose branch cannot be read as it ends cannot have the design tree looked at: it fails, and its work waits,
+// as a round of a line of tests does, saying the branch could not be read and not what git said of one look. Well under
+// a second alone, on the fake agent; it catches a look at the tree made on a head that was not read.
+#[tokio::test]
+async fn a_round_whose_branch_cannot_be_read_as_it_ends_fails_for_the_tree_look_saying_so_and_its_work_waits() {
+    let fake = Fake {
+        build_loses_its_branch: true,
+        ..Fake::default()
+    };
+    let mut real = Real::trial(fake);
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| real.failures == 1).await;
+    let kept = real.work(work);
+    let build = real.run_of(work, "build");
+    let Some(Back::Failed { why, failure, .. }) = kept.back.get(&(build, 1)) else {
+        panic!("the build's round did not fail: {:?}", kept.back);
+    };
+    assert_eq!(*failure, Failure::Other);
+    assert!(why.contains("the work's branch could not be read: "), "{why}");
+    assert!(decide::pause(&kept.records).is_some(), "the work waits");
 }
 
 // A line that only reads changes nothing of the work, and a commit of the tree it leaves is the outside's: its return

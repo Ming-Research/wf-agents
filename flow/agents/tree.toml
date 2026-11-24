@@ -1,7 +1,8 @@
 # The design tree's rules as the engine carries them, the same for every project; the text of the rules is
 # `tree_rules.md`, which the session gives every agent. Here is what the engine reads of them: how an entry is found and
 # referred to, and the words of each fault it finds in the forms of the tree's files, which a round of a line that may
-# change the work is told of where the work's change changes the tree, and the check before the merge says.
+# change more than the project's tests is told of where the work's change changes the tree, and the check before the
+# merge says.
 
 # How an entry is found and referred to, as the rules write it: each kind with the directory under the project's tree
 # (`tree` of its declaration) that holds its files, in the order the rules read them; the line an entry begins with,

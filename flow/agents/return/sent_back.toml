@@ -77,8 +77,8 @@ tree_unchanged = "`{name}` is marked `tree` and has the owner's answer, but the 
 # hold.
 not_an_entry = "`{line}` names no entry of the design tree on the work's branch: write each entry on a line of its own, named as the tree's rules say to refer to one."
 # The files of the design tree at the head of the work's branch, which the work's change against main changes, where the
-# round of a line that may change the work ended with a return that asks for no call: `{faults}` each fault found in
-# their forms, a line to a fault, as `agents/tree.toml` words it.
+# round of a line that may change more than the project's tests ended with a return that asks for no call: `{faults}`
+# each fault found in their forms, a line to a fault, as `agents/tree.toml` words it.
 tree_form = "The files of the design tree on the work's branch are not in the forms the tree's rules give. Each is a file, a line and what is wrong; fix them all:\n{faults}"
 # Of a return of the form before a return said what it dealt with, which asked for calls and named none.
 asks_nothing = "The return asks for calls, but names none."
