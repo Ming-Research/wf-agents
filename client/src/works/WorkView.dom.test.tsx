@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { age } from '../console/items';
 import { levelWords } from '../marks';
-import type { Act, Changed, Now, Pauser, Wait, WorkPage } from '../works-api';
+import type { Act, Changed, Items, Now, Pauser, Wait, WorkPage } from '../works-api';
 import {
   fixtureCall,
   fixtureCopies,
@@ -23,7 +23,7 @@ import {
 import { pauseDiffers } from './marks';
 import { placeSteps } from './placing';
 import { type Source, SourceContext, readerOf } from './source';
-import { CHOSEN_SECTION, NOT_KEPT, clock, duration, ranLast, runTook } from './words';
+import { CHOSEN_SECTION, NOT_KEPT, clock, dollars, duration, ranLast, runTook } from './words';
 import { WorkScreen, WorkView } from './WorkView';
 import { WorksList, WorksTable } from './WorksList';
 
@@ -150,18 +150,35 @@ async function click(element: Element | null | undefined) {
 const button = (root: ParentNode, words: string) =>
   [...root.querySelectorAll('button')].find((b) => b.textContent?.trim() === words) as HTMLButtonElement | undefined;
 
-/// Picks an option of a choice as the browser would, so that React hears it.
-function pick(select: Element | null, value: string) {
-  const s = select as HTMLSelectElement;
-  act(() => {
-    s.value = value;
-    s.dispatchEvent(new Event('change', { bubbles: true }));
-  });
-}
-
 /// The works the list shows, by their numbers, in its order.
-const listed = (page: HTMLElement) =>
+const listed = (page: ParentNode) =>
   [...page.querySelectorAll<HTMLElement>('tbody tr.work-row')].map((r) => Number(r.dataset.work));
+
+/// The fixtures' items, every one of one project, so that the list is one group, in the list's own order.
+const ofOneProject = (items: Items): Items => ({
+  ...items,
+  items: items.items.map((item) => ({ ...item, project: 'wf-agents' })),
+});
+
+/// The list's groups, each its section, in order.
+const groupsOf = (page: ParentNode) => [...page.querySelectorAll<HTMLElement>('main > section.project-group')];
+
+/// A group's head: its name, its count with what it counts, and its note.
+const headOf = (group: HTMLElement) => {
+  const head = group.querySelector('h2.project-head') as HTMLElement;
+  const count = head.querySelector('.project-count') as HTMLElement;
+  return {
+    head,
+    button: head.querySelector('button') as HTMLButtonElement,
+    name: head.querySelector('button > .mono, button > .muted')?.textContent,
+    count: `${count.textContent} (${count.title})`,
+    note: head.querySelector('.project-note')?.textContent,
+  };
+};
+
+/// What the works of a project of the fixtures' items cost, as their column of costs counts it.
+const costOf = (items: Items, project: string | null) =>
+  dollars(items.items.filter((i) => i.project === project).reduce((sum, i) => sum + i.work.spent.usdMicros, 0));
 
 /// The rows of the work's history: a run's, and the lines between them.
 const runRows = (page: HTMLElement) => [...page.querySelectorAll<HTMLElement>('tbody tr.step-row')];
@@ -182,7 +199,7 @@ const part = (root: ParentNode, label: string) =>
 
 describe('the list of works', () => {
   it('lists the work of every item, what happened last first, those waiting for the owner edged, and a row opens its work', async () => {
-    const page = draw(<WorksTable items={fixtureItems()} />, fixtureSource());
+    const page = draw(<WorksTable items={ofOneProject(fixtureItems())} />, fixtureSource());
     const rows = [...page.querySelectorAll('tbody tr.work-row')] as HTMLElement[];
     // The list is the record of every work, ordered by when something last happened; a work's state orders it only by
     // its own column (decision the-list-is-ordered-by-a-column).
@@ -207,7 +224,7 @@ describe('the list of works', () => {
   });
 
   it('orders the list by the column whose head is pressed, a second press turning it, and keeps the order in the browser', async () => {
-    const page = draw(<WorksTable items={fixtureItems()} />, fixtureSource());
+    const page = draw(<WorksTable items={ofOneProject(fixtureItems())} />, fixtureSource());
     const head = (name: string) => button(page, name) as HTMLButtonElement;
     await click(head('#'));
     expect(listed(page)).toEqual([50, 49, 48, 47, 46, 45, 44, 43, 42, 41]);
@@ -220,49 +237,124 @@ describe('the list of works', () => {
     await click(head('State'));
     expect(listed(page)).toEqual([50, 43, 44, 45, 41, 49, 42, 46, 47, 48]);
     // Drawn anew, the list keeps the order last pressed.
-    expect(listed(draw(<WorksTable items={fixtureItems()} />, fixtureSource()))).toEqual([
+    expect(listed(draw(<WorksTable items={ofOneProject(fixtureItems())} />, fixtureSource()))).toEqual([
       50, 43, 44, 45, 41, 49, 42, 46, 47, 48,
     ]);
   });
 
-  it("shows, with a project chosen, that project's works and every work waiting for the owner, and every work with none chosen", () => {
+  it('orders each group by the order pressed in any group, the same for every group', async () => {
     const page = draw(<WorksTable items={fixtureItems()} projects={fixtureProjects().names} />, fixtureSource());
-    const select = page.querySelector('.view-line select') as HTMLSelectElement;
-    expect(select.closest('label')?.querySelector('.muted.mono')?.textContent).toBe('project');
-    expect([...select.options].map((o) => o.textContent)).toEqual(['all', 'Whitefoot', 'wf-agents']);
-    expect(select.value).toBe('');
-    expect(listed(page)).toHaveLength(10);
-    const facts = () => page.querySelector('.view-facts')?.textContent;
-    expect(facts()).toBe('10 works, 5 things wait for you');
-    // The works waiting for the owner of the other project, 50, 44 and 41, stay; the counts stay those of every work.
-    pick(select, 'Whitefoot');
-    expect(listed(page)).toEqual([50, 43, 44, 45, 41, 47]);
-    expect(facts()).toBe('10 works, 5 things wait for you, 6 shown');
-    // An item added before items had projects is shown only with none chosen, as it waits for nobody.
-    pick(select, 'wf-agents');
-    expect(listed(page)).toEqual([42, 50, 43, 44, 45, 46, 41, 48]);
-    pick(select, '');
-    expect(listed(page)).toHaveLength(10);
-    expect(facts()).toBe('10 works, 5 things wait for you');
+    const heads = (name: string) =>
+      [...page.querySelectorAll<HTMLButtonElement>('th button.order-head')].filter((b) => b.textContent === name);
+    // Every group's table has its own head, with a button for each column that orders the list.
+    expect(heads('#')).toHaveLength(4);
+    await click(heads('#')[2]);
+    expect(groupsOf(page).map(listed)).toEqual([[47, 45, 43], [50, 46, 42], [48, 44, 41], [49]]);
+    expect(heads('#').map((h) => h.closest('th')?.getAttribute('aria-sort'))).toEqual(Array(4).fill('descending'));
   });
 
-  it('keeps no project chosen once the list is drawn anew, and takes no room for a choice with one project', async () => {
-    const names = fixtureProjects().names;
-    const first = draw(<WorksTable items={fixtureItems()} projects={names} />, fixtureSource());
-    pick(first.querySelector('select'), 'Whitefoot');
-    expect(listed(first)).toHaveLength(6);
-    expect(listed(draw(<WorksTable items={fixtureItems()} projects={names} />, fixtureSource()))).toHaveLength(10);
-    const one = draw(<WorksList />, fixtureSource({ loadProjects: async () => ({ names: ['Whitefoot'] }) }));
-    await settle();
-    expect(one.querySelector('select')).toBeNull();
-    expect(listed(one)).toHaveLength(10);
+  it("stands each work in its own project's group, in order of the projects' names, the group of no project last, each headed outside its table", () => {
+    const items = fixtureItems();
+    const page = draw(<WorksTable items={items} projects={fixtureProjects().names} />, fixtureSource());
+    const groups = groupsOf(page);
+    expect(groups.map((g) => headOf(g).name)).toEqual(['Whitefoot', 'example', 'wf-agents', 'no project']);
+    // A work that waits for the owner stands in its own project's group, as every other does: 50 in example's, 44 and
+    // 41 in wf-agents'.
+    expect(groups.map(listed)).toEqual([[43, 45, 47], [42, 50, 46], [44, 41, 48], [49]]);
+    expect(groups.map((g) => [...g.querySelectorAll('tr.for-owner')].map((r) => Number((r as HTMLElement).dataset.work)))).toEqual([
+      [43, 45],
+      [50],
+      [44, 41],
+      [],
+    ]);
+    // Each head says how many works its group holds and what they cost, and stands outside the group's table, which
+    // has a head of its own.
+    expect(groups.map((g) => [headOf(g).count, headOf(g).note])).toEqual([
+      ['3 (3 works)', costOf(items, 'Whitefoot')],
+      ['3 (3 works)', costOf(items, 'example')],
+      ['3 (3 works)', costOf(items, 'wf-agents')],
+      ['1 (1 work)', costOf(items, null)],
+    ]);
+    for (const g of groups) {
+      expect(headOf(g).head.closest('table')).toBeNull();
+      expect(g.querySelectorAll('table.works > thead th')).toHaveLength(9);
+    }
+    // The view's line counts every work and what waits for the owner, and holds no choice of a project.
+    expect(page.querySelector('.view-facts')?.textContent).toBe('10 works, 5 things wait for you');
+    expect(page.querySelector('.view-line select')).toBeNull();
   });
 
-  it('shows every work, with no choice of project, where the projects cannot be read', async () => {
+  it('heads a project with no work as any other, its count nought, and says under it that it has none', () => {
+    const page = draw(<WorksTable items={fixtureItems(8)} projects={fixtureProjects(8).names} />, fixtureSource());
+    const groups = groupsOf(page);
+    expect(groups.map((g) => headOf(g).name)).toEqual([
+      'Whitefoot',
+      'example',
+      'project-4',
+      'project-5',
+      'project-6',
+      'project-7',
+      'project-8',
+      'wf-agents',
+      'no project',
+    ]);
+    const none = groups[6];
+    expect([headOf(none).count, headOf(none).note]).toEqual(['0 (0 works)', '$0.00']);
+    expect(none.querySelector('table')).toBeNull();
+    expect(none.querySelector('.message')?.textContent).toBe('No item of project project-8 has a work yet');
+    expect(groups.map((g) => listed(g).length)).toEqual([3, 1, 1, 1, 1, 1, 0, 1, 1]);
+  });
+
+  it('folds a group away at a press on its head and opens it again at the next, and keeps which are folded in the browser', async () => {
+    const page = draw(<WorksTable items={fixtureItems()} projects={fixtureProjects().names} />, fixtureSource());
+    const example = () => groupsOf(page)[1];
+    await click(headOf(example()).button);
+    expect(headOf(example()).button.getAttribute('aria-expanded')).toBe('false');
+    expect(example().querySelector('table')).toBeNull();
+    // Folded, its head still says what it holds, and the other groups stay open.
+    expect(headOf(example()).count).toBe('3 (3 works)');
+    expect(listed(page)).toEqual([43, 45, 47, 44, 41, 48, 49]);
+    expect(JSON.parse(localStorage.getItem('wf-agents.works-folded') ?? '')).toEqual(['example']);
+    // Drawn anew, the list keeps the group folded.
+    const again = draw(<WorksTable items={fixtureItems()} projects={fixtureProjects().names} />, fixtureSource());
+    expect(groupsOf(again).map((g) => headOf(g).button.getAttribute('aria-expanded'))).toEqual([
+      'true',
+      'false',
+      'true',
+      'true',
+    ]);
+    await click(headOf(example()).button);
+    expect(listed(example())).toEqual([42, 50, 46]);
+    expect(localStorage.getItem('wf-agents.works-folded')).toBeNull();
+  });
+
+  it('groups the works by the projects their items name where the projects cannot be read', async () => {
     const page = draw(<WorksList />, fixtureSource({ loadProjects: () => Promise.reject(new Error('no such route')) }));
     await settle();
-    expect(page.querySelector('select')).toBeNull();
+    expect(groupsOf(page).map((g) => headOf(g).name)).toEqual(['Whitefoot', 'example', 'wf-agents', 'no project']);
     expect(listed(page)).toHaveLength(10);
+  });
+
+  it('gives each column one width in every group, the widest it is in any, worked out again as a group folds', async () => {
+    // Each column of a table as wide as a hundred and ten for each of the table's rows; the title's is not fitted.
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      const column = (this as HTMLElement).dataset?.column;
+      const rows = this.closest('table')?.querySelectorAll('tbody tr').length ?? 0;
+      const width = column === undefined ? 0 : 100 + 10 * rows;
+      return { width, height: 0, x: 0, y: 0, top: 0, left: 0, right: width, bottom: 0, toJSON: () => ({}) } as DOMRect;
+    });
+    const page = draw(<WorksTable items={fixtureItems(8)} projects={fixtureProjects(8).names} />, fixtureSource());
+    const list = page.querySelector('main.list-view') as HTMLElement;
+    const fitted = () =>
+      ['item', 'title', 'state', 'cells', 'level', 'cell-level', 'cost', 'time', 'last'].map((c) =>
+        list.style.getPropertyValue(`--fit-col-${c}`),
+      );
+    // Whitefoot's table has three rows, every other one.
+    expect(fitted()).toEqual(['130px', '', '130px', '130px', '130px', '130px', '130px', '130px', '130px']);
+    await click(headOf(groupsOf(page)[0]).button);
+    expect(fitted()).toEqual(['110px', '', '110px', '110px', '110px', '110px', '110px', '110px', '110px']);
+    await click(headOf(groupsOf(page)[0]).button);
+    expect(fitted()[0]).toBe('130px');
   });
 
   it("says that a work the engine paused waits for you in the owner's tone, its stop's cell in red, and a fault in the tone of what failed", () => {

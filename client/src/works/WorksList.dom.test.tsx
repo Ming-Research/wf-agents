@@ -11,16 +11,17 @@ import { fixtureCopies, fixtureItems } from './fixtures';
 import { keptSame, type Source, SourceContext } from './source';
 import { WorksList } from './WorksList';
 
-/// How many rows of works were drawn: each row's drawing says once what its work cost, and nothing else of the list
-/// does, so the words of what it cost count the rows drawn.
+/// How many rows of works were drawn: each row's drawing names its item once, and nothing else of the list does (the
+/// head of a project's group says what its works cost, as each row does, so what a work cost counts no rows), so the
+/// names of items count the rows drawn.
 const drawn = vi.hoisted(() => ({ rows: 0 }));
 vi.mock('./words', async (original) => {
   const words = await original<typeof import('./words')>();
   return {
     ...words,
-    dollars: (...args: Parameters<typeof words.dollars>) => {
+    itemName: (...args: Parameters<typeof words.itemName>) => {
       drawn.rows += 1;
-      return words.dollars(...args);
+      return words.itemName(...args);
     },
   };
 });

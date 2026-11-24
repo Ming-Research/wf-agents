@@ -1,5 +1,6 @@
 // The page's parts, its own small design system: the bar, the view's line, a button, a segmented switch, a
-// label, a list row, a panel, the window that floats over a view and shows it, and the few signs the chart's heads use.
+// label, a list row, a panel, the window that floats over a view and shows it, the head of a project's group in a list,
+// and the few signs the chart's heads use.
 // Each is drawn by its class in styles/parts.css from the tokens in styles/tokens.css.
 
 import {
@@ -8,12 +9,13 @@ import {
   type ReactNode,
   type RefObject,
   useEffect,
+  useId,
   useRef,
   useState,
 } from 'react';
 
 import { hashOf } from './route';
-import { workName } from './works/words';
+import { NO_PROJECT, workName } from './works/words';
 
 /// The bar: the page's name, the views as text tabs (the one shown marked), and at its right what belongs to the page
 /// as a whole.
@@ -532,6 +534,74 @@ export function Fold({ title, count, note, children, chosen, section }: {
         )}
       </button>
       {!folded && <div className="cw-fold-body">{children}</div>}
+    </section>
+  );
+}
+
+/// The head of a project's group in a list grouped by project (the works, the observations), outside the group's rows:
+/// the project's name, how many things the group holds, and a note on them, such as what its works cost. The whole row
+/// is the button that folds the group away and opens it again, as a section of the item's window folds (`Fold`), and it
+/// is drawn as that section's head is: in the head's colour, the fold's mark before the name, a line after it to the
+/// edge. The name is in the monospace, as a project's name is wherever the page shows it; the group of what belongs to
+/// no project is named so, muted. `what` names the things the group holds, as in `works`, for the button to say what it
+/// does on pointing at it; `controls` is the id of the rows it folds.
+export function ProjectHead({ id, project, what, count, countTitle, note, noteTitle, open, onToggle, controls }: {
+  id: string;
+  project: string | null;
+  what: string;
+  count: number;
+  /// What the count counts, said on pointing at it: `7 works`.
+  countTitle: string;
+  note?: ReactNode;
+  noteTitle?: string;
+  open: boolean;
+  onToggle: () => void;
+  controls: string;
+}) {
+  const of = project === null ? `${NO_PROJECT.shown}: ${NO_PROJECT.title}` : project;
+  return (
+    <h2 className="project-head" id={id}>
+      <button
+        type="button"
+        className="project-fold"
+        aria-expanded={open}
+        aria-controls={controls}
+        title={`${open ? 'Fold' : 'Unfold'} the ${what} of ${of}`}
+        onClick={onToggle}
+      >
+        <span className="project-fold-sign" aria-hidden="true">
+          <FoldMark open={open} />
+        </span>
+        {project === null ? (
+          <span className="project-name muted">{NO_PROJECT.shown}</span>
+        ) : (
+          <span className="project-name mono">{project}</span>
+        )}{' '}
+        <span className="project-count mono" title={countTitle}>
+          {count}
+        </span>
+        {note !== undefined && (
+          <>
+            {' '}
+            <span className="project-note" title={noteTitle}>
+              {note}
+            </span>
+          </>
+        )}
+      </button>
+    </h2>
+  );
+}
+
+/// A project's group in a list grouped by project: its head (`ProjectHead`), and under it, while it is open, its rows.
+export function ProjectGroup({ open, children, ...head }: Omit<Parameters<typeof ProjectHead>[0], 'id' | 'controls'> & {
+  children: ReactNode;
+}) {
+  const id = useId();
+  return (
+    <section className="project-group" aria-labelledby={`${id}head`}>
+      <ProjectHead id={`${id}head`} controls={`${id}rows`} open={open} {...head} />
+      {open && <div id={`${id}rows`}>{children}</div>}
     </section>
   );
 }

@@ -12,7 +12,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import { listenShared } from '../changes';
-import { usesFixtures } from '../mock-data';
+import { projectsAsked, usesFixtures } from '../mock-data';
 import * as api from '../works-api';
 import type {
   Act,
@@ -89,13 +89,14 @@ export const INTERFACE: Source = {
   },
 };
 
-/// The fixtures, loaded only when asked for, so that the page as built for the interface does not carry them. What the
-/// owner does to a fixture is only logged, and no stream of changes is opened.
-export const FIXTURES: Source = {
+/// The fixtures, of as many projects as the address asks for (`projectsAsked`) or else of their own number of them,
+/// loaded only when asked for, so that the page as built for the interface does not carry them. What the owner does to
+/// a fixture is only logged, and no stream of changes is opened.
+export const fixturesOf = (projects: number | null): Source => ({
   loadCopies: async () => (await import('./fixtures')).fixtureCopies(),
-  loadItems: async () => (await import('./fixtures')).fixtureItems(),
-  loadProjects: async () => (await import('./fixtures')).fixtureProjects(),
-  loadWork: async (work) => (await import('./fixtures')).fixtureWork(work),
+  loadItems: async () => (await import('./fixtures')).fixtureItems(projects ?? undefined),
+  loadProjects: async () => (await import('./fixtures')).fixtureProjects(projects ?? undefined),
+  loadWork: async (work) => (await import('./fixtures')).fixtureWork(work, projects ?? undefined),
   loadVersion: async (work, block, number) => (await import('./fixtures')).fixtureVersion(work, block, number),
   loadRound: async (work, run, round) => (await import('./fixtures')).fixtureRound(work, run, round),
   loadTold: async (work, run, round) => (await import('./fixtures')).fixtureTold(work, run, round),
@@ -124,7 +125,10 @@ export const FIXTURES: Source = {
     return null;
   },
   changes: () => () => undefined,
-};
+});
+
+/// The fixtures, of their own number of projects.
+export const FIXTURES: Source = fixturesOf(null);
 
 /// What the item's window reads a work's contents through, each read once.
 export interface Reader {
@@ -184,7 +188,7 @@ export function readerOf(source: Source, work: number): Reader {
 
 /// The source the page's address names.
 export function sourceOf(search: string): Source {
-  return usesFixtures(search) ? FIXTURES : INTERFACE;
+  return usesFixtures(search) ? fixturesOf(projectsAsked(search)) : INTERFACE;
 }
 
 export const SourceContext = createContext<Source>(
@@ -329,6 +333,23 @@ export function useReading<T>(load: () => Promise<T>): { value: T | null; failed
   }, [load]);
   useEffect(read, [read]);
   return { ...state, read };
+}
+
+/// No change the stream tells of is a change of the projects.
+const noChange = () => undefined;
+
+/// No project read, the same list each time, so that what is worked out from it is not worked out again.
+const NO_NAMES: string[] = [];
+
+/// The projects the installation names, in order of their names, for a list grouped by project: read at once and again
+/// whenever the stream of changes opens again; none while they are not read, or where they cannot be, when the list
+/// has only the projects its rows name.
+export function useProjects(): string[] {
+  const source = useSource();
+  const load = useCallback(() => source.loadProjects(), [source]);
+  const names = useReading(load);
+  useChanges(noChange, names.read);
+  return names.value?.names ?? NO_NAMES;
 }
 
 /// Where the items are read from, and what says when to read them again. A source of the works page is one; the

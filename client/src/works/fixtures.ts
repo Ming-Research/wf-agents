@@ -8,7 +8,8 @@
 // the engine because a round failed; one merged; one cancelled after a let-go; one with a fault; and one long history, waiting at the merge for the owner, with a
 // return sent back, tool calls and their results, a round with what it was told and returned, a run abandoned because
 // the owner wrote an opinion for an earlier cell, a review's opinions sending the implementation round twice, and a
-// write by the outside. The items belong to two projects, and one, added before items had projects, to none.
+// write by the outside. The items belong to three projects, or to as many as the address asks for, as
+// `?fixtures&projects=12` does, and one, added before items had projects, to none.
 
 import type { Flow } from '../api';
 import { cell, flowOf, named, outlineOf, test, tested } from '../testing';
@@ -47,14 +48,28 @@ import type {
 
 const MINUTE = 60_000;
 
-/// The projects the fixtures' installation names, in order of their names.
-const PROJECTS = ['Whitefoot', 'wf-agents'];
+/// How many projects the fixtures' installation names, unless the page's address asks for another number of them.
+const PROJECTS = 3;
 
-/// The project of each work's item: three of `Whitefoot`; none for the work with a fault in its records, whose item
-/// was added before items had projects; `wf-agents` for the rest.
-function projectOf(work: number): string | null {
+/// The names of the fixtures' projects, as many as there are, in the order they are dealt works: these, then
+/// `project-4` and on.
+function namesOf(count: number): string[] {
+  return Array.from({ length: count }, (_, i) => ['wf-agents', 'Whitefoot', 'example'][i] ?? `project-${i + 1}`);
+}
+
+/// The works dealt in turn to the projects other than `Whitefoot`.
+const DEALT = [41, 42, 44, 46, 48, 50];
+
+/// The project of each work's item, of `count` projects: none for the work with a fault in its records, whose item was
+/// added before items had projects; with one project, that one; with more, three of `Whitefoot`, and the others dealt
+/// in turn to `wf-agents`, `example` and the projects after them, so that from eight projects on some have no work.
+function projectOf(work: number, count: number): string | null {
   if (work === 49) return null;
-  return [43, 45, 47].includes(work) ? PROJECTS[0] : PROJECTS[1];
+  const names = namesOf(count);
+  if (count === 1) return names[0];
+  if ([43, 45, 47].includes(work)) return names[1];
+  const others = [names[0], ...names.slice(2)];
+  return others[Math.max(0, DEALT.indexOf(work)) % others.length];
 }
 
 /// The flow the works run on: a plan, deep research when the plan asks for it, the implementation and its review, a
@@ -528,7 +543,8 @@ class History {
       },
       title,
       level: '2',
-      project: projectOf(number),
+      // How many projects there are is the build's to say (`build`), which gives the work its project.
+      project: null,
       history: { first: { title, level: '2', dependsOn: [] }, changes: [] },
       outline: outlineOf(FLOW),
       flow: FLOW,
@@ -728,14 +744,15 @@ function long(start: number): Built {
   return { page, history: h };
 }
 
-/// Every work of the fixtures, by its number, with what each item's works are.
-function build(now: number): { works: Map<number, Built>; items: Item[] } {
+/// Every work of the fixtures, by its number, with what each item's works are, the items of `projects` projects.
+function build(now: number, projects: number): { works: Map<number, Built>; items: Item[] } {
   const hours = (n: number) => now - n * 60 * MINUTE;
   const works = new Map<number, Built>();
   const items: Item[] = [];
   const keep = (built: Built) => {
     works.set(built.page.summary.number, built);
     const s = built.page.summary;
+    built.page.project = projectOf(s.number, projects);
     const { title, level, project, history } = built.page;
     items.push({ number: s.item, title, level, project, added: s.added, dependsOn: [], history, work: s });
   };
@@ -941,25 +958,37 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
   return { works, items };
 }
 
-let built: ReturnType<typeof build> | undefined;
+/// The fixtures built, by how many projects they are of.
+const built = new Map<number, ReturnType<typeof build>>();
 
-function fixtures() {
-  built ??= build(Math.floor(Date.now() / MINUTE) * MINUTE);
-  return built;
+function fixtures(projects = PROJECTS) {
+  let made = built.get(projects);
+  if (made === undefined) {
+    made = build(Math.floor(Date.now() / MINUTE) * MINUTE, projects);
+    built.set(projects, made);
+  }
+  return made;
 }
 
-function work(n: number): Built {
-  const w = fixtures().works.get(n);
+function work(n: number, projects = PROJECTS): Built {
+  const w = fixtures(projects).works.get(n);
   if (!w) throw new Error(`/api/v1/works/${n} answered 404: no such work`);
   return w;
 }
 
-export function fixtureItems(): Items {
-  return { items: fixtures().items, outage: null };
+/// The items, of `projects` projects.
+export function fixtureItems(projects = PROJECTS): Items {
+  return { items: fixtures(projects).items, outage: null };
 }
 
-export function fixtureProjects(): Projects {
-  return { names: [...PROJECTS] };
+/// The projects the fixtures' installation names, `projects` of them, in order of their names.
+export function fixtureProjects(projects = PROJECTS): Projects {
+  return { names: fixtureProjectNames(projects) };
+}
+
+/// The names of the fixtures' projects, `projects` of them, in order of their names.
+export function fixtureProjectNames(projects = PROJECTS): string[] {
+  return namesOf(projects).sort();
 }
 
 /// The copies of the database as they stand when all is well: the newest taken three hours ago and kept off the machine.
@@ -976,8 +1005,8 @@ export function fixtureCopies(): Copies {
   };
 }
 
-export function fixtureWork(n: number): WorkPage {
-  return work(n).page;
+export function fixtureWork(n: number, projects = PROJECTS): WorkPage {
+  return work(n, projects).page;
 }
 
 export function fixtureVersion(n: number, block: string, number: number): VersionPage {

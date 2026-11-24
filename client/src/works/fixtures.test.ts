@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Run, Step } from '../works-api';
-import { fixtureItems, fixtureRound, fixtureTold, fixtureVersion, fixtureWork } from './fixtures';
+import { fixtureItems, fixtureProjects, fixtureRound, fixtureTold, fixtureVersion, fixtureWork } from './fixtures';
 import { isWayRound } from './words';
 
 const runs = (steps: Step[]) => steps.filter((s): s is Step & Run & { kind: 'run' } => s.kind === 'run');
@@ -20,6 +20,28 @@ describe('the fixtures', () => {
     expect(works.some((w) => w.cells.some((c) => c.state === 'failed'))).toBe(true);
     expect(nows.some((n) => n.kind === 'merged')).toBe(true);
     expect(nows.some((n) => n.kind === 'cancelled')).toBe(true);
+  });
+
+  it('are of as many projects as asked, three unless asked, each item of one of them or of none, as its work says', () => {
+    const of = (projects?: number) => {
+      const names = fixtureProjects(projects).names;
+      const items = fixtureItems(projects).items;
+      // Every item and its work's page say the same project, one the installation names, or none.
+      for (const item of items) {
+        expect(fixtureWork(item.work.number, projects).project).toBe(item.project);
+        if (item.project !== null) expect(names).toContain(item.project);
+      }
+      return { names, used: new Set(items.map((i) => i.project)) };
+    };
+    expect(of().names).toEqual(['Whitefoot', 'example', 'wf-agents']);
+    // Every project has a work, and one item has none.
+    expect(of().used).toEqual(new Set(['Whitefoot', 'example', 'wf-agents', null]));
+    expect(of(1)).toEqual({ names: ['wf-agents'], used: new Set(['wf-agents', null]) });
+    // From eight projects on, a project has no work, as a project the installation has just named.
+    const many = of(12);
+    expect(many.names).toHaveLength(12);
+    expect(many.names).toEqual([...many.names].sort());
+    expect(many.names.filter((n) => !many.used.has(n))).toEqual(['project-10', 'project-11', 'project-12', 'project-8', 'project-9']);
   });
 
   it('hold a long history with a return sent back, tools’ results, an abandoned run, ways round and a write by the outside', () => {

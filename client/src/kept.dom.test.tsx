@@ -5,7 +5,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { useKept, useKeptFolds, useKeptTicks } from './kept';
+import { useKept, useKeptFoldedGroups, useKeptFolds, useKeptTicks } from './kept';
 
 afterEach(() => {
   localStorage.clear();
@@ -99,5 +99,40 @@ describe('the items the owner folds and unfolds in a tree', () => {
       [3, true],
       [5, false],
     ]);
+  });
+});
+
+describe("the projects' groups the owner folds in a list grouped by project", () => {
+  /// What is folded, the group of no project first, then the others by name.
+  const sorted = (folded: ReadonlySet<string | null>) =>
+    [...folded].sort((a, b) => (a === null ? -1 : b === null ? 1 : a < b ? -1 : 1));
+
+  it('are none until the owner folds one, a second press opening it again, and stand on the next page', () => {
+    const a = hook(() => useKeptFoldedGroups('k'));
+    expect(sorted(a.now()[0])).toEqual([]);
+    expect(localStorage.getItem('k')).toBeNull();
+    act(() => a.now()[1]('wf-agents'));
+    act(() => a.now()[1](null));
+    act(() => a.now()[1]('Whitefoot'));
+    expect(sorted(a.now()[0])).toEqual([null, 'Whitefoot', 'wf-agents']);
+    act(() => a.now()[1]('Whitefoot'));
+    expect(sorted(a.now()[0])).toEqual([null, 'wf-agents']);
+    expect(JSON.parse(localStorage.getItem('k') ?? '')).toEqual(['wf-agents', null]);
+    a.unmount();
+    const b = hook(() => useKeptFoldedGroups('k'));
+    expect(sorted(b.now()[0])).toEqual([null, 'wf-agents']);
+    // With every group open again, nothing is kept.
+    act(() => b.now()[1]('wf-agents'));
+    act(() => b.now()[1](null));
+    expect(localStorage.getItem('k')).toBeNull();
+  });
+
+  it('take what an earlier page kept that is no list as none folded, and leave out an entry that is no project', () => {
+    for (const kept of ['not json', '{"a": 1}', 'null', '"wf-agents"']) {
+      localStorage.setItem('k', kept);
+      expect(sorted(hook(() => useKeptFoldedGroups('k')).now()[0])).toEqual([]);
+    }
+    localStorage.setItem('k', JSON.stringify(['wf-agents', 3, null, { a: 1 }]));
+    expect(sorted(hook(() => useKeptFoldedGroups('k')).now()[0])).toEqual([null, 'wf-agents']);
   });
 });

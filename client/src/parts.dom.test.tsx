@@ -5,7 +5,7 @@ import { act, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { Bar, Tabs } from './parts';
+import { Bar, ProjectGroup, Tabs } from './parts';
 import { aheadCount, aheadOf } from './works/waiting';
 
 afterEach(() => {
@@ -116,5 +116,72 @@ describe("the bar's counts beside Console", () => {
     const going = { kind: 'next', cell: 'plan' } as const;
     expect(aheadCount([{ now: going, ahead: 2 }, { now: { kind: 'merged' }, ahead: 3 }, { now: going }])).toBe(2);
     expect(aheadOf({ now: { kind: 'cancelled' }, ahead: 1 })).toBe(0);
+  });
+});
+
+describe("a project's group in a list grouped by project", () => {
+  /// A group, folded and opened as the owner presses its head; and its head's parts.
+  function group(project: string | null) {
+    function Group() {
+      const [open, setOpen] = useState(true);
+      return (
+        <ProjectGroup
+          project={project}
+          what="works"
+          count={2}
+          countTitle="2 works"
+          note="$1.20"
+          noteTitle="What its works cost"
+          open={open}
+          onToggle={() => setOpen((o) => !o)}
+        >
+          <table className="works" />
+        </ProjectGroup>
+      );
+    }
+    const container = document.body.appendChild(document.createElement('div'));
+    const root = createRoot(container);
+    act(() => root.render(<Group />));
+    const head = () => container.querySelector('section.project-group > h2.project-head') as HTMLElement;
+    const button = () => head().querySelector('button') as HTMLButtonElement;
+    return { container, head, button };
+  }
+
+  it("is headed outside its rows by the project's name, then how many it holds and the note, which say on pointing what they are", () => {
+    const { container, head, button } = group('wf-agents');
+    const section = container.querySelector('section.project-group') as HTMLElement;
+    // The head is no part of the rows: the table stands beside it in the group, not round it.
+    expect(head().querySelector('table')).toBeNull();
+    expect(section.querySelector('table.works')?.parentElement?.parentElement).toBe(section);
+    expect(section.getAttribute('aria-labelledby')).toBe(head().id);
+    expect(button().querySelector('.mono')?.textContent).toBe('wf-agents');
+    expect(button().querySelector('.fold-mark')).not.toBeNull();
+    const count = button().querySelector('.project-count') as HTMLElement;
+    expect([count.textContent, count.title]).toEqual(['2', '2 works']);
+    const note = button().querySelector('.project-note') as HTMLElement;
+    expect([note.textContent, note.title]).toEqual(['$1.20', 'What its works cost']);
+  });
+
+  it('folds its rows away at a press on its head and opens them again at the next, saying what a press does', () => {
+    const { container, button } = group('wf-agents');
+    const rows = () => container.querySelector('table.works');
+    expect(button().getAttribute('aria-expanded')).toBe('true');
+    expect(button().title).toBe('Fold the works of wf-agents');
+    expect(document.getElementById(button().getAttribute('aria-controls') ?? '')).toBe(rows()?.parentElement);
+    act(() => button().click());
+    expect(rows()).toBeNull();
+    expect(button().getAttribute('aria-expanded')).toBe('false');
+    expect(button().querySelector('.fold-mark')?.classList.contains('fold-open')).toBe(false);
+    expect(button().title).toBe('Unfold the works of wf-agents');
+    act(() => button().click());
+    expect(rows()).not.toBeNull();
+    expect(button().querySelector('.fold-mark')?.classList.contains('fold-open')).toBe(true);
+  });
+
+  it('names the group of what belongs to no project so, muted, and says on pointing what it holds', () => {
+    const { button } = group(null);
+    expect(button().querySelector('.mono:not(.project-count)')).toBeNull();
+    expect(button().querySelector('.muted')?.textContent).toBe('no project');
+    expect(button().title).toBe('Fold the works of no project: what was added before items had projects');
   });
 });
