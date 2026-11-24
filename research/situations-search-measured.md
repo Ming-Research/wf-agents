@@ -66,6 +66,11 @@ the search then at 16000 rounds). The proposal is not rejected: the saving is ab
 estimate of the first round, 54 s more to compile, came from two single runs of whole jobs, whose set-up differed
 (inferred), and is replaced by this.
 
+With the profile changed, on commit e10514cb7 (fast run 45380698882, the search at 22000 rounds) the engineer-flow test
+took 39.224 s, the small-flow test 4.901 s, and the two tests of the tool's determinism 37.713 s and 13.421 s (before,
+as it is: 208.054 s at 24000 rounds on c2f830af1, 33.473 s, and 74.465 s and 21.064 s in `test_times` before the
+change; the rounds differ by 2000, which is a tenth of the search).
+
 ## 4. The search and the tool's time, by commit
 
 (measured) The tool is `measure/situations-search` on the engineer flow in a release build, whole seconds: the median
@@ -81,7 +86,7 @@ run, and the table says where one did.
 | bec3864a0 | what the manager reads from the records once for an entry, not once for each datum | 16000 | 1224, 57 (the same) | 18.754 s | not run | measure 45373319393 |
 | 0590f5bd9 | the bound raised to 24000 rounds | 24000 | 1259, 41 | 31.515 s | 266.066 s | measure 45374744238, fast 45374745241 |
 | c2f830af1 | where each round began and ended, and the runs of a line, read once for an entry | 24000 | 1259, 41 (the same) | 32.118 s | 208.054 s | measure 45376367414, fast 45376368853 |
-| e991eba08 | the bound lowered to 22000 rounds | 22000 | 1255 at the bound (the curve below), not measured | 28.437 s (28.381 to 28.457) | not run | measure 45377909715 |
+| e991eba08 | the bound lowered to 22000 rounds | 22000 | 1255, 42 (e10514cb7, the same search) | 28.437 s (28.381 to 28.457) | 39.224 s at level 3 (e10514cb7) | measure 45377909715, fast 45380698882 |
 
 The run of c6e281759 itself read 53.1 s because it overlapped other jobs (samples 120.6, 53.1, 63.0, 33.0, 28.3 s,
 measure 45369195228); the run of its search on cfa47e4fb, which reverts a try on top of it and changes only a document,
@@ -118,20 +123,33 @@ The fix that mattered was the rank (c6e281759: 297 not found fell to 57); every 
 chooses moved the number by tens of lines either way, which is the size of the difference between two seeds, so none of
 those is a result.
 
-## 7. What is not found at 24000 rounds, commit c2f830af1
+## 7. What is not found, and a longer search
 
-(measured, fast run 45376368853, and the same at 0590f5bd9) 41 lines that the independent histories stood in and the
-search did not find: D1 1, I1 3, P1 1, P2 2, T1 4, T2 14, T3 10, T4 6.
+(measured, fast run 45380698882, commit e10514cb7, 22000 rounds) 42 lines that the independent histories stood in and
+the search did not find: D1 1, I1 3, P1 1, P2 2, R0 1, T1 4, T2 14, T3 10, T4 6. At 24000 rounds (c2f830af1, run
+45376368853) they were 41.
 
-- T2 (14) and T3 (10), 24 lines, are two situations: the first round of a cell, entered after a hand-in, with every
-  datum it is given held at the version the cell last worked from while a later one exists (`holds_last`; read from
-  `crates/context/src/manager.rs`). Each is a session that was kept while the acceptance, the background, the code, the
-  decisions, the evidence, the title, the tree entries and both plans were written again, a long chain of other cells'
-  rounds (inferred from that definition; no history was read to confirm it).
-- The rest are `holds_latest` or `holds_last` of the questions blocks (`d1_questions`, `i1_questions`, `r1_questions`) of
-  D1, I1, P1, P2, T1, and `holds_latest` of five blocks in a second round of T4.
-- All are lines of one or two situations each; there are about ten situations in all, deeper than the search reaches by
-  its choices of actions in the rounds it has.
+The steps of the history that first stood in a line (commit bd846b515, run 45381200379, printed once for each cell) show
+what chain it is. For the T2 and T3 lines, 24 of the 42: the first pass through every cell in order (R0, R1, R2, P1, P2,
+I1, T1, T2, T3, T4), I1 and T4 again, the outside writes `background`, `tree` and `test_times`, the cells R0, R1, P1, P2
+and I1 run again, `head` is written, and T2 (or T3) is entered, 22 steps in all, every datum of that entry held at the
+version it last worked from (`holds_last`) and a later one existing. The independent histories reach it because their
+first steps hand in everything and let every choice pass, which names choices of the flow; the search has no such
+knowledge and has to find each of these steps among the others. T4's `the session holds [], after a hand-in true` is
+the same kind: 22 steps with two writes of `head` between.
+
+(measured, scratch commit c1b459776, run 45381616628, reverted) The same search with the bound at 70000 rounds and no
+end by plateau, in the CI profile with level 3 for the four crates: 1323 lines found, and 12 lines of the histories not
+found (D1 1, I1 1, T1 1, T2 4, T3 4, T4 1); the test took 200.383 s, of which the search 96.6 s (`enter` 40.1 s, `key`
+35.3 s, `engine` 11.5 s, `clone` 8.5 s). Lines found by rounds: 22000 -> 1255, 30000 -> 1283, 40000 -> 1301,
+50000 -> 1314, 60000 -> 1322, 70000 -> 1323; the last 10000 rounds add 1 line. Still not zero: of the 12, the lines of
+T2 and T3 that need the same two-pass chain remain.
+
+(inferred, not measured on the tool) The tool at 70000 rounds takes about 107 s: its 28.4 s at 22000 rounds, less the
+search's 17.4 s there (the test's own account of the time, summed), plus the search's 96.6 s at 70000 rounds. This takes
+the search's time in a release build to be what it is in the test's profile with level 3, which was not checked. The
+search's time grows faster than its rounds (5.6 times for 3.2 times), because a round costs more the more states are
+kept.
 
 ## 8. The content of the two measurement files, as they were run on e991eba08
 
