@@ -35,7 +35,7 @@ use crate::sim::{Given, Sim};
 use crate::situations::stood;
 
 /// How a round enters its cell's session.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Entry {
     /// The cell has not been entered before.
     First,
@@ -195,6 +195,12 @@ pub struct Found {
     pub rounds: usize,
     /// How many states of works it kept.
     pub kept: usize,
+    /// How many rounds it carried out that entered their cell each way.
+    pub entries: BTreeMap<Entry, usize>,
+    /// How many lines it had found after each thousand rounds, by the rounds it had carried out.
+    pub curve: Vec<(usize, usize)>,
+    /// Why it ended: the rounds were spent, no new line came for the stated rounds, or there was nothing left to try.
+    pub ended: &'static str,
     /// What went wrong in a history it tried: the engine refused what the search did, or something in the simulation
     /// failed. The history was dropped.
     pub faults: Vec<String>,
@@ -214,14 +220,14 @@ pub struct Bounds {
 /// it (a quarter of them), how many states of works it keeps, and how many histories it makes from a state at each turn.
 /// What the engineer's flow needs of them and what they cost is what `measure/situations-search` times.
 pub const BOUNDS: Bounds = Bounds {
-    rounds: 6_000,
-    plateau: 1_500,
-    archive: 400,
+    rounds: 16_000,
+    plateau: 4_000,
+    archive: 1_000,
     draws: 8,
 };
 
 /// The seed of the draws.
-const SEED: u64 = 0x5EED_0F_5EA2C4;
+const SEED: u64 = 0x5EED_0F5E_A2C4;
 
 /// How many things a draw does before a round is carried out, at most.
 const BEFORE: usize = 2;
@@ -684,6 +690,8 @@ impl Node {
                     let begins = self.sim.begins(&round);
                     let entered = self.sim.enter(&round, begins);
                     format!("{:?}", entered.situation).hash(&mut hasher);
+                    // How it enters its session, which what comes after it depends on.
+                    self.entry(&round, begins).hash(&mut hasher);
                     // The cell of the line that ran last, which decides what the session holds before this entry.
                     let line = spec.line.clone();
                     let last = (self.sim.work.records.started.iter().rev())
@@ -892,11 +900,12 @@ fn drawn(rng: &mut Rng, optional: usize, line: bool) -> Carry {
     }
 }
 
-/// A state the search keeps, with how many times it has gone on from it.
+/// A state the search keeps, with how many times it has gone on from it and the order the states were kept in.
 struct Kept {
     node: Node,
     key: (String, u64),
     turns: usize,
+    born: usize,
 }
 
 /// The search's state: what it found, and the states it goes on from.
@@ -911,6 +920,9 @@ struct Search<'a> {
     since: usize,
     /// How many histories it tried, which end it too where they carry out no round of an agent's cell.
     tried: usize,
+    /// How many states it kept in all, and how many times it chose one to go on from.
+    born: usize,
+    picks: usize,
 }
 
 impl Search<'_> {
@@ -954,6 +966,10 @@ impl Search<'_> {
             let new: Vec<&String> = lines.iter().filter(|l| !self.found.lines.contains_key(*l)).collect();
             self.found.rounds += 1;
             self.since += 1;
+            *self.found.entries.entry(sight.entry).or_default() += 1;
+            if self.found.rounds.is_multiple_of(1000) {
+                self.found.curve.push((self.found.rounds, self.found.lines.len()));
+            }
             if new.is_empty() {
                 continue;
             }
@@ -972,20 +988,30 @@ impl Search<'_> {
         }
     }
 
-    /// Keeps the node where no state alike was kept.
+    /// Keeps the node where no state alike was kept. Where the archive is full, a state gone on from as often as any,
+    /// one of them by its key, makes room: what is gone on from least is what the search goes on from next.
     fn keep(&mut self, node: Node) {
         let key = node.key();
         if !self.keys.insert(key.clone()) {
             return;
         }
-        let kept = Kept { node, key, turns: 0 };
-        match self.archive.len() < self.bounds.archive {
-            true => self.archive.push(kept),
-            false => {
-                let at = (key_number(&kept.key) % self.archive.len() as u64) as usize;
-                self.keys.remove(&self.archive[at].key);
-                self.archive[at] = kept;
-            }
+        self.born += 1;
+        let kept = Kept {
+            node,
+            key,
+            turns: 0,
+            born: self.born,
+        };
+        if self.archive.len() < self.bounds.archive {
+            self.archive.push(kept);
+        } else {
+            let most = self.archive.iter().map(|k| k.turns).max().unwrap_or(0);
+            let worn: Vec<usize> = (0..self.archive.len())
+                .filter(|&i| self.archive[i].turns == most)
+                .collect();
+            let at = worn[(key_number(&kept.key) % worn.len() as u64) as usize];
+            self.keys.remove(&self.archive[at].key);
+            self.archive[at] = kept;
         }
         self.found.kept += 1;
     }
@@ -999,15 +1025,34 @@ impl Search<'_> {
         }
     }
 
-    fn done(&self) -> bool {
-        self.found.rounds >= self.bounds.rounds
-            || self.since >= self.bounds.plateau
-            || self.tried >= self.bounds.rounds * 4
+    /// Why the search ends, where it does.
+    fn ended(&self) -> Option<&'static str> {
+        if self.found.rounds >= self.bounds.rounds {
+            Some("the rounds were spent")
+        } else if self.since >= self.bounds.plateau {
+            Some("no new line came for the stated rounds")
+        } else if self.tried >= self.bounds.rounds * 4 {
+            Some("the histories tried were spent")
+        } else {
+            None
+        }
     }
 
-    /// The kept state gone on from least often, the first of them.
-    fn next(&self) -> Option<usize> {
-        (0..self.archive.len()).min_by_key(|&i| (self.archive[i].turns, i))
+    fn done(&self) -> bool {
+        self.ended().is_some()
+    }
+
+    /// The kept state gone on from least often: of those, the newest on one turn and the oldest on the next, so that the
+    /// search goes deep into what it has just reached and comes back to what it reached first.
+    fn next(&mut self) -> Option<usize> {
+        let least = self.archive.iter().map(|k| k.turns).min()?;
+        self.picks += 1;
+        let among = (0..self.archive.len()).filter(|&i| self.archive[i].turns == least);
+        let born = |i: &usize| self.archive[*i].born;
+        match self.picks % 2 {
+            0 => among.min_by_key(born),
+            _ => among.max_by_key(born),
+        }
     }
 
     /// Goes on from a kept state, a few histories each time it is gone on from: first each way a round returns, then each
@@ -1124,6 +1169,8 @@ pub fn search(
         keys: BTreeSet::new(),
         since: 0,
         tried: 0,
+        born: 0,
+        picks: 0,
     };
     search.found.faults = faults;
     for root in roots {
@@ -1135,6 +1182,7 @@ pub fn search(
         };
         search.go_on(at);
     }
+    search.found.ended = search.ended().unwrap_or("nothing was left to try");
     search.found
 }
 

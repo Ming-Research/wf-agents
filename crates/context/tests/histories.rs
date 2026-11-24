@@ -1021,8 +1021,9 @@ impl History {
             None => {}
         }
         let said = (self.says.get_mut(round.cell.as_str())).and_then(|says| (!says.is_empty()).then(|| says.remove(0)));
-        if !scripted && !self.steady && self.rng.chance(self.calls) {
-            // A tool run on something, or a tool run on nothing.
+        let tool = self.sim.cell(round).tools.iter().any(|t| t == "query");
+        if !scripted && !self.steady && self.rng.chance(self.calls) && tool {
+            // A tool run on something, or a tool run on nothing, which the cell may ask for.
             let ask = match self.rng.below(3) {
                 0 | 1 => Ask::Tool {
                     name: "query".to_string(),
@@ -1731,17 +1732,45 @@ fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() 
             && written.wrong.is_empty()
             && written.without.is_empty()
             && reached.real.is_subset(&written.lines),
-        "what the search met: {:?}\n\nwhat is wrong with a situation written: {:?}\n\nthe cells that none is written \
-         for: {:?}\n\nrounds stood in what the search did not find, {gaps}\n\nof the close: {:?}\n\nthe last scripted \
-         history: {:?}",
+        "{}\n\nwhat the search met: {:?}\n\nwhat is wrong with a situation written: {:?}\n\nthe cells that none is \
+         written for: {:?}\n\nrounds stood in what the search did not find, {gaps}\n\nthe first round that stood in \
+         each of some of them:\n{}\n\nthe last scripted history: {:?}",
+        what_the_search_did(&found),
         found.faults,
         written.wrong,
         written.without,
-        (reached.examples.iter())
-            .filter(|(line, _)| line.starts_with("close: the session holds"))
-            .collect::<Vec<_>>(),
+        examples_of(&reached, &written.lines),
         reached.trace.iter().rev().take(30).rev().collect::<Vec<_>>()
     );
+}
+
+/// What a search did, as a failure says it: its rounds, the states it kept, the lines it found, why it ended, how each
+/// entry was met and how the lines grew with the rounds.
+fn what_the_search_did(found: &witness::Found) -> String {
+    format!(
+        "the search carried out {} rounds, kept {} states and found {} lines, and ended because {}; entries met: {:?}; \
+         lines found by rounds: {:?}",
+        found.rounds,
+        found.kept,
+        found.lines.len(),
+        found.ended,
+        found.entries,
+        found.curve
+    )
+}
+
+/// The first real round that stood in each of some of the lines the written situations lack, each cut short.
+fn examples_of(reached: &Reached, written: &BTreeSet<String>) -> String {
+    let all: Vec<&String> = reached.real.difference(written).collect();
+    let stride = all.len().div_ceil(30).max(1);
+    let shown: Vec<String> = (all.iter().step_by(stride))
+        .map(|line| {
+            let example = reached.examples.get(*line).map(String::as_str).unwrap_or_default();
+            let end = example.char_indices().nth(360).map_or(example.len(), |(at, _)| at);
+            format!("{line} <= {}", &example[..end])
+        })
+        .collect();
+    shown.join("\n")
 }
 
 /// A directed test of the engineer's flow: from the work as it stands after the first pass, it says what happens.
@@ -2111,28 +2140,47 @@ fn every_situation_written_for_the_engineers_flow_is_a_round_of_a_work_and_cover
         begun.elapsed()
     );
     let gaps: BTreeSet<String> = reached.real.difference(&written.lines).cloned().collect();
+    let mut failures: Vec<String> = Vec::new();
+    if !(found.faults.is_empty() && written.wrong.is_empty() && written.without.is_empty()) {
+        failures.push(format!(
+            "what the search met: {:?}\n\nwhat is wrong with a situation written: {:?}\n\nthe cells that none is written \
+             for: {:?}",
+            found.faults, written.wrong, written.without
+        ));
+    }
+    if found
+        .entries
+        .get(&witness::Entry::ReopenedAfterRead)
+        .copied()
+        .unwrap_or(0)
+        == 0
+    {
+        failures.push(
+            "no round the search carried out entered a session begun anew since its cell ran, in which another cell of \
+             its line was entered first"
+                .to_string(),
+        );
+    }
+    if !reached.stale.is_empty() {
+        failures.push(format!(
+            "directed tests that did not bring the work where they say:\n{}",
+            reached.stale.join("\n")
+        ));
+    }
+    if !gaps.is_empty() {
+        failures.push(format!(
+            "rounds stood in {} lines that the search did not find:\n{}\n\nthe first round that stood in each of some of \
+             them:\n{}",
+            gaps.len(),
+            by_cell(&gaps),
+            examples_of(&reached, &written.lines)
+        ));
+    }
     assert!(
-        found.faults.is_empty() && written.wrong.is_empty() && written.without.is_empty(),
-        "what the search met: {:?}\n\nwhat is wrong with a situation written: {:?}\n\nthe cells that none is written \
-         for: {:?}",
-        found.faults,
-        written.wrong,
-        written.without
-    );
-    assert!(
-        written.after_read > 0,
-        "no situation of a session begun anew since the cell ran in which another cell of its line was entered first"
-    );
-    assert!(
-        reached.stale.is_empty(),
-        "directed tests that did not bring the work where they say:\n{}",
-        reached.stale.join("\n")
-    );
-    assert!(
-        gaps.is_empty(),
-        "rounds stood in {} lines that the search did not find:\n{}",
-        gaps.len(),
-        by_cell(&gaps)
+        failures.is_empty(),
+        "{}\n\n{}",
+        what_the_search_did(&found),
+        failures.join("\n\n")
     );
 }
 

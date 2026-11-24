@@ -25,6 +25,7 @@ use flow::{Compiled, Has, Kind, Source};
 const FLOW: &str = r#"
 name = "sessions"
 order = ["plan", "build", "review", "close"]
+tools = ["query"]
 
 [limits]
 runs = 1000
@@ -138,6 +139,9 @@ verdict = "latest"
     ),
 ];
 
+/// The tool every agent's cell of the small flow may ask the engine for.
+pub const TOOL: &str = "query";
+
 /// The small flow, compiled.
 pub fn flow() -> Compiled {
     compiled(FLOW)
@@ -156,7 +160,11 @@ fn compiled(flow: &str) -> Compiled {
             .collect::<BTreeMap<_, _>>(),
         ..Default::default()
     };
-    flow::compile(&source, &Has::default()).expect("the small flow compiles")
+    let has = Has {
+        tools: [TOOL.to_string()].into(),
+        ..Has::default()
+    };
+    flow::compile(&source, &has).expect("the small flow compiles")
 }
 
 /// What is written beside the flows, as the flow crate's tests have it.
@@ -190,6 +198,7 @@ pub fn branched() -> Compiled {
     };
     let has = Has {
         sources: [BRANCH.to_string()].into(),
+        tools: [TOOL.to_string()].into(),
         ..Has::default()
     };
     flow::compile(&source, &has).expect("the small flow with what the branch holds compiles")

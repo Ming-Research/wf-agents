@@ -757,7 +757,7 @@ fn a_return_that_dealt_with_what_ran_it_and_did_nothing_is_sent_back_in_its_word
 #[test]
 fn main_taken_in_is_told_to_a_cell_that_takes_it_in_in_one_line_in_the_words_of_its_part() {
     let mut sim = support::small();
-    for cell in &mut sim.flow.cells {
+    for cell in &mut std::sync::Arc::make_mut(&mut sim.flow).cells {
         cell.takes_main = cell.id.as_str() == "plan";
     }
     sim.writes("request", "Greet the user.");

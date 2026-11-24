@@ -5,6 +5,7 @@
 //! session, and how it returns, fails or is compacted.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use decide::{BlockId, CallId, CellId, Outsider, Room, RunId, Seq};
 use engine::{Came, Effect, Event, Fill, Gate, Handed, RanOn, Refused, Spent, Time, Why, Work, handle_then, pending};
@@ -30,11 +31,11 @@ pub struct Given {
 }
 
 /// A work of a flow taken one thing at a time through the engine's loop. It is cloned where a search goes on from a
-/// state it reached.
+/// state it reached, so the flow and the words beside it, which no state changes, are shared by every copy.
 #[derive(Clone)]
 pub struct Sim {
-    pub flow: Compiled,
-    pub words: Agents,
+    pub flow: Arc<Compiled>,
+    pub words: Arc<Agents>,
     pub work: Work,
     /// Whether main is taken in as a run of a cell that takes it in starts ([`Sim::main`]); not where it is not set.
     pub takes_main: bool,
@@ -53,8 +54,8 @@ impl Sim {
     /// in: whoever runs the work says which it does.
     pub fn of(flow: Compiled, words: Agents) -> Sim {
         Sim {
-            flow,
-            words,
+            flow: Arc::new(flow),
+            words: Arc::new(words),
             work: Work::default(),
             takes_main: false,
             named: Settings::default(),
