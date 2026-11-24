@@ -1065,19 +1065,11 @@ impl Search<'_> {
     }
 
     /// Keeps the node where no state alike was kept. Where the archive is full, a state of the highest rank, one of them
-    /// by its key, makes room, unless the node would rank above all of them: what ranks least is what the search goes on
-    /// from next.
+    /// by its key, makes room: what ranks least is what the search goes on from next.
     fn keep(&mut self, node: &Node) {
         let key = node.key();
         if !self.keys.insert(key.clone()) {
             self.found.repeated += 1;
-            return;
-        }
-        let ranks: Vec<usize> = self.archive.iter().map(|k| self.rank(k)).collect();
-        let full = self.archive.len() >= self.bounds.archive;
-        let most = ranks.iter().copied().max().unwrap_or(0);
-        if full && self.rank_of(&key.0, 0) >= most {
-            self.keys.remove(&key);
             return;
         }
         self.born += 1;
@@ -1087,9 +1079,11 @@ impl Search<'_> {
             turns: 0,
             born: self.born,
         };
-        if !full {
+        if self.archive.len() < self.bounds.archive {
             self.archive.push(kept);
         } else {
+            let ranks: Vec<usize> = self.archive.iter().map(|k| self.rank(k)).collect();
+            let most = ranks.iter().copied().max().unwrap_or(0);
             let worn: Vec<usize> = (0..self.archive.len()).filter(|&i| ranks[i] == most).collect();
             let at = worn[(key_number(&kept.key) % worn.len() as u64) as usize];
             self.keys.remove(&self.archive[at].key);
@@ -1103,11 +1097,7 @@ impl Search<'_> {
         self.tried += 1;
         let (node, sights) = self.child(from, actions)?;
         timed("note", || self.note(&node, &sights));
-        // A history that carried no agent's round and has none under way is the state it began at, with something
-        // written that no round has yet been sent: it goes on in the draw that made it, and is not kept.
-        if !(sights.is_empty() && node.sim.round().is_none()) {
-            self.keep(&node);
-        }
+        self.keep(&node);
         Some(node)
     }
 
