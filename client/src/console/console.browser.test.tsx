@@ -757,6 +757,21 @@ describe('the tree in columns', () => {
     expect(scene.place().columns[1].at).toBeCloseTo(3.2, 3);
   });
 
+  it("tells of a click on a shadow of an item this tree does not hold, which another project's tree holds, and selects nothing", async () => {
+    const told = vi.fn<(item: Shown | null) => void>();
+    const away = vi.fn<(id: number) => void>();
+    // Under 1, a shadow of 9, which no fold of this tree hides.
+    scene.show([card(1, [shadow(9)])]);
+    settle(scene);
+    scene.onSelect = told;
+    scene.onAway = away;
+    const p = scene.place();
+    // The shadow is the only item of the second column, its middle half a row from the column's top.
+    click(p.left + PITCH + 100, line + (0.5 - p.columns[1].at) * ROW);
+    expect(away).toHaveBeenLastCalledWith(9);
+    expect(told).not.toHaveBeenCalled();
+  });
+
   it('draws new items where the tree stood, by the item nearest the middle, and keeps the item selected', async () => {
     const told = vi.fn<(item: Shown | null) => void>();
     scene.onSelect = told;
@@ -1084,16 +1099,17 @@ describe('the console page', () => {
       'The items whose work was cancelled',
     ]);
     expect(['Open', 'Done', 'Cancelled'].map((n) => box(n).checked)).toEqual([true, false, false]);
-    // Of the made-up items, 28 are open or stand over an open one. Done shows 4 more: two done; one done, the two done
-    // under it folded away; and one cancelled, the one done under it folded away. Cancelled shows 2 more. And 12 are
-    // done or cancelled or stand over one that is, what is folded away not drawn.
-    expect(scene.stats.items).toBe(28);
+    // Of the made-up items of wf-agents, the project listed first, 26 are open or stand over an open one. Done shows 4
+    // more: two done; one done, the two done under it folded away; and one cancelled, the one done under it folded
+    // away. Cancelled shows 2 more. And 13 are done or cancelled or stand over one that is, what is folded away not
+    // drawn.
+    expect(scene.stats.items).toBe(26);
     box('Done').click();
-    await expect.poll(() => scene.stats.items).toBe(32);
+    await expect.poll(() => scene.stats.items).toBe(30);
     box('Cancelled').click();
-    await expect.poll(() => scene.stats.items).toBe(34);
+    await expect.poll(() => scene.stats.items).toBe(32);
     box('Open').click();
-    await expect.poll(() => scene.stats.items).toBe(12);
+    await expect.poll(() => scene.stats.items).toBe(13);
     expect(localStorage.getItem('wf-agents.console-shows')).toBe('done,cancelled');
   });
 
@@ -1103,7 +1119,7 @@ describe('the console page', () => {
       .find((l) => l.textContent === 'Done')
       ?.querySelector('input') as HTMLInputElement;
     done.click();
-    await expect.poll(() => scene.stats.items).toBe(32);
+    await expect.poll(() => scene.stats.items).toBe(30);
     /// A click `out` pixels past the right edge of item `id`, brought into view, level with its middle: on its dot
     /// where it is folded, else on the mouth of its funnel.
     const press = async (id: number, out: number) => {
@@ -1129,7 +1145,7 @@ describe('the console page', () => {
     };
     // Item 27, done, stands folded into a dot over the two done items under it: a click on the dot shows them.
     await press(27, DOT_AT);
-    await expect.poll(turnedItems).toBe(34);
+    await expect.poll(turnedItems).toBe(32);
     expect(JSON.parse(localStorage.getItem('wf-agents.console-folds') ?? '')).toEqual({ 27: 'unfolded' });
     unmount();
     delete (window as { consoleScene?: SnapScene }).consoleScene;
@@ -1137,10 +1153,10 @@ describe('the console page', () => {
     root.render(<ConsolePage source={fixtureSource()} />);
     unmount = () => root.unmount();
     scene = await drawn();
-    await expect.poll(() => scene.stats.items).toBe(34);
+    await expect.poll(() => scene.stats.items).toBe(32);
     // Shown as the owner chose, its funnel folds them away again.
     await press(27, 4);
-    await expect.poll(turnedItems).toBe(32);
+    await expect.poll(turnedItems).toBe(30);
     expect(JSON.parse(localStorage.getItem('wf-agents.console-folds') ?? '')).toEqual({ 27: 'folded' });
   });
 
@@ -1150,7 +1166,7 @@ describe('the console page', () => {
       .find((l) => l.textContent === 'Done')
       ?.querySelector('input') as HTMLInputElement;
     done.click();
-    await expect.poll(() => scene.stats.items).toBe(32);
+    await expect.poll(() => scene.stats.items).toBe(30);
     /// The pointer over the card of item `id`, brought into view, once a frame has found it there.
     const over = async (id: number) => {
       scene.reveal(id, scene.place().width);
@@ -1172,11 +1188,11 @@ describe('the console page', () => {
     // Over item 27, done and folded over the two done items under it, `e` shows them, and again folds them.
     await over(27);
     press(document.body);
-    await expect.poll(turnedItems).toBe(34);
+    await expect.poll(turnedItems).toBe(32);
     expect(JSON.parse(kept() ?? '')).toEqual({ 27: 'unfolded' });
     await over(27);
     press(document.body);
-    await expect.poll(turnedItems).toBe(32);
+    await expect.poll(turnedItems).toBe(30);
     expect(JSON.parse(kept() ?? '')).toEqual({ 27: 'folded' });
     // With Ctrl held, or while the owner types in a field, `e` folds nothing.
     press(document.body, { ctrlKey: true });
@@ -1188,7 +1204,7 @@ describe('the console page', () => {
     await over(10);
     press(document.body);
     await drew();
-    expect(turnedItems()).toBe(32);
+    expect(turnedItems()).toBe(30);
     expect(JSON.parse(kept() ?? '')).toEqual({ 27: 'folded' });
   });
 
@@ -1321,6 +1337,8 @@ describe('the console page', () => {
       '/ search',
       'e fold or unfold the card under the pointer',
       'n / N next / previous question',
+      '1 – 9 the tree of the project of that place in the list',
+      "Space every project's tree at once",
       'Esc close',
     ]);
     const marks = listed("The console's marks");
@@ -1521,6 +1539,180 @@ describe('the console page', () => {
     const after = scene.place();
     expect(after.left).toBe(before.left);
     after.columns.forEach((c, d) => expect(Math.abs(c.at - before.columns[d].at)).toBeLessThan(1e-9));
+  });
+});
+
+describe('the console page, with several projects', () => {
+  let container: HTMLDivElement;
+  let unmount: () => void;
+  const forget = () => {
+    try {
+      localStorage.clear();
+    } catch {
+      // Nothing kept.
+    }
+  };
+  /// The page over the made-up items of four projects: wf-agents and Whitefoot, Alder made of most of wf-agents'
+  /// items again, and Birch, which has no item yet.
+  const open = () => {
+    container = document.createElement('div');
+    container.style.cssText = 'position: fixed; inset: 0; display: flex';
+    document.body.append(container);
+    delete (window as { consoleScene?: SnapScene }).consoleScene;
+    const root = createRoot(container);
+    root.render(<ConsolePage source={fixtureSource(Date.now(), 4)} />);
+    unmount = () => root.unmount();
+  };
+  beforeEach(() => {
+    forget();
+    open();
+  });
+  afterEach(() => {
+    unmount();
+    container.remove();
+    forget();
+  });
+
+  /// The scene shown, once it has drawn its tree.
+  const shown = () => (window as { consoleScene?: SnapScene }).consoleScene ?? null;
+  async function drawn(): Promise<SnapScene> {
+    await expect.poll(() => shown()?.stats.items ?? 0).toBeGreaterThan(0);
+    return shown() as SnapScene;
+  }
+  const rows = () => [...container.querySelectorAll<HTMLButtonElement>('.console-project-name')];
+  const names = () => rows().map((r) => r.querySelector('.console-project-title')?.textContent ?? '');
+  const current = () => container.querySelector('.console-project-name[aria-current="true"] .console-project-title')
+    ?.textContent;
+  const key = (k: string) =>
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+  const inAddress = () => Number(/#\/console\/items\/(\d+)/.exec(window.location.hash)?.[1] ?? Number.NaN);
+
+  it("lists every project under the map, each after the key that shows its tree and before what waits for the owner in it, and shows a project's tree at its key or a click on its name, keeping it in the browser", async () => {
+    await drawn();
+    await expect.poll(names).toEqual(['Alder', 'Birch', 'wf-agents', 'Whitefoot']);
+    expect(rows().map((r) => r.querySelector('kbd')?.textContent)).toEqual(['1', '2', '3', '4']);
+    // What waits for the owner in wf-agents, as the bar counts it: in orange the questions to answer ahead, left of
+    // the things that wait, in red; nothing in Birch, which has no item.
+    const counts = (name: string) =>
+      [...(rows()[names().indexOf(name)]?.querySelectorAll('.bar-count') ?? [])].map((c) => c.className);
+    expect(counts('wf-agents')).toEqual(['bar-count ahead', 'bar-count']);
+    expect(counts('Birch')).toEqual([]);
+    expect(current()).toBe('Alder');
+    const first = shown();
+    key('3');
+    await expect.poll(current).toBe('wf-agents');
+    await expect.poll(() => shown() !== first).toBe(true);
+    // Of the made-up items of wf-agents, 26 are open or stand over an open one.
+    await expect.poll(() => shown()?.stats.items).toBe(26);
+    expect(localStorage.getItem('wf-agents.console-project')).toBe('wf-agents');
+    rows()[names().indexOf('Whitefoot')].click();
+    await expect.poll(current).toBe('Whitefoot');
+    await expect.poll(() => shown()?.stats.items).toBe(3);
+    // The tree of a project with no item yet is empty.
+    key('2');
+    await expect.poll(current).toBe('Birch');
+    await expect.poll(() => shown()?.stats.items).toBe(0);
+    // Kept, the project shown is shown again on the next page.
+    unmount();
+    container.remove();
+    open();
+    await expect.poll(current).toBe('Birch');
+  });
+
+  it('puts the list in the order a name is dragged into, keeps that order, and gives the keys by it', async () => {
+    await drawn();
+    await expect.poll(names).toEqual(['Alder', 'Birch', 'wf-agents', 'Whitefoot']);
+    const item = (name: string) => rows()[names().indexOf(name)].closest('li') as HTMLLIElement;
+    const carried = new DataTransfer();
+    item('Whitefoot').dispatchEvent(new DragEvent('dragstart', { dataTransfer: carried, bubbles: true }));
+    await expect.poll(() => item('Whitefoot').classList.contains('dragging')).toBe(true);
+    item('Alder').dispatchEvent(new DragEvent('dragover', { dataTransfer: carried, bubbles: true, cancelable: true }));
+    await expect.poll(names).toEqual(['Whitefoot', 'Alder', 'Birch', 'wf-agents']);
+    item('Whitefoot').dispatchEvent(new DragEvent('dragend', { dataTransfer: carried, bubbles: true }));
+    expect(JSON.parse(localStorage.getItem('wf-agents.project-order') ?? '[]')).toEqual([
+      'Whitefoot',
+      'Alder',
+      'Birch',
+      'wf-agents',
+    ]);
+    key('1');
+    await expect.poll(current).toBe('Whitefoot');
+  });
+
+  it("shows every project's tree at once on Space, each in its place of a grid with its key and its name, the one shown framed apart, its list and boxes gone; Escape or Space goes back, and a key or a click shows that tree", async () => {
+    await drawn();
+    const overview = () => container.querySelector('.console-overview:not(.closing)');
+    const tiles = () => [...container.querySelectorAll<HTMLButtonElement>('.console-overview-tree')];
+    const away = () => container.querySelector('.console-chrome')?.classList.contains('away');
+    key(' ');
+    await expect.poll(overview).not.toBeNull();
+    expect(tiles().map((t) => t.textContent)).toEqual(['1Alder', '2Birch', '3wf-agents', '4Whitefoot']);
+    expect(container.querySelector('.console-overview-tree.shown')?.textContent).toBe('1Alder');
+    expect(away()).toBe(true);
+    // Four trees stand two across and two down, the same size, apart.
+    const at = tiles().map((t) => t.getBoundingClientRect());
+    expect(at[1].top).toBeCloseTo(at[0].top, 3);
+    expect(at[2].left).toBeCloseTo(at[0].left, 3);
+    expect(at[2].top).toBeGreaterThan(at[0].bottom);
+    expect(at[1].left).toBeGreaterThan(at[0].right);
+    expect(at[3].width).toBeCloseTo(at[0].width, 3);
+    key('Escape');
+    await expect.poll(overview).toBeNull();
+    expect(away()).toBe(false);
+    key(' ');
+    await expect.poll(overview).not.toBeNull();
+    key(' ');
+    await expect.poll(overview).toBeNull();
+    key(' ');
+    await expect.poll(overview).not.toBeNull();
+    key('3');
+    await expect.poll(overview).toBeNull();
+    await expect.poll(current).toBe('wf-agents');
+    key(' ');
+    await expect.poll(overview).not.toBeNull();
+    tiles()[3].click();
+    await expect.poll(overview).toBeNull();
+    await expect.poll(current).toBe('Whitefoot');
+  });
+
+  it("shows the tree of another project at a click on a shadow of an item of it, and selects the item there", async () => {
+    await drawn();
+    key('3');
+    await expect.poll(current).toBe('wf-agents');
+    // Under item 2 of wf-agents, a shadow of item 8, which stands in Whitefoot's tree.
+    (shown() as SnapScene).onAway?.(8);
+    await expect.poll(current).toBe('Whitefoot');
+    await expect.poll(inAddress).toBe(8);
+    expect(shown()?.selectedId()).toBe(8);
+  });
+
+  it("names the project of each item the search finds, and shows the tree of an item of another project it picks", async () => {
+    await drawn();
+    key('3');
+    await expect.poll(current).toBe('wf-agents');
+    await userEvent.keyboard('/');
+    const field = () => container.querySelector('.console-find input') as HTMLInputElement | null;
+    await expect.poll(field).not.toBeNull();
+    await userEvent.fill(field() as HTMLInputElement, '17');
+    await expect.poll(() => container.querySelector('.console-found-row .console-found-project')?.textContent).toBe(
+      'Whitefoot',
+    );
+    await userEvent.keyboard('{Enter}');
+    await expect.poll(current).toBe('Whitefoot');
+    await expect.poll(() => shown()?.selectedId()).toBe(17);
+  });
+
+  it('lists the items of no project as a project of their own only while a box ticked shows some of them', async () => {
+    await drawn();
+    await expect.poll(names).toEqual(['Alder', 'Birch', 'wf-agents', 'Whitefoot']);
+    // The one item of no project is done.
+    const done = [...container.querySelectorAll<HTMLLabelElement>('.console-shows label')]
+      .find((l) => l.textContent === 'Done')
+      ?.querySelector('input') as HTMLInputElement;
+    done.click();
+    await expect.poll(names).toEqual(['Alder', 'Birch', 'wf-agents', 'Whitefoot', 'No project']);
+    done.click();
+    await expect.poll(names).toEqual(['Alder', 'Birch', 'wf-agents', 'Whitefoot']);
   });
 });
 

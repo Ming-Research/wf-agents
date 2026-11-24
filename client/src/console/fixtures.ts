@@ -631,6 +631,46 @@ export function fixtureItems(start = Date.now()): Items {
   };
 }
 
+/// Made-up names of more projects, for looking at the console with many (`?fixtures&projects=12`).
+const MORE_PROJECTS = [
+  'Alder',
+  'Birch',
+  'Cedar',
+  'Dune',
+  'Elm',
+  'Fern',
+  'Gale',
+  'Heath',
+  'Ivy',
+  'Juniper',
+  'Kelp',
+  'Larch',
+  'Moss',
+  'Nettle',
+];
+
+/// The items of `data`, and, where `projects` asks for more than the projects they are of, the items of `wf-agents`
+/// again as the items of each made-up project more, numbered a hundred apart and their works a thousand apart, up to
+/// that many projects in all; each made-up project leaves some of them out, a different few each, so that no two
+/// trees are alike.
+function withProjects(data: Items, projects: number): Items {
+  const own = data.items.filter((i) => i.project === 'wf-agents');
+  const have = new Set(data.items.map((i) => i.project)).size;
+  const more = MORE_PROJECTS.slice(0, Math.max(0, projects - have)).flatMap((project, k) =>
+    own.filter((i) => (i.number * 7 + k * 5) % (3 + (k % 4)) !== 0).map((i): Item => {
+      const n = (k + 1) * 100;
+      return {
+        ...structuredClone(i),
+        number: i.number + n,
+        project,
+        dependsOn: i.dependsOn.map((d) => d + n),
+        work: { ...structuredClone(i.work), number: i.work.number + (k + 1) * 1000, item: i.number + n },
+      };
+    }),
+  );
+  return { items: [...data.items, ...more] };
+}
+
 /// The questions put to the owner, by the item whose work they are of: one the work waits for at its cell, and one it
 /// went on past, still to confirm.
 const QUESTIONS: Record<number, Question[]> = {
@@ -700,8 +740,12 @@ function pageOf(item: Item, summary: Summary, questions: Record<number, Question
 }
 
 /// The made-up items as a source the console reads: what the owner does changes them, and the console is told.
-export function fixtureSource(start = Date.now()): Source {
-  const data = fixtureItems(start);
+export function fixtureSource(start = Date.now(), projects = 1): Source {
+  const data = withProjects(fixtureItems(start), projects);
+  // The projects named: those of the items, and with more than one asked, one more that has no item yet.
+  const named = [...new Set(data.items.flatMap((i) => (i.project === null ? [] : [i.project])))];
+  const empty = MORE_PROJECTS.find((p) => !named.includes(p));
+  if (projects > 1 && empty !== undefined) named.push(empty);
   const questions = structuredClone(QUESTIONS);
   const listeners = new Set<(c: Changed) => void>();
   const find = (work: number) => {
@@ -797,5 +841,6 @@ export function fixtureSource(start = Date.now()): Source {
       listeners.add(on);
       return () => listeners.delete(on);
     },
+    projects: () => Promise.resolve([...named]),
   };
 }
