@@ -145,6 +145,31 @@ export function Switch<T extends string>({ label, choices, value, onChange }: {
   );
 }
 
+/// The spans of time a view counts over, side by side as links: each opens the view over its span and can be copied as
+/// an address, the one in use is marked and keeps the address it stands at. Which span a view is over is in its address,
+/// so that a span is a place the owner can send someone to.
+export function SpanLinks<T extends string>({ label, choices, value }: {
+  label: string;
+  choices: { value: T; name: ReactNode; href: string; title?: string }[];
+  value: T;
+}) {
+  return (
+    <nav className="span-links" aria-label={label}>
+      {choices.map((c) => (
+        <a
+          key={c.value}
+          className="span-link link"
+          href={c.href}
+          title={c.title}
+          aria-current={c.value === value ? 'true' : undefined}
+        >
+          {c.name}
+        </a>
+      ))}
+    </nav>
+  );
+}
+
 /// The tabs of what a window shows, drawn as the bar's views are: each a word, muted, the one shown in the text's
 /// colour over a line in the accent, all on a hairline. The arrows move from one to the next, as tabs do.
 export function Tabs<T extends string>({ label, choices, value, onChange }: {

@@ -16,7 +16,7 @@ export type Plain = (typeof PLAIN)[number];
 export const PERIODS = ['week', '4w', 'all'] as const;
 export type Period = (typeof PERIODS)[number];
 
-/// A plain view; the console with an item selected; the system's over a span other than the week under way; or one
+/// A plain view; the console with an item selected; the system's over the span its address names; or one
 /// work, with one of its runs chosen where the address names it, and one round of that run, which a round is only
 /// named with its run.
 export type Route =
@@ -55,7 +55,7 @@ function named(hash: string): Route | null {
     const wait = decoded(item[2]);
     return wait === null ? null : { view: 'console', item: Number(item[1]), wait };
   }
-  const period = PERIODS.find((p) => p !== 'week' && path === `/system/${p}`);
+  const period = PERIODS.find((p) => path === `/system/${p}`);
   return period ? { view: 'system', period } : null;
 }
 
@@ -82,7 +82,7 @@ export function hashOf(route: Route): string {
       ? `#/console/items/${route.item}`
       : `#/console/items/${route.item}/waits/${encodeURIComponent(route.wait)}`;
   }
-  if ('period' in route && route.period !== 'week') return `#/system/${route.period}`;
+  if ('period' in route) return `#/system/${route.period}`;
   return `#/${route.view}`;
 }
 

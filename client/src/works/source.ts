@@ -195,8 +195,23 @@ export function useSource(): Source {
   return useContext(SourceContext);
 }
 
+/// Whether a change says only that what the calls of an agent's round under way have come to changed: it names no work
+/// and sets no other flag, since no record of a work holds it, and only a part that shows it has anything to read.
+export function onlyGoing(changed: Changed): boolean {
+  return (
+    changed.going === true &&
+    changed.works.length === 0 &&
+    !changed.items &&
+    !changed.copies &&
+    !changed.accounts &&
+    !changed.observations
+  );
+}
+
 /// Calls `onChanged` each time the source says something happened, and `onOpened` each time its stream opens, for as
-/// long as the part that asks is shown.
+/// long as the part that asks is shown. A change that says only what the rounds under way have come to is not told to
+/// it ([`useGoings`] is told): it comes with every call of every round, and a part that reads the engine, the items or
+/// a work again for each would read for nothing.
 export function useChanges(onChanged: (changed: Changed) => void, onOpened: () => void) {
   const source = useSource();
   const latest = useRef({ onChanged, onOpened });
@@ -206,11 +221,39 @@ export function useChanges(onChanged: (changed: Changed) => void, onOpened: () =
   useEffect(
     () =>
       source.changes(
-        (c) => latest.current.onChanged(c),
+        (c) => {
+          if (!onlyGoing(c)) latest.current.onChanged(c);
+        },
         () => latest.current.onOpened(),
       ),
     [source],
   );
+}
+
+/// Calls `onGoing` each time the source says what the calls of the rounds under way have come to changed, and each
+/// time its stream opens, while `shown`: a part that is hidden is told nothing, and is told once it is shown again by
+/// reading when it is.
+export function useGoings(onGoing: () => void, shown: boolean) {
+  const source = useSource();
+  const latest = useRef(onGoing);
+  useEffect(() => {
+    latest.current = onGoing;
+  });
+  // Shown again after being hidden, a part reads once for what it was not told.
+  const was = useRef(shown);
+  useEffect(() => {
+    if (shown && !was.current) latest.current();
+    was.current = shown;
+  }, [shown]);
+  useEffect(() => {
+    if (!shown) return undefined;
+    return source.changes(
+      (c) => {
+        if (c.going === true) latest.current();
+      },
+      () => latest.current(),
+    );
+  }, [source, shown]);
 }
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));

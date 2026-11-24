@@ -74,7 +74,7 @@ pub use carriers::{
     RoundReply, Rounds, Saying, Seen, Teller, Telling, Token, Tokens, Told, ToolCall, Tools, Try, YEAR_MS,
 };
 pub use clock::{Clock, SystemClock, TokioClock};
-pub use driver::{Along, Instead, Said, Under, Window};
+pub use driver::{Along, Going, Instead, Said, Under, Window};
 pub use levels::{Level, Levels, LevelsFault};
 pub use projects::Projects;
 pub use script::Script;
@@ -252,7 +252,8 @@ pub struct Acted {
 }
 
 /// Something happened: these works grew, an item was added where `items`, the copies of the database changed where
-/// `copies`, and the accounts, their usage or their usage limits changed where `accounts`.
+/// `copies`, the accounts, their usage or their usage limits changed where `accounts`, and what an agent's round under
+/// way has come to changed where `going`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Changed {
     pub works: Vec<WorkNumber>,
@@ -261,6 +262,9 @@ pub struct Changed {
     pub accounts: bool,
     /// The observations changed: one was added or changed.
     pub observations: bool,
+    /// What the agents' rounds under way have come to so far changed, which no record of a work holds: only the
+    /// reading of it is told, and no work grew.
+    pub going: bool,
 }
 
 /// What stops the loop. Started again, the process goes on from the store.
@@ -532,14 +536,18 @@ impl Service {
                 return Ok(());
             }
             Message::Along { work, under, along } => {
+                // What an agent's round has come to is told alone: it changes with every call of the round, and
+                // nothing of the work's records did, so that what reads a work's records is not told to read them.
+                let going = matches!(along, Some(Along::Going(_)));
                 // What a work does now may have changed, though no record of it grew.
                 if self.driver.along(work, under, along) {
                     let _ = self.changed.send(Changed {
-                        works: vec![work],
+                        works: if going { Vec::new() } else { vec![work] },
                         items: false,
                         copies: false,
                         accounts: false,
                         observations: false,
+                        going,
                     });
                 }
                 return Ok(());
@@ -575,6 +583,7 @@ impl Service {
                             copies: false,
                             accounts: false,
                             observations: false,
+                            going: false,
                         });
                         return Ok(());
                     }
@@ -601,6 +610,7 @@ impl Service {
                             copies: false,
                             accounts: false,
                             observations: false,
+                            going: false,
                         });
                         return Ok(());
                     }
@@ -627,6 +637,7 @@ impl Service {
                             copies: false,
                             accounts: false,
                             observations: false,
+                            going: false,
                         });
                         return Ok(());
                     }
@@ -655,6 +666,7 @@ impl Service {
                             copies: false,
                             accounts: true,
                             observations: false,
+                            going: false,
                         });
                     }
                     Err(failed) => {
@@ -705,6 +717,7 @@ impl Service {
                             copies: false,
                             accounts: true,
                             observations: false,
+                            going: false,
                         });
                     }
                     Err(failed) => {
@@ -1134,6 +1147,7 @@ impl Service {
                 copies: false,
                 accounts,
                 observations: false,
+                going: false,
             });
         }
     }
@@ -1147,6 +1161,7 @@ impl Service {
             copies: false,
             accounts: true,
             observations: false,
+            going: false,
         });
     }
 }
@@ -1190,6 +1205,7 @@ impl Handle {
             copies: true,
             accounts: false,
             observations: false,
+            going: false,
         });
     }
 
@@ -1203,6 +1219,7 @@ impl Handle {
             copies: false,
             accounts: false,
             observations: true,
+            going: false,
         });
     }
 

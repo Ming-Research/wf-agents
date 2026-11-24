@@ -135,6 +135,7 @@ async fn the_slots_set_on_the_page_are_written_and_taken_by_the_engine_at_once()
         copies: false,
         accounts: false,
         observations: false,
+        going: false,
     };
     assert_eq!(notices, [nothing]);
     assert_eq!(shown(router).await, (json!("1"), Value::Null));

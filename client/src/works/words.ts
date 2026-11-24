@@ -9,11 +9,13 @@ import type {
   Cause,
   Failure,
   Limit,
+  Line,
   Maker,
   Outage,
   Person,
   RanOn,
   Run,
+  Scope,
   SessionWhy,
   Spent,
   Summary,
@@ -80,6 +82,18 @@ export function tokens(n: number): string {
   if (n < 1000) return String(n);
   if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
   return `${(n / 1_000_000).toFixed(1)}M`;
+}
+
+/// What a line of a measure was worked out from, in words: `12 rounds of its cell give`.
+export function lineWords(line: Line): string {
+  const of: Record<Scope, string> = {
+    cell: 'rounds of its cell',
+    flow: "agents' rounds of its flow",
+    tool: 'calls of its tool',
+    works: 'other works of its flow',
+    line: 'rounds of its line',
+  };
+  return `${line.samples} ${of[line.scope]} give`;
 }
 
 /// A count in full, its thousands apart: `12,345`.

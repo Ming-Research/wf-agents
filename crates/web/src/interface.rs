@@ -74,6 +74,7 @@ pub fn router(handle: Handle, levels: Levels, projects: Projects) -> Router {
         .route("/api/v1/works/{work}/runs/{run}/forks", post(fork))
         .route("/api/v1/attention", get(crate::attention::attention))
         .route("/api/v1/system", get(crate::system::system))
+        .route("/api/v1/system/under-way", get(crate::system::under_way))
         .route("/api/v1/engine", get(engine))
         .route("/api/v1/engine/acts", post(engine_act))
         .route("/api/v1/changes", get(changes))
@@ -660,6 +661,7 @@ async fn everything(handle: &Handle) -> Result<Changed, service::Refusal> {
         copies: true,
         accounts: true,
         observations: true,
+        going: true,
     })
 }
 

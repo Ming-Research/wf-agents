@@ -422,6 +422,29 @@ textarea:disabled {
   cursor: default;
 }
 
+/* The spans a view counts over, side by side as links in the link colour; the one in use in the text's colour over a line
+   in the accent, as a view of the bar is. */
+.span-links {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+}
+
+.span-link {
+  border-bottom: var(--focus) solid transparent;
+  font-size: var(--size-small);
+}
+
+.span-link[aria-current='true'] {
+  border-bottom-color: var(--accent);
+  color: var(--text);
+  cursor: default;
+}
+
+.span-link[aria-current='true']:hover {
+  text-decoration: none;
+}
+
 /* A tag: a few words or a count of a state, filled in its colour, as the console's count tags on a card. */
 .tag {
   display: inline-flex;

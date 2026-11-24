@@ -4,6 +4,8 @@
 // The routes:
 // - `GET  /api/v1/system?weeks=`: how the system went over the weeks given, each by when it begins, the earliest first,
 //   until now (`System`). The page cuts the weeks at Monday's midnight in the browser's time zone.
+// - `GET  /api/v1/system/under-way`: what the calls of each agent's round under way have come to so far (`Going`),
+//   read each time the stream of changes says `going`.
 // - `GET  /api/v1/settings`: the installation's settings as their file writes them (`SettingsPage`).
 // - `POST /api/v1/settings`: the owner's change of a few keys (`SettingsChange`), answered with what changed (`Saved`).
 // - `GET  /api/v1/settings/accounts`: the accounts the agents' program may run under, as the engine holds them
@@ -125,7 +127,8 @@ export interface System {
   failed: FailedRound[];
   /// What ended in the span past the line of its history, the latest first.
   past: Past[];
-  /// The rounds and the calls of tools under way now, the oldest first.
+  /// The rounds and the calls of tools under way now, the oldest first, each with how long it has taken so far against
+  /// its line.
   underWay: UnderWay[];
   /// What the merged checks of each project say of how long its tests and jobs took. The page draws none of it: it is
   /// given in the data and by `wf-agents system`.
@@ -196,7 +199,6 @@ export type UnderWay =
       round: number;
       began: number;
       time: Against | null;
-      bounds: Bounds | null;
       /// How much longer it is expected to take. Absent from an engine that says none.
       rest?: Rest | null;
     }
@@ -212,12 +214,25 @@ export type UnderWay =
       time: Against | null;
     };
 
-/// The lines an agent's round under way is judged by beside its time: what its context grows by over the round and
-/// for each call after the first, and what it costs among the rounds on its model.
-export interface Bounds {
-  added: Line | null;
-  rate: Line | null;
-  cost: Line | null;
+/// A measure of a round under way, with the line the run guard or the history of its model judges it by where the
+/// history gives one; `past` as the engine judges it.
+export interface Figure {
+  value: number;
+  line: Line | null;
+  past: boolean;
+}
+
+/// What the calls of an agent's round under way have come to so far, each none before a call tells it: the whole prompt
+/// of the latest call in tokens, the tokens the context has grown by over the round and for each call after the first
+/// (from the second call), and what the calls cost in millionths of a dollar, priced from the calls.
+export interface Going {
+  work: number;
+  run: number;
+  round: number;
+  context: number | null;
+  added: Figure | null;
+  perCall: Figure | null;
+  cost: Figure | null;
 }
 
 /// What kind of value the page may change a key to: a name on one line, a whole number, or one of the levels.
@@ -358,6 +373,8 @@ async function send<T>(path: string, body: unknown): Promise<T> {
 export interface SystemSource {
   /// How the system went over these weeks, each by when it begins, the earliest first.
   loadSystem(weeks: number[]): Promise<System>;
+  /// What the calls of each agent's round under way have come to so far.
+  loadUnderWay(): Promise<Going[]>;
   loadSettings(): Promise<SettingsPage>;
   saveSettings(change: SettingsChange): Promise<Saved>;
   loadAccounts(): Promise<AccountsPage>;
@@ -369,6 +386,7 @@ export interface SystemSource {
 /// The interface.
 export const INTERFACE: SystemSource = {
   loadSystem: (weeks) => read<System>(`/api/v1/system?weeks=${weeks.join(',')}`),
+  loadUnderWay: () => read<Going[]>('/api/v1/system/under-way'),
   loadSettings: () => read<SettingsPage>('/api/v1/settings'),
   saveSettings: (change) => send<Saved>('/api/v1/settings', change),
   loadAccounts: () => read<AccountsPage>('/api/v1/settings/accounts'),
@@ -379,6 +397,7 @@ export const INTERFACE: SystemSource = {
 /// The fixtures, loaded only when asked for. What the owner changes is only logged.
 export const FIXTURES: SystemSource = {
   loadSystem: async (weeks) => (await import('./fixtures')).fixtureSystem(weeks),
+  loadUnderWay: async () => (await import('./fixtures')).fixtureUnderWay(),
   loadSettings: async () => (await import('./fixtures')).fixtureSettings(),
   saveSettings: async (change) => {
     console.info('settings', change);

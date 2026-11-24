@@ -112,7 +112,7 @@ use std::sync::Arc;
 
 use decide::run::{Failure, Unmet};
 use decide::{BlockId, CellId, Pauser, RunId, Seq};
-use driver::Policy;
+use driver::{Going, Policy};
 use engine::Came;
 use flow::agents::Declaration;
 use serde::{Deserialize, Serialize};
@@ -766,6 +766,9 @@ impl Inner {
                     let mut crossed: Option<Crossing> = None;
                     let mut told_answered = false;
                     let mut told_usage = 0;
+                    // A try begins with nothing told of its calls, whatever the try before it came to.
+                    teller.going(round.number, Going::default());
+                    let mut told_calls = 0;
                     let ran = {
                         let mut each = |line: &[u8]| {
                             kept.line(line);
@@ -781,6 +784,15 @@ impl Inner {
                                 if let Some(said) = kept.stream.usage() {
                                     teller.usage(under.clone(), said.clone());
                                 }
+                            }
+                            // What the calls have come to so far, against the lines the guard judges the round by, is
+                            // told for each call: no record holds it, and the owner reads it while the round runs.
+                            if kept.calls().count != told_calls {
+                                let calls = kept.calls();
+                                told_calls = calls.count;
+                                let going =
+                                    Going::of(&round.lines, calls.count, calls.last, calls.added, kept.stream.cost().0);
+                                teller.going(round.number, going);
                             }
                             if crossed.is_none()
                                 && let Some(crossing) = guard.judge(kept.calls())

@@ -20,7 +20,7 @@ use web::observations::{
     ObservationsPage, TagsPage,
 };
 use web::plan::{Candidates, Field, Graph, Hits, Node, PlanChange, PlanChanges, Row, Standing, Tags};
-use web::system::{LeftOf, Past, Rest, System, UnderWay};
+use web::system::{Figure, Going, LeftOf, Past, Rest, System, UnderWay};
 use web::works::{
     Act, Added, Against, Back, Call, CellState, ChangeAsked, Checked, Continues, Engine, EngineAct, Failure, ForkAsked,
     ForkInstead, ForkPage, Found, ItemChanged, ItemChanges, ItemHistory, Items, ItemsChanged, Limit, Maker, NewItem,
@@ -260,7 +260,8 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
                 let from = clock().saturating_sub(days.saturating_mul(DAY));
                 let path = format!("/api/v1/system?weeks={from}");
                 let system: System = send(address, Method::GET, &path, None::<&()>).await?;
-                Ok(system_said(&system, days, limit))
+                let going: Vec<Going> = send(address, Method::GET, "/api/v1/system/under-way", None::<&()>).await?;
+                Ok(system_said(&system, &going, days, limit))
             }
             Asked::Fork {
                 work,
@@ -2412,15 +2413,30 @@ fn given_by(line: &web::works::Line) -> String {
     format!("{} {of} give", line.samples)
 }
 
+/// A measure of a round under way, in words: what it is, and whether it is past the line it is judged by, with what
+/// gives the line, where it has one.
+fn figure_said(what: &str, figure: &Figure, unit: impl Fn(u64) -> String) -> String {
+    match &figure.line {
+        Some(line) => format!(
+            "{what} {}, {} the line of {} that {}",
+            unit(figure.value),
+            if figure.past { "past" } else { "within" },
+            unit(line.value),
+            given_by(line)
+        ),
+        None => format!("{what} {}, no line yet", unit(figure.value)),
+    }
+}
+
 /// Millionths of a dollar, in dollars and cents.
 fn dollars(micros: u64) -> String {
     format!("${:.2}", micros as f64 / 1_000_000.0)
 }
 
 /// How the system ran over the last `days`: what its rounds took, what ended past the lines of its history, the latest
-/// first, and what is under way against its own, the oldest first, at most `limit` of each, with how many more there
-/// are and how to see them.
-fn system_said(system: &System, days: u64, limit: usize) -> String {
+/// first, and what is under way against its own, the oldest first, each agent's round with what its calls have come to
+/// so far as `going` says it, at most `limit` of each, with how many more there are and how to see them.
+fn system_said(system: &System, going: &[Going], days: u64, limit: usize) -> String {
     let mut lines = vec![format!(
         "Over the last {days} {}: {}.",
         if days == 1 { "day" } else { "days" },
@@ -2528,7 +2544,6 @@ fn system_said(system: &System, days: u64, limit: usize) -> String {
                 round,
                 began,
                 time,
-                bounds,
                 rest,
             } => {
                 let rest = match rest {
@@ -2536,21 +2551,29 @@ fn system_said(system: &System, days: u64, limit: usize) -> String {
                     Some(Rest::Longer {}) => "; longer than any round of its history".to_string(),
                     None => String::new(),
                 };
-                let bounds = bounds.map_or_else(String::new, |bounds| {
-                    let tokens = |line: Option<web::works::Line>| {
-                        line.map_or_else(|| "none yet".to_string(), |line| format!("{} tokens", line.value))
-                    };
-                    let cost = bounds
-                        .cost
-                        .map_or_else(|| "none yet".to_string(), |line| dollars(line.value));
-                    format!(
-                        "; its context's lines {} in all and {} a call, its cost's {cost}",
-                        tokens(bounds.added),
-                        tokens(bounds.rate)
-                    )
-                });
+                // What its calls have come to so far, against the lines the run guard judges it by; nothing before its
+                // carrier says any.
+                let calls = going
+                    .iter()
+                    .find(|g| g.work == *work && g.run == *run && g.round == *round)
+                    .map_or_else(String::new, |g| {
+                        let said = [
+                            g.context.map(|context| format!("its context is {context} tokens")),
+                            g.added
+                                .map(|f| figure_said("its context has grown by", &f, |n| format!("{n} tokens"))),
+                            g.per_call
+                                .map(|f| figure_said("and by", &f, |n| format!("{n} tokens a call after the first"))),
+                            g.cost.map(|f| figure_said("its calls cost", &f, dollars)),
+                        ];
+                        let said: Vec<String> = said.into_iter().flatten().collect();
+                        if said.is_empty() {
+                            String::new()
+                        } else {
+                            format!("; {}", said.join(", "))
+                        }
+                    });
                 format!(
-                    "  {work} of {item}, round {round} of run {run} of {cell}, since {}: {}{rest}{bounds}",
+                    "  {work} of {item}, round {round} of run {run} of {cell}, since {}: {}{rest}{calls}",
                     utc(*began),
                     so_far(time, *began, "rounds of its cell"),
                     work = work_number(*work),
@@ -3144,7 +3167,7 @@ mod tests {
             ],
             stopping: None,
         };
-        let said = system_said(&system, 7, 10);
+        let said = system_said(&system, &[], 7, 10);
         assert!(
             said.ends_with(
                 "Left running by a program as it ended, and stopped, the latest first:\n  W4 of #9, a fork of round 1 \
@@ -3857,7 +3880,7 @@ mod tests {
             left_behind: Vec::new(),
             stopping: None,
         };
-        let said = system_said(&system, 7, 10);
+        let said = system_said(&system, &[], 7, 10);
         let lines: Vec<&str> = said.lines().collect();
         assert_eq!(lines.len(), 14, "{said}");
         assert_eq!(lines[1], "Past the lines of their history, the latest first:");
@@ -3952,6 +3975,75 @@ mod tests {
         );
     }
 
+    // A round under way is said with what its calls have come to so far, each against the line the run guard judges it
+    // by and whether it is past it, and one whose carrier has said nothing yet is said as before. Fails where a figure is
+    // left out, joined to another round's, or its line or its being past it is misread. Microseconds.
+    #[test]
+    fn a_round_under_way_is_said_with_what_its_calls_have_come_to_against_their_lines() {
+        let round = |work: u64| UnderWay::Round {
+            work,
+            item: work + 10,
+            cell: "I1".to_string(),
+            run: 2,
+            round: 1,
+            began: 0,
+            time: None,
+            rest: None,
+        };
+        let line = |value: u64| web::works::Line {
+            value,
+            samples: 5,
+            scope: web::works::Scope::Cell,
+        };
+        let figure = |value: u64, line: Option<web::works::Line>, past: bool| Figure { value, line, past };
+        let system = System {
+            now: 600_000,
+            from: Some(0),
+            spent: Spent::default(),
+            pinged: Spent::default(),
+            weeks: Vec::new(),
+            by_cell: Vec::new(),
+            by_model: Vec::new(),
+            by_work: Vec::new(),
+            merged: Vec::new(),
+            cancelled: Vec::new(),
+            added: Vec::new(),
+            sent_back: Vec::new(),
+            failed: Vec::new(),
+            past: Vec::new(),
+            under_way: vec![round(3), round(4)],
+            tests: Vec::new(),
+            left_behind: Vec::new(),
+            stopping: None,
+        };
+        let going = [Going {
+            work: 3,
+            run: 2,
+            round: 1,
+            context: Some(12_000),
+            added: Some(figure(4_000, Some(line(3_000)), true)),
+            per_call: Some(figure(2_000, Some(line(2_500)), false)),
+            cost: Some(figure(250_000, None, false)),
+        }];
+        let said = system_said(&system, &going, 7, 10);
+        let lines: Vec<&str> = said.lines().filter(|l| l.starts_with("  W")).collect();
+        assert_eq!(lines.len(), 2, "{said}");
+        assert!(
+            lines[0].ends_with(
+                "; its context is 12000 tokens, its context has grown by 4000 tokens, past the line of 3000 tokens \
+                 that 5 rounds of its cell give, and by 2000 tokens a call after the first, within the line of 2500 \
+                 tokens a call after the first that 5 rounds of its cell give, its calls cost $0.25, no line yet"
+            ),
+            "{}",
+            lines[0]
+        );
+        assert!(
+            !lines[1].contains("context"),
+            "a round its carrier has said nothing of has no figures: {}",
+            lines[1]
+        );
+    }
+
     // A stop says each round under way it waits for, or would cut off, with how long it has taken and how much longer
     // it is expected to take, and when the engine is expected to end, the latest of them; the system view says the
     // stop that stands and each round's rest. Fails where a round is left out, its rest misread, or the end not the
@@ -3966,7 +4058,6 @@ mod tests {
             round: 1,
             began,
             time: None,
-            bounds: None,
             rest,
         };
         let mut system = System {
@@ -4023,7 +4114,7 @@ mod tests {
             at_once: false,
             rest: Rest::Longer {},
         });
-        let said = system_said(&system, 7, 10);
+        let said = system_said(&system, &[], 7, 10);
         assert!(
             said.contains(
                 "The engine was asked 1970-01-01 00:00 UTC to stop once what is under way has ended: no round begins, \
@@ -4091,7 +4182,7 @@ mod tests {
             left_behind: Vec::new(),
             stopping: None,
         };
-        let said = system_said(&system, 7, 10);
+        let said = system_said(&system, &[], 7, 10);
         let lines: Vec<&str> = said.lines().collect();
         let head = "  W7 of #3, call 9 of the tool run_tests by run 2 of I1, done 1970-01-01 00:00 UTC: ";
         let size = "returned 60000 bytes, past the line of 12500 bytes that 2 calls of its tool give";
