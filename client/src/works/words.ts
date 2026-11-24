@@ -357,7 +357,7 @@ export function waitedWords(waited: Waited): string {
     case 'outside':
       return `${waited.source} to move, before ${waited.cell} runs again: ${waited.why}`;
     case 'turn':
-      return `the project's turn to check and merge, which ${workName(waited.holder)} holds`;
+      return `the project's turn to check and merge, which ${workName(waited.holder)} has`;
     case 'items':
       return itemsWords(waited.items);
   }
@@ -387,6 +387,8 @@ export const STATE = {
   cancelled: 'Cancelled',
   /// Waiting for the items the work's item depends on to merge.
   items: 'Waiting for the items it depends on',
+  /// Waiting for the project's turn to check and merge, which another work of the project has.
+  turn: 'Waiting for its turn to check and merge',
   /// Waiting, where nothing the engine gives names who gives it.
   waiting: 'Waiting',
 } as const;

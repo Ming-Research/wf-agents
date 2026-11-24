@@ -33,7 +33,7 @@ fn state<'a>(summary: &'a Value, cell: &str) -> &'a Value {
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_tools_call_and_an_act_under_way_are_calls_where_they_say_they_run_and_an_act_waits_for_the_turn() {
+async fn a_tools_call_and_an_act_under_way_are_calls_where_they_say_they_run() {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(dir.path().join("store.sqlite")).unwrap();
     let mut script = trial_script();
@@ -41,7 +41,6 @@ async fn a_tools_call_and_an_act_under_way_are_calls_where_they_say_they_run_and
     let rounds = &mut script.flows.get_mut("trial").unwrap().rounds;
     let merge = rounds.iter_mut().find(|r| r.cell == "merge").unwrap();
     merge.took.ms = Some(4000);
-    merge.turn = Some(7);
     merge.at = Some(MERGE.to_string());
     let running = running_scripted(Box::new(store), dir, script);
     let router = &running.router;
@@ -70,20 +69,8 @@ async fn a_tools_call_and_an_act_under_way_are_calls_where_they_say_they_run_and
     );
     assert_eq!(state(&called, "build"), "calling");
 
-    // The merge's act waits for the project's turn, which work 7 holds, since its round began: its cell waits, and
-    // runs nothing yet.
-    let turn = until(router, |s| s["now"]["on"][0]["kind"] == "turn").await;
-    let since = turn["now"]["on"][0]["since"].as_u64().unwrap();
-    assert_eq!(
-        turn["now"],
-        json!({ "kind": "waits", "at": "merge", "on": [{ "kind": "turn", "holder": 7, "since": since }] })
-    );
-    assert_eq!(state(&turn, "merge"), "resting");
-
-    // Its turn taken, it runs as the CI run it says: a round under way, the cell's call.
-    let runs = until(router, |s| s["now"]["kind"] == "round").await;
-    assert_eq!(runs["now"]["cell"], "merge");
-    assert_eq!(runs["now"]["since"], since);
+    // The merge's act runs as the CI run it says: a round under way, the cell's call.
+    let runs = until(router, |s| s["now"]["kind"] == "round" && s["now"]["cell"] == "merge").await;
     assert_eq!(runs["now"]["at"], MERGE);
     assert_eq!(state(&runs, "merge"), "calling");
 

@@ -152,6 +152,8 @@ pub struct Cell {
     pub effort: Option<String>,
     /// The work's branch takes the latest main in as each run of the cell starts.
     pub takes_main: bool,
+    /// The cell takes the turn of its work's project: the works of a project check and merge one at a time.
+    pub takes_turn: bool,
     /// When the cell runs at all: every key of its `when` holds, in the order written; none is always.
     pub when: Vec<Condition>,
     /// What the work waits for before the cell: every key of its `requires`, in the order written.
@@ -858,6 +860,7 @@ impl Flow {
                 act: spec.act.clone(),
                 effort: spec.effort.map(|effort| effort.name().to_string()),
                 takes_main: spec.takes_main,
+                takes_turn: spec.takes_turn,
                 when: cell.applies.iter().map(|c| Condition::of(c, compiled)).collect(),
                 requires: cell.requires.iter().map(|c| Condition::of(c, compiled)).collect(),
                 watches: (spec.watches.iter())

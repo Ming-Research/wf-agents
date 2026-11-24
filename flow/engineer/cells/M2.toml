@@ -5,3 +5,5 @@ requires = { checked = "yes" }
 watches = ["checked"]
 outputs = ["merged"]
 named_by = "title"
+# The works of a project check and merge one at a time: the check and this cell take the project's turn.
+takes_turn = true

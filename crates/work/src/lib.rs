@@ -23,7 +23,7 @@ pub use flows::{OnFlow, Read, Version, version_of};
 pub use measured::{BesideKind, Forked, Measured, Measures, Pinged, SpentBeside};
 pub use observations::Observed;
 pub use sessions::{Left, LeftBehind, Ran, RanOn, Session, Why};
-pub use time::{KeptTime, Stretch, Went};
+pub use time::{KeptTime, Stretch, TurnSpan, Went};
 pub use timed::{Reading, Source, Timed};
 
 /// Everything kept of one work.

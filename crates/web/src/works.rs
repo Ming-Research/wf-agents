@@ -611,8 +611,9 @@ pub enum Waited {
     /// A source outside the work, as main moving: only this cell can make a precondition hold, and what its latest run
     /// wrote, `why` in the run's own words, waits for that source before the cell runs again.
     Outside { source: String, cell: String, why: String },
-    /// The project's turn to check and merge, which this work holds: the cell's act, its round under way since this
-    /// time, waits for it, as the act says. The works of a project check and merge one at a time.
+    /// The project's turn to check and merge, which this work holds or is before the work in having wanted: the cell
+    /// waits for it since this time, from when the work first wanted it. The works of a project check and merge one
+    /// at a time.
     Turn { holder: u64, since: u64 },
     /// The items the work's item depends on that have neither merged nor been cancelled, by their numbers: a
     /// precondition only they make hold, as each merges or is cancelled.
@@ -694,8 +695,8 @@ pub enum CellState {
     /// The engine carries out something for its run that takes its time: the act of an engine cell, its round under
     /// way, or a tool's call its agent asked for, which the work waits for at the cell.
     Calling,
-    /// Its run is at rest: for a call's result, or only for its next round; or, for an engine cell whose act waits for
-    /// the project's turn to check and merge, for that turn.
+    /// Its run is at rest: for a call's result, or only for its next round, which may wait for the project's turn to
+    /// check and merge.
     Resting,
     /// Its run's last round failed: the run is at rest, and its next round, once the work is let on, is that round
     /// again.
@@ -2169,20 +2170,13 @@ impl Summary {
         let along = &driver.along_of(number);
         let runs = runs(kept)?;
         let engine = |cell: &CellId| kept.cell(cell).is_some_and(|cell| !cell.agent);
-        // The act of an engine cell that waits for the project's turn runs nothing yet.
-        let turn = |run: RunId| {
-            (along.iter()).any(|(under, said)| {
-                matches!(under, Under::Round { run: of, .. } if *of == run) && matches!(said, Along::Turn { .. })
-            })
-        };
         let now = Now::of(
             kept,
             &view.decision,
             held,
             &every.outages,
             along,
-            &driver.items_waited_for(number),
-            &driver.items_paused_for(number),
+            &Others::of(driver, number, &every.at_once),
         )?;
         // The cell the work waits at for a tool's call the engine runs.
         let calling = match &now {
@@ -2228,9 +2222,6 @@ impl Summary {
                 .map(|cell| CellNow {
                     cell: cell.cell.to_string(),
                     state: match (&cell.open, cell.applies, cell.record) {
-                        (Some(open), ..) if open.under_way && engine(&cell.cell) && turn(open.run) => {
-                            CellState::Resting
-                        }
                         (Some(open), ..) if open.under_way && engine(&cell.cell) => CellState::Calling,
                         (Some(open), ..) if open.under_way => CellState::Running,
                         _ if calling == Some(cell.cell.as_str()) => CellState::Calling,
@@ -2357,13 +2348,15 @@ fn levels_of(
 
 /// What holds every work at once, as the bar reads it at a moment: each stretch the pause of everything held, from the
 /// store's record of every pause set and lifted; each stretch a stop of the engine stood, from its record of each stop
-/// and each start after one; and the agents' wait where their command line cannot run, from when,
-/// with what it said. Whether that wait held at a moment before is not kept: the engine's checks of the outside, which
-/// end it, are no records, so only the one that stands now is read, from when it began.
+/// and each start after one; each wait in which the agents' command line could not run, from the rounds that failed so
+/// and the next round of an agent that began, and the one that stands now, from when it began; and each stretch each
+/// work of a project held the turn to check and merge, by the project and the work, as the work kept it or as it is
+/// worked out.
 struct HeldAll {
     everything: Vec<driver::Span>,
     stops: Vec<driver::StopSpan>,
-    cannot_run: Option<(Time, String)>,
+    cannot_run: Vec<driver::CannotRun>,
+    turns: Vec<(Option<String>, store::WorkNumber, Vec<work::TurnSpan>)>,
 }
 
 impl HeldAll {
@@ -2371,8 +2364,18 @@ impl HeldAll {
         HeldAll {
             everything: driver.everything_spans().to_vec(),
             stops: driver.stop_spans(),
-            cannot_run: at_once.cannot_run().map(|(since, why)| (since, why.to_string())),
+            cannot_run: driver.cannot_runs(at_once),
+            turns: driver.turn_spans(),
         }
+    }
+
+    /// Each stretch another work of the work's project held the turn, which the work's own bar is read by.
+    fn turns_of_others(&self, kept: &Kept<'_>) -> Vec<work::TurnSpan> {
+        let (project, number) = (kept.item.project.as_ref(), kept.head.number);
+        (self.turns.iter())
+            .filter(|(of, work, _)| of.as_ref() == project && *work != number)
+            .flat_map(|(_, _, spans)| spans.iter().copied())
+            .collect()
     }
 }
 
@@ -2381,7 +2384,7 @@ enum TimeOf<'a> {
     /// What it kept as it last ended, where it has not been reopened since.
     Kept(&'a [Stretch]),
     /// For a work the flow installed decides, what it waited for as that flow reads it now, asked at each time.
-    Decided(driver::time::Waits<'a>),
+    Decided(Box<driver::time::Waits<'a>>),
     /// Else what ran alone, read from its records, a round a model's where it had a try: what it waited for is not
     /// known.
     Ran(Vec<Stretch>),
@@ -2395,14 +2398,14 @@ impl<'a> TimeOf<'a> {
             return TimeOf::Kept(&kept_time.stretches);
         }
         if kept.on.installed() {
-            let cannot_run = all.cannot_run.as_ref().map(|(since, why)| (*since, why.as_str()));
-            return TimeOf::Decided(driver::time::Waits::new(
+            return TimeOf::Decided(Box::new(driver::time::Waits::new(
                 kept,
                 &all.everything,
                 &all.stops,
-                cannot_run,
+                &all.cannot_run,
+                all.turns_of_others(&kept),
                 now,
-            ));
+            )));
         }
         let tried = |run: RunId| work.ran.iter().any(|ran| ran.run == run);
         let end = work.moments.last().map_or(now, |moment| moment.at);
@@ -2441,6 +2444,7 @@ fn mark(went: Went) -> char {
         // A stop of the engine is drawn as a pause, with no mark of its own: what it is the records keep apart.
         Went::Paused | Went::Stopping => 'p',
         Went::Items => 'w',
+        Went::Turn => 'q',
         Went::Other => '.',
     }
 }
@@ -2502,6 +2506,26 @@ fn bar(kept: Kept<'_>, all: &HeldAll, now: Time) -> String {
         .collect()
 }
 
+/// What other works decide for a work, which holds it back or says what it waits for: the items its item depends on
+/// that it waits for, the items its pause waits for, and whose the project's turn to check and merge is, with since
+/// when the work has wanted it.
+pub(crate) struct Others {
+    waited_for: Vec<ItemNumber>,
+    paused_for: Vec<ItemNumber>,
+    turn: Option<(store::WorkNumber, Time)>,
+}
+
+impl Others {
+    /// What the driver says of them for this work, at once with every other work.
+    pub(crate) fn of(driver: &Driver, work: store::WorkNumber, at_once: &driver::AtOnce) -> Others {
+        Others {
+            waited_for: driver.items_waited_for(work),
+            paused_for: driver.items_paused_for(work),
+            turn: driver.turn_waited_at(work, at_once),
+        }
+    }
+}
+
 impl Now {
     /// The cell the work stands at, as what it does now names it; none where it names none, as a work that ended or
     /// whose records are at fault.
@@ -2516,18 +2540,18 @@ impl Now {
     }
 
     /// What the work does now. Of what holds it back, its own pause is said first, then the owner's pause of
-    /// everything, then the stop of the engine, then the wait every work shares, then a slot. A round under way whose act waits for the project's
-    /// turn, as the act says, waits for it.
+    /// everything, then the stop of the engine, then the wait every work shares, then the turn to check and merge,
+    /// which `others` says whose it is and since when the work has wanted it, then a slot.
     pub(crate) fn of(
         kept: Kept<'_>,
         decision: &Decision,
         held: Option<Holder>,
         outages: &Outages,
         along: &[(Under, &Along)],
-        waited_for: &[ItemNumber],
-        paused_for: &[ItemNumber],
+        others: &Others,
     ) -> Result<Now, Broken> {
         let work = kept.work;
+        let (waited_for, paused_for, turn) = (&others.waited_for[..], &others.paused_for[..], others.turn);
         // Held by the pause of everything, which holds while the driver says it holds the work.
         let everything = |at: &CellId| -> Result<Now, Broken> {
             let by = (outages.everything).ok_or_else(|| Broken("the pause of everything holds no work".to_string()))?;
@@ -2545,6 +2569,15 @@ impl Now {
             (outages.stopping).map(|since| Now::Waits {
                 at: cell.to_string(),
                 on: vec![Waited::Stopping { since }],
+            })
+        };
+        // The turn to check and merge, whose it is, and since when the work has wanted it.
+        let turned = || -> Result<Waited, Broken> {
+            let (holder, since) =
+                turn.ok_or_else(|| Broken("the work waits for a turn that is its own".to_string()))?;
+            Ok(Waited::Turn {
+                holder: holder.0,
+                since: since.0,
             })
         };
         let waits_shared = |cell: &CellId| Now::Waits {
@@ -2572,21 +2605,12 @@ impl Now {
                 let said = (along.iter())
                     .find(|(under, _)| *under == Under::Round { run: *run, round })
                     .map(|(_, said)| *said);
-                match said {
-                    Some(Along::Turn { holder }) => Now::Waits {
-                        at: cell.to_string(),
-                        on: vec![Waited::Turn {
-                            holder: holder.0,
-                            since,
-                        }],
-                    },
-                    _ => Now::Round {
-                        cell: cell.to_string(),
-                        run: run.0,
-                        round,
-                        since,
-                        at: runs_at(said),
-                    },
+                Now::Round {
+                    cell: cell.to_string(),
+                    run: run.0,
+                    round,
+                    since,
+                    at: runs_at(said),
                 }
             }
             Decision::Paused { cell } if held == Some(Holder::Everything) => everything(cell)?,
@@ -2601,11 +2625,19 @@ impl Now {
             Decision::Run { cell, .. } | Decision::GoOn { cell, .. } if outages.stopping.is_some() => {
                 stopped(cell).ok_or_else(|| Broken("no stop stands".to_string()))?
             }
-            Decision::Wait { at, on } if on == &[WaitedOf::Slot] && outages.stopping.is_some() => {
+            Decision::Wait { at, on }
+                if (on == &[WaitedOf::Slot] || on == &[WaitedOf::Turn]) && outages.stopping.is_some() =>
+            {
                 stopped(at).ok_or_else(|| Broken("no stop stands".to_string()))?
             }
             Decision::Run { cell, .. } | Decision::GoOn { cell, .. } if shared(cell) => waits_shared(cell),
-            Decision::Wait { at, on } if on == &[WaitedOf::Slot] && shared(at) => waits_shared(at),
+            Decision::Wait { at, on } if (on == &[WaitedOf::Slot] || on == &[WaitedOf::Turn]) && shared(at) => {
+                waits_shared(at)
+            }
+            Decision::GoOn { cell, .. } if held == Some(Holder::Turn) => Now::Waits {
+                at: cell.to_string(),
+                on: vec![turned()?],
+            },
             Decision::GoOn { cell, .. } if held == Some(Holder::Slot) => Now::Waits {
                 at: cell.to_string(),
                 on: vec![Waited::Slot {}],
@@ -2641,6 +2673,7 @@ impl Now {
                             WaitedOf::Limit { runs } => Waited::Limit { runs: *runs },
                             WaitedOf::Calls { runs } => Waited::Calls { runs: *runs },
                             WaitedOf::Slot => Waited::Slot {},
+                            WaitedOf::Turn => turned()?,
                             WaitedOf::Answer { question } => Waited::Answer {
                                 question: question.clone(),
                             },
@@ -3843,6 +3876,11 @@ pub(crate) mod tests {
 
     /// A writer the owner's request runs, and the merge, with the repository's words beside it.
     pub(crate) fn flow() -> flow::Compiled {
+        flow_with("")
+    }
+
+    /// The same, the writer's file holding these lines besides.
+    pub(crate) fn flow_with(own: &str) -> flow::Compiled {
         let text = r#"
             name = "small"
             order = ["write", "merge"]
@@ -3857,13 +3895,15 @@ pub(crate) mod tests {
             [blocks.merged]
             shown = true
         "#;
-        let write = "title = \"Write\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Write.\"\n\
-                     watches = [\"request\"]\noutputs = [\"text\"]\n[kinds]\nrequest = \"last_and_latest\"\n";
+        let write = format!(
+            "title = \"Write\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Write.\"\n{own}\
+             watches = [\"request\"]\noutputs = [\"text\"]\n[kinds]\nrequest = \"last_and_latest\"\n"
+        );
         let merge =
             "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"text\"]\noutputs = [\"merged\"]\n";
         let source = Source {
             flow: text.to_string(),
-            cells: [("write", write), ("merge", merge)]
+            cells: [("write", write.as_str()), ("merge", merge)]
                 .iter()
                 .map(|(id, text)| (id.to_string(), text.to_string()))
                 .collect(),
@@ -4394,7 +4434,8 @@ pub(crate) mod tests {
         let all = HeldAll {
             everything: Vec::new(),
             stops: Vec::new(),
-            cannot_run: None,
+            cannot_run: Vec::new(),
+            turns: Vec::new(),
         };
         let third = (BAR_CELLS / 3) as usize;
         let drawn = bar(kept, &all, Time(10_000));
@@ -4707,22 +4748,177 @@ pub(crate) mod tests {
         let all = HeldAll {
             everything,
             stops: Vec::new(),
-            cannot_run: None,
+            cannot_run: Vec::new(),
+            turns: Vec::new(),
         };
         let stored = Stored::new(&flow.name);
         let on = driver::On::installed_flow(&flow);
         let live = bar(stored.kept(&flow, &on, &work), &all, now);
-        let stretches =
-            driver::time::stretches(&stored.kept(&flow, &on, &work), &all.everything, &all.stops, None, now);
+        let stretches = driver::time::stretches(
+            &stored.kept(&flow, &on, &work),
+            &all.everything,
+            &all.stops,
+            &[],
+            Vec::new(),
+            now,
+        );
         let mut ended = work.clone();
         ended.kept_time.push(work::KeptTime {
             at: work.tick(),
             stretches,
+            turn: Some(Vec::new()),
         });
         assert_eq!(live, bar(stored.kept(&flow, &on, &ended), &all, now));
         for went in ['m', 'o', 'p', '.'] {
             assert!(live.contains(went), "{live}");
         }
+    }
+
+    // The bar draws the wait for the turn to check and merge, `q`, where another work of the work's project held the
+    // turn while the work would have begun a round of a cell that takes it, and draws it alike live and from what the
+    // work kept as it ended; where none held it, the same time is `.`. The work is paused from 1000 to 3000, let on
+    // then, and begins its round at 6000. Milliseconds.
+    #[test]
+    fn the_bar_draws_the_wait_for_the_turn_live_and_as_kept_and_nothing_where_none_held_it() {
+        use decide::run::Failure;
+        use engine::{Effect, Event, Gate};
+
+        let flow = flow_with("takes_turn = true\n");
+        let mut work = Work::default();
+        let wrote = Event::Wrote {
+            block: "request".into(),
+            by: Outsider::Person,
+            content: "Greet.".to_string(),
+            matters: true,
+            value: None,
+        };
+        let effects = engine::handle(&flow, &mut work, Time(0), wrote).expect("the request is taken");
+        let run = effects
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::Round { run, .. } => Some(*run),
+                _ => None,
+            })
+            .expect("the writer's round begins");
+        let failed = || Event::Failed {
+            run,
+            why: "it broke".to_string(),
+            failure: Failure::Other,
+            resets: None,
+            spent: work::Spent::default(),
+        };
+        engine::handle(&flow, &mut work, Time(1000), failed()).expect("the round fails");
+        let free = decide::Room::FREE;
+        engine::handle_held(&flow, &mut work, Time(3000), Event::Resumed, free, Gate::Agents).expect("it is let on");
+        engine::handle_held(&flow, &mut work, Time(6000), Event::Look, free, Gate::Open).expect("it is looked at");
+        engine::handle(&flow, &mut work, Time(7000), failed()).expect("the round fails again");
+        let held = |turns| HeldAll {
+            everything: Vec::new(),
+            stops: Vec::new(),
+            cannot_run: Vec::new(),
+            turns,
+        };
+        // Another work of the same project (an item of no project), and one of another project.
+        let span = work::TurnSpan {
+            from: Time(2000),
+            until: Some(Time(6000)),
+        };
+        let elsewhere = (Some("other".to_string()), WorkNumber(3), vec![span]);
+        let own = (None, WorkNumber(1), vec![span]);
+        let all = held(vec![(None, WorkNumber(2), vec![span]), elsewhere.clone(), own.clone()]);
+        let stored = Stored::new(&flow.name);
+        let on = driver::On::installed_flow(&flow);
+        let shape = |bar: String| {
+            let mut cells: Vec<char> = bar.chars().collect();
+            cells.dedup();
+            cells.into_iter().collect::<String>()
+        };
+        let now = Time(9000);
+        let live = bar(stored.kept(&flow, &on, &work), &all, now);
+        assert_eq!(shape(live.clone()), "moqm");
+        // Held by no other work of its project, only by the work itself and one of another project: nothing says what it
+        // waited for.
+        let none = bar(stored.kept(&flow, &on, &work), &held(vec![elsewhere, own]), now);
+        assert_eq!(shape(none), "mo.m");
+        let kept = stored.kept(&flow, &on, &work);
+        let stretches = driver::time::stretches(&kept, &[], &[], &[], all.turns_of_others(&kept), now);
+        let mut ended = work.clone();
+        ended.kept_time.push(work::KeptTime {
+            at: work.tick(),
+            stretches,
+            turn: Some(Vec::new()),
+        });
+        assert_eq!(live, bar(stored.kept(&flow, &on, &ended), &all, now));
+    }
+
+    // What the page says of a work that waits for its project's turn to check and merge: that it waits for it, whose it
+    // is and since when the work has wanted it, as the driver gives them, said at a cell the walk waits at and at one
+    // whose run at rest the engine holds. The stop of the engine, which holds every round, is said in its place. Where
+    // the driver names no turn, the page's data is at fault and the work is not shown as waiting for one. Fails where
+    // the page says the wait as another, drops what the driver gave, or says it before the stop.
+    #[test]
+    fn a_work_that_waits_for_the_turn_is_said_to_wait_for_it_with_whose_it_is_and_since_when_and_the_stop_comes_first()
+    {
+        let flow = flow_with("takes_turn = true\n");
+        let mut work = Work::default();
+        work.records.written.push(Written {
+            block: "request".into(),
+            by: Outsider::Person,
+            matters: true,
+            value: None,
+            empty: false,
+            said_to: None,
+            at: Seq(1),
+        });
+        let stored = Stored::new(&flow.name);
+        let on = driver::On::installed_flow(&flow);
+        // Another work of the project holds the turn: the walk of this one waits for it at the writer.
+        let room = decide::Room {
+            turn: false,
+            ..decide::Room::FREE
+        };
+        let waits = decide::decide_in(&flow.flow, &work.records, room);
+        assert_eq!(
+            waits,
+            Decision::Wait {
+                at: "write".into(),
+                on: vec![WaitedOf::Turn]
+            }
+        );
+        let at_rest = Decision::GoOn {
+            cell: "write".into(),
+            run: RunId(1),
+        };
+        let now = |decision: &Decision, held: Option<Holder>, stopping: Option<u64>, turn| {
+            let outages = Outages {
+                agents: None,
+                host: None,
+                everything: None,
+                stopping,
+            };
+            let others = Others {
+                waited_for: Vec::new(),
+                paused_for: Vec::new(),
+                turn,
+            };
+            Now::of(stored.kept(&flow, &on, &work), decision, held, &outages, &[], &others)
+        };
+        let turn = Some((WorkNumber(7), Time(500)));
+        let waits_for_it = Now::Waits {
+            at: "write".to_string(),
+            on: vec![Waited::Turn { holder: 7, since: 500 }],
+        };
+        assert_eq!(now(&waits, None, None, turn), Ok(waits_for_it.clone()));
+        assert_eq!(now(&at_rest, Some(Holder::Turn), None, turn), Ok(waits_for_it));
+        // The stop of the engine holds every round, and is said instead.
+        let stopped = Now::Waits {
+            at: "write".to_string(),
+            on: vec![Waited::Stopping { since: 900 }],
+        };
+        assert_eq!(now(&waits, None, Some(900), turn), Ok(stopped.clone()));
+        assert_eq!(now(&at_rest, Some(Holder::Turn), Some(900), turn), Ok(stopped));
+        // A work the driver gives no turn that is another's waits for none.
+        assert!(matches!(now(&waits, None, None, None), Err(Broken(_))));
     }
 
     // A new session begun because what a new one would begin with changed is given to the page with the tokens of

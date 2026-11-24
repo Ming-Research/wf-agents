@@ -30,6 +30,7 @@ mod stopped;
 mod stopping;
 mod stops;
 mod test_times;
+mod turn;
 mod versions;
 
 use decide::{CallId, Decision, End, Outsider, Pauser, RunId, Waited, Who};
