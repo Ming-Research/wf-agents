@@ -9,13 +9,12 @@ repository.workspace = true
 
 [dependencies]
 decide = { path = "../decide" }
+# The simulation and the search for situations take works through the engine's own loop, so that their records are
+# those a work has.
+engine = { path = "../engine" }
 flow = { path = "../flow" }
 serde.workspace = true
 work = { path = "../work" }
-
-[dev-dependencies]
-# The tests take works through the engine's own loop, so that their records are those a work has.
-engine = { path = "../engine" }
 
 [lints]
 workspace = true

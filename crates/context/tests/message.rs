@@ -78,7 +78,7 @@ fn reviewed() -> Sim {
 /// The work as far as the review's first round, as [`reviewed`] has it, the line beginning a new session as the review's
 /// round ends, before the plan's round begins again.
 fn reviewed_then(anew: Option<&str>) -> Sim {
-    let mut sim = Sim::new();
+    let mut sim = support::small();
     sim.writes("request", "Greet the user.");
     carry(&mut sim, &[("plan", "Greet by name.", None)]);
     carry(&mut sim, &[("code", CODE, None)]);
@@ -94,7 +94,7 @@ fn reviewed_then(anew: Option<&str>) -> Sim {
 
 #[test]
 fn a_first_round_is_sent_its_heading_each_datum_written_whole_what_it_returns_its_task_and_what_ran_it() {
-    let mut sim = Sim::new();
+    let mut sim = support::small();
     sim.writes("request", "Greet the user.");
     let round = sim.round().expect("the plan is entered");
     let entered = sim.enter(&round, false);
@@ -141,10 +141,10 @@ fn a_datums_content_is_set_apart_in_a_fence_and_no_heading_in_it_reads_as_the_me
         }
         out
     };
-    let mut sim = Sim::new();
+    let mut sim = support::small();
     sim.writes("request", "Greet the user.");
     let plain = sim.enter(&sim.round().expect("the plan is entered"), false);
-    let mut sim = Sim::new();
+    let mut sim = support::small();
     sim.writes("request", content);
     let entered = sim.enter(&sim.round().expect("the plan is entered"), false);
     let given = format!(
@@ -157,7 +157,7 @@ fn a_datums_content_is_set_apart_in_a_fence_and_no_heading_in_it_reads_as_the_me
 
 #[test]
 fn a_cell_entered_in_the_session_that_handed_in_what_it_is_given_is_sent_a_line_for_each_with_its_version() {
-    let mut sim = Sim::new();
+    let mut sim = support::small();
     sim.writes("request", "Greet the user.");
     carry(&mut sim, &[("plan", "Greet by name.", None)]);
     let round = sim.round().expect("the build is entered");
@@ -184,7 +184,7 @@ fn a_cell_entered_in_the_session_that_handed_in_what_it_is_given_is_sent_a_line_
 
 #[test]
 fn a_cell_of_another_line_is_sent_whole_what_its_session_lacks() {
-    let mut sim = Sim::new();
+    let mut sim = support::small();
     sim.writes("request", "Greet the user.");
     carry(&mut sim, &[("plan", "Greet by name.", None)]);
     carry(&mut sim, &[("code", CODE, None)]);
@@ -286,7 +286,7 @@ fn a_datum_s_second_version_is_told_as_version_2_whatever_was_written_between_it
 // can stand.
 #[test]
 fn a_datum_s_line_names_each_version_that_changed_the_meaning_and_no_clause_where_none_did() {
-    let mut sim = Sim::new();
+    let mut sim = support::small();
     sim.writes("request", "Greet the user.");
     let round = sim.round().expect("the plan is entered");
     let entered = sim.enter(&round, false);
@@ -334,7 +334,7 @@ fn a_datum_s_line_names_each_version_that_changed_the_meaning_and_no_clause_wher
 
 #[test]
 fn a_datum_given_latest_is_sent_whole_where_the_session_lacks_it_and_its_held_line_where_it_holds_it_new() {
-    let mut sim = Sim::new();
+    let mut sim = support::small();
     sim.writes("request", "Greet the user.");
     carry(&mut sim, &[("plan", "Greet by name.", None)]);
     carry(&mut sim, &[("code", CODE, None)]);
@@ -442,7 +442,7 @@ fn a_session_reopened_is_filled_from_the_top_and_holds_no_return() {
 
 #[test]
 fn a_session_compacted_during_a_round_holds_only_what_that_round_handed_in() {
-    let mut sim = Sim::new();
+    let mut sim = support::small();
     sim.writes("request", "Greet the user.");
     let round = sim.round().expect("the plan is entered");
     let entered = sim.enter(&round, false);
@@ -489,7 +489,7 @@ fn a_run_entered_for_the_results_of_its_calls_is_sent_them_once() {
 
 #[test]
 fn a_round_after_its_return_was_sent_back_is_sent_why() {
-    let mut sim = Sim::new();
+    let mut sim = support::small();
     sim.writes("request", "Greet the user.");
     carry(&mut sim, &[("plan", "Greet by name.", None)]);
     carry(&mut sim, &[("code", CODE, None)]);
@@ -608,7 +608,7 @@ fn each_reason_for_sending_a_return_back_has_its_key_in_the_file_and_its_words_t
 // each, in the words of the files beside the flows.
 #[test]
 fn a_return_that_leaves_a_protected_file_changed_and_says_not_why_is_sent_back_naming_it() {
-    let mut sim = Sim::new();
+    let mut sim = support::small();
     sim.writes("request", "Greet the user.");
     carry(&mut sim, &[("plan", "Greet by name.", None)]);
     let round = sim.round().expect("the build is entered");
@@ -631,7 +631,7 @@ fn a_return_that_leaves_a_protected_file_changed_and_says_not_why_is_sent_back_n
 // only them, is sent back naming each, in the words of the files beside the flows.
 #[test]
 fn a_return_whose_run_changed_a_file_that_is_no_test_on_a_line_of_tests_is_sent_back_naming_it() {
-    let mut sim = Sim::new();
+    let mut sim = support::small();
     sim.writes("request", "Greet the user.");
     carry(&mut sim, &[("plan", "Greet by name.", None)]);
     let round = sim.round().expect("the build is entered");
@@ -655,7 +655,7 @@ fn a_return_whose_run_changed_a_file_that_is_no_test_on_a_line_of_tests_is_sent_
 // flows.
 #[test]
 fn a_return_that_hands_in_the_change_without_an_answer_marked_tree_in_the_tree_is_sent_back_naming_the_question() {
-    let mut sim = Sim::new();
+    let mut sim = support::small();
     sim.writes("request", "Greet the user.");
     carry(&mut sim, &[("plan", "Greet by name.", None)]);
     let round = sim.round().expect("the build is entered");
@@ -679,7 +679,7 @@ fn a_return_that_hands_in_the_change_without_an_answer_marked_tree_in_the_tree_i
 #[test]
 fn a_return_found_owing_its_answer_naming_what_does_not_run_it_or_holding_a_verdict_with_no_point_is_sent_back_saying_which()
  {
-    let mut sim = Sim::new();
+    let mut sim = support::small();
     sim.writes("request", "Greet the user.");
     carry(&mut sim, &[("plan", "Greet by name.", None)]);
     let round = sim.round().expect("the build is entered");
@@ -716,7 +716,7 @@ fn a_return_found_owing_its_answer_naming_what_does_not_run_it_or_holding_a_verd
 // `unanswered`, the block filled in. Well under a millisecond alone; no other test holds the sentence a round is told.
 #[test]
 fn a_return_that_dealt_with_what_ran_it_and_did_nothing_is_sent_back_in_its_words() {
-    let mut sim = Sim::new();
+    let mut sim = support::small();
     sim.writes("request", "Greet the user.");
     carry(&mut sim, &[("plan", "Greet by name.", None)]);
     let round = sim.round().expect("the build is entered");
@@ -733,7 +733,7 @@ fn a_return_that_dealt_with_what_ran_it_and_did_nothing_is_sent_back_in_its_word
 
 #[test]
 fn main_taken_in_is_told_to_a_cell_that_takes_it_in_in_one_line_in_the_words_of_its_part() {
-    let mut sim = Sim::new();
+    let mut sim = support::small();
     for cell in &mut sim.flow.cells {
         cell.takes_main = cell.id.as_str() == "plan";
     }
@@ -799,7 +799,7 @@ fn what_the_page_shows_for_the_situation_is_what_the_engine_sends_in_it_with_its
 
 #[test]
 fn the_tree_changed_since_the_session_read_it_is_sent_as_the_files_the_carrier_says_changed() {
-    let mut sim = Sim::new();
+    let mut sim = support::small();
     sim.writes("tree", "c1 t1");
     sim.writes("request", "Greet the user.");
     let round = sim.round().expect("the plan is entered");
@@ -914,7 +914,7 @@ fn a_datum_given_last_and_latest_whose_session_holds_its_latest_and_not_the_vers
 
 #[test]
 fn a_return_that_would_write_over_a_version_it_never_saw_is_sent_back_with_that_version() {
-    let mut sim = Sim::new();
+    let mut sim = support::small();
     sim.writes("request", "Greet the user.");
     carry(&mut sim, &[("plan", "Greet by name.", None)]);
     carry(&mut sim, &[("code", CODE, None)]);
@@ -961,7 +961,7 @@ fn a_round_whose_program_said_it_took_its_message_in_holds_it_whatever_it_failed
         (Failure::UsageLimit, true),
         (Failure::UsageLimit, false),
     ] {
-        let mut sim = Sim::new();
+        let mut sim = support::small();
         sim.writes("request", "Greet the user.");
         let round = sim.round().expect("the plan is entered");
         let first = sim.enter(&round, sim.begins(&round));
@@ -1021,7 +1021,7 @@ fn a_version_that_says_what_an_earlier_one_said_is_new_and_sent_and_no_repeat() 
 
 #[test]
 fn a_setting_the_task_what_a_cell_does_for_a_datum_or_a_block_s_words_name_is_sent_with_its_value_beside_it() {
-    let mut sim = Sim::new();
+    let mut sim = support::small();
     let language = |key: &str| (key == "owner.language").then(|| "Chinese".to_string());
     sim.named = flow::system::Settings::of(None, &sim.words.installation, language);
     let code = sim.flow.blocks.get_mut(&BlockId::from("code")).expect("the code");
@@ -1064,7 +1064,7 @@ fn a_setting_the_task_what_a_cell_does_for_a_datum_or_a_block_s_words_name_is_se
 // other version the outside wrote.
 #[test]
 fn a_version_put_into_a_round_from_outside_is_told_by_no_line() {
-    let mut sim = Sim::of(support::branched(), support::words());
+    let mut sim = support::sim_of(support::branched(), support::words());
     sim.writes("request", "Greet the user.");
     let round = sim.round().expect("the plan is entered");
     let entered = sim.enter(&round, false);
@@ -1103,7 +1103,7 @@ fn fills_whole(entered: &Entered, block: &str) -> bool {
 // code, and its session holds the request, filled into the plan's round, and the plan, which the session handed in.
 #[test]
 fn a_datum_a_move_renamed_is_given_whole_once_and_held_after_and_one_it_left_as_it_was_is_still_held() {
-    let mut sim = Sim::new();
+    let mut sim = support::small();
     sim.writes("request", "Greet the user.");
     carry(&mut sim, &[("plan", "Greet by name.", None)]);
     let round = sim.round().expect("the build is entered");
@@ -1139,7 +1139,7 @@ fn a_datum_a_move_renamed_is_given_whole_once_and_held_after_and_one_it_left_as_
 // given whole as it is written after the move, never as a change of what the session held under that name.
 #[test]
 fn a_datum_written_after_a_move_under_a_name_the_move_took_from_another_is_given_whole() {
-    let mut sim = Sim::new();
+    let mut sim = support::small();
     sim.writes("request", "Greet the user.");
     // The plan's round fills the request into the engineer's session; the review hands in its verdict alone, so that
     // nothing runs after it.
@@ -1207,7 +1207,7 @@ fn judged() -> flow::Compiled {
 // is no change to it.
 #[test]
 fn a_judge_s_point_the_owner_ruled_on_is_held_as_no_change_to_its_maker() {
-    let mut sim = Sim::of(judged(), support::words());
+    let mut sim = support::sim_of(judged(), support::words());
     let next = |sim: &mut Sim, cell: &str, blocks: &[(&str, &str, Option<&str>)]| {
         let round = sim.round().expect("a round is given");
         assert_eq!(sim.cell(&round).id.as_str(), cell);

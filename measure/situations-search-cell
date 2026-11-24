@@ -1,0 +1,9 @@
+# The measurement `situations-search-cell`: how long `wf-agents flow situations` takes on one cell of the repository's
+# engineer flow, `I1`, the one with the most to read, in release, as the command runs in the checkout this script is run
+# in (`measure/` of the measure workflow). It builds the command first, as `situations-build` does alone, and the
+# command's own time is the median of this measurement's less the median of that one's.
+set -euo pipefail
+cargo build --release --locked -p wf-agents
+out="$(mktemp -d)"
+trap 'rm -rf "$out"' EXIT
+target/release/wf-agents flow situations flow/engineer --cell I1 --out "$out" > /dev/null

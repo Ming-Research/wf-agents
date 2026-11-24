@@ -18,7 +18,7 @@ const ENTRIES: &str = "principle lean-agent-input";
 #[test]
 fn the_implementation_entered_first_after_the_plan_names_each_datum_its_session_holds_with_its_version() {
     let beside = flow::agents::read(&root()).expect("the files beside the flows are read");
-    let mut sim = Sim::of(engineer(), beside);
+    let mut sim = support::sim_of(engineer(), beside);
     sim.wrote("dependencies", "", Some("merged"), Outsider::Outside);
     sim.writes("background", "Greet the user by name.");
     // The start, the reading, the plan with no deep research and no edit of the tree, the plan thought through again,
@@ -72,7 +72,7 @@ fn the_implementation_entered_first_after_the_plan_names_each_datum_its_session_
 #[test]
 fn the_first_message_of_an_agent_s_cell_names_no_guide() {
     let beside = flow::agents::read(&root()).expect("the files beside the flows are read");
-    let mut sim = Sim::of(engineer(), beside);
+    let mut sim = support::sim_of(engineer(), beside);
     sim.wrote("dependencies", "", Some("merged"), Outsider::Outside);
     sim.writes("background", "Greet the user by name.");
     let start = sim.round().expect("the start is given");
@@ -123,7 +123,7 @@ fn carried_on(flow: Compiled, id: &str, deep: bool, tree: Option<&str>) -> (Sim,
         true => vec![("tree_entries", ENTRIES, None)],
         false => vec![],
     };
-    let mut sim = Sim::of(flow, beside);
+    let mut sim = support::sim_of(flow, beside);
     sim.wrote("dependencies", "", Some("merged"), Outsider::Outside);
     if let Some(tree) = tree {
         sim.wrote("tree", tree, None, Outsider::Outside);

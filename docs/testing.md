@@ -52,12 +52,17 @@ of each part.
    one way through the flow; the next change then meets a way no one ever ran.
 
    Each flow the repository defines is compiled with the files beside the flows, the system prompt of each of its
-   lines and the form of its return are made, and every situation an entry of each of its cells can reach is written.
-   The situations are derived from the flow by rules, and the context manager's histories hold the rules to the rounds
-   of real works, datum by datum: on the small flow of its tests and on the engineer's flow, every state a datum stood in
-   a round is one the rules write, and every state they write was stood in by a round. On the engineer's flow a search
-   reaches them, going on from the states of histories that reached a state none had before; a state it does not reach
-   is given a directed test or is deleted from the rules.
+   lines and the form of its return are made, and the situations an entry of each of its cells was found in are
+   written. A search of the context crate takes works of the flow through the engine's own loop with the context
+   manager entering each round, by an action set of its own, seeded and bounded, and keeps for each line a round stood
+   in a script that carries such a round out on a fresh work; the tool writes those situations and no other, so that
+   each is a round a work reached, on any flow, and no rule of what a cell can be entered in is kept in step by hand.
+   The context manager's histories choose what they do apart from the search, and hold what it wrote to real rounds:
+   each script, run again, carries out a round in the same situation, the message the page shows for it is what the
+   engine sent, and every line a round of the histories stood in, on the small flow of its tests and on the engineer's
+   flow, is one a written situation stands in; a line the search leaves out is mended in the search for every flow.
+   How long the tool takes on the engineer's flow is timed by the measurements `situations-build` and
+   `situations-search` of `measure/`, the tool's own time being the second less the first.
    The deciding code's own walk goes through it every way a work can go within a bound, or through many random
    histories, checking at each decision the properties that flow must keep, such as no merge on what is not settled
    and every work coming to rest. This layer is the one to catch a change of a definition (a cell, a block, a

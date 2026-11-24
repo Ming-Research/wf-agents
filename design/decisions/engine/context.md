@@ -74,9 +74,10 @@ A datum a cell is given that has no version yet is left out of the message: no l
 - rejected: an agent proposed a line for each, saying it has no version yet; the owner rejected it, because with nothing to read it takes no part.
 - replaced: Sending inputs that held nothing in every message anyway was on main; the owner changed it, because nothing should be sent for an input that holds nothing.
 
-### decision the-situations-tool-derives-its-situations-by-rules
-`wf-agents flow situations` derives a cell's situations from the flow by rules, which tests hold to the rounds of works of the repository's own flows.
-- rejected: an agent proposed that the tool search, for each situation, a history that reaches it with the real context manager and write only those it reaches; the owner rejected it, because the tool stays fast, with no new mechanism and no change in what the crates depend on.
+### decision the-situations-tool-writes-the-situations-a-search-reached
+`wf-agents flow situations` writes the situations that rounds of works found by a seeded, bounded search stood in, and tests run each one's script again to the same round.
+- replaced: Deriving situations by rules, held to the rounds of works by tests, was on main; the owner changed it, because 105 of 1392 states written for the engineer's flow were reached by no round, and two of three deletions made by reading the flow were wrong.
+- rejected: an agent proposed keeping the rules, checked both ways on the small flow and one way on the engineer's flow, the states no round reached only counted; the owner rejected it, because the tool could then write states no round of the engineer's flow reaches.
 
 ### decision a-try-keeps-what-it-was-given
 Before its program starts, a try keeps what it runs on and what its message fills in a file beside it, and a later start records from there what the records lack.

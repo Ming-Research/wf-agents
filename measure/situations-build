@@ -1,0 +1,7 @@
+# The measurement `situations-build`: how long it takes to build the command `wf-agents` in release, as it runs in the
+# checkout this script is run in (`measure/` of the measure workflow, `.github/workflows/measure.yml`). The measurement
+# `situations-search` builds the same and then runs `wf-agents flow situations`, so the command's own time is that
+# measurement's less this one's: after the first pair the build finds nothing to do, and what is left is the build's
+# check that none is.
+set -euo pipefail
+cargo build --release --locked -p wf-agents
