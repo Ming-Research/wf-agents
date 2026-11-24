@@ -30,3 +30,14 @@ The Settings view puts the switch Move on at the limit above the accounts and, o
 - rejected: an agent proposed only the switch, each move shown on the in-use mark as it is pointed at; the owner rejected it, because only the latest move would be kept, and an earlier one, or the account it left, could not be found.
 - rejected: an agent proposed the record of moves in the System view's section on what is going on now; the owner rejected it, because the switch and its record would stand on two pages, and a thing is shown in one place.
 - rejected: an agent proposed the switch at the bar's right end beside the keep-warm switch; the owner rejected it, because it only manages the accounts and is set once, unlike Pause all and the slots, which are pressed at any time, and it belongs beside the accounts it moves between.
+
+### decision a-round-under-way-shows-its-figures-against-their-lines
+The System view's rounds under way have the columns Context, Added, Per call and Cost; the last three read value of line, and the one value past its own line is in the warning colour.
+- rejected: an agent proposed the columns Context, Added and Cost without the growth for each call; the owner rejected it, because Added's mark would also flag a normal long round, and the owner would be led to rounds that are well.
+- rejected: an agent proposed the four columns with values only, the lines in the hover and no colour for a figure past its line; the owner rejected it, because which round to look at could not be seen without opening each hover.
+
+### decision a-merges-cost-is-what-the-whole-span-spent-for-each
+The Produced part gives a merge's cost on average as what the whole span spent for each merge, what was wasted included, with the merged works' own average beside it, each said in its own range.
+- replaced: A merge's cost on average as the merged works' own cost alone was on main; the owner changed it, because it left out what was wasted, so the owner could not see what a merge really cost.
+- rejected: an agent proposed keeping the cell and adding a cell Spent per merge; the owner rejected it, because two numbers in two cells read as one number that contradicts itself.
+- rejected: an agent proposed a column Span share in the list of merged works and no average; the owner rejected it, because the overall average could not be seen, and the list has to be unfolded first.

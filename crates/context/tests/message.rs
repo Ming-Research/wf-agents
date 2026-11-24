@@ -696,6 +696,64 @@ fn a_return_that_leaves_the_design_tree_out_of_its_forms_is_sent_back_with_each_
     assert!(entered.text.contains(said), "{}", entered.text);
 }
 
+// A return the engine found owing the answer its dialogue asks for, naming what its cell does not run on, or handing in
+// a verdict that does not pass with no point of its dialogue, is sent back saying which, with the names filled in, in
+// the words of the files beside the flows.
+#[test]
+fn a_return_found_owing_its_answer_naming_what_does_not_run_it_or_holding_a_verdict_with_no_point_is_sent_back_saying_which()
+ {
+    let mut sim = Sim::new();
+    sim.writes("request", "Greet the user.");
+    carry(&mut sim, &[("plan", "Greet by name.", None)]);
+    let round = sim.round().expect("the build is entered");
+    let entered = sim.enter(&round, sim.begins(&round));
+    sim.tries(&round, 1, entered.fills);
+    let mut came = Came::hands_in(Vec::new());
+    came.found = vec![
+        Unmet::NotWatched {
+            name: "opinions".to_string(),
+        },
+        Unmet::WordOwed {
+            name: "review".into(),
+            watched: vec!["plan".into(), "code".into()],
+        },
+        Unmet::NoPoint {
+            block: "verdict".into(),
+            value: "no".to_string(),
+            name: "review".into(),
+        },
+    ];
+    sim.returns(&round, came, 0);
+    let again = sim.round().expect("the build's round after it was sent back");
+    let entered = sim.enter(&again, false);
+    for said in [
+        "- `opinions` does not run this cell.\n",
+        "- `review` owes its answer, none of `plan`, `code` changed.\n",
+        "- `verdict` is `no` with no `review`.\n",
+    ] {
+        assert!(entered.text.contains(said), "{said:?} is not in {}", entered.text);
+    }
+}
+
+// A return that says it dealt with what ran it, committing nothing and asking nothing, is sent back in the words of
+// `unanswered`, the block filled in. Well under a millisecond alone; no other test holds the sentence a round is told.
+#[test]
+fn a_return_that_dealt_with_what_ran_it_and_did_nothing_is_sent_back_in_its_words() {
+    let mut sim = Sim::new();
+    sim.writes("request", "Greet the user.");
+    carry(&mut sim, &[("plan", "Greet by name.", None)]);
+    let round = sim.round().expect("the build is entered");
+    let entered = sim.enter(&round, sim.begins(&round));
+    sim.tries(&round, 1, entered.fills);
+    let mut came = Came::hands_in(Vec::new());
+    came.found = vec![Unmet::Unanswered { block: "check".into() }];
+    sim.returns(&round, came, 0);
+    let again = sim.round().expect("the build's round after it was sent back");
+    let entered = sim.enter(&again, false);
+    let said = "- `check` is not answered: commit, or ask.\n";
+    assert!(entered.text.contains(said), "{said:?} is not in {}", entered.text);
+}
+
 #[test]
 fn main_taken_in_is_told_to_a_cell_that_takes_it_in_in_one_line_in_the_words_of_its_part() {
     let mut sim = Sim::new();

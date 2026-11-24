@@ -21,6 +21,25 @@ fn b(passed: bool) -> Vec<(String, Vec<u8>)> {
     vec![("junit.xml".to_string(), xml.into_bytes())]
 }
 
+/// The JUnit of a run of `tools::tests::b` and `tools::tests::c`, each passed or failed as given, in this file: the full
+/// workflows' is the file of the job `test`, and the fast workflow's is one file for the whole run.
+fn b_and_c(file: &str, b: bool, c: bool) -> Vec<(String, Vec<u8>)> {
+    let case = |name: &str, passed: bool| {
+        let failure = if passed {
+            String::new()
+        } else {
+            format!("<failure message=\"assertion failed\">thread '{name}' panicked</failure>")
+        };
+        format!(r#"<testcase name="{name}" time="0.3">{failure}</testcase>"#)
+    };
+    let xml = format!(
+        r#"<testsuites><testsuite name="carry">{}{}</testsuite></testsuites>"#,
+        case("tools::tests::b", b),
+        case("tools::tests::c", c)
+    );
+    vec![(file.to_string(), xml.into_bytes())]
+}
+
 fn red() -> Outcome {
     Outcome::Failed("failure".into())
 }
@@ -69,6 +88,24 @@ impl Hub {
         self.github()
             .of_workflow("ci.yml", &head, jobs, Some(("test-results", fast::junit())));
         (head, self.main_on_github())
+    }
+
+    /// The verdict of this round of the check on the commit, which holds main's head on GitHub: given again after the
+    /// engine started again, a round is the same one.
+    async fn verdict_of(&self, commit: &str, round: Asking) -> Option<Verdict> {
+        let (place, main) = (self.place(), self.main_on_github());
+        (self.host)
+            .verdict(
+                &branch(&place),
+                commit,
+                &main,
+                round,
+                &Mutex::new(()),
+                &mut Stop::never(),
+            )
+            .await
+            .map_err(String::from)
+            .expect("the check judges")
     }
 
     /// The fast workflow on the commit passes the lint, and passes or fails `tools::tests::b`.
@@ -160,6 +197,81 @@ async fn a_test_that_fails_again_and_passes_on_mains_head_fails_the_commit() {
     );
     // The full workflows ran `tools::tests::a` too, and it passed: only what did not pass is said of them.
     assert!(!failed.contains("tools::tests::a"), "{failed}");
+}
+
+// Where the full workflows failed several tests and nothing else, and each fails again on the commit, the commit is held
+// only where every one of them fails on main's head as well; one that passes there is the change's, and the commit
+// fails, saying it. Well under a second alone each way, a repository on disk and GitHub in memory; no other test holds
+// a verdict to more than one test failed.
+#[tokio::test]
+async fn several_tests_that_fail_again_hold_the_commit_only_where_all_fail_on_mains_head() {
+    for c_passes_on_main in [false, true] {
+        let hub = Hub::new();
+        let head = hub.committed().await;
+        let jobs = || vec![passed("lint"), check("test", red())];
+        hub.github().of_workflow(
+            "ci.yml",
+            &head,
+            jobs(),
+            Some(("test-results", b_and_c("test.xml", false, false))),
+        );
+        let main = hub.main_on_github();
+        hub.github().of_workflow(
+            "fast.yml",
+            &head,
+            jobs(),
+            Some(("test-results", b_and_c("junit.xml", false, false))),
+        );
+        hub.github().of_workflow(
+            "fast.yml",
+            &main,
+            jobs(),
+            Some(("test-results", b_and_c("junit.xml", false, c_passes_on_main))),
+        );
+        let verdict = hub.verdict(&head).await.unwrap().expect("judged");
+        if c_passes_on_main {
+            assert_eq!(verdict.held, None, "{verdict:?}");
+            let failed = verdict.failed.expect("failed");
+            assert!(
+                failed.ends_with("These failed again on the commit, but not on the head of main: `tools::tests::c`."),
+                "{failed}"
+            );
+        } else {
+            assert_eq!(verdict.failed, None, "{verdict:?}");
+            let held = verdict.held.expect("held");
+            assert!(
+                held.starts_with(&format!(
+                    "These failed on the commit, failed again when they were run again, and also failed on the head \
+                     of main, {main}: `tools::tests::b`, `tools::tests::c`."
+                )),
+                "{held}"
+            );
+        }
+    }
+}
+
+// The check given again, as after the engine started again, its runs having ended: it finds the full run, the run
+// again on the commit and the run on main's head by the values it asked for them by, asks for none of them twice, and
+// comes to the same verdict. Well under a second alone, a repository on disk and GitHub in memory; no other test gives
+// a check that ran its failed tests again a second time.
+#[tokio::test]
+async fn a_check_given_again_finds_its_runs_again_and_asks_for_none_twice() {
+    let hub = Hub::new();
+    let (head, main) = hub.red_by_b().await;
+    hub.fast_on(&head, false, Outcome::Passed);
+    hub.fast_on(&main, false, Outcome::Passed);
+    let round = hub.round();
+    let first = hub.verdict_of(&head, round).await.expect("judged");
+    assert!(first.held.is_some(), "{first:?}");
+    let asked = runs(&hub);
+    assert_eq!(
+        asked.len(),
+        3,
+        "the full workflows, the run again and the run on main: {asked:?}"
+    );
+    let again = hub.verdict_of(&head, round).await.expect("judged");
+    assert_eq!(runs(&hub), asked, "nothing is asked for twice");
+    assert_eq!((&again.held, &again.failed), (&first.held, &first.failed));
 }
 
 // A check the full workflows found red beside a failed test is red again on the commit: the commit fails, whatever

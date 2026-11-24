@@ -4,8 +4,8 @@
 // paused. The settings are a file like the sample's, with a value the engine runs at another and a table left out.
 
 import { fixtureItems } from '../works/fixtures';
-import type { Spent } from '../works-api';
-import type { AccountsPage, AccountUsage, SettingsPage, System, Week } from './api';
+import type { Line, Spent } from '../works-api';
+import type { AccountsPage, AccountUsage, Figure, Going, SettingsPage, System, Week } from './api';
 
 const nothing = (): Spent => ({
   usdMicros: 0,
@@ -111,6 +111,30 @@ export function fixtureSystem(starts: number[]): System {
     past: [],
     underWay: [],
   };
+}
+
+/// What the calls of each agent's round under way in the works' fixtures have come to so far. The works' fixtures hold one
+/// round under way, which shows each case of a figure in one row: the growth over the round past its line, the growth
+/// for each call within its line, and the cost with no line to judge by yet; a round with no call told yet, as any other
+/// under way would be, has no figure.
+export function fixtureUnderWay(): Going[] {
+  const rounds = fixtureItems().items.flatMap((i) =>
+    i.work.now.kind === 'round' ? [{ work: i.work.number, run: i.work.now.run, round: i.work.now.round }] : [],
+  );
+  const line = (value: number, samples: number): Line => ({ value, samples, scope: 'cell' });
+  const figure = (value: number, on: Line | null, past: boolean): Figure => ({ value, line: on, past });
+  return rounds.map(
+    (round, n): Going =>
+      n === 0
+        ? {
+            ...round,
+            context: 182_400,
+            added: figure(96_000, line(60_000, 12), true),
+            perCall: figure(3_000, line(5_000, 12), false),
+            cost: figure(310_000, null, false),
+          }
+        : { ...round, context: null, added: null, perCall: null, cost: null },
+  );
 }
 
 export function fixtureSettings(): SettingsPage {

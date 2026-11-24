@@ -43,7 +43,7 @@ pub const START: u64 = 1_800_000_000_000;
 /// What the engine has: the driver's own sources outside a work, and the act `merge`.
 pub fn has() -> Has {
     Has {
-        sources: [DEPENDENCIES.to_string(), driver::START.to_string()].into(),
+        sources: [DEPENDENCIES.to_string(), driver::START.to_string(), "main".to_string()].into(),
         acts: ["merge".to_string(), "start".to_string()].into(),
         ..Default::default()
     }

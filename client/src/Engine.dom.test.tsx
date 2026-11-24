@@ -6,7 +6,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { Engine } from './Engine';
-import type { Engine as EngineState } from './works-api';
+import type { Changed, Engine as EngineState } from './works-api';
 import { fixtureItems } from './works/fixtures';
 import { type Source, SourceContext } from './works/source';
 
@@ -63,5 +63,50 @@ describe("the bar's engine part", () => {
 
     const going = await drawn({ slots: 3, taken: 1, paused: null, keepWarm: true });
     expect(going.querySelector('.engine-words')?.textContent).toMatch(/^Running/);
+  });
+
+  // What the calls of the rounds under way have come to changes with every call and holds nothing the engine's state
+  // does: a change that says only that is not a reason to read the engine again, though any other is. Fails where the
+  // bar reads for each call of each round.
+  it('is not read again for what the calls of the rounds under way have come to, but for any other change', async () => {
+    const listening = new Set<(c: Changed) => void>();
+    let reads = 0;
+    const source = {
+      loadEngine: async () => {
+        reads += 1;
+        return { slots: 3, taken: 1, paused: null, keepWarm: true } as EngineState;
+      },
+      changes: (onChanged: (c: Changed) => void) => {
+        listening.add(onChanged);
+        return () => listening.delete(onChanged);
+      },
+    } as unknown as Source;
+    const container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+    act(() =>
+      root.render(
+        <SourceContext.Provider value={source}>
+          <Engine items={fixtureItems()} failed={null} />
+        </SourceContext.Provider>,
+      ),
+    );
+    unmounts.push(() => act(() => root.unmount()));
+    const settle = () =>
+      act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    await settle();
+    expect(reads).toBe(1);
+    const only = { works: [], items: false, copies: false, accounts: false, observations: false, going: true };
+    act(() => listening.forEach((l) => l(only)));
+    await settle();
+    expect(reads).toBe(1);
+    act(() => listening.forEach((l) => l({ ...only, works: [7] })));
+    await settle();
+    expect(reads).toBe(2);
+    act(() => listening.forEach((l) => l({ ...only, going: false, accounts: true })));
+    await settle();
+    expect(reads).toBe(3);
   });
 });

@@ -14,6 +14,7 @@ mod continuing;
 mod contract;
 mod dependencies;
 mod failing;
+mod figures;
 mod forking;
 mod going;
 mod moving_on;

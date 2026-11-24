@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
+import { CHOICE_KEYS } from './kept';
 import { hashOf, periodOf, routeOf, tabOf } from './route';
 
 describe('the route', () => {
@@ -24,7 +25,8 @@ describe('the route', () => {
     expect(routeOf('#/system')).toEqual({ view: 'system' });
     expect(routeOf('#/system/4w')).toEqual({ view: 'system', period: '4w' });
     expect(routeOf('#/system/all')).toEqual({ view: 'system', period: 'all' });
-    expect(routeOf('#/system/week')).toEqual({ view: 'console' });
+    expect(routeOf('#/system/week')).toEqual({ view: 'system', period: 'week' });
+    expect(routeOf('#/system/year')).toEqual({ view: 'console' });
     expect(routeOf('#/settings')).toEqual({ view: 'settings' });
     expect(routeOf('#/somewhere')).toEqual({ view: 'console' });
   });
@@ -47,9 +49,32 @@ describe('the route', () => {
     expect(hashOf({ view: 'console', item: 141 })).toBe('#/console/items/141');
     expect(tabOf({ view: 'console', item: 141 })).toBe('#/console');
     expect(hashOf({ view: 'system', period: '4w' })).toBe('#/system/4w');
-    expect(hashOf({ view: 'system', period: 'week' })).toBe('#/system');
+    expect(hashOf({ view: 'system', period: 'week' })).toBe('#/system/week');
     expect(tabOf({ view: 'system', period: 'all' })).toBe('#/system');
     expect(periodOf({ view: 'system' })).toBe('week');
     expect(periodOf({ view: 'system', period: 'all' })).toBe('all');
+    expect(periodOf(routeOf('#/system/week'))).toBe('week');
+    expect(routeOf(hashOf({ view: 'system', period: 'week' }))).toEqual({ view: 'system', period: 'week' });
+  });
+
+  it('counts the system over the span the owner last picked where the address names none, and over the week where none was', () => {
+    const kept = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => kept.get(key) ?? null,
+      setItem: (key: string, value: string) => void kept.set(key, value),
+      removeItem: (key: string) => void kept.delete(key),
+    });
+    try {
+      expect(periodOf({ view: 'system' })).toBe('week');
+      kept.set(CHOICE_KEYS.systemPeriod, '4w');
+      expect(periodOf({ view: 'system' })).toBe('4w');
+      // The address names its own span, which the one kept does not override.
+      expect(periodOf({ view: 'system', period: 'all' })).toBe('all');
+      // What is kept that is no span the page has is no choice.
+      kept.set(CHOICE_KEYS.systemPeriod, 'a fortnight');
+      expect(periodOf({ view: 'system' })).toBe('week');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

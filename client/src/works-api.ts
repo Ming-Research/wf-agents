@@ -997,13 +997,16 @@ export interface Refusal {
 
 /// Something happened: these works grew, the items changed where `items`, the copies of the database may have changed
 /// where `copies`, the accounts, their usage or their usage limits where `accounts`, and an observation was added or
-/// changed where `observations`.
+/// changed where `observations`. What the calls of an agent's round under way have come to changed where `going`: no
+/// record of a work holds it, so a notice of it alone names no work and sets no other flag, and only the reading of
+/// `GET /api/v1/system/under-way` shows it. Left out where it did not.
 export interface Changed {
   works: number[];
   items: boolean;
   copies: boolean;
   accounts: boolean;
   observations: boolean;
+  going?: boolean;
 }
 
 /// Sends something to the interface; gives why where it is refused.

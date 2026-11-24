@@ -2055,7 +2055,9 @@ pub struct Added {
 
 /// Something happened: these works grew, an item was added where `items`, the copies of the database changed where
 /// `copies`, the accounts, their usage or their usage limits changed where `accounts`, and an observation was added or
-/// changed where `observations`.
+/// changed where `observations`. What an agent's round under way has come to so far changed where `going`: no work's
+/// records hold it, and a notice that holds it alone names no work and sets no other flag, so that the page's parts that
+/// read a work, the items or the engine have nothing to read for it; only `GET /api/v1/system/under-way` shows it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Changed {
@@ -2064,6 +2066,8 @@ pub struct Changed {
     pub copies: bool,
     pub accounts: bool,
     pub observations: bool,
+    #[serde(default)]
+    pub going: bool,
 }
 
 /// Why something asked of the interface was refused, in words.
@@ -3318,6 +3322,7 @@ impl Changed {
             copies: changed.copies,
             accounts: changed.accounts,
             observations: changed.observations,
+            going: changed.going,
         }
     }
 }
@@ -4940,6 +4945,131 @@ pub(crate) mod tests {
         assert_eq!(settled(true, false, false), CellState::NotYet);
         assert_eq!(settled(true, true, true), CellState::Again);
         assert_eq!(settled(true, true, false), CellState::Done);
+    }
+
+    // What a return was sent back for reaches the page as the key its words have and every value the reason records,
+    // each under the name of its field and in the order the reason holds them: a list is one value for each of its
+    // elements, and what a gate or a dialogue names, the changes a round left and the answer marked `tree` that changed
+    // nothing of the tree are given as the page reads them (`Unmet` of `client/src/works-api.ts`). Milliseconds.
+    #[test]
+    fn each_reason_a_return_was_sent_back_reaches_the_page_by_its_key_with_every_value_it_records() {
+        let block = |name: &str| BlockId::from(name);
+        type Case = (UnmetOf, &'static str, Vec<(&'static str, &'static str)>);
+        let cases: Vec<Case> = vec![
+            (
+                UnmetOf::NothingBut {
+                    block: block("tree_ok"),
+                    value: "yes".to_string(),
+                    besides: vec![block("code"), block("plan")],
+                },
+                "nothing_but",
+                vec![
+                    ("block", "tree_ok"),
+                    ("value", "yes"),
+                    ("besides", "code"),
+                    ("besides", "plan"),
+                ],
+            ),
+            (
+                UnmetOf::WordOwed {
+                    name: block("review"),
+                    watched: vec![block("code")],
+                },
+                "word_owed",
+                vec![("name", "review"), ("watched", "code")],
+            ),
+            (
+                UnmetOf::NoPoint {
+                    block: block("verdict"),
+                    value: "no".to_string(),
+                    name: block("review"),
+                },
+                "no_point",
+                vec![("block", "verdict"), ("value", "no"), ("name", "review")],
+            ),
+            (
+                UnmetOf::NotWatched {
+                    name: "opinions".to_string(),
+                },
+                "not_watched",
+                vec![("name", "opinions")],
+            ),
+            (
+                UnmetOf::Uncommitted {
+                    changes: " M src/a.rs".to_string(),
+                },
+                "uncommitted",
+                vec![("changes", " M src/a.rs")],
+            ),
+            (
+                UnmetOf::Merging {
+                    changes: "the merge is under way".to_string(),
+                },
+                "merging",
+                vec![("changes", "the merge is under way")],
+            ),
+            (
+                UnmetOf::TreeUnchanged {
+                    name: "tree_question".to_string(),
+                },
+                "tree_unchanged",
+                vec![("name", "tree_question")],
+            ),
+            (
+                UnmetOf::NotAnEntry {
+                    line: "an entry".to_string(),
+                },
+                "not_an_entry",
+                vec![("line", "an entry")],
+            ),
+            (
+                UnmetOf::Unanswered { block: block("plan") },
+                "unanswered",
+                vec![("block", "plan")],
+            ),
+        ];
+        for (unmet, key, values) in cases {
+            let Ok(page) = Unmet::of(&unmet, &Records::default()) else {
+                panic!("{unmet:?} does not reach the page");
+            };
+            let given: Vec<(&str, &str)> = page
+                .values
+                .iter()
+                .map(|v| (v.name.as_str(), v.value.as_str()))
+                .collect();
+            assert_eq!(page.key, key, "{unmet:?}");
+            assert_eq!(given, values, "{unmet:?}");
+        }
+    }
+
+    // A session begun for a reason the engine no longer gives (the owner's asking, a size past the limit, another
+    // account) is still in the records of a work kept before, and is given to the page as that reason, with what it
+    // says: the page words it as it did.
+    #[test]
+    fn a_session_begun_for_a_reason_the_engine_no_longer_gives_is_still_given_as_that_reason() {
+        use serde_json::json;
+        let given = |why: Why| serde_json::to_value(SessionWhy::of(&why)).expect("it is JSON");
+        assert_eq!(given(Why::Owner), json!({"kind": "owner"}));
+        assert_eq!(
+            given(Why::Limit {
+                context: 612_000,
+                limit: 500_000
+            }),
+            json!({"kind": "limit", "context": 612_000, "limit": 500_000})
+        );
+        assert_eq!(
+            given(Why::Account {
+                was: Some("work".to_string())
+            }),
+            json!({"kind": "account"})
+        );
+        assert_eq!(given(Why::Account { was: None }), json!({"kind": "account"}));
+        assert_eq!(
+            given(Why::Model {
+                was: "claude-opus-4-1".to_string()
+            }),
+            json!({"kind": "model", "was": "claude-opus-4-1"})
+        );
     }
 
     // The page names, for why a cell ran, the version the cell last worked from as the run began, which is the one a

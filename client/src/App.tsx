@@ -120,7 +120,7 @@ export function Views({
       )}
       {kept('system') && (
         <div className="view" hidden={route.view !== 'system'}>
-          <SystemView period={period} />
+          <SystemView period={period} active={route.view === 'system'} />
         </div>
       )}
       {kept('settings') && (
