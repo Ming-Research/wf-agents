@@ -238,6 +238,7 @@ fn a_question_marked_for_the_design_tree_loads_back_marked_and_one_not_marked_wi
             engine: vec![],
             waits_for: None,
             read: vec![],
+            protected: BTreeMap::new(),
         },
     );
     let db = Db::new();
