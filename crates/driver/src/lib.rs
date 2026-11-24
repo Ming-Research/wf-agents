@@ -2712,6 +2712,14 @@ impl Held {
         held
     }
 
+    /// The work as the store keeps it, held at fault by the driver: nothing more is decided of it, so it no longer holds
+    /// the turn of its project and wants none, and the works that wait for the turn go on.
+    fn hold_at_fault(&mut self, kept: Work) {
+        self.work = kept;
+        self.standing = Standing::AtFault;
+        self.turned.clear();
+    }
+
     /// Works out again how the work stands and its rounds that are history, as it grew: by its end alone where no flow
     /// decides it now.
     fn update(&mut self) {
@@ -2836,8 +2844,7 @@ fn step(
         Err(engine::Refused::WithoutEnd(_)) => {
             let mut kept = store.load(held.head.number).map_err(Halt::Store)?;
             kept.read_through(&held.work.readings);
-            held.work = kept;
-            held.standing = Standing::AtFault;
+            held.hold_at_fault(kept);
             return Ok(Vec::new());
         }
         Err(refused) => return Err(Halt::Refused(refused)),

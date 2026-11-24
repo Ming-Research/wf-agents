@@ -121,3 +121,108 @@ pub(crate) fn whose<'a>(works: impl IntoIterator<Item = (WorkNumber, &'a Turned)
     };
     holder.or_else(next).map(|(number, _)| *number)
 }
+
+#[cfg(test)]
+mod tests {
+    //! Whose turn it is as the works stand, and that a work held at fault by the driver has none.
+
+    use std::sync::Arc;
+
+    use decide::Outsider;
+    use engine::Event;
+    use flow::{Compiled, Has, Source, compile};
+    use store::{First, Item, ItemNumber, WorkHead};
+
+    use super::*;
+    use crate::{Held, On, Standing};
+
+    /// A writer, which takes the turn, that the owner's request runs, and the merge.
+    fn flow() -> Compiled {
+        let text = r#"
+            name = "small"
+            order = ["write", "merge"]
+            [limits]
+            runs = 3
+            returns = 2
+            calls = 3
+            [lines.main]
+            [blocks.request]
+            people = true
+            [blocks.text]
+            [blocks.merged]
+            shown = true
+        "#;
+        let write = "title = \"Write\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Write.\"\n\
+                     takes_turn = true\nwatches = [\"request\"]\noutputs = [\"text\"]\n[kinds]\nrequest = \"last_and_latest\"\n";
+        let merge =
+            "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"text\"]\noutputs = [\"merged\"]\n";
+        let source = Source {
+            flow: text.to_string(),
+            cells: [("write", write), ("merge", merge)]
+                .iter()
+                .map(|(id, text)| (id.to_string(), text.to_string()))
+                .collect(),
+            files: [(
+                flow::waits_file(),
+                include_str!("../../../flow/agents/waits.toml").to_string(),
+            )]
+            .into(),
+            ..Source::default()
+        };
+        let has = Has {
+            acts: ["merge".to_string()].into(),
+            ..Has::default()
+        };
+        compile(&source, &has).expect("the definition compiles")
+    }
+
+    /// A work whose writer's round, a cell that takes the turn, is under way, held on the flow as the driver holds it.
+    fn holding() -> Held {
+        let flow = flow();
+        let mut work = Work::default();
+        let wrote = Event::Wrote {
+            block: "request".into(),
+            by: Outsider::Person,
+            content: "Greet.".to_string(),
+            matters: true,
+            value: None,
+        };
+        engine::handle(&flow, &mut work, Time(1000), wrote).expect("the request is taken");
+        let head = WorkHead {
+            number: WorkNumber(1),
+            item: ItemNumber(1),
+            flow: "small".to_string(),
+            added: Time(0),
+        };
+        let first = First {
+            title: "Greet".to_string(),
+            level: None,
+            project: None,
+            depends_on: Vec::new(),
+            tags: Vec::new(),
+            continues: None,
+        };
+        let item = Item::new(ItemNumber(1), Time(0), first, Vec::new());
+        let on = On::installed_flow(&flow);
+        Held::new(head, item, Arc::new(flow), on, Vec::new(), work)
+    }
+
+    // A work the driver holds at fault, as it does where the deciding code goes round on its records without end, is
+    // decided no more: it holds no turn and wants none, so that the work whose turn comes next is the next one's, and
+    // not the turn of a work that does nothing. Fails where the hold it had before stays.
+    #[test]
+    fn a_work_held_at_fault_holds_the_turn_no_more_and_wants_none() {
+        let mut held = holding();
+        assert!(
+            held.turned.holds,
+            "its round of a cell that takes the turn is under way"
+        );
+        assert_eq!(whose([(WorkNumber(1), &held.turned)]), Some(WorkNumber(1)));
+        let kept = held.work.clone();
+        held.hold_at_fault(kept);
+        assert_eq!(held.standing, Standing::AtFault);
+        assert!(!held.turned.holds);
+        assert_eq!(held.turned.wants, None);
+        assert_eq!(whose([(WorkNumber(1), &held.turned)]), None);
+    }
+}
