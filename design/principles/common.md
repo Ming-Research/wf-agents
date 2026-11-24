@@ -63,8 +63,8 @@ Where one way is taken over another for being faster or cheaper, the choice rest
 Why: A number lets a later change judge whether the reason still holds, and a guess does not. Measured, a mid-round query saved only about three seconds and was dropped, and a fork that missed the cache cost $0.57 more than a $0.03 ping. (Article 3)
 
 ### principle numbers-say-what-they-number
-An item's number is written #n, a work's Wn and an observation's On, on the page, to the agents and by the engine alike; an item's place in the tree is written as the path of its numbers from the root, as 53-27-23. In a commit message an item's is written after the label Item:, without #.
-Why: The same bare number may be an item's, a work's or an observation's, and only what stands before it tells which; numbers joined by `-` are only ever a path of items. A # in a commit message is linked by the host to an unrelated pull request.
+An item's number is written #n, a work's Wn and an observation's On, on the page, to the agents and by the engine alike. In a commit message an item's is written after the label Item:, without #.
+Why: The same bare number may be an item's, a work's or an observation's, and only what stands before it tells which. A # in a commit message is linked by the host to an unrelated pull request.
 
 ### principle the-machine-is-always-on
 Nothing is designed for the machine going to sleep or its lid being closed.
