@@ -78,6 +78,7 @@ A datum a cell is given that has no version yet is left out of the message: no l
 `wf-agents flow situations` writes the situations that rounds of works found by a seeded, bounded search stood in, and tests run each one's script again to the same round.
 - replaced: Deriving situations by rules, held to the rounds of works by tests, was on main; the owner changed it, because 105 of 1392 states written for the engineer's flow were reached by no round, and two of three deletions made by reading the flow were wrong.
 - rejected: an agent proposed keeping the rules, checked both ways on the small flow and one way on the engineer's flow, the states no round reached only counted; the owner rejected it, because the tool could then write states no round of the engineer's flow reaches.
+- rejected: an agent proposed failing the engineer's flow test on any line a round stood in that the tool does not write; the owner rejected it, because 22000 rounds in 30 s leave 42, and 70000 rounds at about 107 s still leave 12 (data: research/situations-search-measured.md).
 
 ### decision a-try-keeps-what-it-was-given
 Before its program starts, a try keeps what it runs on and what its message fills in a file beside it, and a later start records from there what the records lack.

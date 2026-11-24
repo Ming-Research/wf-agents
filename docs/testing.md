@@ -59,8 +59,11 @@ of each part.
    each is a round a work reached, on any flow, and no rule of what a cell can be entered in is kept in step by hand.
    The context manager's histories choose what they do apart from the search, and hold what it wrote to real rounds:
    each script, run again, carries out a round in the same situation, the message the page shows for it is what the
-   engine sent, and every line a round of the histories stood in, on the small flow of its tests and on the engineer's
-   flow, is one a written situation stands in; a line the search leaves out is mended in the search for every flow.
+   engine sent, and every line a round of the histories stood in, on the small flow of its tests, is one a written
+   situation stands in. On the engineer's flow the lines a round stood in and the search left out are printed by cell,
+   with the steps before the first round that stood in each, and do not fail the test: some need two passes through the
+   flow, which the search does not reach in the 30 s the tool has (decision
+   the-situations-tool-writes-the-situations-a-search-reached).
    How long the tool takes on the engineer's flow is timed by the measurements `situations-build` and
    `situations-search` of `measure/`, the tool's own time being the second less the first; `situations-search-cell`
    times one cell of it.
