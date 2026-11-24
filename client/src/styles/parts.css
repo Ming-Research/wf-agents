@@ -423,25 +423,26 @@ textarea:disabled {
 }
 
 /* The spans a view counts over, side by side as links in the link colour; the one in use in the text's colour over a line
-   in the accent, as a view of the bar is. */
+   in the accent, as a view of the bar is. A span link is also a `.link`, which clears every border and is written
+   further down, so these are written with both classes to out-weigh it whichever comes first. */
 .span-links {
   display: flex;
   align-items: center;
   gap: var(--space-12);
 }
 
-.span-link {
+.span-link.link {
   border-bottom: var(--focus) solid transparent;
   font-size: var(--size-small);
 }
 
-.span-link[aria-current='true'] {
+.span-link.link[aria-current='true'] {
   border-bottom-color: var(--accent);
   color: var(--text);
   cursor: default;
 }
 
-.span-link[aria-current='true']:hover {
+.span-link.link[aria-current='true']:hover {
   text-decoration: none;
 }
 
