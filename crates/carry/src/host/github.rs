@@ -763,6 +763,21 @@ impl<A: Api> Host for GitHub<A> {
         (self.project.github.as_ref()).map(|github| github.pull_at(number))
     }
 
+    async fn open_pulls(&self) -> Result<Option<Vec<service::OpenPull>>, String> {
+        let open = self.api.open_pulls().await?;
+        Ok(Some(
+            open.into_iter()
+                .map(|pull| service::OpenPull {
+                    number: pull.number,
+                    title: pull.title,
+                    url: pull.url,
+                    draft: pull.draft,
+                    updated: pull.updated,
+                })
+                .collect(),
+        ))
+    }
+
     async fn reopen(&self, branch: &Branch<'_>) -> Result<(), String> {
         let pulls = self.api.pulls(&branch.place.branch).await?;
         if pulls.iter().any(|p| p.state == State::Open) {

@@ -217,7 +217,7 @@ async fn a_round_under_way_is_given_its_message_and_nothing_back() {
     let running = keeping(BTreeMap::from([((1, 1, 4), told)]));
     let router = &running.router;
     greeted(router).await;
-    let answer = json!({ "kind": "result", "call": 2, "result": "Yes, by name." });
+    let answer = json!({ "kind": "goOn", "call": 2 });
     assert_eq!(
         post(router, "/api/v1/works/1/acts", &answer).await.0,
         StatusCode::NO_CONTENT

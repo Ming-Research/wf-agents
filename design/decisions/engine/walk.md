@@ -16,9 +16,11 @@ The walk passes a cell whose condition does not hold, and what it wrote still co
 - rejected: an agent proposed that what a cell wrote no longer counts while the walk passes it; the owner rejected it, because a cell that is not run leaves what it wrote valid, and only a veto, such as his refused approval, voids something.
 
 ### decision meaning-told-by-the-writer
-A choice or a list of names changes its meaning when its value changes; prose changes it only when its writer says the change matters, and a version said not to matter is kept and runs no cell.
+A choice or a list of names changes meaning when its value changes; prose when its writer says it matters; an empty text over none or an empty one, or an empty entry added to a record, says nothing.
 - rejected: an agent proposed taking every new text of a block as a change that runs the cells after it; the owner rejected it, because a mechanical comparison would run everything after a reworded text again.
 - replaced: Writing a version handed in as changing nothing in meaning over the version it mends was on main; the owner changed it, because the cells that had the old version would then be taken to have the new one.
+- replaced: Taking every text written empty as a version with a meaning of its own was on main; the owner changed it, because it woke cells for nothing: a dialogue or words nobody asked for, written empty, ran the cells that watch them.
+- rejected: an agent proposed that the engine not record such an empty write as a version when it takes the return; the owner rejected it, because the record would no longer show that the cell wrote it, and a later reader could not replay it by the rule of that time.
 
 ### decision every-way-round-has-a-limit
 Each of these has a limit at which the work waits for the owner: a cell's runs in a row that are ways round, the returns of its run sent back, and its runs in a row that only ask for calls.

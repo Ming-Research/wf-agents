@@ -19,9 +19,9 @@ The initial research and the reviews of the change run at the effort high; the i
 - replaced: Running the initial research and the reviews of the change at xhigh was on main; the owner changed it, because high might take a third less time on a research that took 7 to 13 minutes, though that was not measured.
 
 ### decision the-deep-research-and-the-plan-review-run-above
-The deep research and the plan's reviews run one level above their item's, by their lines' `levels_above`, the code's reviews at the item's own, and nothing above the installation's highest for items.
+The deep research and the plan's reviews run a level above their item's by `levels_above`, the code's reviews at its own; a round stops at `agents.highest_level`, an item at `items.highest_level`.
 - replaced: Items at any level, the top one included, was on main; the owner changed it, because the top level's model is not much stronger than the one below it and costs far more.
 - rejected: an agent proposed running the review a level higher when the design tree changes; the owner rejected it, because the item's own level is enough until a trial of both shows that one level more helps.
 - replaced: Running the deep research at its item's level was on main; the owner changed it, because a weaker agent may fix the surface and stop, hiding a larger problem that no later step finds, and with few works going that deep the higher model costs little.
-- replaced: Raising the deep research one level even past the highest level an item may be at, onto the top level, was on main; the owner changed it, because the highest level is the limit for the whole installation.
+- replaced: One setting, `items.highest_level`, holding both the level an item may be at and the level every round runs at was on main; the owner changed it, because the two highests mean different things: one setting could not keep items at level 3 and let a line one level up run above them.
 - replaced: Running the plan review at its item's level was on main; the owner changed it, because engineers mostly do what a review says, so a review weaker than the plan it reviews turns good work bad; he held to this again once it ran on every work.

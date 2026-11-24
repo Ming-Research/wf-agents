@@ -43,8 +43,6 @@ pub struct Check {
     engine: Vec<(String, String)>,
     /// What keeps the tokens of the accounts.
     tokens: Arc<dyn Tokens>,
-    /// Which of its settings files it reads, as a round's does.
-    setting_sources: String,
     /// The model of the cheapest level.
     model: String,
     /// Where the short request runs: a directory no project owns, which holds no guide for the command line to read.
@@ -82,7 +80,6 @@ impl Check {
             profile: profile.to_path_buf(),
             engine: crate::programs::engine().to_vec(),
             tokens,
-            setting_sources: settings.agents.setting_sources.clone(),
             model,
             dir: std::env::temp_dir(),
             network: Arc::new(failure::Look),
@@ -185,7 +182,7 @@ impl Check {
             "--max-turns",
             "1",
             "--setting-sources",
-            &self.setting_sources,
+            cli::SETTING_SOURCES,
             "--settings",
             &settings,
             &self.said.request,
@@ -302,7 +299,6 @@ mod tests {
             profile: dir.join("profile"),
             engine: vec![("PATH".to_string(), std::env::var("PATH").unwrap_or_default())],
             tokens: Arc::new(kept),
-            setting_sources: "user".to_string(),
             model: "claude-haiku-5-5".to_string(),
             dir: dir.to_path_buf(),
             network: Arc::new(Reached(reached)),

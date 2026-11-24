@@ -152,28 +152,22 @@ fn draw(rng: &mut Rng, spoken: bool, clean: bool) -> Drawn {
             names.push("request");
             dealt_with.push("request".into());
         }
-        if !clean {
-            if rng.chance(10) {
-                names.push("on_nothing");
-                faults.push(Unmet::NotWatched {
-                    name: "on_nothing".to_string(),
-                });
-            }
-            if !spoken && rng.chance(10) {
-                names.push("write_words");
-                dealt_with.push("write_words".into());
-                faults.push(Unmet::NotRunBy {
-                    block: "write_words".into(),
-                });
-            }
-            let first = ran(spoken).into_iter().find(|(name, _)| names.contains(name));
-            if let Some((name, block)) = first
-                && rng.chance(8)
-            {
-                names.push(name);
-                dealt_with.push(block.into());
-                faults.push(Unmet::DealtWithTwice { block: block.into() });
-            }
+        if !clean && rng.chance(10) {
+            names.push("on_nothing");
+            faults.push(Unmet::NotWatched {
+                name: "on_nothing".to_string(),
+            });
+        }
+        // A name the cell is given that did not run its round, and a name given twice, change nothing: neither is
+        // sent back, and what the run finishes with names each block that ran the round once.
+        if !spoken && rng.chance(10) {
+            names.push("write_words");
+        }
+        let first = ran(spoken).into_iter().find(|(name, _)| names.contains(name));
+        if let Some((name, _)) = first
+            && rng.chance(8)
+        {
+            names.push(name);
         }
         outcome.insert("dealt_with".into(), json!(names));
         let mut outputs = Map::new();
@@ -246,13 +240,14 @@ fn draw(rng: &mut Rng, spoken: bool, clean: bool) -> Drawn {
             unchanged.push("ghost");
             faults.push(Unmet::UnchangedNotWritten { block: "ghost".into() });
         }
-        if !clean && !outputs.contains_key("plan") && rng.chance(8) {
+        // A block the cell writes, named as written with its meaning unchanged and not written, changes nothing.
+        if !outputs.contains_key("plan") && rng.chance(8) {
             unchanged.push("plan");
-            faults.push(Unmet::UnchangedNotWritten { block: "plan".into() });
         }
         // A cell's answer to the owner is a block it writes, its own words, which its run makes its answer in the words
-        // of their file as it finishes. A return that deals with the owner's words answers them there.
-        let speaks = names.contains(&"write_words");
+        // of their file as it finishes. A return that deals with the owner's words answers them there; the words that
+        // did not run the round are not dealt with.
+        let speaks = dealt_with.contains(&BlockId::from("write_words"));
         if (speaks && (clean || rng.chance(80))) || rng.chance(20) {
             outputs.insert("write_words".into(), json!("By first name."));
             writes.push((
@@ -319,6 +314,7 @@ fn entered(flow: &Compiled, spoken: bool) -> (Work, RunId) {
         Event::Paused {
             by: Pauser::Owner,
             why: None,
+            waits_for: Vec::new(),
         },
         written("request"),
     ] {

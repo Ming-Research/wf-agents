@@ -181,7 +181,6 @@ pub fn made(
                     for text in [
                         &line.reads_only,
                         &line.writes,
-                        &line.locks.replace("{commands}", ""),
                         &line.or,
                         &line.tests_only.replace("{paths}", ""),
                     ] {

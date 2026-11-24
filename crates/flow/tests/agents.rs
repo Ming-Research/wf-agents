@@ -73,7 +73,17 @@ fn what_the_engine_says_to_every_agent_is_read_from_its_files_beside_the_flows()
         "Work in the engine as these words say.\n"
     );
     assert_eq!(read.your_line.reads_only, "You only read.");
-    assert_eq!(read.your_line.locks, " Lock with {commands}.");
+    assert_eq!(read.refused.commands, ["git push", agents::PROGRAM_SLOT]);
+    assert_eq!(
+        read.allowed.may,
+        [
+            agents::Ability::Shell,
+            agents::Ability::Files,
+            agents::Ability::TempFiles,
+            agents::Ability::Web,
+            agents::Ability::Subagents
+        ]
+    );
     assert_eq!(read.your_line.tests_only, " Tests only: {paths}.");
     assert_eq!(read.your_line.protected_read, " Read protected: {paths}.");
 
@@ -200,24 +210,18 @@ fn a_project_declares_its_files_settings_protection_and_heavy_commands_in_its_ow
     assert_eq!(declaration.project["research"], "research/");
     assert_eq!(declaration.protected.paths, ["AGENTS.md", "flow/"]);
     assert_eq!(declaration.heavy.commands, ["cargo", "npm"]);
-    assert!(declaration.heavy.locks.is_empty() && declaration.heavy.locks_except.is_empty());
     assert!(declaration.local.is_none() && declaration.pull_request.is_none() && declaration.ci.is_none());
 }
 
-// What the installation held of a project is the project's now: the lock commands, the command that checks it where
-// its repository is the host, and how its pull requests are merged where GitHub is.
+// What the installation held of a project is the project's now: the command that checks it where its repository is the
+// host, and how its pull requests are merged where GitHub is.
 #[test]
 fn what_the_installation_once_held_of_a_project_is_read_from_its_declaration() {
-    let text = declaration_text().replace(
-        "commands = [\"cargo\", \"npm\"]",
-        "commands = [\"cargo\", \"npm\"]\nlocks = [\"cargo update\"]\nlocks_except = [\"cargo update *--git*\"]",
-    );
+    let text = declaration_text();
     let declaration = declared(&format!(
         "{text}\n[local]\ncheck = \"./test.sh\"\n\n[pull_request]\nmerge_method = \"rebase\"\ndelete_branch = true\n"
     ))
     .unwrap();
-    assert_eq!(declaration.heavy.locks, ["cargo update"]);
-    assert_eq!(declaration.heavy.locks_except, ["cargo update *--git*"]);
     assert_eq!(declaration.local.expect("the check").check, "./test.sh");
     let pull = declaration.pull_request.expect("how it merges");
     assert_eq!((pull.merge_method.as_str(), pull.delete_branch), ("rebase", true));
@@ -288,6 +292,44 @@ fn what_fills_a_place_is_not_filled_again_and_what_opens_no_place_is_kept() {
         agents::fill("ask {{q}} of {x} {\"a\": 1} {Y} {", &[("q", "no"), ("x", "it")]),
         "ask {{q}} of it {\"a\": 1} {Y} {"
     );
+}
+
+// What every agent may do is a closed list of words that name no program: a word it does not know, a word twice, a
+// key it does not know, and a refused entry with a slot other than the agents' program are each refused, said with the
+// path of the file. Reference: the file's own vocabulary (`Ability`). Milliseconds.
+#[test]
+fn what_agents_may_do_and_are_refused_is_read_from_words_and_one_slot_and_nothing_else() {
+    let wrong = |file: &str, from: &str, to: &str| {
+        let dir = copy("allowed");
+        let path = dir.join("agents").join(file);
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(text.contains(from), "{file} has no {from:?}");
+        fs::write(&path, text.replacen(from, to, 1)).unwrap();
+        let refused = agents::read(&dir).unwrap_err();
+        fs::remove_dir_all(&dir).unwrap();
+        (path.display().to_string(), refused)
+    };
+    for (file, from, to, said) in [
+        ("allowed.toml", "\"web\"", "\"claude\"", "claude"),
+        ("allowed.toml", "\"web\"", "\"files\"", "`may` names files twice"),
+        ("allowed.toml", "may = ", "colour = \"red\"\nmay = ", "colour"),
+        (
+            "refused.toml",
+            "\"{agents.command}\"",
+            "\"{agents.cmd}\"",
+            "the only slot is {agents.command}",
+        ),
+        (
+            "refused.toml",
+            "\"{agents.command}\"",
+            "\"{agents.command} {x}\"",
+            "the only slot is {agents.command}",
+        ),
+    ] {
+        let (path, refused) = wrong(file, from, to);
+        assert!(refused.contains(&path), "{refused}");
+        assert!(refused.contains(said), "{refused}");
+    }
 }
 
 #[test]
@@ -968,35 +1010,25 @@ fn a_time_whose_seconds_do_not_fit_is_refused_and_one_that_just_fits_is_read() {
     assert!(refused.contains("ci.fast.too_long"), "{refused}");
 }
 
-// A declaration whose lock commands are misspelled, or are not a list, is refused, where a declaration that leaves them
-// out names none: a misspelled key taken for none would leave an agent that writes unable to update a lock file with no
-// word of why, and a merge method or branch deletion of the wrong spelling or type would be taken for another. Reference:
-// the declaration's own table of keys (`Heavy`, `Merging`), and TOML's types. Milliseconds.
+// A declaration that names lock commands is refused, as no declaration has them since agents are allowed every shell
+// command and a refusal beats an allow; and so is a merge method or branch deletion of the wrong spelling or type, which
+// would be taken for another. Reference: the declaration's own table of keys (`Heavy`, `Merging`), and TOML's types.
+// Milliseconds.
 #[test]
-fn a_misspelled_or_mistyped_lock_merge_or_deletion_setting_is_refused_not_taken_for_none() {
+fn a_lock_command_or_a_misspelled_or_mistyped_merge_or_deletion_setting_is_refused_not_taken_for_none() {
     let text = declaration_text();
     let heavy = "commands = [\"cargo\", \"npm\"]";
     let pull = "\n[pull_request]\n";
     for (what, wrong, said) in [
         (
-            "misspelled locks",
-            text.replace(heavy, &format!("{heavy}\nlock = [\"cargo update\"]")),
-            "unknown field `lock`",
+            "lock commands",
+            text.replace(heavy, &format!("{heavy}\nlocks = [\"cargo update\"]")),
+            "unknown field `locks`",
         ),
         (
-            "misspelled locks_except",
-            text.replace(heavy, &format!("{heavy}\nlock_except = [\"cargo update *\"]")),
-            "unknown field `lock_except`",
-        ),
-        (
-            "locks a string",
-            text.replace(heavy, &format!("{heavy}\nlocks = \"cargo update\"")),
-            "invalid type",
-        ),
-        (
-            "locks_except a string",
-            text.replace(heavy, &format!("{heavy}\nlocks_except = \"cargo update *\"")),
-            "invalid type",
+            "uses of lock commands refused",
+            text.replace(heavy, &format!("{heavy}\nlocks_except = [\"cargo update *\"]")),
+            "unknown field `locks_except`",
         ),
         (
             "merge method of another case",

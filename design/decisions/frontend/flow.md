@@ -12,9 +12,10 @@ A chart names a cell by its id, the matrix with its effort under it and the flow
 - rejected: an agent proposed piling into the chart's cells what was settled for each, and listing what was open under the chart; the owner rejected it, because he cannot look at the chart and read other text at once, and the chart is everything to him.
 
 ### decision the-flow-view-compares-no-versions
-The Flow view draws the definition in the flow's directory, read at each request, with no switch to an earlier version and no list of what changed against another.
+The Flow view draws the definition in the flow's directory, read at each request, which with the program's own flows is the one that runs; no switch to an earlier version, no list of changes.
 - replaced: A switch between the flow as it is and as it was, with a list of what changed, its rows struck through and coloured, was on main; the owner changed it, because the comparison could not be read.
-- rejected: an agent proposed drawing the version the engine runs, as it was compiled when the engine started; the owner rejected it, because he could then not see, before restarting the engine, whether an edited flow compiles or how it looks.
+- replaced: A flow directory that could differ from the flow that runs, so that an edit showed on the page before the engine restarted, was on main; the owner changed it, because every item on the page is then what runs, and an edit shows once the program that carries it is installed.
+- rejected: an agent proposed that the page draw the `flow/` of a project checkout that a setting names, to preview an edit before the program is built; the owner rejected it, because it adds a setting, and the page could then draw a flow that no work runs.
 
 ### decision the-flow-view-says-which-flow-the-engine-runs
 Beside the flow's name the Flow view says which version of the flow's files the engine runs, by the start of its digest, and marks files in the directory that differ from it, in no state colour.

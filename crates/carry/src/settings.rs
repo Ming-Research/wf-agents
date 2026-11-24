@@ -35,65 +35,6 @@ pub struct Settings {
     /// How a line's session is kept: its program's prompt cache, and the pings that keep it warm while the line waits.
     #[serde(default)]
     pub sessions: Sessions,
-    /// What a measured quantity is judged by: the history of its own kind.
-    #[serde(default)]
-    pub history: History,
-    /// Whether the store is open to the agents' tool `query`, and its bounds.
-    #[serde(default)]
-    pub query: Query,
-}
-
-/// The agents' tool `query`: one read-only SQL query on the store. It is off until the owner has settled which tables
-/// the agents see and under which names.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct Query {
-    /// Whether the tool answers: with `false`, a request is answered that the store is not open to agents yet and the
-    /// store is not touched.
-    #[serde(default)]
-    pub open: bool,
-    /// The most rows a query is kept with; a query finding more has the first of them kept.
-    #[serde(default = "query_rows")]
-    pub max_rows: usize,
-    /// The milliseconds a query may run before it is stopped.
-    #[serde(default = "query_timeout_ms")]
-    pub timeout_ms: u64,
-    /// The most bytes of rows a query is kept with, past which the rest is cut as past the row limit; and the most
-    /// one row may take, a row over it being refused.
-    #[serde(default = "query_bytes")]
-    pub max_bytes: usize,
-    /// The longest a string or a blob may be in a query, however it is made: what one call of a function over very long
-    /// values may cost is held by it, which the time a query may run cannot hold.
-    #[serde(default = "query_value_bytes")]
-    pub max_value_bytes: usize,
-}
-
-impl Default for Query {
-    fn default() -> Self {
-        Query {
-            open: false,
-            max_rows: query_rows(),
-            timeout_ms: query_timeout_ms(),
-            max_bytes: query_bytes(),
-            max_value_bytes: query_value_bytes(),
-        }
-    }
-}
-
-fn query_rows() -> usize {
-    200
-}
-
-fn query_timeout_ms() -> u64 {
-    5_000
-}
-
-fn query_bytes() -> usize {
-    1 << 20
-}
-
-fn query_value_bytes() -> usize {
-    1 << 16
 }
 
 /// The owner of the installation.
@@ -221,27 +162,6 @@ fn warm_minutes() -> u64 {
     55
 }
 
-/// What a measured quantity is judged by: the history of its own kind, never a number set by hand (principle
-/// `judged-by-own-history`).
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct History {
-    /// How many values a history needs at least before it gives a line: 19, of which a value of the same kind is the
-    /// largest one time in twenty, so that a line from fewer would stand on too little.
-    #[serde(default = "samples")]
-    pub samples: usize,
-}
-
-impl Default for History {
-    fn default() -> Self {
-        History { samples: samples() }
-    }
-}
-
-fn samples() -> usize {
-    19
-}
-
 /// A minute, in milliseconds.
 const MINUTE: u64 = 60_000;
 
@@ -326,22 +246,18 @@ pub struct Agents {
     pub command: String,
     /// The levels of work, by name: an item's level chooses the model its agents' rounds are run with.
     pub levels: BTreeMap<String, Level>,
+    /// The highest level one round may run at, by its name among the levels: a round of a line that runs above its
+    /// item's level goes no higher. It is no lower than `items.highest_level`, so that a round of an item at its
+    /// highest level can run at it; with none, the top level.
+    pub highest_level: Option<String>,
     /// How many agents' rounds run at once.
     pub slots: usize,
-    /// What is given to the program on every round after what the engine gives it, before the round's line's
-    /// permissions and its session.
-    #[serde(default)]
-    pub args: Vec<String>,
     /// The names of the variables of the engine's environment the program is given beside those it is always given
     /// (`PATH`, `HOME`, `USER`, `LANG` and `LC_*`, `TMPDIR`, `TERM`, `SHELL`). The carrier's own variables are refused,
     /// and so is a credential the program takes above an account's token, an API key among them: the program runs
     /// under no credential but the owner's accounts.
     #[serde(default)]
     pub env: Vec<String>,
-    /// Which of the program's settings files it reads, as `--setting-sources`; `user` where none is given, so that a
-    /// settings file the worktree holds, which an agent may write, is not read.
-    #[serde(default = "user")]
-    pub setting_sources: String,
     /// The subagents an agent may start within its round; given where a text names `agents.subagents.most`.
     #[serde(default)]
     pub subagents: Subagents,
@@ -356,10 +272,6 @@ pub struct Agents {
 /// What a letting-on allows a work beyond what it had spent where the settings name no number, in dollars.
 fn let_on_allowance() -> f64 {
     20.0
-}
-
-fn user() -> String {
-    "user".to_string()
 }
 
 /// The subagents an agent may start within its round for chores, such as reading documents or searching code, which
@@ -382,107 +294,11 @@ fn most_subagents() -> u32 {
     3
 }
 
-/// The program's flags, as its own help lists them (claude 2.1.321), that take no value: the only ones `agents.args`
-/// may end with, since any other, written last without its value, could take the first of the engine's arguments
-/// after them for its value.
-const TAKES_NO_VALUE: [&str; 28] = [
-    "--allow-dangerously-skip-permissions",
-    "--ax-screen-reader",
-    "--bg",
-    "--background",
-    "--bare",
-    "--brief",
-    "--chrome",
-    "-c",
-    "--continue",
-    "--dangerously-skip-permissions",
-    "--desktop",
-    "--disable-slash-commands",
-    "--exclude-dynamic-system-prompt-sections",
-    "--fork-session",
-    "--forward-subagent-text",
-    "--ide",
-    "--include-hook-events",
-    "--include-partial-messages",
-    "--no-chrome",
-    "--no-session-persistence",
-    "-p",
-    "--print",
-    "--replay-user-messages",
-    "--restricted",
-    "--safe-mode",
-    "--strict-mcp-config",
-    "--tmux",
-    "--verbose",
-];
-
-/// The sources of settings files the program may be told to read, besides the user's: those of the working
-/// directory, which is the work's worktree, where an agent can write a settings file.
-const SOURCES_IN_THE_WORKTREE: [&str; 2] = ["project", "local"];
-
 impl Agents {
-    /// What is wrong with these settings of the agents, each in words with its key: arguments that would undo or
-    /// swallow those the engine gives after them, a permission mode or skip-permissions flag the program ignores,
-    /// settings files read from the worktree, and a command of the added
-    /// permissions that names nothing or could be read as more than one rule.
+    /// What is wrong with these settings of the agents, each in words with its key: a variable of the program's
+    /// environment that is the carrier's own, or a credential the program takes above an account's token.
     fn wrong(&self) -> Vec<String> {
         let mut wrong = Vec::new();
-        let given = |flag: &str| (self.args.iter()).any(|a| a == flag || a.starts_with(&format!("{flag}=")));
-        if given("--settings") {
-            wrong.push(
-                "agents.args: --settings would give the program rules the engine does not see; put them in the \
-                 program's own directory of settings"
-                    .to_string(),
-            );
-        }
-        if given("--permission-prompt-tool") {
-            wrong.push(
-                "agents.args: --permission-prompt-tool would have a tool approve what no rule refuses".to_string(),
-            );
-        }
-        // The program starts in default permission mode whatever it is given, since the carrier always sets
-        // `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` (decision permissions-are-rules-not-a-mode).
-        for flag in ["--permission-mode", "--dangerously-skip-permissions"] {
-            if given(flag) {
-                wrong.push(format!(
-                    "agents.args: {flag} has no effect: the engine runs the program with {}, which makes it start in \
-                     default permission mode whatever is given; {}",
-                    crate::cli::SCRUB,
-                    crate::cli::PERMISSION_ADVICE
-                ));
-            }
-        }
-        if given("--allow-dangerously-skip-permissions") {
-            wrong.push(format!(
-                "agents.args: --allow-dangerously-skip-permissions selects no permission mode, and the program \
-                 starts in default mode under {}; {}",
-                crate::cli::SCRUB,
-                crate::cli::PERMISSION_ADVICE
-            ));
-        }
-        if given("--autocompact") {
-            wrong.push("agents.args: --autocompact is set by sessions.compact_at".to_string());
-        }
-        if given("--setting-sources") {
-            wrong.push("agents.args: --setting-sources is set by agents.setting_sources".to_string());
-        }
-        if self.args.iter().any(|a| a == "--") {
-            wrong.push("agents.args: -- would make the engine's arguments after it no flags".to_string());
-        }
-        let open = |a: &String| a.starts_with('-') && !a.contains('=') && !TAKES_NO_VALUE.contains(&a.as_str());
-        if let Some(last) = self.args.last().filter(|a| open(a)) {
-            wrong.push(format!(
-                "agents.args: {last}, last, is no flag known to take no value, and could take the engine's next \
-                 argument for its value"
-            ));
-        }
-        let sources = self.setting_sources.split(',').map(str::trim);
-        if let Some(source) = sources.into_iter().find(|s| SOURCES_IN_THE_WORKTREE.contains(s)) {
-            wrong.push(format!(
-                "agents.setting_sources: {source} would have the program read settings files in the worktree, \
-                 which an agent may write"
-            ));
-        }
         // The carrier's own variables are given by the carrier alone, and a credential the program takes above the
         // token by none (decision no-default-credential).
         let own = [crate::account::TOKEN, crate::account::VARIABLE, crate::cli::SCRUB];
@@ -498,8 +314,8 @@ impl Agents {
                  view"
             ));
         }
-        // What every agent is refused, and the heavy and lock commands of each project's declaration, are held to
-        // each other as the engine starts, beside the flows and the declarations it reads (`permissions::faults`,
+        // What every agent is refused, and the heavy commands of each project's declaration, are checked as the
+        // engine starts, beside the flows and the declarations it reads (`permissions::faults`,
         // `permissions::heavy_faults`).
         wrong
     }
@@ -521,8 +337,8 @@ pub struct Level {
 pub struct Items {
     /// The level an item is added at where it is given none, by its name among the levels.
     pub default_level: String,
-    /// The highest level an item may be at, by its name among the levels: an item above it is refused as it is added,
-    /// and no line runs above it; with none, the top level.
+    /// The highest level an item may be at, by its name among the levels: an item above it is refused as it is added;
+    /// with none, the top level. A round's own highest is `agents.highest_level`.
     pub highest_level: Option<String>,
     /// The most words an item's title may have, as `service::title_words` counts them: a Chinese character counts as a
     /// word. A title is held to it when it is made or changed; a title already there is not counted again. There is no
@@ -720,9 +536,6 @@ impl Settings {
                     .to_string(),
             );
         }
-        if settings.history.samples == 0 {
-            wrong.push("history.samples: a line is worked out from at least one value".to_string());
-        }
         if settings.projects.is_empty() {
             wrong.push(
                 "projects: the installation names at least one project, as a table [projects.<name>]".to_string(),
@@ -779,17 +592,27 @@ impl Settings {
             name: name.clone(),
             desc: level.desc.clone(),
         });
-        let made = Levels::new(levels, &items.default_level, items.highest_level.as_deref());
+        let made = Levels::new(
+            levels,
+            &items.default_level,
+            items.highest_level.as_deref(),
+            self.agents.highest_level.as_deref(),
+        );
         made.map(|levels| levels.with_title_max(items.title_max as usize))
             .map_err(|fault| match fault {
                 LevelsFault::None => "agents.levels: there is at least one level".to_string(),
                 LevelsFault::NoSuchDefault(name) => format!("items.default_level: there is no level {name:?}"),
-                LevelsFault::NoSuchHighest(name) => format!("items.highest_level: there is no level {name:?}"),
-                LevelsFault::DefaultAboveHighest { default, highest } => {
+                LevelsFault::NoSuchItemsHighest(name) => format!("items.highest_level: there is no level {name:?}"),
+                LevelsFault::NoSuchRoundsHighest(name) => format!("agents.highest_level: there is no level {name:?}"),
+                LevelsFault::DefaultAboveItemsHighest { default, highest } => {
                     format!(
                         "items.default_level: {default:?} is above {highest:?}, the highest level an item may be at"
                     )
                 }
+                LevelsFault::ItemsHighestAboveRounds { items, rounds } => format!(
+                    "items.highest_level: {items:?} is above {rounds:?}, the highest level one round may run at \
+                     (agents.highest_level): an item at it could not run at its own level"
+                ),
             })
     }
 
@@ -817,7 +640,7 @@ impl Settings {
     /// The level a round of this cell, for an item at this level, runs at, and that level's model; or why it cannot
     /// run, in words.
     fn model_of(&self, item_level: Option<&str>, cell: &CellSpec) -> Result<(String, String), String> {
-        let level = self.levels()?.of_round(item_level, cell.levels_above)?;
+        let level = self.levels()?.of_round(item_level, cell.levels_above)?.level;
         let model = (self.agents.levels.get(&level))
             .map(|level| level.model.clone())
             .ok_or_else(|| format!("agents.levels: there is no level {level:?}"))?;
@@ -840,7 +663,7 @@ impl Settings {
             budget: self.budget(),
         });
         Policy {
-            samples: self.history.samples,
+            samples: driver::HISTORY_SAMPLES,
             model: Box::new(move |item, cell| {
                 settings
                     .model_of(item.level.as_deref(), cell)
@@ -907,14 +730,13 @@ mod tests {
         assert_eq!(settings.agents.slots, 2);
         let budget = settings.budget().expect("a budget");
         assert_eq!((budget.work, budget.let_on), (5_000_000, 2_000_000));
-        assert!(
-            !settings.agents.args.iter().any(|a| a == "--setting-sources"),
-            "the code gives it"
-        );
-        assert_eq!(settings.agents.setting_sources, "user");
         assert!(settings.agents.env.is_empty());
         assert_eq!(settings.sessions, Sessions::default());
-        assert_eq!(settings.history.samples, 19);
+        assert_eq!(
+            settings.policy().samples,
+            19,
+            "the history needs 19 values, whatever the file says"
+        );
     }
 
     #[test]
@@ -978,8 +800,6 @@ mod tests {
                 Err(why) => assert!(why.contains("sessions.compact_at"), "{at}: {why}"),
             }
         }
-        let none = SAMPLE.replace("samples = 19", "samples = 0");
-        assert!(Settings::read(&none).expect_err("refused").contains("history.samples"));
     }
 
     #[test]
@@ -1073,13 +893,53 @@ mod tests {
         assert_eq!(raised.level, "2");
         assert_eq!(raised.model, "claude-sonnet-5-5");
         assert_eq!(raised.effort.as_deref(), Some("xhigh"));
-        // No line runs above the highest level an item may be at, and an item of no level is at the default.
-        assert_eq!(ran(Some("3"), &cell(1, None)).model, "claude-opus-5-5");
+        // No line runs above the highest level one round may run at, which the sample leaves above the highest an item
+        // may be at, and an item of no level is at the default.
+        assert_eq!(ran(Some("3"), &cell(1, None)).model, "claude-fable-5-1");
         assert_eq!(ran(None, &cell(0, None)).level, "2");
         let gone = settings
             .ran_on(Some("7"), &cell(0, None), profile, None)
             .expect_err("there is no level 7");
         assert!(gone.contains("7 is no level"), "{gone}");
+    }
+
+    #[test]
+    fn a_line_above_its_item_s_level_runs_up_to_the_highest_level_a_round_may_run_at() {
+        let profile = Path::new("/data/profile");
+        let ran = |text: &str, item: &str| {
+            let settings = Settings::read(text).unwrap();
+            settings
+                .ran_on(Some(item), &cell(1, None), profile, None)
+                .unwrap()
+                .level
+        };
+        // The sample: items at most at 3, rounds at most at 4: an item at 3 has a line one above run at 4.
+        assert_eq!(ran(SAMPLE, "3"), "4");
+        // The highest for rounds left out is the top level, as the sample says.
+        let open = SAMPLE.replace("highest_level = \"4\"\n", "");
+        assert_eq!(Settings::read(&open).unwrap().agents.highest_level, None);
+        assert_eq!(ran(&open, "3"), "4");
+        // Held at 3, the line of an item at 3 runs at 3, and an item below it still has its line one above.
+        let held = SAMPLE.replace("highest_level = \"4\"", "highest_level = \"3\"");
+        assert_eq!(ran(&held, "3"), "3");
+        assert_eq!(ran(&held, "2"), "3");
+    }
+
+    #[test]
+    fn a_highest_level_for_items_above_the_one_for_rounds_is_refused_naming_both_keys() {
+        let below = SAMPLE.replace("highest_level = \"4\"", "highest_level = \"2\"");
+        let refused = Settings::read(&below)
+            .and_then(|s| s.levels().map(|_| ()))
+            .expect_err("refused");
+        assert!(
+            refused.contains("items.highest_level") && refused.contains("agents.highest_level"),
+            "{refused}"
+        );
+        let none = SAMPLE.replace("highest_level = \"4\"", "highest_level = \"9\"");
+        let refused = Settings::read(&none)
+            .and_then(|s| s.levels().map(|_| ()))
+            .expect_err("refused");
+        assert_eq!(refused, "agents.highest_level: there is no level \"9\"");
     }
 
     #[test]
@@ -1228,86 +1088,25 @@ mod tests {
         }
     }
 
+    // What wf-agents gives every installation the same is no setting: the arguments the program is given, the settings
+    // files it reads, the number of values a history needs, and whether `query` is open and its bounds. A file that names
+    // one is refused by its key, as a key the settings do not know is, rather than taken to be in force. Milliseconds.
     #[test]
-    fn arguments_that_would_undo_or_take_the_engines_own_are_refused() {
-        let with = |args: &str| {
-            SAMPLE.replace(
-                "\"--disable-slash-commands\"]",
-                &format!("\"--disable-slash-commands\", {args}]"),
-            )
-        };
-        for (args, says) in [
-            ("\"--settings\", \"{}\"", "--settings"),
-            ("\"--settings={}\"", "--settings"),
-            ("\"--\"", "-- would"),
-            ("\"--permission-mode\"", "--permission-mode has no effect"),
-            ("\"--permission-mode\"", "--permission-mode, last"),
+    fn what_wf_agents_gives_is_not_a_setting() {
+        let at = |from: &str, line: &str| SAMPLE.replacen(from, &format!("{from}\n{line}"), 1);
+        for (key, text) in [
+            ("args", at("slots = 2", "args = [\"--strict-mcp-config\"]")),
+            ("setting_sources", at("slots = 2", "setting_sources = \"user\"")),
             (
-                "\"--permission-mode\", \"acceptEdits\"",
-                "--permission-mode has no effect",
+                "permissions",
+                at("slots = 2", "permissions = { locks = [\"uv lock\"] }"),
             ),
-            ("\"--permission-mode=plan\"", "--permission-mode has no effect"),
-            (
-                "\"--dangerously-skip-permissions\"",
-                "--dangerously-skip-permissions has no effect",
-            ),
-            (
-                "\"--allow-dangerously-skip-permissions\"",
-                "--allow-dangerously-skip-permissions selects no permission mode",
-            ),
-            ("\"--tools\"", "--tools, last"),
-            ("\"--permission-prompt-tool\"", "--permission-prompt-tool, last"),
-            ("\"--setting-sources\", \"user,project\"", "--setting-sources"),
-            ("\"--setting-sources=local\"", "--setting-sources"),
-            (
-                "\"--autocompact\", \"900000\"",
-                "--autocompact is set by sessions.compact_at",
-            ),
-            (
-                "\"--autocompact=900000\"",
-                "--autocompact is set by sessions.compact_at",
-            ),
-            (
-                "\"--permission-prompt-tool\", \"mcp__ok__approve\"",
-                "--permission-prompt-tool would",
-            ),
-            (
-                "\"--permission-prompt-tool=mcp__ok__approve\"",
-                "--permission-prompt-tool would",
-            ),
+            ("history", format!("{SAMPLE}\n[history]\nsamples = 19\n")),
+            ("query", format!("{SAMPLE}\n[query]\nopen = true\n")),
         ] {
-            let refused = Settings::read(&with(args)).expect_err(args);
-            assert!(refused.contains(says), "{args}: {refused}");
+            let refused = Settings::read(&text).expect_err(key);
+            assert!(refused.contains(&format!("unknown field `{key}`")), "{key}: {refused}");
         }
-        // Each refusal says what to write instead, and rules that allow what agents may do are no mode.
-        let refused = Settings::read(&with("\"--permission-mode\", \"acceptEdits\"")).expect_err("a mode");
-        assert!(
-            refused.contains("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB") && refused.contains("--allowedTools rules"),
-            "{refused}"
-        );
-        // A flag that takes no value may come last, and one that takes a value may come before its value.
-        for args in [
-            "\"--allowedTools\", \"Edit(./**)\", \"Write(//tmp/**)\"",
-            "\"--verbose\"",
-            "\"--model\", \"claude-haiku-5-5\"",
-            "\"--model=claude-haiku-5-5\"",
-        ] {
-            assert!(Settings::read(&with(args)).is_ok(), "{args}");
-        }
-    }
-
-    #[test]
-    fn settings_files_in_the_worktree_are_not_read() {
-        for sources in ["project", "user,local", "user, project"] {
-            let text = SAMPLE.replace(
-                "# setting_sources = \"user\"",
-                &format!("setting_sources = \"{sources}\""),
-            );
-            let refused = Settings::read(&text).expect_err(sources);
-            assert!(refused.contains("agents.setting_sources"), "{sources}: {refused}");
-        }
-        let user = SAMPLE.replace("# setting_sources = \"user\"", "setting_sources = \"user\"");
-        assert!(Settings::read(&user).is_ok());
     }
 
     /// The sample with its table for GitHub written in.

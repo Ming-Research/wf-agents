@@ -143,7 +143,7 @@ async fn a_work_that_merged_keeping_no_pull_request_is_given_the_one_its_merge_n
         get_json(router, "/api/v1/works/1").await["summary"]["pull"],
         Value::Null
     );
-    let answer = json!({ "kind": "result", "call": 2, "result": "Yes." });
+    let answer = json!({ "kind": "goOn", "call": 2 });
     assert_eq!(
         post(router, "/api/v1/works/1/acts", &answer).await.0,
         StatusCode::NO_CONTENT

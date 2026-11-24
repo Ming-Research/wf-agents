@@ -294,7 +294,7 @@ CREATE TABLE let_go (
 );
 
 -- The work was paused (1) or let on again (0), by `pauser` (`Owner` or `Engine`), and why where it was paused with a
--- reason: the engine gives one, the owner none.
+-- reason: the engine always gives one, the owner where they will.
 CREATE TABLE pauses (
     work INTEGER NOT NULL REFERENCES works (number),
     at INTEGER NOT NULL,
@@ -302,6 +302,16 @@ CREATE TABLE pauses (
     pauser TEXT NOT NULL,
     why TEXT,
     PRIMARY KEY (work, at)
+);
+
+-- The pause of the work at this place waits for the item of this number to merge or be cancelled: the owner's pause
+-- says the items it is made for, and the work waits no more once each has ended. A pause with no row waits for no item.
+CREATE TABLE pause_waits (
+    work INTEGER NOT NULL,
+    at INTEGER NOT NULL,
+    item INTEGER NOT NULL,
+    PRIMARY KEY (work, at, item),
+    FOREIGN KEY (work, at) REFERENCES pauses (work, at)
 );
 
 -- The work's item was cancelled, with why where whoever cancelled it said. A work has a row for each time it was, each
@@ -450,14 +460,17 @@ CREATE TABLE results (
     FOREIGN KEY (work, call) REFERENCES called (work, call)
 );
 
--- What a round of a run that ended took, the first round being one: its cost in millionths of a dollar, its tokens,
--- the context it ended with in tokens (NULL where it is not known), and how often its session was compacted.
+-- What a round of a run that ended took, the first round being one: its cost in millionths of a dollar, its tokens (the
+-- tokens sent and not read from the cache, sent fresh or written to it; of them, those written to it, NULL where what
+-- the round took was kept before the written ones were kept apart; those read from the cache; and those that came
+-- back), the context it ended with in tokens (NULL where it is not known), and how often its session was compacted.
 CREATE TABLE spent (
     work INTEGER NOT NULL,
     run INTEGER NOT NULL,
     round INTEGER NOT NULL,
     usd_micros INTEGER NOT NULL,
-    input_tokens INTEGER NOT NULL,
+    uncached_tokens INTEGER NOT NULL,
+    cache_written_tokens INTEGER,
     cached_tokens INTEGER NOT NULL,
     output_tokens INTEGER NOT NULL,
     context_tokens INTEGER,
@@ -542,15 +555,16 @@ CREATE TABLE left_behind (
 );
 
 -- A keep-warm ping of the session of a line, its sessions counted from none, which keeps its prompt cache while the
--- line waits: what it took, and why it failed where it did (NULL where it did not), which may name paths of the
--- machine.
+-- line waits: what it took, its tokens as a round's are told in `spent`, and why it failed where it did (NULL where it
+-- did not), which may name paths of the machine.
 CREATE TABLE pinged (
     work INTEGER NOT NULL REFERENCES works (number),
     at INTEGER NOT NULL,
     line TEXT NOT NULL,
     session INTEGER NOT NULL,
     usd_micros INTEGER NOT NULL,
-    input_tokens INTEGER NOT NULL,
+    uncached_tokens INTEGER NOT NULL,
+    cache_written_tokens INTEGER,
     cached_tokens INTEGER NOT NULL,
     output_tokens INTEGER NOT NULL,
     context_tokens INTEGER,
@@ -560,14 +574,15 @@ CREATE TABLE pinged (
 );
 
 -- A fork of a round's session asked a question, whether it answered or not: the run and the round whose session it was
--- forked from, and what it took.
+-- forked from, and what it took, its tokens as a round's are told in `spent`.
 CREATE TABLE forked (
     work INTEGER NOT NULL REFERENCES works (number),
     at INTEGER NOT NULL,
     run INTEGER NOT NULL,
     round INTEGER NOT NULL,
     usd_micros INTEGER NOT NULL,
-    input_tokens INTEGER NOT NULL,
+    uncached_tokens INTEGER NOT NULL,
+    cache_written_tokens INTEGER,
     cached_tokens INTEGER NOT NULL,
     output_tokens INTEGER NOT NULL,
     PRIMARY KEY (work, at)

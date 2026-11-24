@@ -281,8 +281,27 @@ pub fn keeping() -> Value {
     json!({ "cleanupPeriodDays": crate::account::KEEP_DAYS })
 }
 
-/// The arguments of a round's command line, after the program: the engine's own, then the installation's, then the
-/// line's permissions, then the session, with the context at which the program compacts it (`compact`). The message
+/// The settings files the program reads, as `--setting-sources`: the user's alone, since a settings file the worktree
+/// holds is one an agent may write.
+pub const SETTING_SOURCES: &str = "user";
+
+/// The arguments of the program that isolate it from what the owner's own tools and settings give, the same for every
+/// round: it reads only the settings files of [`SETTING_SOURCES`], and no MCP server's and no slash command's but
+/// those the engine gives. They are not what an agent may do, which is the flow's ([`Permissions`]).
+pub fn fixed_arguments() -> Vec<String> {
+    [
+        "--setting-sources",
+        SETTING_SOURCES,
+        "--strict-mcp-config",
+        "--disable-slash-commands",
+    ]
+    .iter()
+    .map(|a| a.to_string())
+    .collect()
+}
+
+/// The arguments of a round's command line, after the program: the engine's own, then the line's permissions, then
+/// the session, with the context at which the program compacts it (`compact`). The message
 /// goes in, and the stream comes out, as stream-json; the stream carries each message in pieces as it is written,
 /// which rebuild an attempt at a return the command line refused. The schema is the form of return of the round's
 /// flow, the same for every round of every cell of it, and the system prompt is the same for every round of a line, so
@@ -290,7 +309,6 @@ pub fn keeping() -> Value {
 /// the effort it was given.
 #[allow(clippy::too_many_arguments)]
 pub fn arguments(
-    agents: &Agents,
     ran: &RanOn,
     system: &str,
     schema: &str,
@@ -320,9 +338,8 @@ pub fn arguments(
     }
     args.extend(["--append-system-prompt".to_string(), system.to_string()]);
     args.extend(["--json-schema".to_string(), schema.to_string()]);
-    args.extend(["--setting-sources".to_string(), agents.setting_sources.clone()]);
     args.extend(["--settings".to_string(), settings(compacted, words)]);
-    args.extend(agents.args.iter().cloned());
+    args.extend(fixed_arguments());
     args.extend(permissions.arguments());
     args.extend(["--autocompact".to_string(), compact.to_string()]);
     let flag = match begin {
@@ -419,8 +436,7 @@ pub const SCRUB: &str = "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB";
 
 /// What a refusal of a permission mode says to write instead: the program starts in default permission mode under
 /// [`SCRUB`], so what an agent may do is given as rules.
-pub const PERMISSION_ADVICE: &str =
-    "allow what agents may do with --allowedTools rules in agents.args, such as Edit(./**)";
+pub const PERMISSION_ADVICE: &str = "what agents may do is said in allowed.toml beside the flows";
 
 /// The variables the carrier sets for every round's command line: a round waits for whatever it starts, since a
 /// subagent left in the background has the command line ask for the return before it is back; the service checks each
@@ -955,10 +971,14 @@ impl Stream {
         let mut spent = Spent {
             usd_micros: self.cost().0,
             context_tokens: Some(last.tokens.prompt()),
+            cache_written_tokens: Some(0),
             ..Spent::default()
         };
         for call in &self.calls {
-            spent.input_tokens += call.tokens.input;
+            spent.uncached_tokens += call.tokens.input;
+            spent.cache_written_tokens = spent
+                .cache_written_tokens
+                .map(|w| w + call.tokens.written_1h + call.tokens.written_5m);
             spent.cached_tokens += call.tokens.read;
             spent.output_tokens += call.tokens.output;
         }
@@ -1311,7 +1331,10 @@ fn spent_of_result(result: &Result, earlier: &[Value], usd_micros: u64) -> Spent
     for earlier in earlier {
         let usage = &earlier["usage"];
         let tokens = |key: &str| usage[key].as_u64().unwrap_or(0);
-        spent.input_tokens += tokens("input_tokens") + tokens("cache_creation_input_tokens");
+        spent.uncached_tokens += tokens("input_tokens") + tokens("cache_creation_input_tokens");
+        spent.cache_written_tokens = spent
+            .cache_written_tokens
+            .map(|w| w + tokens("cache_creation_input_tokens"));
         spent.cached_tokens += tokens("cache_read_input_tokens");
         spent.output_tokens += tokens("output_tokens");
     }
@@ -1322,7 +1345,8 @@ fn spent(result: &Result, usd_micros: u64) -> Spent {
     let usage = &result.usage;
     Spent {
         usd_micros,
-        input_tokens: usage.input_tokens + usage.cache_creation_input_tokens,
+        uncached_tokens: usage.input_tokens + usage.cache_creation_input_tokens,
+        cache_written_tokens: Some(usage.cache_creation_input_tokens),
         cached_tokens: usage.cache_read_input_tokens,
         output_tokens: usage.output_tokens,
         // The context the round ended with is the prompt of its last call, read from the cache or not.
@@ -1348,10 +1372,9 @@ mod tests {
         Agents {
             command: "claude".to_string(),
             levels: Default::default(),
+            highest_level: None,
             slots: 2,
-            args: vec!["--strict-mcp-config".to_string()],
             env: Vec::new(),
-            setting_sources: "user".to_string(),
             subagents: Default::default(),
             work_budget_usd: None,
             let_on_allowance_usd: 20.0,
@@ -1428,7 +1451,8 @@ mod tests {
             read.spent,
             Spent {
                 usd_micros: 2614,
-                input_tokens: 9094,
+                uncached_tokens: 9094,
+                cache_written_tokens: Some(9090),
                 cached_tokens: 63348,
                 output_tokens: 325,
                 context_tokens: Some(36291),
@@ -1736,8 +1760,13 @@ mod tests {
         let no = stream.read(&program()).expect_err("no result");
         let spent = no.spent.expect("its calls are priced");
         assert_eq!(
-            (spent.input_tokens, spent.cached_tokens, spent.output_tokens),
-            (200, 2000, 70)
+            (
+                spent.uncached_tokens,
+                spent.cache_written_tokens,
+                spent.cached_tokens,
+                spent.output_tokens
+            ),
+            (200, Some(0), 2000, 70)
         );
         // Opus 5.5: 200 × 4 + 2000 × 0.2 + 70 × 20 millionths.
         assert_eq!(spent.usd_micros, 800 + 400 + 1400);
@@ -1746,6 +1775,29 @@ mod tests {
         let error = json!({ "type": "assistant", "parent_tool_use_id": null, "error": "overloaded", "message": {} });
         refused.line(error.to_string().as_bytes());
         assert!(!refused.answered());
+    }
+
+    // The tokens a round's calls wrote to the cache are told from those sent fresh, as a result's are: the calls are
+    // priced in the cost of a round that crashed before its result.
+    #[test]
+    fn a_stream_cut_off_before_its_result_says_how_many_tokens_its_calls_wrote_to_the_cache() {
+        let call = |id: &str, written: u64| {
+            json!({ "type": "assistant", "parent_tool_use_id": Value::Null, "message": { "id": id,
+                "model": "claude-opus-5-5", "usage": { "input_tokens": 100, "cache_creation_input_tokens": written,
+                "cache_creation": { "ephemeral_1h_input_tokens": written, "ephemeral_5m_input_tokens": 0 },
+                "cache_read_input_tokens": 1000, "output_tokens": 10 } } })
+            .to_string()
+        };
+        let mut stream = Stream::default();
+        for line in [call("msg_1", 300), call("msg_2", 40)] {
+            stream.line(line.as_bytes());
+        }
+        let no = stream.read(&program()).expect_err("no result");
+        let spent = no.spent.expect("its calls are priced");
+        assert_eq!(
+            (spent.uncached_tokens, spent.cache_written_tokens),
+            ((100 + 300) + (100 + 40), Some(300 + 40))
+        );
     }
 
     // A weekly limit as version 2.1.323 reports it: the result's words and fields as a real round kept them, and the
@@ -1813,7 +1865,8 @@ mod tests {
         let error = r#"{"type":"result","is_error":true,"result":"Out of structured output retries.","total_cost_usd":0.8,"model_usage_since_last_result":{"m":{"costUSD":0.3}},"usage":{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":100,"output_tokens":20}}"#;
         let spent = Spent {
             usd_micros: 300_000,
-            input_tokens: 15,
+            uncached_tokens: 15,
+            cache_written_tokens: Some(5),
             cached_tokens: 100,
             output_tokens: 20,
             ..Default::default()
@@ -1897,7 +1950,8 @@ mod tests {
             read.spent,
             Spent {
                 usd_micros: 30_000,
-                input_tokens: (2 + 100) + (4 + 10),
+                uncached_tokens: (2 + 100) + (4 + 10),
+                cache_written_tokens: Some(100 + 10),
                 cached_tokens: 50 + 200,
                 output_tokens: 5 + 8,
                 context_tokens: None,
@@ -1980,7 +2034,11 @@ mod tests {
         let got = stream.read(&program()).expect("the question's return is read");
         assert_eq!(got.structured, single.structured, "the return of the last message");
         // The tokens and the cost of both messages: each result says what the program spent since the one before.
-        assert_eq!(got.spent.input_tokens, 2 * single.spent.input_tokens);
+        assert_eq!(got.spent.uncached_tokens, 2 * single.spent.uncached_tokens);
+        assert_eq!(
+            got.spent.cache_written_tokens,
+            single.spent.cache_written_tokens.map(|written| 2 * written)
+        );
         assert_eq!(got.spent.cached_tokens, 2 * single.spent.cached_tokens);
         assert_eq!(got.spent.output_tokens, 2 * single.spent.output_tokens);
         assert_eq!(got.spent.usd_micros, 2 * single.spent.usd_micros);
@@ -2027,9 +2085,13 @@ mod tests {
         let got = stream.read(&program()).expect("the question's return is read");
         assert_eq!(got.structured, single.structured);
         assert_eq!(
-            (got.spent.input_tokens, got.spent.cached_tokens, got.spent.output_tokens),
             (
-                single.spent.input_tokens,
+                got.spent.uncached_tokens,
+                got.spent.cached_tokens,
+                got.spent.output_tokens
+            ),
+            (
+                single.spent.uncached_tokens,
                 single.spent.cached_tokens,
                 single.spent.output_tokens
             )
@@ -2214,7 +2276,7 @@ mod tests {
     #[test]
     fn the_command_line_begins_a_session_and_goes_on_in_it() {
         let session = Uuid::parse_str("6a1f3c2e-8d4b-4e7a-9c5f-2b8e1d0a7f43").unwrap();
-        let permissions = Permissions::of(true, &[], &[], &Default::default());
+        let permissions = Permissions::of(true, &[], Path::new("/x/T"), &[]);
         let ran = RanOn {
             level: "1".to_string(),
             model: "claude-haiku-5-5".to_string(),
@@ -2228,7 +2290,6 @@ mod tests {
         };
         let head = |begin| {
             arguments(
-                &agents(),
                 &ran,
                 "SYSTEM",
                 "SCHEMA",
@@ -2260,15 +2321,21 @@ mod tests {
             "SYSTEM",
             "--json-schema",
             "SCHEMA",
-            "--setting-sources",
-            "user",
             "--settings",
             &hooks,
-            "--strict-mcp-config",
         ];
         let mut new: Vec<String> = common.iter().map(|a| a.to_string()).collect();
-        // The line's permissions come after the installation's arguments, which they add to, and the session's own
-        // arguments last: the context the program compacts it at, which the installation gives, then its id.
+        // The arguments that isolate the program, then the line's permissions, and the session's own arguments last: the
+        // context the program compacts it at, which the installation gives, then its id.
+        new.extend(
+            [
+                "--setting-sources",
+                "user",
+                "--strict-mcp-config",
+                "--disable-slash-commands",
+            ]
+            .map(String::from),
+        );
         new.extend(permissions.arguments());
         new.extend(["--autocompact".to_string(), "500000".to_string()]);
         let mut resumed = new.clone();
@@ -2293,9 +2360,8 @@ mod tests {
             marks: PathBuf::from("compacted"),
             again: PathBuf::from("again.md"),
         };
-        let permissions = Permissions::of(false, &[], &[], &Default::default());
+        let permissions = Permissions::of(false, &[], Path::new("/x/T"), &[]);
         let args = arguments(
-            &agents(),
             &ran,
             "SYSTEM",
             "SCHEMA",
@@ -2360,10 +2426,9 @@ mod tests {
             marks: PathBuf::from("compacted"),
             again: PathBuf::from("again.md"),
         };
-        let permissions = Permissions::of(false, &[], &["cargo".to_string()], &Default::default());
+        let permissions = Permissions::of(false, &[], Path::new("/x/T"), &["cargo".to_string()]);
         let session = Uuid::nil();
         let round = arguments(
-            &agents(),
             &ran,
             "SYSTEM",
             "SCHEMA",
