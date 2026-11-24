@@ -83,6 +83,8 @@ const MAP_APART = 5;
 const MAP_HIGH = 72;
 const MAP_INSET = 12;
 const MAP_PAD = 8;
+/// The radius of the map's corners.
+const MAP_CORNER = 6;
 /// On the map: the gap between two items' pieces of a column, where each is tall enough to keep one; how far the frame
 /// of what the screen shows stands out past the bars it holds; and how strong the ground in it is.
 const MAP_GAP = 0.5;
@@ -1312,6 +1314,12 @@ export class SnapScene {
   /// Told, at a press on the funnel or the dot of an item's fold, the item's number and whether the items under it are
   /// now to be folded away: the console keeps the choice and draws the tree again.
   onFold: ((id: number, folded: boolean) => void) | null = null;
+  /// Told, at a click on a shadow whose item this tree does not hold, as one of another project's, the item's number:
+  /// the console shows that project's tree and selects it there.
+  onAway: ((id: number) => void) | null = null;
+  /// Told how wide the map is each time that changes, in pixels: what stands beside the map stands past it.
+  onMapWidth: ((width: number) => void) | null = null;
+  private mapWide = 0;
   /// The items as last shown, by their place in the tree.
   private shownItems: Shown[] = [];
   private shadowsOf = new Map<number, number[]>();
@@ -1401,6 +1409,83 @@ export class SnapScene {
     this.app.ticker.add(this.tick);
     this.ready = true;
     this.run();
+  }
+
+  /// Draws the tree once as it stands now, whether or not it draws its frames: the console shows every project's tree
+  /// in the overview, but only the one shown keeps drawing.
+  paintOnce(): void {
+    if (this.tree === null) return;
+    this.step(0);
+    this.app.renderer.render(this.app.stage);
+  }
+
+  /// How wide the map at the top left is, in pixels, as it was last drawn.
+  mapWidth(): number {
+    return this.mapWide;
+  }
+
+  /// Shows the map at the top left, or hides it, at once: while the trees move, the console holds a picture of the map
+  /// still in its place ([`mapPicture`]), and none while the overview shows every tree small.
+  showMap(shown: boolean): void {
+    this.map.visible = shown;
+    this.mark('map');
+  }
+
+  /// The map as it stands now, copied from the tree drawn with it onto a canvas of its own, as large as it stands on the
+  /// screen and cut to its round corners, and where its top left corner stands on the screen; none before the tree is
+  /// drawn. The tree is drawn again as it was before the copy as it draws its next frame.
+  mapPicture(): { canvas: HTMLCanvasElement; x: number; y: number } | null {
+    if (this.tree === null) return null;
+    const was = this.map.visible;
+    this.map.visible = true;
+    this.paintOnce();
+    const at = this.map.getLocalBounds();
+    const x = this.map.x + at.x;
+    const y = this.map.y + at.y;
+    // The frame's line stands half its width outside the frame.
+    const line = (at.width - this.mapWide) / 2;
+    const canvas = this.copy(x, y, Math.ceil(at.width), Math.ceil(at.height), MAP_CORNER + line);
+    this.map.visible = was;
+    return { canvas, x, y };
+  }
+
+  /// The whole tree as it stands now, drawn and copied onto a canvas of its own as large as the scene's; none before the
+  /// tree is drawn.
+  picture(): HTMLCanvasElement | null {
+    if (this.tree === null) return null;
+    this.paintOnce();
+    return this.copy(0, 0, this.app.screen.width, this.app.screen.height, 0);
+  }
+
+  /// The part of what the scene drew last that stands `width` by `height` from `x`, `y` on the screen, copied onto a
+  /// canvas of its own as large as the part on the screen, and cut to round corners of radius `corner`.
+  private copy(x: number, y: number, width: number, height: number, corner: number): HTMLCanvasElement {
+    const r = this.app.renderer.resolution;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(width * r);
+    canvas.height = Math.round(height * r);
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    const pen = canvas.getContext('2d');
+    if (pen !== null) {
+      if (corner > 0) {
+        pen.beginPath();
+        pen.roundRect(0, 0, canvas.width, canvas.height, corner * r);
+        pen.clip();
+      }
+      pen.drawImage(this.app.canvas, x * r, y * r, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height);
+    }
+    return canvas;
+  }
+
+  /// Draws the frame of this moment, however long it is since the one before, without waiting for the browser to give
+  /// one: the console draws its trees so, in turn, while its overview shows them all.
+  drawNow(): void {
+    if (this.tree === null) return;
+    const now = performance.now();
+    const step = this.advance(now);
+    this.draw(this.tree, now, step);
+    this.app.renderer.render(this.app.stage);
   }
 
   /// Draws while the view is shown, and stops while another view hides it ([`run`]).
@@ -1671,6 +1756,8 @@ export class SnapScene {
     this.stats.made = kept.filter((c) => c === undefined).length;
     this.shown = new Set([...this.shown].filter((v) => !v.destroyed));
     this.columns = tree.columns.map((_, d) => ({ at: 0, aim: 0, warm: warmth[d] ?? 0 }));
+    // The pointer over a column this tree has no more is over none, until it moves.
+    if (this.hovered >= this.columns.length) this.hovered = -1;
     if (tree.columns.length === 0) {
       this.buildMap(tree);
       this.stats.items = 0;
@@ -2747,9 +2834,13 @@ export class SnapScene {
     }
     this.mapRow = (MAP_HIGH - 2 * MAP_PAD) / (2 * longest);
     const wide = 2 * MAP_PAD + t.columns.length * MAP_STRIP + (t.columns.length - 1) * MAP_APART;
+    if (wide !== this.mapWide) {
+      this.mapWide = wide;
+      this.onMapWidth?.(wide);
+    }
     this.mapFrame
       .clear()
-      .roundRect(0, 0, wide, MAP_HIGH, 6)
+      .roundRect(0, 0, wide, MAP_HIGH, MAP_CORNER)
       .fill(PALETTE.page)
       .stroke({ color: PALETTE.line, width: 1 });
     this.mapMask
@@ -2903,7 +2994,7 @@ export class SnapScene {
   ): number {
     const p = this.pointer;
     const d = this.hovered;
-    if (p === null || d < 0 || p.x < x(d) + from || p.x > x(d) + to) return -1;
+    if (p === null || d < 0 || d >= this.columns.length || p.x < x(d) + from || p.x > x(d) + to) return -1;
     const c = this.columns[d];
     const line = this.app.screen.height / 2;
     const rank = this.rankAt(d, (p.y - line) / ROW + c.at);
@@ -2937,6 +3028,7 @@ export class SnapScene {
       // Where folds hide the item it points to, they are opened, and the item comes to the middle once it is drawn.
       if (to === undefined) {
         if (this.unfoldTo(this.ids[i])) this.toFocus = this.ids[i];
+        else this.onAway?.(this.ids[i]);
         return;
       }
       this.selected = this.ids[to];

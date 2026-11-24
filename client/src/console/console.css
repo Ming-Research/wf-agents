@@ -34,9 +34,8 @@
    drawing the items. */
 .console-over {
   position: absolute;
-  top: calc(var(--space-12) + 72px + var(--space-8));
+  top: var(--space-12);
   left: var(--space-12);
-  z-index: 1;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -112,6 +111,11 @@
   white-space: nowrap;
 }
 
+.console-found-project {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
 .console-found-standing {
   display: inline-flex;
   align-items: center;
@@ -131,7 +135,7 @@
   position: absolute;
   bottom: var(--space-12);
   left: var(--space-12);
-  z-index: 1;
+  z-index: 3;
 }
 
 .console-help-mark {
@@ -809,3 +813,209 @@
   border-radius: var(--corner);
   background: var(--ground);
 }
+
+/* What stands over the tree's top left corner, the list of projects and the boxes beside the map, over every tree and
+   its frame in the overview: none of it moves with the trees, it goes at once as the overview opens and comes back at
+   once as it closes. */
+.console-chrome {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.console-chrome > * {
+  pointer-events: auto;
+}
+
+.console-chrome.away {
+  visibility: hidden;
+}
+
+/* The picture of the map of the tree shown, where the tree draws it, while the trees move under it. */
+.console-chrome > .console-map-held {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+/* Every project's tree, a layer as large as the room: each moves to where it stands as the tree shown changes, over
+   the time and in the ease the window beside the tree slides in (styles/parts.css, `.drawer`), a little longer for the
+   way is longer. The trees stand one over another by the order
+   each layer is given, all of it under what stands over the trees: the overview's frames, the list and the boxes. */
+.console-layers {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+.console-tree {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  transition:
+    transform 320ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 320ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  will-change: transform, opacity;
+}
+
+/* While the overview opens or closes, the trees fade rather than move, each standing at once where it goes: those
+   coming in fade in, those going fade out where they stood in the grid, and the tree shown, as it stood, fades out over
+   them all. */
+.console-layers.fading > .console-tree {
+  transition: opacity 320ms ease-in-out;
+}
+
+.console-tree.fading-in {
+  animation: console-tree-in 320ms ease-in-out;
+}
+
+.console-tree.fading-back {
+  animation: console-tree-back 320ms ease-in-out;
+}
+
+.console-ghost {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 200;
+  transform-origin: 0 0;
+  pointer-events: none;
+  animation: console-fade-out 320ms ease-in-out forwards;
+}
+
+@keyframes console-tree-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes console-tree-back {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes console-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+/* The overview: over each tree, as small as the plane makes it, a frame that shows it at a press, the one shown in
+   the accent and its light, with its key and its name; under the help, which stays over it. */
+.console-overview {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+}
+
+.console-overview-tree {
+  position: absolute;
+  padding: 0;
+  border: var(--hairline) solid var(--line);
+  border-radius: var(--corner);
+  background: none;
+  cursor: pointer;
+  animation: console-overview-in 320ms ease-in-out;
+}
+
+.console-overview-tree.shown {
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 1px var(--accent),
+    0 0 24px 4px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.console-overview-name {
+  position: absolute;
+  left: var(--space-8);
+  bottom: var(--space-4);
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  color: var(--text);
+}
+
+.console-overview.closing {
+  pointer-events: none;
+  animation: console-fade-out 320ms ease-in-out forwards;
+}
+
+@keyframes console-overview-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Under the map (72px high, 12px in: `MAP_HIGH` and `MAP_INSET` in snap.ts), the list of projects, framed as the boxes
+   beside the map are: each name after the key that shows its tree, the one shown in the tint of a row chosen. */
+.console-projects {
+  position: absolute;
+  top: calc(var(--space-12) + 72px + var(--space-8));
+  left: var(--space-12);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-4);
+  border: var(--hairline) solid var(--line);
+  border-radius: var(--corner);
+  background: var(--ground);
+  list-style: none;
+}
+
+.console-project.dragging {
+  opacity: 0.5;
+}
+
+.console-project-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  width: 100%;
+  padding: var(--space-2) var(--space-4);
+  border: 0;
+  border-radius: var(--corner);
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.console-project-name.shown {
+  background: var(--accent-tint);
+  color: var(--text);
+}
+
+/* After the name, at the row's end, what waits for the owner in the project, as the bar's counts. */
+.console-project-counts {
+  display: inline-flex;
+  margin-left: auto;
+}
+
+/* A key of the keyboard, as a small cap: its sign in monospace in a frame whose bottom edge is thicker. */
+.key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 var(--space-4);
+  border: var(--hairline) solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--card);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--size-small);
+  line-height: 1;
+}
+
+.key-none {
+  min-width: 18px;
+}
+

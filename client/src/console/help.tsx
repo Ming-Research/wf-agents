@@ -41,6 +41,8 @@ export const CONSOLE_KEYS: [string, string][] = [
   ['/', 'search'],
   ['e', 'fold or unfold the card under the pointer'],
   ['n / N', 'next / previous question'],
+  ['1 – 9', 'the tree of the project of that place in the list'],
+  ['Space', "every project's tree at once"],
   ['Esc', 'close'],
 ];
 
