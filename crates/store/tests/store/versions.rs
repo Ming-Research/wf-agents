@@ -4,7 +4,7 @@
 
 use decide::{BlockId, CellId, Reading};
 use store::{KeptFlow, KeptOutline, SCHEMA_VERSION};
-use work::{KeptTime, OnFlow, Stretch, Went};
+use work::{KeptTime, OnFlow, Stretch, TurnSpan, Went};
 
 use super::opening::{before_pauses_waited_for_items, columns, versions};
 use super::*;
@@ -77,7 +77,20 @@ fn a_work_s_moves_and_what_its_time_went_to_read_back_as_written_its_records_as_
     d.work.kept_time.push(KeptTime {
         at,
         stretches: vec![stretch],
+        turn: Some(vec![TurnSpan {
+            from: Time(START),
+            until: Some(Time(START + 500)),
+        }]),
     });
+    // A work that held the turn nowhere keeps none held, apart from one kept before they were kept, which keeps none.
+    for turn in [Some(Vec::new()), None] {
+        let at = d.work.tick();
+        d.work.kept_time.push(KeptTime {
+            at,
+            stretches: Vec::new(),
+            turn,
+        });
+    }
     store
         .save(number, &d.work)
         .expect("the work read through its move saves again, with what came after");
@@ -134,6 +147,35 @@ fn a_file_of_version_21_is_migrated_with_no_version_kept_no_work_on_one_and_no_t
 /// The work as a file of version 21 of the schema holds it, and a file of this version that holds it.
 fn kept_in_21(work: &Work) -> (Db, Db) {
     super::opening::kept_in(21, work)
+}
+
+// A file of version 32 kept no stretches a work held the turn of its project: what it kept of the time of its works is
+// read as it was, with none held, which is not the same as a work that held it nowhere.
+#[test]
+fn a_file_of_version_32_is_migrated_with_its_kept_times_read_as_holding_no_turn() {
+    let mut d = Driver::new();
+    history(&mut d);
+    let mut work = d.work;
+    let at = work.tick();
+    work.kept_time.push(KeptTime {
+        at,
+        stretches: vec![Stretch {
+            from: Time(START),
+            until: Time(START + 1000),
+            went: Went::Owner,
+        }],
+        turn: None,
+    });
+    let (old, new) = super::opening::kept_in(32, &work);
+    let store = old.open();
+    assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
+    assert_eq!(
+        columns(&old.path),
+        columns(&new.path),
+        "the migrated file has other tables than a new one"
+    );
+    assert_eq!(store.load(WorkNumber(1)), Ok(work));
+    assert_eq!(count(&old.path, "kept_time"), 1);
 }
 
 #[test]

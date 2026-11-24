@@ -17,19 +17,16 @@
 //! taken away, and the host closes what it holds open for a work that did not merge, its pull request; the branch
 //! stays, with the work's commits. What fails is tried again, waiting longer each time, until it is done.
 
-use std::collections::BTreeSet;
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use decide::{BlockId, End, Finished, RunId};
 use engine::Came;
 use flow::Compiled;
-use service::{
-    Along, Changes, Diff, OfWork, OpenPull, Pull, Release, ReleaseReply, Round, RoundReply, Rounds, Seen, Teller,
-};
+use service::{Changes, Diff, OfWork, OpenPull, Pull, Release, ReleaseReply, Round, RoundReply, Rounds, Seen, Teller};
 use store::{ItemNumber, WorkNumber};
 use tokio::sync::{Mutex, Notify};
 use work::{Handed, Question, Said, Spent, Work};
@@ -89,13 +86,6 @@ pub struct Checked {
     pub asks: Option<Question>,
 }
 
-impl Checked {
-    /// Whether the work passed: nothing failed, and nothing holds it.
-    pub fn passed(&self) -> bool {
-        self.failed.is_none() && self.held.is_none()
-    }
-}
-
 /// The paths the project protects, and the words of the question the engine asks of a change to them: none protected
 /// where the acts were not told of any.
 #[derive(Clone, Debug, Default)]
@@ -123,9 +113,6 @@ struct Inner<H> {
     /// Told after each merge, so that the watch of main looks at once.
     merged: Notify,
     protecting: Protecting,
-    /// Whose turn it is to check and merge, and what is told when it is let go.
-    turn: std::sync::Mutex<Turn>,
-    turn_freed: Notify,
     /// The look at the network to the host; none where no network reaches it.
     look: Option<Arc<dyn service::Network>>,
     /// What was worked out of what the works changed, by their heads.
@@ -154,8 +141,6 @@ impl<H: Host> Acts<H> {
                 held: Held::new(),
                 merged: Notify::new(),
                 protecting: Protecting::default(),
-                turn: std::sync::Mutex::new(Turn::default()),
-                turn_freed: Notify::new(),
                 look: None,
                 known: changed::Known::default(),
             }),
@@ -277,10 +262,6 @@ impl<H: Host> Rounds for Acts<H> {
         }
     }
 
-    fn paused(&self, work: WorkNumber, paused: bool) {
-        self.inner.pause(work, paused);
-    }
-
     fn release(&self, release: Release, reply: ReleaseReply) {
         let inner = self.inner.clone();
         tokio::spawn(async move {
@@ -376,9 +357,6 @@ impl<H: Host> Inner<H> {
                 Ok(Done::HandsIn(Box::new(Came::hands_in(prose(&outputs, &content)))))
             }
             "check" => {
-                if !self.take_turn(round.work, stop).await {
-                    return Ok(Done::Stopped);
-                }
                 // The check reads the branch for its round, and holds the work's head to what the judges that take it
                 // dealt with, as the flow's graph finds them.
                 let mut looking = looking();
@@ -412,12 +390,6 @@ impl<H: Host> Inner<H> {
                 );
                 match checked.await {
                     Ok(Some(checked)) => {
-                        // A work that passed keeps its turn for its merge.
-                        if checked.passed() {
-                            self.passed_turn(round.work);
-                        } else {
-                            self.end_turn(round.work);
-                        }
                         // The check may have taken main in.
                         looking.tell(&place, teller, false).await;
                         let handed = checked_in(&outputs, &checked, &project.main, &words.check)?;
@@ -433,56 +405,27 @@ impl<H: Host> Inner<H> {
                             ..Came::hands_in(handed)
                         })))
                     }
-                    Ok(None) => {
-                        self.end_turn(round.work);
-                        Ok(Done::Stopped)
-                    }
-                    Err(why) => {
-                        self.end_turn(round.work);
-                        Err(why)
-                    }
+                    Ok(None) => Ok(Done::Stopped),
+                    Err(why) => Err(why),
                 }
             }
             "merge" => {
-                // A work that gave its turn up since its check passed, paused or past its time, waits for it again.
-                if !self.take_turn(round.work, stop).await {
-                    return Ok(Done::Stopped);
-                }
                 // A commit made since the check passed moves the work's head: no round made it, and it is written from
                 // outside, so that the review and the check run on it before the merge is tried again. A read that
                 // fails fails the round, as the check's does: nothing merges past a head that could not be read.
                 let mut looking = looking();
-                let new = match looking.read(&place).await {
-                    Ok(new) => new,
-                    Err(why) => {
-                        self.end_turn(round.work);
-                        return Err(why.into());
-                    }
-                };
+                let new = looking.read(&place).await?;
                 let moved = looking.head_in(&new).map(str::to_string);
                 for (block, content) in new {
                     teller.outside_wrote(block, content);
                 }
                 if let Some(head) = moved {
-                    self.end_turn(round.work);
                     return Err(Failed::passing(fill(&words.merge.unreviewed, &[("head", &head)])));
                 }
-                let checked = match passed(&round.flow, &round.kept, &words.check) {
-                    Ok(checked) => checked,
-                    Err(why) => {
-                        self.end_turn(round.work);
-                        return Err(why.into());
-                    }
-                };
+                let checked = passed(&round.flow, &round.kept, &words.check)?;
                 let merged = merge(&self.host, &branch, checked.as_deref(), &self.repository).await;
                 // Merged or refused for a moved main, the watch looks at main at once.
                 self.merged.notify_one();
-                // A work refused for a moved main keeps its turn, for its check on main's new head, as after a check
-                // that passed.
-                match &merged {
-                    Err(NotMerged::Moved { .. }) => self.passed_turn(round.work),
-                    _ => self.end_turn(round.work),
-                }
                 let merged = merged_or_failed(merged, &project.main, &words.merge);
                 let merged = merged?;
                 let content = fill(
@@ -540,158 +483,9 @@ impl<H: Host> Inner<H> {
             place: &place,
             continues: None,
         };
-        self.end_turn(release.work);
         let _held = self.repository.lock().await;
         self.host.end(&branch, release.end == End::Merged).await?;
         git::remove(&self.project, &place).await
-    }
-}
-
-/// How long a work whose check passed keeps the project's turn for its merge, where its merge does not come: a merge
-/// begins at once after a check that passed, and a work paused gives the turn up at once, so that only a merge held
-/// for something else holds the other works back, and no longer than this.
-const TURN_LEFT: Duration = Duration::from_secs(15 * 60);
-
-/// Whether a work whose check passed at `passed` has kept the turn past [`TURN_LEFT`] by `now`.
-fn left(passed: Instant, now: Instant) -> bool {
-    now.saturating_duration_since(passed) > TURN_LEFT
-}
-
-/// Whose turn it is to check and merge in the project: one work at a time catches up with main, is checked and merges,
-/// so that works checked side by side do not each find main moved by another's merge, check again and go round. The
-/// works whose checks wait for it have it in the order they began to wait. A work a pause holds neither takes it nor
-/// keeps it once its check passed, since it cannot merge, and its wait stands aside, keeping its place, until it is
-/// let on. Kept in memory: after a stop, whichever work is checked first takes it.
-#[derive(Debug, Default)]
-struct Turn {
-    /// The work whose turn it is, and when its check passed, where it has.
-    holder: Option<(WorkNumber, Option<Instant>)>,
-    /// The works whose checks wait for the turn, in the order they began to wait.
-    waiting: Vec<WorkNumber>,
-    /// The works a pause holds, as the loop last said ([`Rounds::paused`]).
-    paused: BTreeSet<WorkNumber>,
-}
-
-impl Turn {
-    /// Whether the work takes the turn now: it is not paused; and it has the turn already, or nobody has it, or the
-    /// work that has it passed its check and is paused or has kept it past [`TURN_LEFT`], and every work that began to
-    /// wait before it is paused.
-    fn takes(&self, work: WorkNumber, now: Instant) -> bool {
-        if self.paused.contains(&work) {
-            return false;
-        }
-        let free = match self.holder {
-            Some((holder, _)) if holder == work => return true,
-            None => true,
-            Some((holder, Some(passed))) => self.paused.contains(&holder) || left(passed, now),
-            Some((_, None)) => false,
-        };
-        free && (self.waiting.iter())
-            .take_while(|waiting| **waiting != work)
-            .all(|before| self.paused.contains(before))
-    }
-}
-
-/// A work's place among those whose checks wait for the turn, which it leaves as this is dropped: it took the turn, its
-/// round was told to stop, or the wait was dropped.
-struct Waiting<'a> {
-    turn: &'a std::sync::Mutex<Turn>,
-    freed: &'a Notify,
-    work: WorkNumber,
-}
-
-impl Drop for Waiting<'_> {
-    fn drop(&mut self) {
-        let mut turn = self.turn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        turn.waiting.retain(|waiting| *waiting != self.work);
-        // The works that waited behind it may come first now.
-        self.freed.notify_waiters();
-    }
-}
-
-impl<H: Host> Inner<H> {
-    /// The turn, held.
-    fn turn(&self) -> std::sync::MutexGuard<'_, Turn> {
-        self.turn.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-    }
-
-    /// Waits for the work's turn to check and merge, and takes it, as [`Turn::takes`] says. While it waits, it says
-    /// which work has the turn. Says false where the round was told to stop meanwhile.
-    async fn take_turn(&self, work: WorkNumber, stop: &mut Stop) -> bool {
-        let _waiting = {
-            let mut turn = self.turn();
-            if !turn.waiting.contains(&work) {
-                turn.waiting.push(work);
-            }
-            Waiting {
-                turn: &self.turn,
-                freed: &self.turn_freed,
-                work,
-            }
-        };
-        loop {
-            let freed = self.turn_freed.notified();
-            {
-                let mut turn = self.turn();
-                if turn.takes(work, Instant::now()) {
-                    turn.holder = Some((work, None));
-                    drop(turn);
-                    stop.say(None);
-                    return true;
-                }
-                if let Some((holder, _)) = turn.holder {
-                    drop(turn);
-                    stop.say(Some(Along::Turn { holder }));
-                }
-            }
-            // Told when the turn is let go, a wait ends or a pause changes; looked at again now and then, as a turn
-            // left grows old by itself.
-            tokio::select! {
-                () = freed => {}
-                () = tokio::time::sleep(Duration::from_secs(60)) => {}
-                () = stop.told() => return false,
-            }
-        }
-    }
-
-    /// The work that has the turn passed its check: it keeps the turn for its merge, unless a pause holds it, when it
-    /// gives the turn up.
-    fn passed_turn(&self, work: WorkNumber) {
-        let mut turn = self.turn();
-        if turn.paused.contains(&work) {
-            drop(turn);
-            self.end_turn(work);
-            return;
-        }
-        if let Some((holder, passed)) = turn.holder.as_mut()
-            && *holder == work
-        {
-            *passed = Some(Instant::now());
-        }
-    }
-
-    /// The work lets go of the turn, where it has it.
-    fn end_turn(&self, work: WorkNumber) {
-        let mut turn = self.turn();
-        if turn.holder.is_some_and(|(holder, _)| holder == work) {
-            turn.holder = None;
-            self.turn_freed.notify_waiters();
-        }
-    }
-
-    /// Whether a pause holds the work back now: a work paused gives up the turn it keeps after its check passed.
-    fn pause(&self, work: WorkNumber, paused: bool) {
-        let mut turn = self.turn();
-        let changed = match paused {
-            true => turn.paused.insert(work),
-            false => turn.paused.remove(&work),
-        };
-        if paused && matches!(turn.holder, Some((holder, Some(_))) if holder == work) {
-            turn.holder = None;
-        }
-        if changed {
-            self.turn_freed.notify_waiters();
-        }
     }
 }
 
@@ -1583,147 +1377,6 @@ mod tests {
         assert_eq!(
             merged_or_failed(Ok("head".to_string()), "main", &words),
             Ok("head".to_string())
-        );
-    }
-
-    // The works of a project check and merge one at a time: another's check waits until the one whose turn it is has
-    // merged, or failed its check; a work whose check passed and whose merge does not come keeps it no longer than
-    // [`TURN_LEFT`].
-    #[tokio::test]
-    async fn the_works_of_a_project_check_and_merge_one_at_a_time() {
-        let repo = Repo::new("true");
-        let main = run(&repo.project.repo, &["rev-parse", "main"]);
-        let acts = Acts::new(
-            Fake::new(&main),
-            repo.project.clone(),
-            repo.data.clone(),
-            "0a1b2c3d".to_string(),
-            words(),
-        );
-        let inner = acts.inner.clone();
-        let (one, other) = (WorkNumber(1), WorkNumber(2));
-        assert!(inner.take_turn(one, &mut Stop::never()).await);
-        // The one's own check again, as after main moved, has it still.
-        assert!(inner.take_turn(one, &mut Stop::never()).await);
-        let waiting = {
-            let inner = inner.clone();
-            tokio::spawn(async move { inner.take_turn(other, &mut Stop::never()).await })
-        };
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        assert!(!waiting.is_finished(), "the other checks while the one has its turn");
-        inner.passed_turn(one);
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        assert!(!waiting.is_finished(), "the other checks before the one merges");
-        inner.end_turn(one);
-        let came = tokio::time::timeout(Duration::from_secs(5), waiting).await;
-        assert!(
-            came.expect("it comes").expect("it waits"),
-            "the other's turn comes once the one has merged"
-        );
-        // A turn kept past its time by a work whose check passed is the next one's.
-        let passed = std::time::Instant::now();
-        assert!(!left(passed, passed + TURN_LEFT));
-        assert!(left(passed, passed + TURN_LEFT + Duration::from_secs(1)));
-    }
-
-    /// The acts in the repository, for their turn to check and merge.
-    fn turning(repo: &Repo) -> Arc<Inner<Fake>> {
-        let main = run(&repo.project.repo, &["rev-parse", "main"]);
-        let acts = Acts::new(
-            Fake::new(&main),
-            repo.project.clone(),
-            repo.data.clone(),
-            "0a1b2c3d".to_string(),
-            words(),
-        );
-        acts.inner.clone()
-    }
-
-    /// The work's check, waiting for the turn beside the test.
-    fn waits(inner: &Arc<Inner<Fake>>, work: WorkNumber) -> tokio::task::JoinHandle<bool> {
-        let inner = inner.clone();
-        tokio::spawn(async move { inner.take_turn(work, &mut Stop::never()).await })
-    }
-
-    /// Whether the work's check takes the turn at once, without waiting for it.
-    async fn takes_at_once(inner: &Inner<Fake>, work: WorkNumber) -> bool {
-        let mut stop = Stop::never();
-        let taking = inner.take_turn(work, &mut stop);
-        tokio::time::timeout(Duration::ZERO, taking).await.unwrap_or(false)
-    }
-
-    /// Lets the checks that wait look at the turn: on the test's one thread, each that was woken runs before the test
-    /// goes on, and a few yields let those that one wakes run too, with no time spent waiting.
-    async fn settle() {
-        for _ in 0..8 {
-            tokio::task::yield_now().await;
-        }
-    }
-
-    // The turn goes to the works in the order their checks began to wait for it, and a check that comes as it frees
-    // waits behind those that waited before it: given to whichever waiting check looked first, it went to three works
-    // in turn whose checks began to wait after work 10's, which went on waiting.
-    #[tokio::test]
-    async fn the_turn_goes_to_the_works_in_the_order_their_checks_began_to_wait() {
-        let repo = Repo::new("true");
-        let inner = turning(&repo);
-        let [one, two, three, four] = [1, 2, 3, 4].map(WorkNumber);
-        assert!(takes_at_once(&inner, one).await);
-        let second = waits(&inner, two);
-        settle().await;
-        let third = waits(&inner, three);
-        settle().await;
-        inner.end_turn(one);
-        assert!(
-            !takes_at_once(&inner, four).await,
-            "a check that comes as the turn frees waits behind those that waited"
-        );
-        settle().await;
-        assert!(!third.is_finished(), "the third waits while the second has the turn");
-        assert!(second.await.expect("it waits"), "the turn is the second's");
-        inner.end_turn(two);
-        assert!(third.await.expect("it waits"), "and then the third's");
-        inner.end_turn(three);
-        assert!(
-            takes_at_once(&inner, four).await,
-            "the last comes once those before it had theirs"
-        );
-    }
-
-    // A work a pause holds neither takes the turn nor keeps it once its check passed, since it cannot merge: its
-    // check's wait stands aside, in its place, until it is let on, and the works behind it go on. Paused works took the
-    // turn, ran the full CI for a merge that could not come and kept it from the others for a quarter of an hour (works
-    // 6, 7 and 9).
-    #[tokio::test]
-    async fn a_paused_work_neither_takes_the_turn_nor_keeps_it_once_its_check_passed() {
-        let repo = Repo::new("true");
-        let inner = turning(&repo);
-        let [one, two, three] = [1, 2, 3].map(WorkNumber);
-        inner.pause(one, true);
-        assert!(
-            !takes_at_once(&inner, one).await,
-            "a paused check takes no turn, though nobody has it"
-        );
-        let first = waits(&inner, one);
-        settle().await;
-        assert!(
-            takes_at_once(&inner, two).await,
-            "a check behind a paused one goes first"
-        );
-        // The second, paused once its check passed, gives the turn up at once: the first, let on, has it.
-        inner.passed_turn(two);
-        inner.pause(two, true);
-        inner.pause(one, false);
-        assert!(
-            first.await.expect("it waits"),
-            "the first, let on, has the turn in its place"
-        );
-        // The first, paused while its check is under way, gives the turn up as its check passes.
-        inner.pause(one, true);
-        inner.passed_turn(one);
-        assert!(
-            takes_at_once(&inner, three).await,
-            "a check passed while paused keeps no turn"
         );
     }
 

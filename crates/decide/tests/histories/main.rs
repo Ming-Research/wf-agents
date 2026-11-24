@@ -44,8 +44,9 @@
 //!   run takes up itself.
 //! - the engine: while the work is paused, a run at rest has its next round only where it started for the owner's words
 //!   and its last round did not fail in a way that paused the work with no letting on since (`pausing`).
-//! - the room the engine leaves the work (`room`), as before: the owner's pause of everything and the slot come and go
-//!   in some histories, and every history asks the walk what it would decide in every other room.
+//! - the room the engine leaves the work (`room`), as before: the owner's pause of everything, the slot and the turn
+//!   of the project come and go in some histories, and every history asks the walk what it would decide in every other
+//!   room.
 //!
 //! Every situation a property is about is counted, and a test fails if none of its histories reaches one of them.
 //!
@@ -289,12 +290,16 @@ struct History {
     failing: Option<Rng>,
     /// Draws the room the engine leaves the work, apart from `rng`, in the histories where it changes.
     rooms: Option<Rng>,
+    /// Draws which cells take the turn of the project and when it is not the work's, apart from `rooms`, in the same
+    /// histories, so that the draws of the room as they were do not change.
+    turns: Option<Rng>,
     /// Draws the questions the cells ask and the owner's answers, apart from `rng`, in the histories where cells ask,
     /// so that the histories where they do not go as they did before questions were added.
     asking: Option<Rng>,
     /// The cell the owner's answers to its questions run, in the histories where cells ask.
     answered: Option<CellId>,
-    /// The room the engine leaves the work: the owner's pause of everything, and whether a slot is free.
+    /// The room the engine leaves the work: the owner's pause of everything, whether a slot is free and whether it is
+    /// the work's turn.
     room: Room,
     /// Whether rounds fail more often than `ANY` draws them.
     often: bool,
@@ -339,9 +344,15 @@ impl History {
         let failing = (shape.is_none() && judged.is_none() && fails).then_some(failing);
         let mut rooms = Rng::new(seed ^ 0x0000_5107_5A0F_A11D);
         let mut rooms = (shape.is_none() && judged.is_none() && failing.is_none() && rooms.chance(50)).then_some(rooms);
+        let mut turns = rooms.as_ref().map(|_| Rng::new(seed ^ 0x0007_0A7E_0000_C0DE));
         if let Some(rooms) = &mut rooms {
             for c in &mut cells {
                 c.slot = !rooms.chance(30);
+            }
+        }
+        if let Some(turns) = &mut turns {
+            for c in &mut cells {
+                c.turn = turns.chance(30);
             }
         }
         let mut asks = Rng::new(seed ^ 0x0A5C_ED0F_0A11_5E7E);
@@ -404,6 +415,7 @@ impl History {
             judged,
             failing,
             rooms,
+            turns,
             asking,
             answered,
             room: Room::FREE,
@@ -442,6 +454,9 @@ impl History {
             if slot {
                 self.toggle_slot();
             }
+        }
+        if people && self.turns.as_mut().is_some_and(|turns| turns.chance(15)) {
+            self.toggle_turn();
         }
         let decision = self.decide();
         self.note(format!("decision: {decision:?}"));
@@ -557,6 +572,12 @@ impl History {
                 }
                 people
             }
+            Decision::Wait { on, .. } if on == &[Waited::Turn] => {
+                if people {
+                    self.toggle_turn();
+                }
+                people
+            }
             Decision::Wait { at, on } => {
                 assert!(!on.is_empty(), "a wait names nothing waited for");
                 let engine = on.iter().find_map(|o| match o {
@@ -629,6 +650,7 @@ impl History {
         properties::decision(v, flow, &reading, decision, self.room, paused, seed);
         pausing::decision(v, flow, &reading, decision, self.room, paused);
         room::decision(v, flow, r);
+        room::begins(v, flow, decision, self.room);
     }
 
     /// What the walk decides, in the room the engine leaves the work.
@@ -893,14 +915,17 @@ impl History {
         names.max().unwrap_or(0) + 1000
     }
 
-    /// People lift what holds the work back: the work's own pause, or, where the owner's pause of everything holds
-    /// or no slot is free, in half the acts drawn apart from the rest, that instead.
+    /// People lift what holds the work back: the work's own pause, or, where the owner's pause of everything holds,
+    /// no slot is free or it is not the work's turn, in half the acts drawn apart from the rest, that instead.
     fn lift(&mut self) {
-        let other = (self.room.paused || !self.room.slot) && self.rooms.as_mut().is_some_and(|r| r.chance(50));
+        let other = (self.room.paused || !self.room.slot || !self.room.turn)
+            && self.rooms.as_mut().is_some_and(|r| r.chance(50));
         if !other {
             self.toggle_pause();
         } else if !self.room.slot {
             self.toggle_slot();
+        } else if !self.room.turn {
+            self.toggle_turn();
         } else {
             self.toggle_everything();
         }
@@ -914,6 +939,16 @@ impl History {
             "lifts the pause of"
         };
         self.note(format!("the owner {what} everything"));
+    }
+
+    fn toggle_turn(&mut self) {
+        self.room.turn = !self.room.turn;
+        let what = if self.room.turn {
+            "comes to the work"
+        } else {
+            "goes to another work of the project"
+        };
+        self.note(format!("the turn {what}"));
     }
 
     fn toggle_slot(&mut self) {
@@ -1438,7 +1473,7 @@ fn one_history(seed: u64, drawn: Drawn, log: &mut Vec<String>, verdict: &mut Ver
         }
         h.note("people stop".into());
         if h.room != Room::FREE {
-            h.note("the pause of everything is lifted, and a slot is free".into());
+            h.note("the pause of everything is lifted, a slot is free and it is the work's turn".into());
             h.room = Room::FREE;
         }
         // In a history whose rounds fail, the owner lets the work on, whoever paused it.

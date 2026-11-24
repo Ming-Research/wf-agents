@@ -61,6 +61,7 @@ function flowOf(
     act: c.act ?? null,
     effort: c.line === null ? null : 'high',
     takesMain: false,
+    takesTurn: false,
     tools: [],
     when: c.condition ? [c.condition] : [],
     requires: (c.preconditions ?? []).map((test) => ({ on: 'test', test })),

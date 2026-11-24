@@ -65,6 +65,11 @@ The flow's views draw a way back in the accent, a thick line and arrow on the ma
 Every mark the page draws is defined once, with a name of a word or two, in one table, and each view's legend lists only the marks that view draws, on one line, or on the console in a panel.
 - replaced: Separate marks and legends in each view, which named one thing in several ways, was on main; the owner changed it, because a legend's words had grown too long for its line, and things that were alike looked different from view to view.
 
+### decision the-wait-for-the-turn-has-a-colour-of-its-own
+The time bar draws a work's wait for its project's turn to check and merge in a teal of its own, said on pointing at it and listed with the bar's other colours in the console's legend.
+- rejected: an agent proposed drawing it in the grey of the items it waits for and of nothing running, told apart only on pointing; the owner rejected it, because a glance could not tell a work queued for the turn from any other grey stretch, each having to be pointed at.
+- rejected: an agent proposed a violet for it; the owner rejected it, because the accent would then also have to keep clear of violet, leaving only a short stretch of blue to choose from, and its rule would gain one more colour.
+
 ### decision the-page-draws-markdown-itself
 The page draws the Markdown that agents write with its own renderer and its own parts, and uses no Markdown library.
 - replaced: Markdown shown as raw text was on main; the owner changed it, because shown that way it could hardly be read.

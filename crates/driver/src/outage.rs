@@ -463,6 +463,64 @@ pub fn limits<'a>(
     (limits.into_iter()).map(|(name, (limit, _))| (name, limit)).collect()
 }
 
+/// A stretch in which the agents' command line could not run: from when a round of an agent failed so, to when the next
+/// round of an agent, of any work, began; none while none has.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CannotRun {
+    pub from: Time,
+    pub until: Option<Time>,
+    /// Why the latest round that failed so in the stretch said.
+    pub why: String,
+}
+
+/// Each wait in which the agents' command line could not run that is over, from the records of these works: it stands
+/// from the end of a round of an agent that failed so, a round another work had under way when the first one failed and
+/// that failed so too joining it, until the first round of an agent, of any work, that began after the latest of them.
+/// The wait that stands now, which no round has begun after, is the driver's ([`crate::Driver::outage`]): what the records of
+/// rounds say of it is the same, and it is drawn from the time its first round failed so, whichever kind of cause the
+/// failures before it in the wait had. What the failed rounds recorded is kept whole, so that a wait is read the same
+/// whenever it is asked (principle `state-from-records`).
+pub fn cannot_run_spans<'a>(works: impl IntoIterator<Item = (WorkNumber, &'a Outline, &'a Work)>) -> Vec<CannotRun> {
+    let rounds = rounds(Service::Agents, works);
+    let mut begins: Vec<Time> = rounds.iter().map(|r| r.began).collect();
+    begins.sort();
+    let mut failed: Vec<(Time, &String)> = (rounds.iter())
+        .filter_map(|r| match &r.ended {
+            Some((
+                time,
+                _,
+                Some(Back::Failed {
+                    why,
+                    failure: Failure::CannotRun,
+                    ..
+                }),
+            )) => Some((*time, why)),
+            _ => None,
+        })
+        .collect();
+    failed.sort_by_key(|(time, _)| *time);
+    let mut waits: Vec<CannotRun> = Vec::new();
+    for (time, why) in failed {
+        let until = begins.iter().find(|began| **began > time).copied();
+        match waits.last_mut() {
+            Some(last) if last.until.is_none_or(|over| time <= over) => {
+                last.until = match (last.until, until) {
+                    (Some(over), Some(until)) => Some(over.max(until)),
+                    _ => None,
+                };
+                last.why.clone_from(why);
+            }
+            _ => waits.push(CannotRun {
+                from: time,
+                until,
+                why: why.clone(),
+            }),
+        }
+    }
+    waits.retain(|wait| wait.until.is_some());
+    waits
+}
+
 /// Every round of the works' runs of cells the service serves.
 fn rounds<'a>(service: Service, works: impl IntoIterator<Item = (WorkNumber, &'a Outline, &'a Work)>) -> Vec<Taken> {
     let mut rounds = Vec::new();

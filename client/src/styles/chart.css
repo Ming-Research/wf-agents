@@ -578,6 +578,20 @@ tr.row.chosen > .block-head {
   gap: var(--space-2);
 }
 
+/* A sample of a colour of the time track in the legend: the track's own block, filling a small box. */
+.legend-track {
+  position: relative;
+  display: inline-block;
+  width: var(--space-12);
+  height: var(--space-8);
+  vertical-align: middle;
+}
+
+.legend-track .us-block {
+  left: 0;
+  width: 100%;
+}
+
 /* What joins the cards: the funnel to the items under one, in the grey of the canvas's funnels; the lit way, in the
    running colour. */
 .legend-funnel path {

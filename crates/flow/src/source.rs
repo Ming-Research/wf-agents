@@ -639,6 +639,10 @@ pub struct CellFile {
     /// the code.
     #[serde(default)]
     pub takes_main: bool,
+    /// Whether the cell takes the turn of its work's project: the works of a project take turns at the cells that
+    /// say so, one work at a time, from its first round of such a cell while its walk stays at them.
+    #[serde(default)]
+    pub takes_turn: bool,
     /// The tools of the engine's that an agent cell may ask for in its return, by name, each a tool the engine has.
     #[serde(default)]
     pub tools: Vec<String>,
