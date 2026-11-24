@@ -189,6 +189,8 @@ describe('the lit ways of the items whose work runs', () => {
     expect(aims([1, 2, 3], [2, 0])).toEqual({ 1: 'dim', 2: 'full', 3: 'dim' });
     // Dimmed, a way is as strong as the links it lies on once the items are dimmed.
     expect(wayAims([1], parent, new Set([4])).get(1)).toBe(linksStrength(DIM));
+    // While the search is open the tree dims with nothing lit, and every way with it.
+    expect(wayAims([1], parent, new Set(), true).get(1)).toBe(linksStrength(DIM));
     expect(linksStrength(1)).toBe(1);
   });
 

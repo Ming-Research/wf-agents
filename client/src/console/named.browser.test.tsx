@@ -1,8 +1,8 @@
 // The console in a real browser, opened at an item the address names, and moved to another by a link in a text. The
 // item may be of a kind the tree does not show (its box is not ticked): the box is ticked and the item selected, for
 // the first address and for each address that follows while the page stays (a link to an item in the window's text
-// changes the address only). The reference is the design tree: decision an-item-is-found-from-the-trees-corner (a pick
-// selects the item, its kind ticked) and decision the-boxes-choose-the-items-shown (Open, Done and Cancelled).
+// changes the address only). The reference is the design tree: decision an-item-is-found-from-a-box-the-slash-opens
+// (a pick selects the item, its kind ticked) and decision the-boxes-choose-the-items-shown (Open, Done and Cancelled).
 
 import '../styles/tokens.css';
 import '../styles/parts.css';
