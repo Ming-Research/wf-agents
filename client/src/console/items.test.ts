@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CellNow, Item, Items, Now, Summary, Wait } from '../works-api';
-import { asksOf, findItems, itemPaths, pathWords, STANDINGS, shownTree, type Shown } from './items';
+import { asksOf, findItems, STANDINGS, shownTree, type Shown } from './items';
 import { indexTree } from './tree';
 
 const CELLS = ['plan', 'implement', 'merge'];
@@ -260,7 +260,7 @@ describe('the folds of the tree', () => {
 });
 
 describe('the search of the items', () => {
-  // 1 depends on 2 and 3, and 2 on 4: the paths 1-2, 1-3 and 1-2-4. 5, cancelled, and 65 stand alone.
+  // 1 depends on 2 and 3, and 2 on 4; 5, cancelled, and 65 stand alone.
   const named = (i: Item, title: string): Item => ({ ...i, title });
   const data: Items = {
     items: [
@@ -272,52 +272,29 @@ describe('the search of the items', () => {
       named(item(65, 'open'), 'Read the record'),
     ],
   };
-  const found = (query: string) => findItems(data, query).map((f) => pathWords(f.path));
-
-  it('writes each item by its path in the tree, from its root down, as the tree places it', () => {
-    const paths = itemPaths(data);
-    const words = [1, 2, 3, 4, 5, 65].map((n) => pathWords(paths.get(n) ?? []));
-    expect(words).toEqual(['1', '1-2', '1-3', '1-2-4', '5', '65']);
-  });
+  const found = (query: string) => findItems(data, query).map((i) => i.number);
 
   it('finds an item by its number, with or without #, and as the number is typed, the items whose number begins so', () => {
-    expect(found('65')).toEqual(['65']);
-    expect(found('#65')).toEqual(['65']);
-    expect(found(' 3 ')).toEqual(['1-3']);
-    expect(found('6')).toEqual(['65']);
-    expect(found('1')).toEqual(['1']);
+    expect(found('65')).toEqual([65]);
+    expect(found('#65')).toEqual([65]);
+    expect(found(' 3 ')).toEqual([3]);
+    expect(found('6')).toEqual([65]);
+    // The very number first, then the others it begins.
+    expect(found('1')).toEqual([1]);
+    const typed: Items = { items: [item(26, 'open'), item(2, 'done'), item(27, 'open'), item(260, 'cancelled')] };
+    expect(findItems(typed, '2').map((i) => i.number)).toEqual([2, 26, 27, 260]);
+    expect(findItems(typed, '26').map((i) => i.number)).toEqual([26, 260]);
   });
 
-  it('finds the item a path from its root names, and the items under it, in the order of the tree', () => {
-    expect(found('1-2')).toEqual(['1-2', '1-2-4']);
-    expect(found('1-2-4')).toEqual(['1-2-4']);
-    expect(found('1-')).toEqual(['1-2', '1-2-4', '1-3']);
-    // A path that does not begin at a root names nothing.
-    expect(found('2-4')).toEqual([]);
-  });
-
-  it('finds as a path is typed a digit at a time: the last number begun names each number it begins, the very one first', () => {
-    // 26 depends on 27, 28 and 29, and 27 on 30.
-    const typed: Items = {
-      items: [
-        item(26, 'open', [27, 28, 29]),
-        item(27, 'done', [30]),
-        item(28, 'open'),
-        item(29, 'cancelled'),
-        item(30, 'done'),
-      ],
-    };
-    const paths = (query: string) => findItems(typed, query).map((f) => pathWords(f.path));
-    expect(paths('26-2')).toEqual(['26-27', '26-27-30', '26-28', '26-29']);
-    expect(paths('26-28')).toEqual(['26-28']);
-    expect(paths('26-27-3')).toEqual(['26-27-30']);
-    expect(paths('2')).toEqual(['26', '26-27', '26-28', '26-29']);
+  it('takes numbers joined by `-` for no path: it finds only what a title holds of them', () => {
+    expect(found('1-2')).toEqual([]);
+    expect(found('1-')).toEqual([]);
   });
 
   it('finds the items whose title holds what is typed, in any case and as Chinese is typed, open, done or cancelled', () => {
-    expect(found('find')).toEqual(['1', '5']);
-    expect(found('LEGEND')).toEqual(['1-2']);
-    expect(found('搜索')).toEqual(['1-3']);
+    expect(found('find')).toEqual([1, 5]);
+    expect(found('LEGEND')).toEqual([2]);
+    expect(found('搜索')).toEqual([3]);
     expect(found('nowhere')).toEqual([]);
   });
 

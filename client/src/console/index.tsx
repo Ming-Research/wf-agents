@@ -170,9 +170,10 @@ export function ConsolePage({
     toSelect.current = named;
     selectNamed();
   }, [named]);
-  // The search's field, which `/` gives the keys to. An item picked from it is selected as one the address names: the
-  // folds over it open, and where its kind is not ticked, its box is ticked first, so that the tree shows it.
-  const findField = useRef<HTMLInputElement>(null);
+  // Whether the search is open: `/` opens it, and it closes itself. An item picked from it is selected as one the
+  // address names: the folds over it open, and where its kind is not ticked, its box is ticked first, so that the tree
+  // shows it.
+  const [finding, setFinding] = useState(false);
   const pick = (id: number) => {
     if (latestData.current?.items.some((i) => i.number === id) !== true) return;
     toSelect.current = id;
@@ -249,7 +250,7 @@ export function ConsolePage({
     if (!active) return;
     const key = (e: KeyboardEvent) => {
       // `e` folds the items under the card the pointer is over away, or shows them again, as a click on its funnel or
-      // its dot does; `/` gives the keys to the search; `n` goes to the next stop and `N` to the one before. None while
+      // its dot does; `/` opens the search; `n` goes to the next stop and `N` to the one before. None while
       // the owner types in a field, nor with Ctrl, Alt or Meta held.
       if (e.key === 'e' || e.key === '/' || e.key === 'n' || e.key === 'N') {
         const to = e.target as HTMLElement | null;
@@ -257,7 +258,7 @@ export function ConsolePage({
         if (to && (to.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(to.tagName))) return;
         if (e.key === '/') {
           e.preventDefault();
-          findField.current?.focus();
+          setFinding(true);
         } else if (e.key === 'n' || e.key === 'N') {
           e.preventDefault();
           walkOnNow.current(e.key === 'n' ? 1 : -1);
@@ -319,7 +320,6 @@ export function ConsolePage({
               </label>
             ))}
           </div>
-          <Find data={data} field={findField} onPick={pick} />
           {failed !== null && <p className="console-message">The page could not read the items: {failed}</p>}
           {undrawn !== null && <p className="console-message">The browser could not draw the tree: {undrawn}</p>}
         </div>
@@ -364,6 +364,14 @@ export function ConsolePage({
           />
         )}
       </Drawer>
+      {finding && (
+        <Find
+          data={data}
+          onPick={pick}
+          onClose={() => setFinding(false)}
+          onFound={(ids) => scene.current?.find(ids)}
+        />
+      )}
     </div>
   );
 }

@@ -33,7 +33,21 @@ import { FIND_SAYS } from './find';
 import { CONSOLE_MARKS } from './help';
 import { ConsolePage } from './index';
 import type { Shown, ShownWork } from './items';
-import { DOT_AT, FLASH_MS, FOLD_MS, KEEP, NODE_W, PACE, PITCH, ROW, RUN, SnapScene, themed, UNFOLD_MS } from './snap';
+import {
+  DIM,
+  DOT_AT,
+  FLASH_MS,
+  FOLD_MS,
+  KEEP,
+  NODE_W,
+  PACE,
+  PITCH,
+  ROW,
+  RUN,
+  SnapScene,
+  themed,
+  UNFOLD_MS,
+} from './snap';
 
 const WIDTH = 1000;
 const HEIGHT = 640;
@@ -1158,8 +1172,8 @@ describe('the console page', () => {
     expect(JSON.parse(kept() ?? '')).toEqual({ 27: 'folded' });
   });
 
-  /// The search's field, and the paths of the rows it finds.
-  const field = () => container.querySelector('.console-find input') as HTMLInputElement;
+  /// The search's field, while the search is open, and the numbers of the rows it finds.
+  const field = () => container.querySelector('.console-find input') as HTMLInputElement | null;
   const found = () => [...container.querySelectorAll('.console-found-row > .mono')].map((s) => s.textContent);
   /// The box of a kind of item over the tree.
   const box = (name: string) =>
@@ -1167,48 +1181,70 @@ describe('the console page', () => {
       .find((l) => l.textContent === name)
       ?.querySelector('input') as HTMLInputElement;
 
-  it('gives the keys to the search at `/`, finds by number, by path and by a part of the title, and empties at Escape', async () => {
-    const scene = await drawn();
+  it('shows the search only from `/`, over the middle of the top of the console, finds by number and by a part of the title, and closes at a press elsewhere or Escape', async () => {
+    await drawn();
+    // Nothing of it shows until `/`.
+    expect(field()).toBeNull();
     await userEvent.keyboard('/');
-    expect(document.activeElement).toBe(field());
-    expect(field().value).toBe('');
-    // By its number: item 27, done, shown by its path under 26, its root.
-    await userEvent.fill(field(), '27');
-    await expect.poll(found).toEqual(['26-27']);
+    await expect.poll(() => document.activeElement !== null && document.activeElement === field()).toBe(true);
+    expect(field()?.value).toBe('');
+    // By its number: item 27, done.
+    await userEvent.fill(field() as HTMLInputElement, '27');
+    await expect.poll(found).toEqual(['#27']);
     expect(container.querySelector('.console-found-row .console-found-standing')?.textContent).toBe('Done');
-    // By a path from its root: the item it names, and the items under it.
-    await userEvent.fill(field(), '26-27');
-    await expect.poll(found).toEqual(['26-27', '26-27-30', '26-27-31']);
-    // As a path stands while it is typed a digit at a time: `26-2` names 26-27, 26-28 and 26-29, each with the items
-    // under it.
-    await userEvent.fill(field(), '26-2');
-    await expect.poll(found).toEqual([
-      '26-27',
-      '26-27-30',
-      '26-27-31',
-      '26-28',
-      '26-28-32',
-      '26-29',
-      '26-29-33',
-      '26-29-34',
-    ]);
-    // The list's frame reaches past the right edge of the tree's first column, so that no card shows beside it.
-    const frame = (container.querySelector('.console-found') as HTMLElement).getBoundingClientRect();
-    const canvas = (container.querySelector('canvas') as HTMLCanvasElement).getBoundingClientRect();
-    expect(frame.right).toBeGreaterThanOrEqual(canvas.left + scene.place().left + NODE_W);
-    // Nothing found is said in the list's own frame, on its ground.
-    await userEvent.fill(field(), 'nowhere at all');
+    // Numbers joined by `-` name no path; nothing found is said in the list's own frame, on its ground.
+    await userEvent.fill(field() as HTMLInputElement, '26-27');
     await expect.poll(() => container.querySelector('.console-found > .console-found-none')?.textContent).toBe(
       FIND_SAYS.none,
     );
-    // By a part of the title, in any case, over every item, done or not.
-    await userEvent.fill(field(), 'FOLD');
-    await expect.poll(found).toEqual(['26', '26-27', '26-27-30', '26-27-31']);
-    // Escape empties the field and gives the keys back.
+    // It stands over the middle of the console, in its top third, and the list under the field is as wide as the field.
+    const whole = (container.querySelector('.console') as HTMLElement).getBoundingClientRect();
+    const search = (container.querySelector('.console-find') as HTMLElement).getBoundingClientRect();
+    expect(Math.abs(search.left + search.width / 2 - (whole.left + whole.width / 2))).toBeLessThan(1);
+    expect(search.top - whole.top).toBeLessThan(whole.height / 3);
+    const list = (container.querySelector('.console-found') as HTMLElement).getBoundingClientRect();
+    expect(Math.abs(list.width - (field() as HTMLInputElement).getBoundingClientRect().width)).toBeLessThan(1);
+    // By a part of the title, in any case, over every item, done or not, by number.
+    await userEvent.fill(field() as HTMLInputElement, 'FOLD');
+    await expect.poll(found).toEqual(['#26', '#27', '#30', '#31']);
+    // A press elsewhere closes it and keeps what was typed for the next time it opens.
+    (document.activeElement as HTMLElement | null)?.blur();
+    await expect.poll(field).toBeNull();
+    await userEvent.keyboard('/');
+    await expect.poll(() => field()?.value).toBe('FOLD');
+    // Escape empties it, closes it and gives the keys back.
     await userEvent.keyboard('{Escape}');
-    expect(field().value).toBe('');
-    expect(document.activeElement).not.toBe(field());
-    expect(container.querySelector('.console-found')).toBeNull();
+    await expect.poll(field).toBeNull();
+    expect(document.activeElement?.closest('.console-find') ?? null).toBeNull();
+    await userEvent.keyboard('/');
+    await expect.poll(() => field()?.value).toBe('');
+  });
+
+  it('dims the tree while it is open, lighting what it finds as round the item under the pointer, and lets the pointer choose a row', async () => {
+    const scene = await drawn();
+    const near = (id: number, to: number) => Math.abs((scene.brightness(id) ?? -1) - to);
+    // Open, with nothing typed, every item dims.
+    await userEvent.keyboard('/');
+    await expect.poll(() => near(1, DIM)).toBeLessThan(0.01);
+    expect(near(26, DIM)).toBeLessThan(0.01);
+    await userEvent.fill(field() as HTMLInputElement, 'Fold the items under');
+    await expect.poll(found).toEqual(['#26']);
+    // Item 26, found, lights up; item 1, drawn and not found, stays dimmed.
+    await expect.poll(() => near(26, 1)).toBeLessThan(0.01);
+    expect(near(1, DIM)).toBeLessThan(0.01);
+    // The pointer chooses the row it is over, as the arrow keys do.
+    await userEvent.fill(field() as HTMLInputElement, 'fold');
+    await expect.poll(found).toEqual(['#26', '#27', '#30', '#31']);
+    const rows = () => [...container.querySelectorAll('.console-found-row')];
+    await userEvent.hover(rows()[2] as HTMLElement);
+    await expect
+      .poll(() => rows().map((r) => r.getAttribute('aria-selected')))
+      .toEqual(['false', 'false', 'true', 'false']);
+    // Closed, it dims nothing any more.
+    await userEvent.keyboard('{Escape}');
+    await expect.poll(field).toBeNull();
+    await expect.poll(() => near(1, 1)).toBeLessThan(0.01);
+    expect(near(26, 1)).toBeLessThan(0.01);
   });
 
   it('opens the folds over an item it picks, ticking the box of its kind where it was not, and selects it', async () => {
@@ -1216,21 +1252,24 @@ describe('the console page', () => {
     expect(box('Done').checked).toBe(false);
     // Item 30 is done, and folded away under 27, done too.
     await userEvent.keyboard('/');
-    await userEvent.fill(field(), '26-27-30');
-    await expect.poll(found).toEqual(['26-27-30']);
+    await userEvent.fill(field() as HTMLInputElement, '30');
+    await expect.poll(found).toEqual(['#30']);
     await userEvent.keyboard('{Enter}');
     await expect.poll(title).toBe('Draw a fold as a dot');
     expect(box('Done').checked).toBe(true);
     expect(JSON.parse(localStorage.getItem('wf-agents.console-folds') ?? '{}')).toEqual({ 27: 'unfolded' });
-    expect(field().value).toBe('');
+    // The pick closed the search and emptied it.
+    await expect.poll(field).toBeNull();
+    await userEvent.keyboard('/');
+    await expect.poll(() => field()?.value).toBe('');
   });
 
   it('ticks Cancelled for a cancelled item it picks with a click, and selects it', async () => {
     await drawn();
     expect(box('Cancelled').checked).toBe(false);
     await userEvent.keyboard('/');
-    await userEvent.fill(field(), 'flat list');
-    await expect.poll(found).toEqual(['35']);
+    await userEvent.fill(field() as HTMLInputElement, 'flat list');
+    await expect.poll(found).toEqual(['#35']);
     await userEvent.click(container.querySelector('.console-found-row') as HTMLElement);
     await expect.poll(title).toBe('Try the tree as a flat list');
     expect(box('Cancelled').checked).toBe(true);
@@ -1308,9 +1347,13 @@ describe('the console page', () => {
     try {
       // With Ctrl held, or while the owner types in a field, n goes nowhere.
       key('n', { ctrlKey: true });
-      key('n', {}, field());
+      await userEvent.keyboard('/');
+      await expect.poll(field).not.toBeNull();
+      key('n', {}, field() as HTMLInputElement);
       await drew();
       expect(title()).toBeNull();
+      await userEvent.keyboard('{Escape}');
+      await expect.poll(field).toBeNull();
       // The items with stops, in the tree's order: 1 (two), 15 under 5 under it, 7, 20 (two), 12, 4 and 25. With
       // nothing selected, n goes to item 1's first stop; then to its second; then to 15's.
       await walkTo('n', 1);
