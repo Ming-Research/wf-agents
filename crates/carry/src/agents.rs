@@ -74,8 +74,7 @@
 //! work's change against main changes nothing in the tree; a look that cannot be made fails the round
 //! ([`tree`](crate::tree)). As a round of a line that may change more than the project's tests ends with a return that
 //! asks for no call, the return is found wanting for each fault in the forms of the design tree's files, where the
-//! work's change against main changes the tree; the look is made on the head the round ended with, and a branch that
-//! could not be read fails the round as it does for the tests.
+//! work's change against main changes the tree; a look that cannot be made fails the round.
 //!
 //! Before the first round of each run of a cell that takes main in, the work's branch takes in main's head as the host
 //! last gave it ([`catch_up`](crate::catch_up)), and what came of it is kept beside the run's rounds before the round
@@ -1016,17 +1015,11 @@ impl Inner {
                 // leaves the files of the design tree in their forms where the work's change against main changes the
                 // tree: its agent is here to put them right, which a line of tests cannot, the tree being no test of
                 // the project's. A return that asks for calls is held to nothing, as it is for the worktree. A look
-                // that cannot be made fails the round, as the look at the tests does, saying the same of a branch that
-                // could not be read.
+                // that cannot be made fails the round, as the look at the tests does.
                 if !round.cell.reads_only && !round.cell.tests_only && came.asks.is_empty() {
                     let (tree, head) = (of.project.tree.as_str(), place.reference());
-                    let unformed = match &ended {
-                        Ok(_) => {
-                            crate::tree::unformed(&of.project, &place, &of.main, tree, &of.beside.acts.tree, &head)
-                                .await
-                        }
-                        Err(why) => Err(format!("the work's branch could not be read: {why}")),
-                    };
+                    let unformed =
+                        crate::tree::unformed(&of.project, &place, &of.main, tree, &of.beside.acts.tree, &head).await;
                     match unformed {
                         Ok(lines) if lines.is_empty() => {}
                         Ok(lines) => came.found.push(Unmet::TreeForm { lines }),
