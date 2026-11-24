@@ -122,7 +122,9 @@
   text-transform: uppercase;
 }
 
-/* The list of works: one row each, full width, its head staying at the top. */
+/* The list of works: a group for each project, its head (parts.css, `.project-head`) over its table; one row a work,
+   full width, the table's head staying at the top while its rows scroll under it. The observations' list is laid out
+   in it too. */
 .list-view {
   flex: 1;
   min-height: 0;
@@ -164,10 +166,12 @@
   text-overflow: ellipsis;
 }
 
-/* Each column as wide as what it holds until the owner drags it (the width set on the table), the title as wide as the
-   others leave until then. */
+/* Each column as wide as the widest of what it holds in any group's table (`--fit-`, the width the list works out and
+   sets on itself, WorksList.tsx) until the owner drags it (the width set on each table), the title as wide as the
+   others leave until then. Where neither is set, as while the list works the widths out, a column is as wide as what it
+   holds in its own table. */
 .works .col-item {
-  width: var(--col-item);
+  width: var(--col-item, var(--fit-col-item));
   max-width: var(--col-item);
   min-width: var(--col-item);
 }
@@ -179,43 +183,43 @@
 }
 
 .works .col-state {
-  width: var(--col-state);
+  width: var(--col-state, var(--fit-col-state));
   max-width: var(--col-state);
   min-width: var(--col-state);
 }
 
 .works .col-cells {
-  width: var(--col-cells);
+  width: var(--col-cells, var(--fit-col-cells));
   max-width: var(--col-cells);
   min-width: var(--col-cells);
 }
 
 .works .col-level {
-  width: var(--col-level);
+  width: var(--col-level, var(--fit-col-level));
   max-width: var(--col-level);
   min-width: var(--col-level);
 }
 
 .works .col-cell-level {
-  width: var(--col-cell-level);
+  width: var(--col-cell-level, var(--fit-col-cell-level));
   max-width: var(--col-cell-level);
   min-width: var(--col-cell-level);
 }
 
 .works .col-cost {
-  width: var(--col-cost);
+  width: var(--col-cost, var(--fit-col-cost));
   max-width: var(--col-cost);
   min-width: var(--col-cost);
 }
 
 .works .col-time {
-  width: var(--col-time);
+  width: var(--col-time, var(--fit-col-time));
   max-width: var(--col-time);
   min-width: var(--col-time);
 }
 
 .works .col-last {
-  width: var(--col-last);
+  width: var(--col-last, var(--fit-col-last));
   max-width: var(--col-last);
   min-width: var(--col-last);
 }

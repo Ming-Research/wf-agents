@@ -69,17 +69,26 @@ export function linkItemNumbers(text: string, titles: ReadonlyMap<number, string
   for (const { from, to, n } of writtenIn(text, titles)) {
     if (from > at) out.push(text.slice(at, from));
     out.push(
-      <a
-        key={from}
-        className="link mono"
-        href={hashOf({ view: 'console', item: n })}
-        title={`${itemName(n)} ${titles.get(n)}`}
-      >
+      <ItemLink key={from} item={n} title={titles.get(n)}>
         {text.slice(from, to)}
-      </a>,
+      </ItemLink>,
     );
     at = to;
   }
   if (at < text.length) out.push(text.slice(at));
   return out;
+}
+
+/// An item's number as a link to the item in the console, which says on pointing at it the item's number and its title,
+/// where the page has read it: `#46`, or the words given for it.
+export function ItemLink({ item, title, children }: { item: number; title?: string; children?: ReactNode }) {
+  return (
+    <a
+      className="link mono"
+      href={hashOf({ view: 'console', item })}
+      title={title === undefined ? itemName(item) : `${itemName(item)} ${title}`}
+    >
+      {children ?? itemName(item)}
+    </a>
+  );
 }

@@ -1,13 +1,10 @@
 // The observations as the Observations view reads them, as `crates/web/src/observations.rs` gives them: the types here
 // follow those, field for field. Every time is in milliseconds since the start of 1970.
 //
-// The routes:
+// The route the page reads:
 // - `GET  /api/v1/observations`: every observation not deleted, the newest first (`ObservationsPage`).
-// - `POST /api/v1/observations/{number}/read`: the owner read the observation; answers with when it was read (`Read`),
-//   which a reading after the first leaves as it was, or with why it was refused.
 
 import { read } from './api';
-import { send } from './works-api';
 
 /// What an agent came across beyond its work, as a return of its run said it and the run kept it as it finished, or
 /// what an architect added: its number, written On; what it says; its title and tags, where it has them; the project it
@@ -43,9 +40,4 @@ export interface ObservationsPage {
   observations: Observation[];
 }
 
-export interface Read {
-  read: number;
-}
-
 export const loadObservations = () => read<ObservationsPage>('/api/v1/observations');
-export const readObservation = (number: number) => send<Read>(`/api/v1/observations/${number}/read`, {});

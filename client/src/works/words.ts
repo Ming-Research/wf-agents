@@ -632,6 +632,13 @@ export const ORDER_WORDS: Record<OrderBy, Record<Way, string>> = {
   },
 };
 
+/// The name of the group of what belongs to no project, in a list grouped by project, and what it holds, on pointing at
+/// it.
+export const NO_PROJECT = {
+  shown: 'no project',
+  title: 'what was added before items had projects',
+} as const;
+
 /// What a column of levels holds where the engine gives no level, and why, on pointing at it.
 export const NO_LEVEL = {
   shown: '–',

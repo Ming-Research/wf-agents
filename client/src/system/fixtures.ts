@@ -6,7 +6,7 @@
 // The settings are a file like the sample's, with a value the engine runs at another and a table left out, and four
 // projects, each in a state the engine may hold its declaration in.
 
-import { fixtureItems } from '../works/fixtures';
+import { fixtureItems, fixtureProjects as worksProjects } from '../works/fixtures';
 import type { Line, Spent } from '../works-api';
 import type {
   AccountsPage,
@@ -78,14 +78,10 @@ function split(spent: Spent, weights: number[]): Spent[] {
   });
 }
 
-/// The names of the projects: the works' fixtures' own first, the one whose work has a round under way before the
-/// other; then made-up ones.
-const PROJECT_NAMES = ['wf-agents', 'Whitefoot', 'whitefoot-site', 'bench', 'docs', 'installer', 'samples', 'formatter'];
-
-/// What was spent, by `projects` projects, the costliest first; where no count is given, by three projects and, the
-/// least, the items of none.
+/// What was spent, by the projects the works' fixtures name, as many as `projects` asks for, the costliest first; where
+/// no count is given, by as many as they name by default and, the least, the items of none.
 function byProject(spent: Spent, projects: number | null): System['byProject'] {
-  const named = Array.from({ length: projects ?? 3 }, (_, n) => PROJECT_NAMES[n] ?? `project-${n + 1}`);
+  const named = worksProjects(projects ?? undefined).names;
   const all: (string | null)[] = projects === null ? [...named, null] : named;
   const parts = split(spent, all.map((project, n) => (project === null ? 0.05 : 1 / (n + 1))));
   return all
