@@ -14,7 +14,7 @@
 //! before it, and holds each part of the message kept alike for both, and what that cell's return handed in, where it
 //! writes any block and handed one in; after a return of it that handed in nothing only where that cell must write no
 //! block, since a return that ends the run of a cell that must write one hands it in, and a question its cell waits for
-//! holds the work at that cell.
+//! holds the work at that cell, here and where another cell of the line was read first in a session begun anew.
 //!
 //! What it watches that ran it is each datum or group alone, those whose blocks one cell's return writes together, and
 //! all of them at once. On a first entry, where everything written is new to the cell, every datum it watches that the
@@ -40,10 +40,7 @@
 //! are the owner's. Any other datum the cell is given, the cell's own writes aside, stands any way the entry allows,
 //! since a version of it may be written while the run is under way: unwritten where it is not certainly written,
 //! lacking, held from a cell of the line, or, on a later entry, held as last worked from, latest, or with nothing new;
-//! but a datum the cell watches by itself that did not run it is never held as new to it, latest or never worked from,
-//! unless the owner can turn to the cell: its run began with nothing new of it, and a version written while the run is
-//! under way is not in a session before a round reads it; and a datum only people write that an earlier cell of the
-//! line watches is never held as last worked from where it
+//! but a datum only people write that an earlier cell of the line watches is never held as last worked from where it
 //! did not run the cell, since its new version runs that cell, whose round fills it first; and the datum the work
 //! starts with is never held as one the first agent's cell never worked from where it did not run it, though a later
 //! agent's cell may never have worked from it, its run having been stopped for the earlier cell that the datum ran. A
@@ -555,19 +552,6 @@ impl<'a> Reach<'a> {
         if filled_early && *class == Class::Rest && matches!(entry, Entry::Later | Entry::ReopenedAfterRead) {
             states.retain(|s| *s != Stands::HoldsLast);
         }
-        // A datum the cell watches by itself and that did not run it holds no version new to the cell: a version that
-        // is new to it at the start of its run runs it, and one written while the run is under way is not in a session
-        // before a round of the run reads it. The owner's turn to the cell, while a question it waits for stands
-        // unanswered, enters it by what the owner wrote alone, so only a cell that takes the owner's words or answers
-        // holds a version new to it that did not run it.
-        let alone = self
-            .cell
-            .watches
-            .iter()
-            .any(|t| !t.is_group() && t.name == block.as_str());
-        if *class == Class::Rest && alone && (entry == Entry::First || !self.interruptible()) {
-            states.retain(|s| !matches!(s, Stands::HoldsLatest | Stands::HoldsNew));
-        }
         // A cell that runs only until a run of it dealt with something has finished never worked from what it watches
         // and does not write: dealing with a datum is what consumes it, and ends the cell.
         if self.never_worked(block) {
@@ -611,12 +595,6 @@ impl<'a> Reach<'a> {
                     .iter()
                     .any(|t| !t.is_group() && t.blocks.contains(block))
         })
-    }
-
-    /// Whether the cell watches a block the owner's words or answers write, so that the owner's turn to it enters it by
-    /// that block alone.
-    fn interruptible(&self) -> bool {
-        (self.cell.watches.iter()).any(|t| t.blocks.iter().any(|b| self.flow.flow.interrupts(b)))
     }
 
     /// Whether the cell watches the datum and does not write it, and runs only until a run of it that dealt with
@@ -978,10 +956,9 @@ impl<'a> Reach<'a> {
                 // The last return in the session may be that of a cell of the line entered since this one, or of this.
                 let handed = self.writes() || self.others.iter().any(|o| self.writes_of(o));
                 add(self.kept(false), handed, None);
-                // A cell that takes main in holds what came of it where its run's earlier round was sent it, and that
-                // round asked for calls or was sent back, so that the last return in the session handed in nothing.
+                // A cell that takes main in holds what came of it where its run's earlier round was sent it.
                 if self.cell.takes_main {
-                    add(self.kept(true), false, Some("main_held".to_string()));
+                    add(self.kept(true), handed, Some("main_held".to_string()));
                 }
             }
             Entry::Reopened => add(Vec::new(), false, None),
@@ -996,12 +973,18 @@ impl<'a> Reach<'a> {
                     let (holds, after_hand_in) = self.after(other);
                     let id = other.id.as_str().to_lowercase();
                     add(holds.clone(), after_hand_in, Some(format!("after_{id}")));
-                    add(holds.clone(), false, Some(format!("after_{id}_nothing_handed_in")));
+                    // A cell that must write a block hands in at least that with the return that ends its run.
+                    let hands_nothing = other.must_write.is_empty();
+                    if hands_nothing {
+                        add(holds.clone(), false, Some(format!("after_{id}_nothing_handed_in")));
+                    }
                     // That cell took main in too, and was sent what came of it.
                     if other.takes_main && self.cell.takes_main {
                         let held = self.with_main(&holds);
                         add(held.clone(), after_hand_in, Some(format!("after_{id}_main")));
-                        add(held, false, Some(format!("after_{id}_main_nothing_handed_in")));
+                        if hands_nothing {
+                            add(held, false, Some(format!("after_{id}_main_nothing_handed_in")));
+                        }
                     }
                 }
             }

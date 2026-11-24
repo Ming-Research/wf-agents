@@ -534,7 +534,7 @@ pub enum Rest {
     /// The work has ended: its last cell has a run that finished, or it was cancelled and nothing of it is open.
     Ended,
     /// A round is under way or a run goes on or is abandoned, or a cell has something new to run it and nothing holds
-    /// it back but, at most, the pause or a slot: at this cell.
+    /// it back but, at most, the pause, a slot or the work's turn: at this cell.
     Moving { at: CellId },
     /// Nothing runs, and a person, the owner, a source outside the work or the result of a call can bring something
     /// new: a question stands unanswered, a call's result is to come, a cell is at its limit, or a precondition waits

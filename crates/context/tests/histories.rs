@@ -2325,6 +2325,12 @@ fn compacted_after_a_return(reached: &mut Reached, passed: History) -> Result<()
     history.put("head");
     history.carry_next(reached, "T1")?;
     let mut history = passed;
+    // The choice of whether the tester is needed goes to no and back to yes, so that the tester is run by a new version.
+    history.force.insert("needs_testing".to_string(), "no".to_string());
+    history.put("head");
+    for cell in ["T1", "T2", "T3"] {
+        history.carry_next(reached, cell)?;
+    }
     history.force.insert("needs_testing".to_string(), "yes".to_string());
     history
         .says
@@ -2351,11 +2357,16 @@ fn first_pass(reached: &mut Reached, deep: bool) -> History {
     let mut passed = History::directed(u64::from(deep));
     let needed = if deep { "yes" } else { "no" };
     passed.force.insert("deep_needed".to_string(), needed.to_string());
-    let mut plan = vec!["plan_owner", "plan_agent", "acceptance"];
+    // A return that says the plan needs deep research holds nothing else but a question, so the plan is the design cell's.
+    let plan = ["plan_owner", "plan_agent", "acceptance"];
     if deep {
-        plan.push("deep_needed");
+        passed
+            .says
+            .insert("R1".to_string(), vec![Say::all(&["deep_needed"]).asking()]);
+        passed.says.insert("D1".to_string(), vec![Say::all(&plan).asking()]);
+    } else {
+        passed.says.insert("R1".to_string(), vec![Say::all(&plan).asking()]);
     }
-    passed.says.insert("R1".to_string(), vec![Say::all(&plan).asking()]);
     passed.says.insert(
         "I1".to_string(),
         vec![
