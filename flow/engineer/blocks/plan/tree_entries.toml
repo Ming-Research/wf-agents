@@ -1,5 +1,5 @@
 what = "The entries of the design tree that bear on the item, one to a line, each named as the tree's rules say to refer to an entry."
 # A return that writes it is sent back for a line that names no entry of the design tree at the head of the work's
 # branch, and a round whose session lacks its latest version is given, in place of the names, each entry named whole,
-# as the design tree's latest version has it (`[tree_format]` of the project's declaration).
+# as the design tree's latest version has it (the tree's format, `agents/tree.toml`).
 names_tree_entries = true

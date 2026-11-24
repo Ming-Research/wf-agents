@@ -20,7 +20,7 @@ A datum given as the last and the latest is sent as what changed since the versi
 - rejected: an agent proposed sending both versions whole; the owner rejected it, because the cell's task asks what changed, less is sent, and the whole versions are in the records.
 
 ### decision the-entries-a-block-names-are-given-whole
-A block marked `names_tree_entries` is given as each entry it names, whole, from the tree's latest version on the branch, by the project's `[tree_format]`; a line naming none is sent back.
+A block marked `names_tree_entries` is given as each entry it names, whole, from the tree's latest version on the branch, by the tree's format in the flow's files; a line naming none is sent back.
 - replaced: Each line's session reading the tree for itself, given only its files changed since then, was on main; the owner changed it, because the lines read different parts of it, and a review did not know the decisions the engineer worked from (data: `research/tree-reading-measured.md`).
 
 ### decision a-datum-a-move-renamed-is-given-again-whole

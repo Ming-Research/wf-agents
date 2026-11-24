@@ -66,7 +66,6 @@ fn project(path: &str) -> std::io::Result<String> {
     match path {
         "AGENTS.md" => Ok("# Working here\n\nThe guide.\n".to_string()),
         "design/constitution.md" => Ok("# The constitution\n\nArticle 1.\n".to_string()),
-        "design/README.md" => Ok("# The design tree\n\nIts rules.\n".to_string()),
         _ => Err(std::io::Error::from(std::io::ErrorKind::NotFound)),
     }
 }
@@ -110,7 +109,7 @@ fn a_lines_system_prompt_holds_its_parts_in_their_order_with_the_settings_they_n
     let order = [
         "# `AGENTS.md`\n\n# Working here\n\nThe guide.",
         "# `design/constitution.md`\n\n# The constitution",
-        "# `design/README.md`\n\n# The design tree",
+        "# The design tree\n\nRead these rules as an engineer",
         "# How every agent works\n\n- Check each fact when you write it",
         "# How an engineer works",
         "# How you work here",
@@ -254,16 +253,16 @@ fn a_line_that_changes_only_the_tests_of_a_flow_with_no_head_is_refused_as_the_e
     assert_eq!(found.of_project, Vec::<String>::new());
 }
 
-// The guide is a file of the project like the constitution and the tree's rules (design document `data-and-context`,
-// 24; decision the-projects-files-as-the-work-has-them): a session begins with the file as the work's worktree has it
-// as the session begins, a change the work made to it before then included.
+// The guide is a file of the project like the constitution (design document `data-and-context`, 24; decision
+// the-projects-files-as-the-work-has-them): a session begins with the file as the work's worktree has it as the
+// session begins, a change the work made to it before then included.
 #[test]
 fn a_session_begins_with_the_guide_the_worktree_has_as_it_begins() {
     let (settings, beside, declaration, flow) = (settings(), beside(), declaration(), engineer());
     let filling = filling(&settings, &beside, &declaration);
     let dir = tempfile::tempdir().expect("a directory");
     std::fs::create_dir_all(dir.path().join("design")).unwrap();
-    for path in ["AGENTS.md", "design/constitution.md", "design/README.md"] {
+    for path in ["AGENTS.md", "design/constitution.md"] {
         std::fs::write(dir.path().join(path), project(path).unwrap()).unwrap();
     }
     std::fs::write(dir.path().join("AGENTS.md"), "# Working here\n\nChanged by the work.\n").unwrap();
@@ -322,7 +321,7 @@ fn a_session_cut_off_and_begun_again_keeps_its_prompt() {
     let dir = tempfile::tempdir().expect("a directory");
     let worktree = dir.path().join("worktree");
     std::fs::create_dir_all(worktree.join("design")).unwrap();
-    for path in ["AGENTS.md", "design/constitution.md", "design/README.md"] {
+    for path in ["AGENTS.md", "design/constitution.md"] {
         std::fs::write(worktree.join(path), project(path).unwrap()).unwrap();
     }
     let make = || {
@@ -350,7 +349,7 @@ impl Line {
     fn new() -> Line {
         let dir = tempfile::tempdir().expect("a directory");
         std::fs::create_dir_all(dir.path().join("worktree/design")).unwrap();
-        for path in ["AGENTS.md", "design/constitution.md", "design/README.md"] {
+        for path in ["AGENTS.md", "design/constitution.md"] {
             std::fs::write(dir.path().join("worktree").join(path), project(path).unwrap()).unwrap();
         }
         let settings = settings();
@@ -451,7 +450,7 @@ fn a_session_whose_new_prompt_cannot_be_made_is_given_otherwise_and_one_whose_ke
     let line = Line::new();
     let (session, renewed) = (Uuid::nil(), Uuid::max());
     line.begin(session);
-    std::fs::remove_file(line.worktree().join("design/README.md")).unwrap();
+    std::fs::remove_file(line.worktree().join("design/constitution.md")).unwrap();
     assert!(line.now(Begun::System).is_err(), "no system prompt can be made");
     assert!(line.changed(session));
     assert!(!line.changed(renewed), "the new session keeps nothing");
@@ -470,14 +469,14 @@ fn a_session_whose_new_prompt_cannot_be_made_is_given_otherwise_and_one_whose_ke
 fn a_projects_file_the_worktree_lacks_is_said() {
     let (beside, declaration, flow) = (beside(), declaration(), engineer());
     let lacking = |path: &str| match path {
-        "design/README.md" => Err(std::io::Error::from(std::io::ErrorKind::NotFound)),
+        "design/constitution.md" => Err(std::io::Error::from(std::io::ErrorKind::NotFound)),
         _ => project(path),
     };
     let cell = cell(&flow, "engineer");
     let filling = filling(&settings(), &beside, &declaration);
-    let why = of_line(&beside, &declaration, &filling, &flow, cell, "", lacking).expect_err("no tree rules");
+    let why = of_line(&beside, &declaration, &filling, &flow, cell, "", lacking).expect_err("no constitution");
     assert!(
-        why.starts_with("design/README.md cannot be read in the work's worktree"),
+        why.starts_with("design/constitution.md cannot be read in the work's worktree"),
         "{why}"
     );
 }
@@ -654,7 +653,7 @@ fn a_project_file_main_lacks_or_links_is_said() {
     let project = repo.project.clone();
     let (beside, mut declaration) = (beside(), declaration());
     let missing = project_files(&project, &beside, &declaration);
-    assert_eq!(missing.len(), 3, "{missing:?}");
+    assert_eq!(missing.len(), 2, "{missing:?}");
     assert_eq!(
         missing[0],
         "wf-agents.toml: the file guide, AGENTS.md, is not on main, refs/heads/main, where works branch from"
@@ -662,26 +661,26 @@ fn a_project_file_main_lacks_or_links_is_said() {
     let dir = &project.repo;
     std::fs::create_dir_all(dir.join("design")).unwrap();
     crate::git::tests::commit(dir, "AGENTS.md", "The guide.\n");
-    crate::git::tests::commit(dir, "design/constitution.md", "The constitution.\n");
     assert_eq!(
         project_files(&project, &beside, &declaration),
         [
-            "wf-agents.toml: the file tree_rules, design/README.md, is not on main, refs/heads/main, where works branch from"
+            "wf-agents.toml: the file constitution, design/constitution.md, is not on main, refs/heads/main, where \
+             works branch from"
         ]
     );
     // A file in the checkout that main does not hold is missing all the same.
-    std::fs::write(dir.join("design/README.md"), "Not committed.\n").unwrap();
+    std::fs::write(dir.join("design/constitution.md"), "Not committed.\n").unwrap();
     assert_eq!(project_files(&project, &beside, &declaration).len(), 1);
     // A link on main, the file itself or a directory above it, is refused.
-    std::fs::remove_file(dir.join("design/README.md")).unwrap();
-    std::os::unix::fs::symlink("constitution.md", dir.join("design/README.md")).unwrap();
-    crate::git::tests::run(dir, &["add", "design/README.md"]);
-    crate::git::tests::run(dir, &["commit", "-q", "-m", "Link the tree's rules"]);
+    std::fs::remove_file(dir.join("design/constitution.md")).unwrap();
+    std::os::unix::fs::symlink("../AGENTS.md", dir.join("design/constitution.md")).unwrap();
+    crate::git::tests::run(dir, &["add", "design/constitution.md"]);
+    crate::git::tests::run(dir, &["commit", "-q", "-m", "Link the constitution"]);
     assert_eq!(
         project_files(&project, &beside, &declaration),
         [
-            "wf-agents.toml: the file tree_rules, design/README.md: design/README.md is a symbolic link on main, \
-             refs/heads/main, which no file of the project is read through"
+            "wf-agents.toml: the file constitution, design/constitution.md: design/constitution.md is a symbolic link \
+             on main, refs/heads/main, which no file of the project is read through"
         ]
     );
     std::fs::create_dir_all(dir.join("real")).unwrap();
@@ -689,19 +688,19 @@ fn a_project_file_main_lacks_or_links_is_said() {
     std::os::unix::fs::symlink("real", dir.join("linked")).unwrap();
     crate::git::tests::run(dir, &["add", "linked"]);
     crate::git::tests::run(dir, &["commit", "-q", "-m", "Link a directory"]);
-    declaration.files.get_mut("tree_rules").unwrap().path = "linked/rules.md".to_string();
+    declaration.files.get_mut("constitution").unwrap().path = "linked/rules.md".to_string();
     assert_eq!(
         project_files(&project, &beside, &declaration),
         [
-            "wf-agents.toml: the file tree_rules, linked/rules.md: linked is a symbolic link on main, refs/heads/main, \
-             which no file of the project is read through"
+            "wf-agents.toml: the file constitution, linked/rules.md: linked is a symbolic link on main, \
+             refs/heads/main, which no file of the project is read through"
         ]
     );
     // A file not named within the repository is refused before main is looked at.
-    declaration.files.get_mut("tree_rules").unwrap().path = "../outside.md".to_string();
+    declaration.files.get_mut("constitution").unwrap().path = "../outside.md".to_string();
     assert_eq!(
         project_files(&project, &beside, &declaration),
-        ["wf-agents.toml: the file tree_rules is named by its path within the repository, not \"../outside.md\""]
+        ["wf-agents.toml: the file constitution is named by its path within the repository, not \"../outside.md\""]
     );
 }
 
@@ -715,7 +714,7 @@ fn the_project_files_are_looked_for_where_works_branch_from() {
     project.github = settings().projects["example"].github.clone();
     let dir = &project.repo;
     std::fs::create_dir_all(dir.join("design")).unwrap();
-    for path in ["AGENTS.md", "design/constitution.md", "design/README.md"] {
+    for path in ["AGENTS.md", "design/constitution.md"] {
         crate::git::tests::commit(dir, path, "Some text.\n");
     }
     let remote = project.github.as_ref().unwrap().remote.clone();
@@ -730,7 +729,7 @@ fn the_project_files_are_looked_for_where_works_branch_from() {
     // Main as GitHub last gave it, before the files were committed on the local branch.
     let first = crate::git::tests::run(dir, &["rev-list", "--max-parents=0", "HEAD"]);
     crate::git::tests::run(dir, &["update-ref", &fetched, &first]);
-    assert_eq!(project_files(&project, &beside, &declaration).len(), 3);
+    assert_eq!(project_files(&project, &beside, &declaration).len(), 2);
     crate::git::tests::run(dir, &["update-ref", &fetched, "HEAD"]);
     assert_eq!(project_files(&project, &beside, &declaration), Vec::<String>::new());
 }

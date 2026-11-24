@@ -10,8 +10,7 @@ Implement `plan_agent`, changing only what this work needs. Read the design tree
 `tree_entries`, for what the change touches. For each question put to the owner, follow the option the
 owner took, or else the one it recommends. For each answered question marked `tree`, write the option taken into the
 design tree, as its rules say. If main's tree has changed since, an entry may follow its wording and place, but not
-change its meaning. After you change the tree, run `project.tree_check` and fix what it
-finds before you run your tests.
+change its meaning.
 
 Where a test can show what the change is for, start from one that is red on the code before the change: use the
 research's test where it left one. Run each test you add or extend both on the change and on the code before it. A test

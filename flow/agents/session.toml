@@ -12,7 +12,7 @@
 parts = [
   { project = "guide" },
   { project = "constitution" },
-  { project = "tree_rules" },
+  { words = "tree_rules.md" },
   { line = "rules" },
   { words = "how_you_work_here.md" },
   { returns = "how_you_return" },

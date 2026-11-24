@@ -543,40 +543,93 @@ fn a_declaration_may_name_a_measure_workflow_which_says_how_long_a_run_may_take(
     assert!(refused.contains("ci.measure.too_long"), "{refused}");
 }
 
-// How an entry of the design tree is found is the project's: a `[tree_format]` that names no kind, or whose heading or
-// reference lacks the place of the kind or of the name, could find no entry, and is refused as the declaration is
-// read, with where it was read; one that holds both is taken as written.
+// How an entry of the design tree is found is the tree's rules', the same for every project: a `[format]` in
+// `agents/tree.toml` that names no kind, or whose heading or reference lacks the place of the kind or of the name,
+// could find no entry, and one that lacks a kind the forms are checked for gives the check nothing to check by: each is
+// refused as the files are read, with where it was read; one that holds all is taken as written.
 #[test]
-fn a_format_of_the_tree_that_could_find_no_entry_is_refused_as_the_declaration_is_read_with_where_it_was_read() {
-    let text = declaration_text();
-    let wrong = "\n[tree_format]\nkinds = []\nheading = \"## {kind}\"\nreference = \"{name}\"\n";
-    let refused = declared(&format!("{text}{wrong}")).unwrap_err();
-    assert!(refused.starts_with("main:wf-agents.toml: "), "{refused}");
+fn a_format_of_the_tree_that_could_find_no_entry_is_refused_as_the_files_are_read_with_where_they_were_read() {
+    let dir = copy("tree-format");
+    let file = dir.join("agents/tree.toml");
+    let text = fs::read_to_string(&file).unwrap();
+    let format = "[format]\nkinds = [{ kind = \"principle\", dir = \"principles/\" }, { kind = \"decision\", dir = \"decisions/\" }]\nheading = \"### {kind} {name}\"\nreference = \"{kind} {name}\"\n";
+    assert!(
+        text.contains(format),
+        "the file of the tests holds the format this test changes"
+    );
+    let wrong = "[format]\nkinds = []\nheading = \"## {kind}\"\nreference = \"{name}\"\n";
+    fs::write(&file, text.replace(format, wrong)).unwrap();
+    let refused = agents::read(&dir).unwrap_err();
+    assert!(refused.contains(&file.display().to_string()), "{refused}");
     for fault in [
-        "tree_format.kinds names no kind",
-        "tree_format.heading must hold {name}",
-        "tree_format.reference must hold {kind}",
+        "format.kinds names no kind",
+        "format.heading must hold {name}",
+        "format.reference must hold {kind}",
+        "format.kinds lacks the kind principle",
+        "format.kinds lacks the kind decision",
     ] {
         assert!(refused.contains(fault), "{fault} is not in: {refused}");
     }
-    let empty = "\n[tree_format]\nkinds = [{ kind = \"rule\", dir = \"\" }]\nheading = \"## {kind}: {name}\"\nreference = \"{kind} {name}\"\n";
-    let refused = declared(&format!("{text}{empty}")).expect_err("a kind with no directory is refused");
-    assert!(refused.starts_with("main:wf-agents.toml: "), "{refused}");
+    let empty = "[format]\nkinds = [{ kind = \"principle\", dir = \"\" }, { kind = \"decision\", dir = \"decisions/\" }]\nheading = \"## {kind}: {name}\"\nreference = \"{kind} {name}\"\n";
+    fs::write(&file, text.replace(format, empty)).unwrap();
+    let refused = agents::read(&dir).unwrap_err();
     assert!(
-        refused.contains("tree_format.kinds[0] must give a kind and a directory"),
+        refused.contains("format.kinds[0] must give a kind and a directory"),
         "{refused}"
     );
-    let right = "\n[tree_format]\nkinds = [{ kind = \"rule\", dir = \"rules/\" }]\nheading = \"## {kind}: {name}\"\nreference = \"{kind} {name}\"\n";
-    let format = declared(&format!("{text}{right}"))
-        .unwrap()
-        .tree_format
-        .expect("the format is read");
-    assert_eq!(format.heading_of("## rule: keep-it  "), Some(("rule", "keep-it")));
-    assert_eq!(format.heading_of("### rule: keep-it"), None);
-    assert_eq!(format.referred("  rule keep-it "), Some(("rule", "keep-it")));
-    assert_eq!(format.referred("rule keep it"), None, "a name holds no white space");
-    assert_eq!(format.referred("rule "), None, "a name is not empty");
-    assert_eq!(format.referred("decision keep-it"), None, "no kind of the format");
+    let lacking = "[format]\nkinds = [{ kind = \"principle\", dir = \"principles/\" }]\nheading = \"### {kind} {name}\"\nreference = \"{kind} {name}\"\n";
+    fs::write(&file, text.replace(format, lacking)).unwrap();
+    let refused = agents::read(&dir).unwrap_err();
+    assert!(refused.contains("format.kinds lacks the kind decision"), "{refused}");
+    assert!(!refused.contains("lacks the kind principle"), "{refused}");
+    let right = "[format]\nkinds = [{ kind = \"decision\", dir = \"decisions/\" }, { kind = \"principle\", dir = \"principles/\" }]\nheading = \"## {kind}: {name}\"\nreference = \"{kind} {name}\"\n";
+    fs::write(&file, text.replace(format, right)).unwrap();
+    let read = agents::read(&dir).unwrap();
+    fs::remove_dir_all(&dir).unwrap();
+    let format = read.acts.tree.format;
+    assert_eq!(
+        format.heading_of("## decision: keep-it  "),
+        Some(("decision", "keep-it"))
+    );
+    assert_eq!(format.heading_of("### decision: keep-it"), None);
+    assert_eq!(format.referred("  principle keep-it "), Some(("principle", "keep-it")));
+    assert_eq!(
+        format.referred("principle keep it"),
+        None,
+        "a name holds no white space"
+    );
+    assert_eq!(format.referred("principle "), None, "a name is not empty");
+    assert_eq!(format.referred("rule keep-it"), None, "no kind of the format");
+}
+
+// The tree's format is the flow's, not the project's. A declaration written before that still gives one, which an
+// engine installed before reads: it is accepted where it is the flow's own format, so that it is no second one, and
+// refused, with where it was read, where it differs.
+#[test]
+fn a_declaration_that_gives_a_format_of_the_tree_is_accepted_where_it_is_the_flows_and_refused_where_it_differs() {
+    let text = declaration_text();
+    let same = "\n[tree_format]\nkinds = [{ kind = \"principle\", dir = \"principles/\" }, { kind = \"decision\", dir = \"decisions/\" }]\nheading = \"### {kind} {name}\"\nreference = \"{kind} {name}\"\n";
+    let flows = agents::read(&beside()).unwrap().acts.tree.format;
+    assert_eq!(
+        flows.heading, "### {kind} {name}",
+        "the format this test gives is the flow's"
+    );
+    declared(&format!("{text}{same}")).expect("a format that is the flow's is taken");
+    let other = same.replace("### {kind} {name}", "## {kind}: {name}");
+    let refused = declared(&format!("{text}{other}")).expect_err("a format that is not the flow's is refused");
+    assert!(refused.starts_with("main:wf-agents.toml: "), "{refused}");
+    assert!(refused.contains("tree_format"), "{refused}");
+}
+
+// This repository's own declaration, which still holds the items the installed engine reads, is read with the flow's
+// files and has no fault.
+#[test]
+fn the_declaration_of_this_repository_is_read_with_the_files_beside_its_flows() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let text = fs::read_to_string(root.join("wf-agents.toml")).unwrap();
+    let beside = agents::read(&root.join("flow")).expect("the real files beside the flows are read");
+    let read = Declaration::read(&text, "main:wf-agents.toml", &beside).expect("the declaration is read");
+    assert!(read.tree_format.is_some() && read.files.contains_key("tree_rules"));
 }
 
 #[test]

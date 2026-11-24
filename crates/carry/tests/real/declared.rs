@@ -49,7 +49,7 @@ fn repository(repo: &Path, declaration: Option<&[u8]>) {
     ] {
         git(repo, &["config", key, value]);
     }
-    for path in ["AGENTS.md", "design/constitution.md", "design/README.md"] {
+    for path in ["AGENTS.md", "design/constitution.md"] {
         std::fs::write(repo.join(path), "Some text.\n").unwrap();
     }
     if let Some(declaration) = declaration {

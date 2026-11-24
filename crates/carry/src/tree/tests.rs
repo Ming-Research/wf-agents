@@ -459,6 +459,103 @@ async fn a_line_not_written_as_a_reference_or_naming_an_entry_the_tree_lacks_of_
     assert_eq!(unknown, Ok(expected.map(str::to_string).to_vec()));
 }
 
+/// The tree's rules as this repository gives them: the format and the words of each fault.
+fn rules() -> flow::agents::Tree {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+    flow::agents::acts(&root).expect("the tree's rules are read").tree
+}
+
+// The forms of the files at a commit are told in the flow's words, one line for each fault, the data they name held by
+// the commit where it holds a file or a directory of that path, with or without a slash at its end, and by no path that
+// is not a plain path from the repository's root, which git is not asked of. Only the files of markdown under the
+// directories of the kinds are read. Well under a second alone, on a repository of a few commits, with one run of git
+// for the files and one for the data; no other test holds the reading from git to the data a commit holds.
+#[tokio::test]
+async fn the_forms_of_the_files_at_a_commit_are_told_with_the_data_the_commit_holds() {
+    let (_repo, place) = started().await;
+    write(&place.dir, "research/rounds/summary.md", "Rounds.\n");
+    write(&place.dir, "research/note.md", "Note.\n");
+    write(
+        &place.dir,
+        "design/decisions/notes.txt",
+        "Not a file of the tree, and in no form.\n",
+    );
+    let data = |path: &str| {
+        format!("- rejected: an agent proposed one; the owner rejected it, because none (data: `{path}`).")
+    };
+    let lines: Vec<String> = [
+        "research/note.md",
+        "research/rounds",
+        "research/rounds/",
+        "research/missing.md",
+        "../outside.md",
+        "/etc/passwd",
+    ]
+    .map(data)
+    .to_vec();
+    let text = format!(
+        "# Extra\n\nWhat the tests add.\n\n### decision keep-it\nIt holds.\n{}\n",
+        lines.join("\n")
+    );
+    let commit = write(&place.dir, "design/decisions/extra.md", &text);
+    let told = formed(&place.dir, "design/", &rules(), &commit)
+        .await
+        .expect("the files are read");
+    let is_missing = |line: usize, path: &str| {
+        format!("design/decisions/extra.md:{line}: decision keep-it: the data `{path}` is not in the repository")
+    };
+    assert_eq!(
+        told,
+        [
+            is_missing(10, "research/missing.md"),
+            is_missing(11, "../outside.md"),
+            is_missing(12, "/etc/passwd")
+        ]
+    );
+}
+
+// The files of the tree are held to their forms only where the work's change against main changes the tree: a fault
+// main holds is said of no work that leaves the tree alone, and of one that changes it, whatever file it changes in it,
+// since a fault in the tree may be of the change in any other file of it. Well under a second alone, on a repository of
+// a few commits; it catches a look made on a tree the work did not change.
+#[tokio::test]
+async fn the_forms_are_held_only_where_the_works_change_changes_the_tree() {
+    let repo = Repo::new("true");
+    let main = repo.project.repo.clone();
+    write(
+        &main,
+        "design/decisions/faulty.md",
+        "# Faulty\n\nWhat it covers.\n\n### decision keep-it\nIt holds.\n",
+    );
+    let started = git::start(&repo.project, &repo.place(WORK), "main", "main")
+        .await
+        .unwrap();
+    let place = started.place;
+    let rules = rules();
+    let said = |commit: String, place: Place| {
+        let (project, rules) = (repo.project.clone(), rules.clone());
+        async move { unformed(&project, &place, "main", "design/", &rules, &commit).await }
+    };
+    let commit = write(&place.dir, "farewell.txt", "Bye.\n");
+    assert_eq!(
+        said(commit, place.clone()).await,
+        Ok(Vec::new()),
+        "the work leaves the tree alone"
+    );
+    let commit = write(&place.dir, "design/decisions/other.md", "# Other\n\nWhat it covers.\n");
+    let told = said(commit, place.clone()).await.expect("the tree is looked at");
+    let fault = "design/decisions/faulty.md:6: decision keep-it: a decision has a `rejected` or a `replaced` line, or \
+                 more, under its first line";
+    assert_eq!(told, [fault]);
+    let commit = remove(&place.dir, "design/decisions/other.md");
+    let told = said(commit, place.clone()).await.expect("the tree is looked at");
+    assert_eq!(
+        told,
+        Vec::<String>::new(),
+        "the change to the tree is none once the file is removed"
+    );
+}
+
 // Nothing of how an entry is found is the engine's own: a tree elsewhere, of one kind in a directory of its own, with
 // its own heading and way of referring, is checked and given by those, and an entry in this repository's form in it is
 // none.
@@ -561,32 +658,32 @@ fn files_under(root: &Path, dir: &Path, into: &mut Vec<(String, String)>) {
     }
 }
 
-// This repository's own declaration (`[tree_format]` of `wf-agents.toml`, with its words in
-// `flow/agents/message/given.toml`) finds every entry of this repository's own design tree as the tree's rules
-// (`design/README.md`) write one, and gives each whole. By those rules the principles are in `principles/` and the
-// decisions in `decisions/`, an entry begins `### principle <name>` or `### decision <name>`, "each line of an entry"
-// is "one line of the file" and one blank line is between entries: so an entry is its heading and the lines after it
-// up to a blank line or the file's end. Each is given under its file, the principles' files before the decisions', in
-// the order of their paths (acceptance 2), and none of the names is unknown. The rules' own templates, which
-// `design/README.md` writes as headings in its code fences, are no entry: that file is under neither directory.
+// The tree's format (`[format]` of `flow/agents/tree.toml`, with its words in `flow/agents/message/given.toml`) finds
+// every entry of this repository's own design tree as the tree's rules (`flow/agents/tree_rules.md`) write one, and
+// gives each whole. By those rules the principles are in `principles/` and the decisions in `decisions/`, an entry
+// begins `### principle <name>` or `### decision <name>`, "each line of an entry" is "one line of the file" and one
+// blank line is between entries: so an entry is its heading and the lines after it up to a blank line or the file's
+// end. Each is given under its file, the principles' files before the decisions', in the order of their paths
+// (acceptance 2), and none of the names is unknown. The rules' own templates, which `flow/agents/tree_rules.md` writes
+// as headings in its code fences, are no entry: that file is not in the tree.
 //
 // Alone it takes 0.34 s in CI, copying the whole tree (55 files, 313 KB when it was written) into a repository of its
-// own, and grows with the tree. It is the only test of the real declaration against the real tree, which the tests of
+// own, and grows with the tree. It is the only test of the real format against the real tree, which the tests of
 // the format each write by hand: a heading form, a directory or the words of `given.toml` that no longer match the
 // tree would pass them all. It cannot take a sample of the tree, since an entry the format misses could be in any file,
 // and it is no part of another test, whose small trees are what make their faults readable.
 #[tokio::test]
-async fn this_repository_s_declaration_finds_and_gives_whole_every_entry_of_its_own_design_tree() {
+async fn this_repository_s_tree_format_finds_and_gives_whole_every_entry_of_its_own_design_tree() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let agents = flow::agents::read(&root.join("flow")).expect("the files beside the flows are read");
     let text = std::fs::read_to_string(root.join(flow::agents::DECLARATION)).expect("the declaration is read");
     let declaration = flow::agents::Declaration::read(&text, flow::agents::DECLARATION, &agents)
         .expect("the repository's declaration is one");
-    let format = (declaration.tree_format.clone()).expect("the declaration gives the format of the tree");
+    let format = agents.acts.tree.format.clone();
     let tree = declaration.tree.clone();
     let words = agents.given.entries.clone();
     let design = tree.trim_end_matches('/');
-    let readme = std::fs::read_to_string(root.join(design).join("README.md")).expect("the tree's rules are read");
+    let readme = std::fs::read_to_string(root.join("flow/agents/tree_rules.md")).expect("the tree's rules are read");
     for template in ["### principle <a-short-name>", "### decision <a-short-name>"] {
         assert!(
             readme.lines().any(|line| line == template),
@@ -625,7 +722,6 @@ async fn this_repository_s_declaration_finds_and_gives_whole_every_entry_of_its_
         }
         assert!(references.len() > before, "the tree holds entries of the kind {kind}");
     }
-    std::fs::write(place.dir.join(design).join("README.md"), &readme).expect("the rules are written");
     run(&place.dir, &["add", design]);
     run(&place.dir, &["commit", "-q", "-m", "Write the design tree"]);
     let commit = run(&place.dir, &["rev-parse", "HEAD"]);
@@ -639,4 +735,142 @@ async fn this_repository_s_declaration_finds_and_gives_whole_every_entry_of_its_
     assert_eq!(unknown_of(templates.join("\n")).await, Ok(templates.to_vec()));
     let given = entries(&place.dir, &tree, &format, Some(&commit), &names, &words).await;
     assert_eq!(given, Ok(parts.join("\n\n")));
+}
+
+/// Writes the bytes to the file, commits it, and gives the commit.
+fn write_bytes(dir: &Path, file: &str, bytes: &[u8]) -> String {
+    let path = dir.join(file);
+    std::fs::create_dir_all(path.parent().expect("a directory")).expect("the directory is made");
+    std::fs::write(&path, bytes).expect("the file is written");
+    run(dir, &["add", file]);
+    run(dir, &["commit", "-q", "-m", &format!("Write {file}")]);
+    run(dir, &["rev-parse", "HEAD"])
+}
+
+const OPENING_FAULT: &str = "a file opens with `# <title>`, a blank line and one line of what it covers";
+
+// A file of the tree that is not text is told at its first line, and one that holds nothing is told, as
+// `design/lint.py` told it, as not opening as a file should. Well under a second alone, on a repository of three
+// commits; no other test takes a file's bytes from git to the check.
+#[tokio::test]
+async fn a_file_of_the_tree_that_is_not_text_or_holds_nothing_is_a_fault_at_its_first_line() {
+    let (_repo, place) = started().await;
+    write_bytes(&place.dir, "design/decisions/binary.md", &[0xff, 0xfe, b'A', b'\n']);
+    write(&place.dir, "design/decisions/empty.md", "");
+    let commit = write(
+        &place.dir,
+        "design/decisions/fine.md",
+        "# Fine\n\nWhat it covers.\n\n### decision keep-it\nIt holds.\n- rejected: an agent proposed one; the owner \
+         rejected it, because none.\n",
+    );
+    let told = formed(&place.dir, "design/", &rules(), &commit).await.expect("read");
+    assert_eq!(
+        told,
+        [
+            "design/decisions/binary.md:1: the file is not text, so its forms cannot be read".to_string(),
+            format!("design/decisions/empty.md:1: {OPENING_FAULT}"),
+        ]
+    );
+}
+
+// A file whose name holds a space, a quotation mark or a letter outside ASCII is read and named as it is, not as git
+// writes such a name where it quotes it, and the faults come in the order of the names, part by part. Well under
+// a second alone, on a repository of four commits; it catches a listing of the files that quotes a name or splits it
+// at a space, which no other test names.
+#[tokio::test]
+async fn files_whose_names_hold_a_space_a_quotation_mark_or_a_letter_outside_ascii_are_read_and_named_as_they_are() {
+    let (_repo, place) = started().await;
+    write(&place.dir, "design/decisions/a b.md", "bad\n");
+    write(&place.dir, "design/decisions/q\"q.md", "bad\n");
+    let commit = write(&place.dir, "design/decisions/\u{e9}.md", "bad\n");
+    let told = formed(&place.dir, "design/", &rules(), &commit).await.expect("read");
+    assert_eq!(
+        told,
+        [
+            format!("design/decisions/a b.md:1: {OPENING_FAULT}"),
+            format!("design/decisions/q\"q.md:1: {OPENING_FAULT}"),
+            format!("design/decisions/\u{e9}.md:1: {OPENING_FAULT}"),
+        ]
+    );
+}
+
+// The tree may be in another directory of the project, named with or without a slash at its end: its files are named
+// from the root of the repository, and the files of the same kinds of another directory are not read. Well under a
+// second alone, on a repository of three commits; it catches a directory taken as `design/` whatever the declaration
+// says.
+#[tokio::test]
+async fn a_tree_in_another_directory_is_read_there_and_named_from_the_repository_root_with_or_without_a_slash() {
+    let (_repo, place) = started().await;
+    write(&place.dir, "design/decisions/elsewhere.md", "bad\n");
+    write(&place.dir, "docs/notes/principles/p.md", "bad\n");
+    let commit = write(&place.dir, "docs/notes/decisions/d.md", "bad\n");
+    let expected = [
+        format!("docs/notes/principles/p.md:1: {OPENING_FAULT}"),
+        format!("docs/notes/decisions/d.md:1: {OPENING_FAULT}"),
+    ];
+    for tree in ["docs/notes/", "docs/notes"] {
+        let told = formed(&place.dir, tree, &rules(), &commit).await.expect("read");
+        assert_eq!(told, expected, "{tree}");
+    }
+}
+
+// The faults are told in the order the tree is read, a concept's file before the files of the concepts under it
+// and before a file whose name only begins with its name and a hyphen, and the name two files hold is taken by the
+// one read first, whichever of them git lists first: git lists `a-b.md` before `a/x.md`. The expectation is what the
+// script this replaces printed for the same two files. Well under a second alone, on a repository of three commits;
+// it catches the files read in git's order of paths.
+#[tokio::test]
+async fn files_are_read_in_the_order_of_their_parts_not_of_their_paths_so_that_the_first_to_hold_a_name_is_the_same() {
+    let (_repo, place) = started().await;
+    let text = "# T\n\nCovers.\n\n### decision same-name\nIt holds.\n- rejected: an agent proposed x; the owner rejected \
+                it, because y.\n";
+    write(&place.dir, "design/decisions/a-b.md", text);
+    let commit = write(&place.dir, "design/decisions/a/x.md", text);
+    let told = formed(&place.dir, "design/", &rules(), &commit).await.expect("read");
+    assert_eq!(
+        told,
+        ["design/decisions/a-b.md:5: decision same-name: the name is taken by design/decisions/a/x.md:5"]
+    );
+}
+
+// Data is held by the commit that is checked: a file removed since the commit is held by it and one removed in the
+// commit is not, and a file in the worktree that no commit holds is not. Well under a second alone, on a repository of
+// four commits; it catches data looked for on the disk of the worktree, which the script this replaces did.
+#[tokio::test]
+async fn data_is_held_by_the_commit_checked_and_not_by_the_worktree() {
+    let (_repo, place) = started().await;
+    let on_disk = |path: &str| place.dir.join(path).exists();
+    write(&place.dir, "research/note.md", "Note.\n");
+    let text = |path: &str| {
+        format!(
+            "# Extra\n\nWhat the tests add.\n\n### decision keep-it\nIt holds.\n- rejected: an agent proposed one; the \
+             owner rejected it, because none (data: `{path}`).\n"
+        )
+    };
+    let with_note = write(&place.dir, "design/decisions/extra.md", &text("research/note.md"));
+    let without_note = remove(&place.dir, "research/note.md");
+    assert!(!on_disk("research/note.md"));
+    let fault = |path: &str| {
+        format!("design/decisions/extra.md:7: decision keep-it: the data `{path}` is not in the repository")
+    };
+    let rules = rules();
+    assert_eq!(
+        formed(&place.dir, "design/", &rules, &with_note).await,
+        Ok(Vec::new()),
+        "the commit that held the file"
+    );
+    assert_eq!(
+        formed(&place.dir, "design/", &rules, &without_note).await,
+        Ok(vec![fault("research/note.md")]),
+        "the commit that does not"
+    );
+    std::fs::create_dir_all(place.dir.join("research")).expect("the directory is made");
+    std::fs::write(place.dir.join("research/untracked.md"), "Not committed.\n").expect("the file is written");
+    let commit = write(&place.dir, "design/decisions/extra.md", &text("research/untracked.md"));
+    assert!(on_disk("research/untracked.md"));
+    assert_eq!(
+        formed(&place.dir, "design/", &rules, &commit).await,
+        Ok(vec![fault("research/untracked.md")]),
+        "a file of the worktree no commit holds"
+    );
 }

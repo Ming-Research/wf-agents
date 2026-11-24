@@ -288,12 +288,14 @@ mod tests {
         };
         let mut looking = crate::branch::Looking::head_only(reading, Some(&built));
         let seen = [Some(built.clone())];
+        let tree = crate::acts::words().tree;
         let mut gate = crate::acts::Gate {
             branch: &mut looking,
             wrote: &|_, _| {},
             reviewed: Some(&seen),
             protecting: &protecting,
             work: &work,
+            tree: &tree,
         };
         let checked = crate::acts::check(
             &repo.project,
