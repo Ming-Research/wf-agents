@@ -463,53 +463,25 @@ impl<'a> Reading<'a> {
         (flow.cells()[i].applies.iter()).all(|key| self.key_holds(flow, key, i))
     }
 
-    /// Whether one key of the condition or of the preconditions of the cell at place `i` holds now: its named test, or
-    /// the block's value, which is its default where the flow gives one and it was never written.
+    /// Whether one key of the condition or of the preconditions of the cell at place `i` holds now: no block keeps it
+    /// from holding, a block never written having its default where the flow gives one.
     pub fn key_holds(&self, flow: &Flow, key: &Condition, i: usize) -> bool {
-        match key {
-            Condition::Test(name) => self.holds(flow, name, i),
-            Condition::Is { block, value } => {
-                let now = match self.current(block) {
-                    Some(v) => v.value.as_deref(),
-                    None => flow.default_of(block),
-                };
-                now == Some(value.as_str())
-            }
-        }
+        self.keeping(flow, key, i).is_empty()
     }
 
-    /// Whether the named test holds now for the cell at place `i`, by the current versions of the blocks it reads that
-    /// have the value it tests for: all of them, one, none. A test of what stands holds unless it is refused, as
-    /// [`Reading::refused`] says from the records; a test of content where the current version of one holds anything.
+    /// Whether the named test holds now for the cell at place `i`: of the blocks it reads, all must have the value it
+    /// tests for, or one, or none, a block never written having its default where the flow gives one; a test of what
+    /// stands counts a block that holds the cell back as having it, and a test of content one whose current version
+    /// holds anything.
     pub fn holds(&self, flow: &Flow, name: &TestName, i: usize) -> bool {
-        let test = &flow.tests()[name];
-        let with_value: Vec<&Version> = (test.reads.iter())
-            .filter_map(|b| self.current(b))
-            .filter(|v| v.value.is_some() && v.value == test.is)
-            .collect();
-        match test.kind {
-            TestKind::All => with_value.len() == test.reads.len(),
-            TestKind::Any => !with_value.is_empty(),
-            TestKind::None => with_value.is_empty(),
-            TestKind::NoneStanding => !self.refused(flow, name, i),
-            TestKind::AnyContent => (test.reads.iter()).any(|b| self.current(b).is_some_and(|v| !v.empty)),
-        }
+        self.keeping_test(flow, name, i).is_empty()
     }
 
-    /// Whether a test of what stands holds the cell at place `i` back, said from the records and what the rule is for,
-    /// not from how the walk reads it: a judge's word holds the work while the judge applies, and a person's while it
-    /// is the latest. For some block the test reads, a person's or the outside's write is the latest and has the value
-    /// tested for; or a cell before place `i` that applies now has that value as its own last write of the block, and
-    /// no person and nothing outside wrote the block since.
-    pub fn refused(&self, flow: &Flow, name: &TestName, i: usize) -> bool {
-        let test = &flow.tests()[name];
-        test.reads
-            .iter()
-            .any(|block| self.refuses(flow, test.is.as_deref(), block, i))
-    }
-
-    /// Whether the block, which a test of what stands reads for the value `is`, holds the cell at place `i` back
-    /// ([`Reading::refused`]).
+    /// Whether the block, which a test of what stands reads for the value `is`, holds the cell at place `i` back, said
+    /// from the records and what the rule is for, not from how the walk reads it: a judge's word holds the work while
+    /// the judge applies, and a person's while it is the latest. A person's or the outside's write is the latest and
+    /// has the value tested for; or a cell before place `i` that applies now has that value as its own last write of
+    /// the block, and no person and nothing outside wrote the block since.
     fn refuses(&self, flow: &Flow, is: Option<&str>, block: &BlockId, i: usize) -> bool {
         let versions = self.of(block);
         let outsider = |v: &Version| matches!(v.by, Writer::Person | Writer::Outside);
@@ -736,9 +708,6 @@ impl Reading<'_> {
         let mut stalled = Vec::new();
         let mut waiting = false;
         for key in &cell.requires {
-            if self.key_holds(flow, key, i) {
-                continue;
-            }
             let keeping = self.keeping(flow, key, i);
             if keeping.is_empty() {
                 continue;
@@ -771,7 +740,8 @@ impl Reading<'_> {
         })
     }
 
-    /// The blocks that keep this key of the cell at place `i` from holding, by the value each has now.
+    /// The blocks that keep this key of the cell at place `i` from holding, by the value each has now: none where it
+    /// holds. A block never written has its default where the flow gives one.
     fn keeping<'k>(&self, flow: &'k Flow, key: &'k Condition, i: usize) -> Vec<&'k BlockId> {
         match key {
             Condition::Is { block, value } => {
@@ -785,29 +755,35 @@ impl Reading<'_> {
                     vec![block]
                 }
             }
-            Condition::Test(name) => {
-                let test = &flow.tests()[name];
-                let is = test.is.as_deref();
-                let has = |block: &BlockId| match (test.kind, is) {
-                    (TestKind::AnyContent, _) => self.current(block).is_some_and(|v| !v.empty),
-                    (_, None) => false,
-                    (TestKind::NoneStanding, Some(_)) => {
-                        self.refuses(flow, is, block, i)
-                            || (self.current(block).is_none() && flow.default_of(block) == is)
-                    }
-                    (_, Some(is)) => match self.current(block) {
-                        Some(v) => v.value.as_deref() == Some(is),
-                        None => flow.default_of(block) == Some(is),
-                    },
-                };
-                let reads = test.reads.iter();
-                match test.kind {
-                    TestKind::All => reads.filter(|b| !has(b)).collect(),
-                    TestKind::Any | TestKind::AnyContent if test.reads.iter().any(&has) => Vec::new(),
-                    TestKind::Any | TestKind::AnyContent => reads.collect(),
-                    TestKind::None | TestKind::NoneStanding => reads.filter(|b| has(b)).collect(),
-                }
+            Condition::Test(name) => self.keeping_test(flow, name, i),
+        }
+    }
+
+    /// The blocks the named test reads that keep it from holding, for the cell at place `i`, by the value each has now:
+    /// of the blocks it reads, all must have the value it tests for, or one, or none; a test of what stands counts a
+    /// block that holds the cell back ([`Reading::refuses`]) as having it, and a test of content one whose current
+    /// version holds anything. A block never written has its default where the flow gives one, which no cell wrote and
+    /// so stands, and holds no content.
+    fn keeping_test<'k>(&self, flow: &'k Flow, name: &TestName, i: usize) -> Vec<&'k BlockId> {
+        let test = &flow.tests()[name];
+        let is = test.is.as_deref();
+        let has = |block: &BlockId| match (test.kind, is) {
+            (TestKind::AnyContent, _) => self.current(block).is_some_and(|v| !v.empty),
+            (_, None) => false,
+            (TestKind::NoneStanding, Some(_)) => {
+                self.refuses(flow, is, block, i) || (self.current(block).is_none() && flow.default_of(block) == is)
             }
+            (_, Some(is)) => match self.current(block) {
+                Some(v) => v.value.as_deref() == Some(is),
+                None => flow.default_of(block) == Some(is),
+            },
+        };
+        let reads = test.reads.iter();
+        match test.kind {
+            TestKind::All => reads.filter(|b| !has(b)).collect(),
+            TestKind::Any | TestKind::AnyContent if test.reads.iter().any(&has) => Vec::new(),
+            TestKind::Any | TestKind::AnyContent => reads.collect(),
+            TestKind::None | TestKind::NoneStanding => reads.filter(|b| has(b)).collect(),
         }
     }
 
