@@ -322,6 +322,7 @@ impl<H: Host> Inner<H> {
         let name = name(&round.flow, &round.kept, round.work, &project.commits);
         let branch = Branch {
             work: round.work,
+            item: round.item.number,
             title: &name,
             about: &about,
             place: &place,
@@ -475,6 +476,7 @@ impl<H: Host> Inner<H> {
         let name = name(&release.flow, &release.kept, release.work, &self.project.commits);
         let branch = Branch {
             work: release.work,
+            item: release.item.number,
             title: &name,
             about: "",
             place: &place,
@@ -697,7 +699,7 @@ pub(crate) async fn check(
         if let Some(head) = unreviewed(gate) {
             return Err(Failed::passing(fill(&words.found.unreviewed, &[("head", head)])));
         }
-        let (commit, took_in) = git::take_in(&dir, &main, project).await?;
+        let (commit, took_in) = git::take_in(&dir, &main, project, branch.whose()).await?;
         let tree = |of: &str| format!("{of}^{{tree}}");
         let ours = git::git(&project.repo, &["rev-parse", &tree(&commit)]).await?;
         let theirs = git::git(&project.repo, &["rev-parse", &tree(&main)]).await?;
@@ -1254,6 +1256,7 @@ mod tests {
     fn branch(place: &git::Place) -> Branch<'_> {
         Branch {
             work: WORK,
+            item: store::ItemNumber(36),
             title: "Greet the user",
             about: "",
             place,
