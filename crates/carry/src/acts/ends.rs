@@ -738,17 +738,27 @@ async fn a_merge_takes_the_turn_before_it_merges() {
     waiting.inner.turn().holder = Some((other, None));
     let (to, _told) = tokio::sync::mpsc::unbounded_channel();
     let teller = RoundReply::new(WORK, RunId(5), to).teller();
-    // Once the merge waits for the turn, nothing is merged; then the other work lets the turn go.
-    let letting_go = async {
+    let mut stop = Stop::never();
+    let merge = waiting.inner.act(&round, &teller, &mut stop);
+    tokio::pin!(merge);
+    // The merge runs until it waits for the turn. One that goes on without it ends first, which fails the test: a
+    // wait for a merge that never waits would never end.
+    let waits = async {
         while !waiting.inner.turn().waiting.contains(&WORK) {
             tokio::task::yield_now().await;
         }
-        let asked = waiting.inner.host.asked();
-        assert!(!asked.iter().any(|a| matches!(a, Asked::Merge(_))), "{asked:?}");
-        waiting.inner.end_turn(other);
     };
-    let mut stop = Stop::never();
-    let (merged, ()) = tokio::join!(waiting.inner.act(&round, &teller, &mut stop), letting_go);
+    tokio::select! {
+        merged = &mut merge => {
+            panic!("the merge went on while another work had the turn: {:?}", merged.as_ref().err());
+        }
+        () = waits => {}
+    }
+    // Once the merge waits for the turn, nothing is merged; then the other work lets the turn go.
+    let asked = waiting.inner.host.asked();
+    assert!(!asked.iter().any(|a| matches!(a, Asked::Merge(_))), "{asked:?}");
+    waiting.inner.end_turn(other);
+    let merged = merge.await;
     assert!(merged.is_ok(), "{:?}", merged.as_ref().err());
     assert_eq!(waiting.inner.host.asked().last(), Some(&Asked::Merge(Some(checked))));
 }
