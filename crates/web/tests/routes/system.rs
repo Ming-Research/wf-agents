@@ -40,6 +40,9 @@ async fn all_time_gives_the_merge_and_what_was_spent_on_each_cell_and_model() {
     let running = merged().await;
     let router = &running.router;
     let system = get_json(router, "/api/v1/system").await;
+    // What the calls of the rounds under way have come to is a route of its own, and nothing is under way once the work
+    // has merged.
+    assert_eq!(get_json(router, "/api/v1/system/under-way").await, json!([]));
     let work = get_json(router, "/api/v1/works/1").await;
     let spent = work["summary"]["spent"].clone();
     assert_eq!(system["from"], Value::Null);
@@ -239,6 +242,15 @@ fn planned(driver: &mut driver::Driver, at: u64, ms: u64, usd: u64) -> store::Wo
     work
 }
 
+/// A line of the history of five rounds of the cell itself.
+fn history_line(value: f64) -> driver::history::Line {
+    driver::history::Line {
+        value,
+        samples: 5,
+        scope: driver::history::Scope::Cell,
+    }
+}
+
 // What the System view and a work's page are given of how rounds went against the lines of their history, as the
 // driver works it out from the records: here, of plans whose third cost and took far more than the two before it, and
 // of the builds under way after them.
@@ -290,9 +302,9 @@ fn what_went_past_the_lines_of_its_history_and_what_is_under_way_are_given_again
     assert_eq!(under_way.len(), 3, "{system}");
     assert_eq!(under_way[0]["cell"], "build");
     assert_eq!(under_way[0]["time"], Value::Null);
-    assert_eq!(
-        under_way[0]["bounds"],
-        json!({ "added": null, "rate": null, "cost": null })
+    assert!(
+        under_way.iter().all(|u| u.get("bounds").is_none()),
+        "what the calls of a round have come to is the under-way route's, not the system's: {system}"
     );
     let last = &under_way[2];
     assert_eq!(
@@ -303,9 +315,37 @@ fn what_went_past_the_lines_of_its_history_and_what_is_under_way_are_given_again
         last["time"],
         json!({ "value": 380_000, "line": line(180_000, 3, "flow"), "past": true })
     );
+    // What the calls of the last round have come to, as its carrier says it: a prompt of 12,000 tokens after three calls
+    // that grew it by 4,000, against lines of 3,000 and 1,500 for the growth over the round and for each call after the
+    // first and of 400,000 for the cost, of which the growth is past both, and the cost past none. No round says
+    // anything before its carrier does.
+    assert!(web::system::Going::of(&driver).is_empty());
+    let lines = driver::history::Lines {
+        added: Some(history_line(3_000.0)),
+        rate: Some(history_line(1_500.0)),
+        cost: Some(history_line(400_000.0)),
+        ..driver::history::Lines::default()
+    };
+    let says = driver::Going::of(&lines, 3, Some(12_000), 4_000, 250_000);
+    let (run, round) = (last["run"].as_u64().unwrap(), last["round"].as_u64().unwrap() as usize);
+    let under = driver::Under::Round {
+        run: decide::RunId(run),
+        round,
+    };
+    assert!(driver.along(third, under, Some(driver::Along::Going(says))));
+    let going = serde_json::to_value(web::system::Going::of(&driver)).unwrap();
+    let figure = |value: u64, line: u64, past: bool| json!({ "value": value, "line": { "value": line, "samples": 5, "scope": "cell" }, "past": past });
     assert_eq!(
-        last["bounds"],
-        json!({ "added": line(100, 3, "flow"), "rate": line(50, 3, "flow"), "cost": line(98_000, 3, "flow") })
+        going,
+        json!([{
+            "work": third.0,
+            "run": run,
+            "round": round,
+            "context": 12_000,
+            "added": figure(4_000, 3_000, true),
+            "perCall": figure(2_000, 1_500, true),
+            "cost": figure(250_000, 400_000, false),
+        }])
     );
     // A work's page gives each of its rounds the same.
     let page = web::works::WorkPage::of(&driver, &crate::levels(), third, now)

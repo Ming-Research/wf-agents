@@ -422,6 +422,30 @@ textarea:disabled {
   cursor: default;
 }
 
+/* The spans a view counts over, side by side as links in the link colour; the one in use in the text's colour over a line
+   in the accent, as a view of the bar is. A span link is also a `.link`, which clears every border and is written
+   further down, so these are written with both classes to out-weigh it whichever comes first. */
+.span-links {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+}
+
+.span-link.link {
+  border-bottom: var(--focus) solid transparent;
+  font-size: var(--size-small);
+}
+
+.span-link.link[aria-current='true'] {
+  border-bottom-color: var(--accent);
+  color: var(--text);
+  cursor: default;
+}
+
+.span-link.link[aria-current='true']:hover {
+  text-decoration: none;
+}
+
 /* A tag: a few words or a count of a state, filled in its colour, as the console's count tags on a card. */
 .tag {
   display: inline-flex;

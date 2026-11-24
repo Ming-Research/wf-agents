@@ -470,8 +470,7 @@ async fn told(body: &mut Body) -> String {
 }
 
 /// What the stream says when the observations changed and nothing else did.
-const OBSERVATIONS_CHANGED: &str =
-    "data: {\"works\":[],\"items\":false,\"copies\":false,\"accounts\":false,\"observations\":true}\n\n";
+const OBSERVATIONS_CHANGED: &str = "data: {\"works\":[],\"items\":false,\"copies\":false,\"accounts\":false,\"observations\":true,\"going\":false}\n\n";
 
 #[tokio::test(start_paused = true)]
 async fn the_stream_says_that_the_observations_changed_after_one_is_added_or_changed_and_not_after_a_refusal_or_no_change()

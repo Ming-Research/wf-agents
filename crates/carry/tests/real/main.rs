@@ -28,6 +28,7 @@ mod stopping;
 mod testing;
 mod tree;
 mod uncommitted;
+mod under_way;
 
 use std::collections::BTreeSet;
 use std::os::unix::fs::PermissionsExt;

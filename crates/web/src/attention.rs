@@ -20,8 +20,9 @@ use decide::{Holder, View};
 use driver::Driver;
 use driver::attention::{self as of, Heed, Mark};
 use serde::{Deserialize, Serialize};
-use service::Handle;
+use service::{Changed, Handle};
 use store::WorkNumber;
+use tokio::sync::broadcast;
 use tokio::sync::broadcast::error::RecvError;
 use tokio::time::Instant;
 
@@ -276,11 +277,35 @@ pub(crate) async fn attention(State(handle): State<Handle>, asked: Result<Query<
         // Read again from where this read left off: with no mark, a work that ends while the request is held would
         // otherwise be taken as read, as every work that ended is where no mark is given.
         mark = Some(read_to);
+        match woken(&mut changes, until).await {
+            Woken::TimedOut => return Json(answer).into_response(),
+            Woken::Changed => {}
+            Woken::Gone => return refused(&service::Refusal::Gone),
+        }
+    }
+}
+
+/// How the wait of a held request ended.
+#[derive(Debug, PartialEq, Eq)]
+enum Woken {
+    /// The time asked for passed.
+    TimedOut,
+    /// Something that the works are read again for happened, or more than the listener keeps.
+    Changed,
+    /// The engine's loop ended.
+    Gone,
+}
+
+/// Waits until `until` for a change the works are read again for. What the rounds under way have come to is no such
+/// change: it comes at every call of every round, and nothing a request is answered with depends on it, so each such
+/// notice would make the engine's loop read every work for nothing.
+async fn woken(changes: &mut broadcast::Receiver<Changed>, until: Instant) -> Woken {
+    loop {
         match tokio::time::timeout_at(until, changes.recv()).await {
-            Err(_) => return Json(answer).into_response(),
-            // Something happened, or more than the listener keeps: either way the works are read again.
-            Ok(Ok(_) | Err(RecvError::Lagged(_))) => {}
-            Ok(Err(RecvError::Closed)) => return refused(&service::Refusal::Gone),
+            Err(_) => return Woken::TimedOut,
+            Ok(Ok(changed)) if changed.only_going() => {}
+            Ok(Ok(_) | Err(RecvError::Lagged(_))) => return Woken::Changed,
+            Ok(Err(RecvError::Closed)) => return Woken::Gone,
         }
     }
 }
@@ -300,5 +325,50 @@ fn not_answered(refusal: &of::Refused) -> Response {
             StatusCode::SERVICE_UNAVAILABLE,
             format!("The engine stopped: {}.", service::Fault::Driver(fault.clone())),
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn said(going: bool, works: Vec<WorkNumber>, items: bool) -> Changed {
+        Changed {
+            works,
+            items,
+            copies: false,
+            accounts: false,
+            observations: false,
+            going,
+        }
+    }
+
+    // A held request is woken by a change that names a work or sets another flag, also where `going` is set with it,
+    // and by none that says only what the rounds under way have come to, which comes at every call. Fails where such a
+    // notice wakes the wait, which reads every work in the engine's loop for nothing. A paused clock, nothing run.
+    #[tokio::test(start_paused = true)]
+    async fn a_notice_of_only_what_the_rounds_under_way_have_come_to_wakes_no_held_request() {
+        let wait = |seconds| Instant::now() + Duration::from_secs(seconds);
+
+        let (send, mut changes) = broadcast::channel(16);
+        for _ in 0..3 {
+            send.send(said(true, Vec::new(), false)).unwrap();
+        }
+        assert_eq!(woken(&mut changes, wait(5)).await, Woken::TimedOut);
+
+        // What comes after the notices of figures still wakes it, whatever it names.
+        for (after, what) in [
+            (said(false, vec![WorkNumber(1)], false), "a work"),
+            (said(true, vec![WorkNumber(1)], false), "a work, with figures"),
+            (said(false, Vec::new(), true), "an item"),
+            (said(true, Vec::new(), true), "an item, with figures"),
+        ] {
+            send.send(said(true, Vec::new(), false)).unwrap();
+            send.send(after).unwrap();
+            assert_eq!(woken(&mut changes, wait(600)).await, Woken::Changed, "{what}");
+        }
+
+        drop(send);
+        assert_eq!(woken(&mut changes, wait(600)).await, Woken::Gone);
     }
 }

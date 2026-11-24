@@ -28,7 +28,7 @@ use flow::Compiled;
 use store::WorkNumber;
 use work::{Ask, Back, Call, Time, Work};
 
-use crate::history::{Line, Lines, Sample, Scope, judged_sorted, model_of};
+use crate::history::{Line, Sample, Scope, judged_sorted, model_of};
 
 /// A work whose rounds and calls are judged, or are history.
 #[derive(Clone, Copy)]
@@ -69,9 +69,6 @@ pub struct Round {
     pub cost: Option<Against>,
     /// How long it took, or has taken so far while it is under way; none where too few rounds tell the line.
     pub time: Option<Against>,
-    /// For an agent's round under way, every line it is judged by as it runs, the run guard's among them, its cost's
-    /// among the rounds on the model its try runs on; none for any other round.
-    pub lines: Option<Lines>,
     /// For a round under way, how much longer it is expected to take ([`rest`]); none for a round that ended.
     pub rest: Option<Rest>,
 }
@@ -391,8 +388,6 @@ fn judging<'a>(of: &Of<'a>, now: Time) -> Vec<Judging<'a>> {
 /// The history as of a moment: each kind of value apart, sorted, the smallest first.
 #[derive(Default)]
 struct History<'a> {
-    /// The agents' rounds that are history, for the lines a round under way is judged by.
-    agents: Vec<&'a Sample>,
     /// How long the agents' rounds took, by cell, and of every cell.
     time_of_cell: BTreeMap<&'a CellId, Vec<f64>>,
     time: Vec<f64>,
@@ -410,19 +405,11 @@ struct History<'a> {
 impl<'a> History<'a> {
     /// The value joins the history.
     fn add(&mut self, value: &Value<'a>) {
-        if let Kind::Agent(sample) = value.kind {
-            self.agents.push(sample);
-        }
         self.each(value, insert);
     }
 
     /// The value, which joined the history last of all of its kind, leaves it.
     fn take(&mut self, value: &Value<'a>) {
-        if let Kind::Agent(sample) = value.kind
-            && let Some(at) = self.agents.iter().rposition(|s| std::ptr::eq(*s, sample))
-        {
-            self.agents.remove(at);
-        }
         self.each(value, remove);
     }
 
@@ -508,7 +495,6 @@ impl<'a> History<'a> {
                 let judged = Round {
                     cost: (cost.zip(cost_line)).map(|(value, line)| Against { value, line }),
                     time: time_line.map(|line| Against { value: time, line }),
-                    lines: under_way.then(|| Lines::of_refs(&self.agents, cell, model.unwrap_or_default(), least)),
                     rest: under_way.then(|| rest(of(self.time_of_cell.get(cell)), &self.time, time, least)),
                 };
                 if judged != Round::default() {

@@ -31,7 +31,8 @@ A round with a compaction recorded whose first prompt is shorter than what its s
 - rejected: an agent proposed listing it as an expected miss with the cause compaction; the owner rejected it, because the session it read was replaced by design, and the list should hold only what can be found a cause for; the compaction's cost stays in the round's compactions and cost.
 
 ### decision what-went-past-its-line-is-given-in-data-only
-What went past the line of its history (a round's cost or time, a call's time or result size) is given in the System data and by wf-agents system; the page draws none of it.
+What went past the line of its history (a round's cost or time, a call's time or result size) is given in the System data and by wf-agents system; the page draws only the lines of rounds under way.
+- replaced: The page drawing none of it, rounds under way included, was on main; the owner changed it, because a round under way's figures against their lines show which round to look at (decision a-round-under-way-shows-its-figures-against-their-lines).
 - rejected: an agent proposed marking a call's result size past its line on the Step and listing such calls in the System view; the owner rejected it, because the page's marks for the three kinds of line are to be designed together, so that like content looks alike.
 
 ### decision a-calls-kind-is-its-tool

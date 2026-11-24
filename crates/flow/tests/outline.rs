@@ -201,3 +201,30 @@ fn an_outline_kept_before_a_part_was_added_reads_with_that_part_absent() {
     let line: OutlinedLine = serde_json::from_str(r#"{"name": "engineer"}"#).expect("it reads");
     assert_eq!(line.reads_only, None);
 }
+
+// The two reviews of the plan think at the effort high, the owner having chosen it over xhigh for them, as the
+// reviews of the change do; the research and the implementation keep their own.
+#[test]
+fn the_engineer_s_reviews_of_the_plan_run_at_the_effort_high() {
+    let compiled = engineer();
+    for id in ["P1", "P2"] {
+        let cell = compiled.cells.iter().find(|c| c.id.as_str() == id).expect("the cell");
+        assert_eq!(cell.effort, Some(flow::Effort::High), "{id}");
+    }
+}
+
+// The three reviews of the change are cells of one line that only reads, so that they share a session and none of them
+// can change the work; the adversarial testing runs on a line of its own.
+#[test]
+fn the_three_reviews_of_the_change_share_one_line_that_only_reads_and_the_adversarial_testing_has_its_own() {
+    let compiled = engineer();
+    let cell =
+        |id: &str| (compiled.cells.iter().find(|c| c.id.as_str() == id)).unwrap_or_else(|| panic!("the cell {id}"));
+    for id in ["T1", "T2", "T3"] {
+        assert_eq!(cell(id).line.as_deref(), Some("code_reviewer"), "{id}");
+        assert!(cell(id).reads_only, "{id} may change the work");
+    }
+    let testing = cell("T4");
+    assert!(testing.line.is_some(), "the adversarial testing has a line");
+    assert_ne!(testing.line.as_deref(), Some("code_reviewer"));
+}

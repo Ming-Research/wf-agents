@@ -161,6 +161,21 @@ describe('the observations', () => {
     expect(row(page, 4)?.querySelector('.observation-text')?.textContent).toBe('A run kept another.');
   });
 
+  // What the calls of the rounds under way have come to comes with every call and holds no observation: a change that
+  // says only that does not read the list again; any other does. Fails where the list is read for each call.
+  it('is not read again for what the calls of the rounds under way have come to', async () => {
+    const e = engine();
+    const page = await drawn(e);
+    e.held.unshift({ ...e.held[1], number: 4, text: 'A run kept another.' });
+    const only = { works: [], items: false, copies: false, accounts: false, observations: false, going: true };
+    act(() => e.changed(only));
+    await settle();
+    expect(row(page, 4)).toBeNull();
+    act(() => e.changed({ ...only, works: [1] }));
+    await settle();
+    expect(row(page, 4)?.querySelector('.observation-text')?.textContent).toBe('A run kept another.');
+  });
+
   it('says who reported one an architect added, which has no work to open, and one a run kept still opens its work', async () => {
     const e = engine();
     e.held.unshift({

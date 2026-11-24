@@ -24,7 +24,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use decide::run::Failure;
 use decide::{BlockId, CallId, End, Outsider, Pauser, RunId, Seq};
 use driver::history::Lines;
-use driver::{Accounts, Along, Found, Instead, Policy, Said, Under};
+use driver::{Accounts, Along, Found, Going, Instead, Policy, Said, Under};
 use engine::{Came, Event};
 use flow::{CellSpec, Compiled, Kind};
 use store::{Item, WorkNumber};
@@ -1069,6 +1069,18 @@ impl Saying {
 }
 
 impl Teller {
+    /// What the calls to the model of the round of this number, the first being one, have come to so far, against the
+    /// lines the run guard judges it by: no record holds it, and the engine keeps the latest while the round is under
+    /// way. Said again for each call of the round.
+    pub fn going(&self, round: usize, going: Going) {
+        // Where the loop has ended, the process is stopping: what is given again says it again.
+        let _ = self.to.send(Message::Along {
+            work: self.work,
+            under: Under::Round { run: self.run, round },
+            along: Some(Along::Going(going)),
+        });
+    }
+
     /// The try of this number of the round, the first being one, begins on this.
     pub fn ran_on(&self, attempt: usize, on: RanOn) {
         self.tell(Event::Ran {

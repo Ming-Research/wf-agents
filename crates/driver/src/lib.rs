@@ -128,7 +128,7 @@ use std::sync::Arc;
 pub mod outage;
 
 pub use accounts::{Accounts, Instead, Live, Moved};
-pub use along::{Along, Under};
+pub use along::{Along, Figure, Going, Under};
 use decide::run::Failure;
 use decide::{BlockId, CellId, Decision, End, Holder, Outsider, Pauser, Room, View, begun, decide, taking_slot};
 use engine::{Effect, Event, Gate, Hold, Refused, handle_held, handle_then, held};
@@ -1818,6 +1818,22 @@ impl Driver {
             }
         }
         self.along.get(&key) != was.as_ref()
+    }
+
+    /// What the agents' rounds under way have come to so far, as what carries them out last said, each with its work,
+    /// run and round: a round that has made no call has told nothing and is not there.
+    pub fn rounds_come_to(&self) -> Vec<(WorkNumber, decide::RunId, usize, Going)> {
+        (self.along.iter())
+            .filter_map(|((work, under), along)| {
+                let (Along::Going(going), Under::Round { run, round }) = (along, under) else {
+                    return None;
+                };
+                let held = self.works.get(work)?;
+                under
+                    .under_way(&held.work.records)
+                    .then_some((*work, *run, *round, *going))
+            })
+            .collect()
     }
 
     /// Where each round or call of the work under way stands, as what carries it out last said.

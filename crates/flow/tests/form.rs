@@ -361,3 +361,22 @@ fn the_engineer_s_form_is_made_of_the_files_beside_the_repository_s_flows() {
         json!({ "type": "object", "additionalProperties": { "type": "string" } })
     );
 }
+
+// A request to run tests is a list of requests, each naming tests, checks and measurements, and the commit to run on,
+// as the tool's words say; a member beside them is not a request. The commit is a string, so that an agent runs the
+// tests on a commit of its worktree and not only on the last of its branch.
+#[test]
+fn a_request_to_run_tests_names_tests_checks_measurements_and_a_commit_and_nothing_else() {
+    let beside = agents::read(&repository_flows()).expect("the files beside the flows are read");
+    let form = form::form(&engineer(), &beside, "engineer").expect("the form is made");
+    let run_tests = &parsed(&form)["properties"]["tools"]["properties"]["run_tests"];
+    assert_eq!(run_tests["type"], json!("array"), "{run_tests}");
+    let request = &run_tests["items"];
+    let names = json!({ "type": "array", "items": { "type": "string" } });
+    assert_eq!(
+        request["properties"],
+        json!({ "tests": names, "checks": names, "measure": names, "commit": { "type": "string" } }),
+        "{request}"
+    );
+    assert_eq!(request["additionalProperties"], json!(false), "{request}");
+}

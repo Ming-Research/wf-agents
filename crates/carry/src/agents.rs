@@ -112,7 +112,7 @@ use std::sync::Arc;
 
 use decide::run::{Failure, Unmet};
 use decide::{BlockId, CellId, Pauser, RunId, Seq};
-use driver::Policy;
+use driver::{Going, Policy};
 use engine::Came;
 use flow::agents::Declaration;
 use serde::{Deserialize, Serialize};
@@ -770,9 +770,13 @@ impl Inner {
                     let mut crossed: Option<Crossing> = None;
                     let mut told_answered = false;
                     let mut told_usage = 0;
+                    // Nothing is told of the calls until the first: a try follows another only where the program
+                    // refused the session and printed no call (`Stream::refused`), so there are no figures of an
+                    // earlier try to be shown over.
+                    let mut told_going = Going::default();
                     let ran = {
                         let mut each = |line: &[u8]| {
-                            kept.line(line);
+                            let changed = kept.line(line);
                             // The service serves the round: a wait every work shares need not wait for its end.
                             if !told_answered && kept.stream.answered() {
                                 told_answered = true;
@@ -784,6 +788,21 @@ impl Inner {
                                 told_usage = kept.stream.usages();
                                 if let Some(said) = kept.stream.usage() {
                                     teller.usage(under.clone(), said.clone());
+                                }
+                            }
+                            // What the calls have come to so far, against the lines the guard judges the round by, is
+                            // told as it changes: a call's tokens come as it begins and again as it ends, so its cost
+                            // grows after the count does. No record holds it, and the owner reads it while the round
+                            // runs. A partial message that no call or return depends on changes none of it, and is
+                            // most of a stream's lines: pricing every call again for each would grow with the square
+                            // of the calls.
+                            if changed {
+                                let calls = kept.calls();
+                                let going =
+                                    Going::of(&round.lines, calls.count, calls.last, calls.added, kept.stream.cost().0);
+                                if going != told_going {
+                                    told_going = going;
+                                    teller.going(round.number, going);
                                 }
                             }
                             if crossed.is_none()
@@ -2318,13 +2337,16 @@ impl Keeping {
         measures(&self.stream, given, before, crossed, priced)
     }
 
-    /// Takes a line of the stream, without its newline.
-    fn line(&mut self, line: &[u8]) {
+    /// Takes a line of the stream, without its newline, and says whether it is kept with the round: a line that is
+    /// not changes nothing of what the stream holds, calls and cost included.
+    fn line(&mut self, line: &[u8]) -> bool {
         use std::io::Write;
-        if self.stream.line(line) && self.fault.is_none() {
+        let kept = self.stream.line(line);
+        if kept && self.fault.is_none() {
             let written = (self.file.write_all(line)).and_then(|()| self.file.write_all(b"\n"));
             self.fault = written.err();
         }
+        kept
     }
 
     /// The stream as it was read; or why it could not be kept.
@@ -3419,6 +3441,128 @@ mod tests {
         let key = (round.work, round.run, round.number);
         (agents.inner.said.lock().unwrap()).insert(key, Arc::default());
         (agents, round)
+    }
+
+    /// What the owner said to the round at this version of the words of `d1_words`, as the engine tells it.
+    fn telling_at(at: u64, said: &str) -> Telling {
+        Telling {
+            entry: format!("The owner:\n\n{said}"),
+            block: "d1_words".into(),
+            number: at,
+            does: None,
+            versions: vec![("d1_words".into(), Seq(at))],
+            hurry: false,
+        }
+    }
+
+    /// Where what is said to the round waits for its hook, its directory made as the round's message was kept in it.
+    fn words_of(agents: &Agents, round: &Round) -> Words {
+        let files = words(&agents.inner.kept(round));
+        std::fs::create_dir_all(files.waiting.parent().expect("a directory")).unwrap();
+        files
+    }
+
+    /// What waits for the round's hook, as the hook would print it into the session.
+    fn waiting_for_hook(files: &Words) -> String {
+        let read: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&files.waiting).expect("it waits for the hook")).unwrap();
+        (read["hookSpecificOutput"]["additionalContext"].as_str())
+            .expect("what the hook gives")
+            .to_string()
+    }
+
+    /// The versions each message says reached the round.
+    fn reached(told: &mut tokio::sync::mpsc::UnboundedReceiver<service::Message>) -> Vec<Vec<(BlockId, Seq)>> {
+        std::iter::from_fn(|| told.try_recv().ok())
+            .filter_map(|message| match message {
+                service::Message::Happened {
+                    event: engine::Event::SaidToRound { versions, .. },
+                    ..
+                } => Some(versions),
+                _ => None,
+            })
+            .collect()
+    }
+
+    // What the owner says to a round under way is put where the round's hook gives it, in the words of `said`; what the
+    // hook gave before a later telling is counted as given, what still waits for the hook as the round ends is taken
+    // back and stays new to the cell, only what was given is said to have reached the round, and nothing is put once
+    // the round has ended. Well under a second alone, files in a directory of its own, the hook's move made by hand
+    // as its command makes it; no other test holds the carrier's account of what a round was told.
+    #[tokio::test]
+    async fn the_words_told_a_round_reach_it_only_where_its_hook_gave_them_before_it_ended() {
+        let dir = tempfile::tempdir().unwrap();
+        let (agents, round) = given_round_of(dir.path(), Work::default(), Default::default());
+        let (_, beside) = engineer();
+        let files = words_of(&agents, &round);
+        agents.inner.tell(&round, telling_at(10, "Keep it to one table.")).await;
+        assert_eq!(
+            waiting_for_hook(&files),
+            said(&beside, &telling_at(10, "Keep it to one table."))
+        );
+        // The hook gives it, moving it aside as its command does; then the owner says more, which waits.
+        let delivered = PathBuf::from(format!("{}.1.json", files.given.display()));
+        std::fs::rename(&files.waiting, &delivered).unwrap();
+        agents.inner.tell(&round, telling_at(12, "And name the table.")).await;
+        assert_eq!(
+            waiting_for_hook(&files),
+            said(&beside, &telling_at(12, "And name the table.")),
+            "the later words wait for the hook, alone"
+        );
+        // The round's program ends before its hook gives the later words.
+        let (to, mut told) = tokio::sync::mpsc::unbounded_channel();
+        let teller = RoundReply::new(round.work, round.run, to).teller();
+        agents.inner.heard(&round, &teller).await;
+        assert!(!files.waiting.exists(), "what waited is taken back");
+        assert_eq!(
+            reached(&mut told),
+            [telling_at(10, "").versions],
+            "only what the hook gave reached the round"
+        );
+        // Once the round has ended, nothing is put for its hook.
+        agents.inner.tell(&round, telling_at(14, "Late words.")).await;
+        assert!(!files.waiting.exists(), "nothing waits for a round that ended");
+        agents.inner.heard(&round, &teller).await;
+        assert!(told.try_recv().is_err(), "nothing more is said");
+    }
+
+    // Told twice with its hook giving nothing between, the round's one file holds both, the first taken back and given
+    // before the later. Well under a second alone; no other test holds what waits for a hook told twice.
+    #[tokio::test]
+    async fn words_told_twice_before_the_hook_gives_wait_in_one_file_the_first_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let (agents, round) = given_round_of(dir.path(), Work::default(), Default::default());
+        let (_, beside) = engineer();
+        let files = words_of(&agents, &round);
+        agents.inner.tell(&round, telling_at(20, "Keep it short.")).await;
+        agents.inner.tell(&round, telling_at(22, "Shorter still.")).await;
+        let both = format!(
+            "{}\n\n{}",
+            said(&beside, &telling_at(20, "Keep it short.")),
+            said(&beside, &telling_at(22, "Shorter still."))
+        );
+        assert_eq!(waiting_for_hook(&files), both);
+    }
+
+    // A round told twice whose hook gave nothing, the first words taken back into the one file with the later, ends
+    // having been given neither: no version is said to have reached it. Well under a second alone; no other test holds
+    // the account of words taken back.
+    #[tokio::test]
+    async fn a_round_that_ends_before_its_hook_gave_words_told_twice_is_given_neither() {
+        let dir = tempfile::tempdir().unwrap();
+        let (agents, round) = given_round_of(dir.path(), Work::default(), Default::default());
+        let files = words_of(&agents, &round);
+        agents.inner.tell(&round, telling_at(20, "Keep it short.")).await;
+        agents.inner.tell(&round, telling_at(22, "Shorter still.")).await;
+        let (to, mut told) = tokio::sync::mpsc::unbounded_channel();
+        let teller = RoundReply::new(round.work, round.run, to).teller();
+        agents.inner.heard(&round, &teller).await;
+        assert!(!files.waiting.exists(), "what waited is taken back");
+        assert_eq!(
+            reached(&mut told),
+            Vec::<Vec<(BlockId, Seq)>>::new(),
+            "the round was given none of it"
+        );
     }
 
     // A keep-warm ping runs under the account it is handed out with, the one in use, which its session's last call ran

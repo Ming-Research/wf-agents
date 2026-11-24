@@ -70,6 +70,7 @@ function settingsSource(page: SettingsPage = fixtureSettings()): SettingsSource 
     changed: (changed) => listening.forEach((on) => on(changed)),
     source: {
       loadSystem: async (weeks: number[]) => fixtureSystem(weeks),
+      loadUnderWay: async () => [],
       loadSettings: async (): Promise<SettingsPage> => {
         s.reads += 1;
         return s.page;
