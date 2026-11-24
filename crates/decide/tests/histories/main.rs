@@ -74,10 +74,11 @@ use std::sync::{Mutex, PoisonError};
 use decide::run::{self, Failure, Log, Requires, Return, Step, Unmet};
 use decide::{
     BlockId, CallId, Called, Cell, CellId, Condition, Decision, End, Finished, PutIn, Questioned, Returned, Room,
-    Round, RunId, Seq, Test, TestKind, TestName, Waited, Who, Write,
+    Round, RunId, Seq, Started, Test, TestKind, TestName, Waited, Who, Write,
 };
 use properties::{Moment, Seen, Verdict};
 use reading::{Reading, Writer};
+use support::Says::Value;
 use support::{GATE, World, cell, gate};
 
 /// What the histories of a test are drawn from: the shape of the flow, or any; the number of steps below which
@@ -1726,4 +1727,61 @@ fn a_judge_running_while_the_cell_it_judges_is_skipped_keeps_the_engines_propert
 #[test]
 fn a_merge_beginning_over_the_no_of_a_judge_the_flow_skips_keeps_the_engines_properties() {
     histories(JUDGED, 800, &[properties::SKIPPED_NO_PASSES]);
+}
+
+/// The properties a-question-holds-its-cell breaks, as [`properties::question_holds`] judges, where the work has ended by
+/// its last cell's run: a work whose cell `c1` is asked a question that waits, and whose merge began either while `c1`
+/// was skipped and `c1` came back while the merge's round was under way, or, `held`, with `c1` applying.
+fn question_broken_where_a_merge_ends_the_work(held: bool) -> Vec<&'static str> {
+    let mut c1 = cell("c1", &["brief"], &["b0"]);
+    c1.applies = vec![Condition::Is {
+        block: "choice".into(),
+        value: "yes".to_string(),
+    }];
+    let mut w = World::with_gate(vec![cell("c0", &["brief"], &["choice"]), c1]);
+    w.person_writes("brief");
+    w.run("c0", &[("choice", Value("yes"))]);
+    w.run("c1", &[]);
+    w.questions("c1", "which", true);
+    w.says(GATE, true);
+    if held {
+        // The walk would not begin the merge over the question: its run is put in by hand.
+        let run = RunId(w.id());
+        let at = w.tick();
+        w.records.started.push(Started {
+            run,
+            cell: "merge".into(),
+            at,
+            because: Vec::new(),
+            basis: BTreeMap::new(),
+        });
+        let at = w.tick();
+        w.records.rounds.push(Round { run, at });
+    } else {
+        w.person_sets("choice", "no");
+        w.start("merge");
+        w.person_sets("choice", "yes");
+    }
+    w.finish("merge", &[]);
+    let d = w.decide();
+    assert!(
+        matches!(d, Decision::Ended(End::Merged)),
+        "the work has not ended: {d:?}"
+    );
+    let mut v = Verdict::default();
+    properties::question_holds(&mut v, &w.flow, &Reading::new(&w.flow, &w.records), &d);
+    v.broken.iter().map(|(property, _)| *property).collect()
+}
+
+#[test]
+fn a_merge_that_began_while_no_question_held_the_work_ends_it_though_one_holds_it_by_then() {
+    assert_eq!(question_broken_where_a_merge_ends_the_work(false), Vec::<&str>::new());
+}
+
+#[test]
+fn a_merge_that_began_while_a_question_held_the_work_before_it_breaks_the_question_by_ending_the_work() {
+    assert_eq!(
+        question_broken_where_a_merge_ends_the_work(true),
+        vec![properties::QUESTION_HOLDS]
+    );
 }

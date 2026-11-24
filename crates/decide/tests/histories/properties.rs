@@ -734,7 +734,7 @@ fn rest_read(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision) {
 /// the first such cell in the order whose condition is met now: nothing after it runs, goes on, has a round under way
 /// or is waited or stalled at, and the work does not merge. A question of a cell that is skipped holds the work at no
 /// cell: the work is never waited for its answer.
-fn question_holds(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision) {
+pub fn question_holds(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision) {
     let now = Seq(u64::MAX);
     let standing = reading.holding(now);
     let applies = |cell: &decide::CellId| flow.place(cell).is_some_and(|i| reading.applies(flow, i));
@@ -765,24 +765,35 @@ fn question_holds(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision)
         Decision::Ended(End::Merged) => Some(flow.cells().len()),
         _ => None,
     };
-    // A run under way, its sent-back rounds included, ends before anything else begins: one that began while no
-    // question held the work before its cell is no breach, though one holds it now.
-    let began_clear = match d {
-        Decision::Busy { run, .. } => {
-            let r = reading.records;
-            let began = r.started.iter().find(|x| x.run == *run).map(|x| x.at);
-            began.is_some_and(|began| {
-                let then = r.before(began);
-                let before = Reading::new(flow, &then);
-                let held_then = (before.holding(now).iter())
-                    .filter(|(_, cell)| flow.place(cell).is_some_and(|j| before.applies(flow, j)))
-                    .filter_map(|(_, cell)| flow.place(cell))
-                    .min();
-                at.is_some_and(|j| held_then.is_none_or(|h| h >= j))
-            })
+    // A run under way, its sent-back rounds included, ends before anything else begins, and the last cell's run ends the
+    // work: one that began while no question held the work before its cell is no breach, though one holds it now.
+    let ending = match d {
+        Decision::Busy { run, .. } => Some(*run),
+        Decision::Ended(End::Merged) => {
+            let last = &flow.cells()[flow.cells().len() - 1].id;
+            reading
+                .records
+                .started
+                .iter()
+                .rev()
+                .find(|x| x.cell == *last)
+                .map(|x| x.run)
         }
-        _ => false,
+        _ => None,
     };
+    let began_clear = ending.is_some_and(|run| {
+        let r = reading.records;
+        let began = r.started.iter().find(|x| x.run == run).map(|x| x.at);
+        began.is_some_and(|began| {
+            let then = r.before(began);
+            let before = Reading::new(flow, &then);
+            let held_then = (before.holding(now).iter())
+                .filter(|(_, cell)| flow.place(cell).is_some_and(|j| before.applies(flow, j)))
+                .filter_map(|(_, cell)| flow.place(cell))
+                .min();
+            at.is_some_and(|j| held_then.is_none_or(|h| h >= j))
+        })
+    });
     if let Some(j) = at
         && j > q
         && !began_clear
