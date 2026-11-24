@@ -344,6 +344,92 @@ fn a_field_a_file_does_not_know_is_refused_with_the_path_of_its_file() {
     assert!(refused.contains("colour"), "{refused}");
 }
 
+// Every commit of a work ends with these two lines, so that `git log --grep='^Item: 36$'` finds a work's commits: the
+// item's number alone, which the host would link as a pull request's with a `#`, and the work's as it is written
+// everywhere.
+#[test]
+fn the_lines_every_commit_ends_with_name_their_numbers_after_a_blank_line() {
+    let commits = agents::read(&beside()).unwrap().commits;
+    assert_eq!(
+        commits.lines("36", "W12"),
+        ("Item: 36".to_string(), "Work: W12".to_string())
+    );
+    assert_eq!(
+        commits.ending("Merge main at abc into the work's branch\n", "36", "W12"),
+        "Merge main at abc into the work's branch\n\nItem: 36\nWork: W12"
+    );
+    // Either line of any item or work is one of the lines, by what the caller says a number is; a line that only looks
+    // like one is not.
+    let digits = |number: &str| !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit());
+    let written = |number: &str| number.strip_prefix('W').is_some_and(digits);
+    for line in ["Item: 20", "Work: W3", "Item: 36", "Work: W12"] {
+        assert!(commits.is_one_of_the_lines(line, digits, written), "{line}");
+    }
+    for line in [
+        "Item: ",
+        "Item: x",
+        "Item: #20",
+        "Item: 20 and more",
+        "Work: 3",
+        "Work: W",
+        "Work: W3 and more",
+        "Items: 20",
+        "item: 20",
+    ] {
+        assert!(!commits.is_one_of_the_lines(line, digits, written), "{line}");
+    }
+    // A line is of the work's kind only where what stands in its place is a work's number: an item's line with a work's
+    // number, or a work's with an item's, is neither.
+    assert!(!commits.is_one_of_the_lines("Item: W3", digits, written));
+    assert!(!commits.is_one_of_the_lines("Work: 3", digits, written));
+}
+
+// A line with no place for its number would end every commit with a line that names nothing.
+#[test]
+fn a_line_every_commit_ends_with_that_names_no_number_is_refused_with_the_path_of_its_file() {
+    for (key, line, place, wanted) in [
+        ("item_line", "Item: {item_number}", "Item: none", "{item_number}"),
+        ("work_line", "Work: {work}", "Work: {item_number}", "{work}"),
+    ] {
+        let dir = copy(key);
+        let file = dir.join("agents/commits.toml");
+        let text = fs::read_to_string(&file).unwrap();
+        assert!(text.contains(line), "{key}");
+        fs::write(&file, text.replace(line, place)).unwrap();
+        let refused = agents::read(&dir).unwrap_err();
+        let alone = agents::writes(&dir).unwrap_err();
+        fs::remove_dir_all(&dir).unwrap();
+        for said in [refused, alone] {
+            assert!(said.contains(&file.display().to_string()), "{said}");
+            assert!(said.contains(&format!("{key} does not name {wanted}")), "{said}");
+        }
+    }
+}
+
+// A line that names its number but runs over two lines would make the trailer block of every commit hold a stray line.
+#[test]
+fn a_line_every_commit_ends_with_that_runs_over_two_lines_is_refused_with_the_path_of_its_file() {
+    for (key, line, place) in [
+        (
+            "item_line",
+            "Item: {item_number}",
+            "Item: {item_number}\\nSee {item_number}",
+        ),
+        ("work_line", "Work: {work}", "Work: {work}\\nSee {work}"),
+    ] {
+        let dir = copy(key);
+        let file = dir.join("agents/commits.toml");
+        let text = fs::read_to_string(&file).unwrap();
+        assert!(text.contains(line), "{key}");
+        fs::write(&file, text.replace(line, place)).unwrap();
+        let refused = agents::read(&dir).unwrap_err();
+        fs::remove_dir_all(&dir).unwrap();
+        assert!(refused.contains(&file.display().to_string()), "{refused}");
+        assert!(refused.contains(&format!("{key} is not one line")), "{refused}");
+        assert!(!refused.contains("does not name"), "{refused}");
+    }
+}
+
 // A declaration names the variables its toolchain reads, none where it needs none, as it names its heavy commands: one
 // that leaves `[environment]` out is refused with where it was read, rather than taken to need none; one that names
 // them is read. Well under a millisecond alone, and no other test holds that the table is required.

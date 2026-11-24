@@ -40,6 +40,7 @@ mod branch;
 pub mod catch_up;
 mod changed;
 pub mod cli;
+pub mod commit_lines;
 mod cost;
 pub mod failure;
 pub mod git;
@@ -157,6 +158,8 @@ fn carry_keeping(
     });
     let profile = account::profile(&data);
     std::fs::create_dir_all(&profile).map_err(|e| format!("{}: {e}", profile.display()))?;
+    // The hook that ends the agents' commits with the item and the work, which each round's git is given.
+    commit_lines::install(&data)?;
     // The program reads its own settings file there with every command: one that gives it a credential of no
     // account's, or names a permission mode it would ignore, keeps the engine from starting (decisions
     // the-programs-directory-is-the-engines and permissions-are-rules-not-a-mode).

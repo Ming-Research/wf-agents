@@ -144,6 +144,7 @@ impl<H: Host> ToolsTrait for Tools<H> {
                 let name = crate::acts::name(&call.flow, &call.kept, call.work, &inner.project.commits);
                 let branch = Branch {
                     work: call.work,
+                    item: call.item.number,
                     title: &name,
                     about: &about,
                     place: &place,
@@ -456,6 +457,7 @@ mod tests {
         let place = repo.place(WORK);
         let branch = Branch {
             work: WORK,
+            item: store::ItemNumber(36),
             title: "Greet the user",
             about: "",
             place: &place,
@@ -747,6 +749,7 @@ mod tests {
         let place = repo.place(WORK);
         let branch = Branch {
             work: WORK,
+            item: store::ItemNumber(36),
             title: "Greet the user",
             about: "",
             place: &place,
@@ -835,6 +838,7 @@ mod tests {
         let place = repo.place(WORK);
         let branch = Branch {
             work: WORK,
+            item: store::ItemNumber(36),
             title: "Greet the user",
             about: "",
             place: &place,
