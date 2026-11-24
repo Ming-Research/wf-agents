@@ -1057,7 +1057,7 @@ impl Hosting {
 }
 
 impl Saying {
-    /// Where it stands now; none where it no longer stands anywhere it says, as once a turn it waited for is taken.
+    /// Where it stands now; none where it no longer stands anywhere it says, as once the CI run it ran as has ended.
     pub fn say(&self, along: Option<Along>) {
         // Where the loop has ended, the process is stopping: what is given again says it again.
         let _ = self.to.send(Message::Along {
