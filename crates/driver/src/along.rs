@@ -10,7 +10,7 @@ use crate::history::{Line, Lines};
 use crate::judged::Against;
 
 /// Where a round or a call stands as it goes.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Along {
     /// It waits for the project's turn to check and merge, which this work holds: the works of a project check and
     /// merge one at a time.
