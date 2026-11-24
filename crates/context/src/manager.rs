@@ -28,7 +28,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use decide::{BlockId, CallId, InputView, Records, RunId, Seq, VersionView, View, Writer};
 use flow::agents::{Agents, Part};
 use flow::{CellSpec, Compiled, InputKind, Listed};
-use work::sessions::{began_at, number_at, of_line, of_round, start};
+use work::sessions::{began_at, number_at, of_line, of_round};
 use work::{Ask, Back, Call, Fill, Given, Why, Work};
 
 use crate::diff;
@@ -610,11 +610,15 @@ struct Held {
 /// place.
 fn held(flow: &Compiled, work: &Work, line: &str, run: RunId, number: usize, began: Seq) -> Held {
     let records = &work.records;
-    let on_line = |r: RunId| {
-        let cell = records.started.iter().find(|s| s.run == r).map(|s| &s.cell);
-        let spec = cell.and_then(|cell| flow.cells.iter().find(|c| c.id == *cell));
-        spec.and_then(|c| c.line.as_deref()) == Some(line)
-    };
+    // The runs of the line, read once: each is asked of for every round of the work.
+    let mut of_the_line: BTreeSet<RunId> = BTreeSet::new();
+    for started in &records.started {
+        let spec = flow.cells.iter().find(|c| c.id == started.cell);
+        if spec.and_then(|c| c.line.as_deref()) == Some(line) {
+            of_the_line.insert(started.run);
+        }
+    }
+    let on_line = |r: RunId| of_the_line.contains(&r);
     let (session, begins) = of_round(work, line, on_line, run, number);
     if begins {
         return Held::default();
@@ -622,16 +626,22 @@ fn held(flow: &Compiled, work: &Work, line: &str, run: RunId, number: usize, beg
     // Each round of the line that ran in the session and ended before this one began, with where it began and ended.
     let mut rounds: Vec<(RunId, usize, Seq, Seq)> = Vec::new();
     let mut counted: BTreeMap<RunId, usize> = BTreeMap::new();
+    // Where each run's rounds ended, in order, read once.
+    let mut ended_at: BTreeMap<RunId, Vec<Seq>> = BTreeMap::new();
+    for returned in &records.returned {
+        ended_at.entry(returned.run).or_default().push(returned.at);
+    }
     for round in &records.rounds {
         let k = counted.entry(round.run).or_default();
         *k += 1;
-        let ended = (records.returned.iter()).filter(|r| r.run == round.run).nth(*k - 1);
-        if let Some(ended) = ended
-            && ended.at < began
+        let ended = ended_at.get(&round.run).and_then(|ends| ends.get(*k - 1));
+        // The place the round began at is the place of this round of the records, which is [`start`] of it.
+        if let Some(&ended) = ended
+            && ended < began
             && on_line(round.run)
-            && number_at(work, line, start(work, round.run, *k)) == session
+            && number_at(work, line, round.at) == session
         {
-            rounds.push((round.run, *k, round.at, ended.at));
+            rounds.push((round.run, *k, round.at, ended));
         }
     }
     // Where the session last held nothing: where it began, or where it was reopened under its id, begun again or
@@ -695,7 +705,7 @@ fn held(flow: &Compiled, work: &Work, line: &str, run: RunId, number: usize, beg
                 hold(&mut held, &p.block, p.version);
             }
         }
-        let begun = records.rounds.iter().filter(|x| x.run == *r).count();
+        let begun = counted.get(r).copied().unwrap_or(0);
         let finished = (records.finished.iter()).find(|f| f.run == *r && *k == begun && f.at > *ended);
         let mut taken = Vec::new();
         if let Some(f) = finished.filter(|f| f.at > top && f.at < began) {

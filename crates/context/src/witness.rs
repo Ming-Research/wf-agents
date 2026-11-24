@@ -526,13 +526,18 @@ impl Node {
         let this = work::sessions::start(kept, round.run, round.number);
         let mut counted: BTreeMap<RunId, usize> = BTreeMap::new();
         let mut before: Option<Seq> = None;
+        // The runs of the round's cell, read once.
+        let of_the_cell: BTreeSet<RunId> = (records.started.iter())
+            .filter(|s| s.cell == round.cell)
+            .map(|s| s.run)
+            .collect();
         for r in &records.rounds {
             let number = counted.entry(r.run).or_default();
             *number += 1;
             if r.run == round.run && *number == round.number {
                 break;
             }
-            if records.started.iter().any(|s| s.run == r.run && s.cell == round.cell) {
+            if of_the_cell.contains(&r.run) {
                 before = Some(r.at);
             }
         }
