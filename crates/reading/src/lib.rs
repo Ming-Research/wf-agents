@@ -297,10 +297,10 @@ impl<'a> Reading<'a> {
     }
 
     /// Whether, at this place, a point is new to the cell in a dialogue it holds as the maker while the dialogue is
-    /// open (design document `data-and-context`, 36, 41): a version new to it that a run of the other side wrote, a cell
-    /// of the flow for which the dialogue is none it makes. A judge's dialogue is open while the verdict the flow pairs
-    /// with it stands at the value that does not pass; a doubt, which has no verdict, while its latest version is the
-    /// other side's.
+    /// open (design document `data-and-context`, 36, 41): a version new to it that a run of the other side wrote, a
+    /// cell of the flow for which the dialogue is none it makes. A judge's dialogue is open while the verdict the flow
+    /// pairs with it stands at the value that does not pass; a doubt, which has no verdict, while its latest version
+    /// is the other side's.
     pub fn point(&self, flow: &Flow, cell: &CellId, dialogue: &BlockId, place: Seq) -> bool {
         let makes = |c: &CellId| (flow.cells().iter()).any(|x| &x.id == c && x.dialogues.contains_key(dialogue));
         let other = |v: &Version| matches!(&v.by, Writer::Cell(c, _) if !makes(c));
