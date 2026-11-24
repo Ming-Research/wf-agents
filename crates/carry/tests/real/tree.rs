@@ -1,15 +1,16 @@
 //! The design tree on the work's branch as a block of the work: a version where the start made the branch, where the
 //! branch took main in, and where a round of the work committed to the tree, which that round's run hands in; and a
 //! change handed in only with the owner's answers to the questions marked `tree` in the tree; and a block whose lines
-//! name entries of the tree, checked as it is handed in and given as the entries it names.
+//! name entries of the tree, checked as it is handed in and given as the entries it names; and a change of the tree
+//! held to the forms of the tree's rules.
 
-use decide::Writer;
 use decide::run::Unmet;
+use decide::{RunId, Writer};
 use service::Act;
 use store::WorkNumber;
 use work::Given;
 
-use crate::{Fake, GREETING_ENTRY, GREETING_FILE, NO_SUCH_ENTRY, On, Real, ended, git_in};
+use crate::{FORMED_FILE, Fake, GREETING_ENTRY, GREETING_FILE, NO_SUCH_ENTRY, On, Real, ended, git_in};
 
 /// A check that fails the first time, moving main by a commit of a file of the design tree as it does, and passes after.
 const MOVES_DESIGN_ONCE: &str = "test -f ../moved || { touch ../moved; \
@@ -144,6 +145,118 @@ async fn a_change_handed_in_while_an_answer_marked_tree_is_not_in_the_design_tre
         .iter()
         .filter(|call| call.of("Build") && call.stdin.contains(sent_back));
     assert_eq!(told.count(), 1, "the build is told once why its return was sent back");
+}
+
+// The build commits a decision of the design tree that has no line of an approach turned down, which the tree's rules
+// require, and hands in its change: the return is sent back, told the file, the line and what is wrong, and told once;
+// its next return, with the decision written as the rules say, is taken. The change to the tree is the work's own, and
+// the check before the merge, on the commit that would merge, finds it in its forms.
+#[tokio::test]
+async fn a_change_that_leaves_the_design_tree_out_of_its_forms_is_sent_back_until_it_is_in_them() {
+    let fake = Fake {
+        ill_formed_tree: true,
+        ..Fake::default()
+    };
+    let mut real = Real::trial(fake);
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| ended(&real.decision(work))).await;
+    let kept = real.work(work);
+    let build = real.run_of(work, "build");
+    let line = format!(
+        "{FORMED_FILE}:6: decision formed-wrong: a decision has a `rejected` or a `replaced` line, or more, under its \
+         first line"
+    );
+    let unformed = Unmet::TreeForm {
+        lines: vec![line.clone()],
+    };
+    assert_eq!(kept.given.get(&(build, 2)), Some(&Given::SentBack(vec![unformed])));
+    assert_eq!(kept.given.get(&(build, 3)), None, "taken at its second round");
+    let calls = real.calls();
+    let told = calls
+        .iter()
+        .filter(|call| call.of("Build") && call.stdin.contains(&format!("fix them all:\n{line}")));
+    assert_eq!(told.count(), 1, "the build is told once what is wrong with the tree");
+}
+
+// A return that asks for a call asks for nothing else, and the run entered for the results goes on in the same
+// worktree: the tree the build committed as it asked is held to its forms in the return that hands in, which is the
+// run's second, and not before. Well under a second alone, on the fake agent; it catches a look at the tree made on a
+// return that asks for calls, which sends the run that asked back and asks of it what it cannot do yet.
+#[tokio::test]
+async fn a_build_that_asks_for_a_call_with_the_tree_out_of_its_forms_is_held_to_them_only_in_the_return_that_hands_in()
+{
+    let fake = Fake {
+        ill_formed_tree: true,
+        build_then_asks: true,
+        ..Fake::default()
+    };
+    let mut real = Real::trial(fake);
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| ended(&real.decision(work))).await;
+    let kept = real.work(work);
+    let runs: Vec<RunId> = (kept.records.started.iter())
+        .filter(|started| started.cell.as_str() == "build")
+        .map(|started| started.run)
+        .collect();
+    let [asked, results] = runs[..] else {
+        panic!("the build ran twice: {runs:?}");
+    };
+    assert_eq!(kept.given.get(&(asked, 2)), None, "the return that asked was not held");
+    let line = format!(
+        "{FORMED_FILE}:6: decision formed-wrong: a decision has a `rejected` or a `replaced` line, or more, under its \
+         first line"
+    );
+    let unformed = Unmet::TreeForm { lines: vec![line] };
+    assert_eq!(kept.given.get(&(results, 2)), Some(&Given::SentBack(vec![unformed])));
+    assert_eq!(
+        kept.given.get(&(results, 3)),
+        None,
+        "the round that put the tree right left it in its forms"
+    );
+}
+
+// A line that only reads changes nothing of the work, and a commit of the tree it leaves is the outside's: its return
+// is taken as it is, whatever the tree holds. Well under a second alone, on the fake agent; it catches a look at the
+// tree made on the return of a line that cannot put it right.
+#[tokio::test]
+async fn a_review_that_leaves_the_design_tree_out_of_its_forms_is_not_sent_back() {
+    let fake = Fake {
+        review_commits_an_ill_formed_tree: true,
+        ..Fake::default()
+    };
+    let mut real = Real::trial(fake);
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    let reviewed = |real: &Real| {
+        let kept = real.work(work);
+        let Some(started) = (kept.records.started.iter().rev()).find(|started| started.cell.as_str() == "review")
+        else {
+            return false;
+        };
+        let run = started.run;
+        (kept.records.finished.iter()).any(|finished| finished.run == run) || kept.given.contains_key(&(run, 2))
+    };
+    real.until(reviewed).await;
+    let kept = real.work(work);
+    let review = real.run_of(work, "review");
+    assert_eq!(
+        kept.given.get(&(review, 2)),
+        None,
+        "the review's return was taken as it was"
+    );
+    assert!(
+        (kept.records.finished.iter()).any(|finished| finished.run == review),
+        "the review's run ended with its return"
+    );
+    let calls = real.calls();
+    let reviewed = calls.iter().find(|call| call.of("Review")).expect("the review ran");
+    let head = git_in(&reviewed.dir, &["log", "-1", "--format=%s"]);
+    assert_eq!(
+        head, "Write the tree",
+        "the review left the ill-formed tree as the work's head"
+    );
 }
 
 // The build hands in its code, which is handed in only with the owner's answer in the design tree, with a change not

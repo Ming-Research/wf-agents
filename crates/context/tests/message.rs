@@ -568,6 +568,7 @@ reasons! {
     Merging { changes: "x".into() } => "merging",
     TreeUnchanged { name: "x".into() } => "tree_unchanged",
     NotAnEntry { line: "x".into() } => "not_an_entry",
+    TreeForm { lines: vec![] } => "tree_form",
     Unanswered { block: BlockId::from("b") } => "unanswered",
     WordOwed { name: BlockId::from("b"), watched: vec![] } => "word_owed",
     NoPoint { block: BlockId::from("b"), value: "v".into(), name: BlockId::from("b") } => "no_point",
@@ -670,6 +671,28 @@ fn a_return_that_hands_in_the_change_without_an_answer_marked_tree_in_the_tree_i
     assert_eq!((again.run, again.number), (round.run, 2));
     let entered = sim.enter(&again, false);
     let said = "## Sent back\n\n- `placement` is not in the tree: write it.\n";
+    assert!(entered.text.contains(said), "{}", entered.text);
+}
+
+// A return the engine found leaving the files of the design tree out of their forms is sent back as one thing wrong,
+// which lists each fault the engine worded, a line to a fault, in the words of the files beside the flows. Well under a
+// second alone, in memory; it catches a variant of the return's faults left without words.
+#[test]
+fn a_return_that_leaves_the_design_tree_out_of_its_forms_is_sent_back_with_each_fault_on_a_line_of_its_own() {
+    let mut sim = Sim::new();
+    sim.writes("request", "Greet the user.");
+    carry(&mut sim, &[("plan", "Greet by name.", None)]);
+    let round = sim.round().expect("the build is entered");
+    let entered = sim.enter(&round, sim.begins(&round));
+    sim.tries(&round, 1, entered.fills);
+    let mut came = Came::hands_in(Vec::new());
+    came.found = vec![Unmet::TreeForm {
+        lines: vec!["design/a.md:5: one".to_string(), "design/a.md:9: two".to_string()],
+    }];
+    sim.returns(&round, came, 0);
+    let again = sim.round().expect("the build's round after it was sent back");
+    let entered = sim.enter(&again, false);
+    let said = "## Sent back\n\n- The tree is not in form:\ndesign/a.md:5: one\ndesign/a.md:9: two\n";
     assert!(entered.text.contains(said), "{}", entered.text);
 }
 

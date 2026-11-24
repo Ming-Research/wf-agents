@@ -1,11 +1,11 @@
 name: ci
 
-# Every check of the code: the design tree's forms and the documents' citations; the page's types, lint, tests and
-# build; the Rust format and clippy with warnings as errors; and the Rust tests, which take most of the time, split
-# across three jobs beside the others. The job `check` is red whenever `scope`, `tree` or a job of the code is. It is the
-# project's full workflow (`ci.full` of wf-agents.toml): what the check before a work's merge runs on the exact
-# commit to merge, once, and the only thing the engine asks it for. The engine dispatches it by hand on main's file, with
-# the commit to test and a value only its request knows, which the run's name holds, and judges the run by the jobs'
+# Every check of the code: the documents' citations; the page's types, lint, tests and build; the Rust format and
+# clippy with warnings as errors; and the Rust tests, which take most of the time, split across three jobs beside the
+# others. The job `check` is red whenever `scope`, `tree` or a job of the code is. It is the project's full workflow
+# (`ci.full` of wf-agents.toml): what the check before a work's merge runs on the exact commit to merge, once, and the
+# only thing the engine asks it for. The engine dispatches it by hand on main's file, with the commit to test and a
+# value only its request knows, which the run's name holds, and judges the run by the jobs'
 # conclusions and by the JUnit of every test in the artifact `test-results`: nextest's of each third of the Rust tests
 # and vitest's of the page's tests, each in a file named by its job, and the file of `tree`, which holds no test. It runs
 # on each pull request into `main` as well, except one from the branch of a work of the engine (`work-…`), whose result
@@ -13,8 +13,10 @@ name: ci
 # What an agent names to `run_tests` while it works, the fast CI runs instead (fast.yml).
 #
 # Where every file a change touches is in the design tree (design/), the jobs of the code (`page`, `page tests`, `lint`
-# and the three of `test`) do not run, as `scope` says, and `tree` and `check` alone judge the run: no test reads the
-# tree's files as they are, and what a change of them can fail, `tree` runs. Where `scope` cannot tell, every job runs.
+# and the three of `test`) do not run, as `scope` says, and `tree` and `check` alone judge the run: `tree` runs the
+# citations of the documents, which a change of the tree's files can fail. The forms of the tree's files are not judged
+# here: the engine checks them before it merges a work (`crates/carry/src/tree/forms.rs`), and a test of the code reads
+# this repository's own tree. Where `scope` cannot tell, every job runs.
 #
 # The jobs of the code run on the owner's own machine (the runners labelled 14900k, eight of them, which fast.yml uses
 # too), whose runners keep each what its last run built, as fast.yml says: the checkout, the compiled target and the
@@ -94,9 +96,9 @@ jobs:
               out.write(f"tree_only={'true' if only else 'false'}\n")
           EOF
 
-  # What a change of only the design tree can fail and that needs no build: the forms of its files, and the citations of
-  # the documents in them. It runs in every run, so that a run of only the tree has results the engine reads; it builds
-  # nothing, so it runs on GitHub's machines, where a fork's code is no risk to the owner's.
+  # What a change of only the design tree can fail and that needs no build: the citations of the documents in it. It runs
+  # in every run, so that a run of only the tree has results the engine reads; it builds nothing, so it runs on GitHub's
+  # machines, where a fork's code is no risk to the owner's.
   tree:
     runs-on: ubuntu-24.04
     # As for `scope`.
@@ -112,14 +114,6 @@ jobs:
           ref: ${{ inputs.commit }}
           # No later step pushes, so the token is not left in the checkout.
           persist-credentials: false
-      # The design tree's files against the forms of design/README.md.
-      - name: Check the design tree's forms
-        id: forms
-        run: python3 design/lint.py
-      # The tests of that check, each on a small tree of its own.
-      - name: Test the design tree's check
-        id: forms_test
-        run: python3 design/lint_test.py
       # Every citation of a paragraph of a document in docs/ against that document.
       - name: Citations of the documents
         id: citations
@@ -138,8 +132,6 @@ jobs:
           RESULTS: ${{ runner.temp }}/tree.xml
           STEPS: |
             ${{ steps.checkout.outcome }} Check out the commit
-            ${{ steps.forms.outcome }} Check the design tree's forms
-            ${{ steps.forms_test.outcome }} Test the design tree's check
             ${{ steps.citations.outcome }} Citations of the documents
             ${{ steps.citations_test.outcome }} Test the citations' check
         run: |

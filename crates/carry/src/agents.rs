@@ -72,7 +72,9 @@
 //! git does not track is none. As a round ends whose return writes a block handed in only with the owner's answers in
 //! the design tree, the return is found wanting for each question marked `tree` that has the owner's answer, while the
 //! work's change against main changes nothing in the tree; a look that cannot be made fails the round
-//! ([`tree`](crate::tree)).
+//! ([`tree`](crate::tree)). As a round of a line that may change more than the project's tests ends with a return that
+//! asks for no call, the return is found wanting for each fault in the forms of the design tree's files, where the
+//! work's change against main changes the tree; a look that cannot be made fails the round.
 //!
 //! Before the first round of each run of a cell that takes main in, the work's branch takes in main's head as the host
 //! last gave it ([`catch_up`](crate::catch_up)), and what came of it is kept beside the run's rounds before the round
@@ -186,15 +188,6 @@ struct Said {
     ended: bool,
 }
 
-/// Why a block whose lines name entries of the design tree (`names_tree_entries`) can be neither checked nor given:
-/// the project's declaration says nothing of how an entry is found.
-fn no_tree_format() -> String {
-    format!(
-        "the project's declaration, {}, has no [tree_format], which a block whose file says names_tree_entries needs",
-        flow::agents::DECLARATION
-    )
-}
-
 /// What the round of this number of the run, of this cell, is given in place of the latest version of each block it
 /// is given whose lines name entries of the design tree (`names_tree_entries`): the entries whole, as the tree in the
 /// worktree at `dir` has them at the commit of the tree's latest version as the round began, by the block and the
@@ -216,7 +209,7 @@ async fn entries_given(
     if naming.is_empty() {
         return Ok(given);
     }
-    let format = of.declaration.tree_format.as_ref().ok_or_else(no_tree_format)?;
+    let format = &of.beside.acts.tree.format;
     let began = work::sessions::began_at(work, run, number).unwrap_or_else(|| work.tick());
     let versions = decide::versions(&work.records.before(began));
     let latest = |block: &BlockId| {
@@ -996,22 +989,40 @@ impl Inner {
                     }
                 }
                 // A return that writes a block whose lines name entries of the design tree is held to lines that each
-                // name an entry the tree holds at the head of the work's branch, as the project's format of the tree
-                // finds it. A look that cannot be made, a declaration that gives no format among it, fails the round.
+                // name an entry the tree holds at the head of the work's branch, as the tree's format finds it. A look
+                // that cannot be made fails the round.
                 let naming: Vec<String> = (came.writes.iter())
                     .filter(|h| (flow.blocks.get(&h.block)).is_some_and(|b| b.names_tree_entries))
                     .map(|h| h.content.clone())
                     .collect();
                 for names in &naming {
-                    let looked = match &of.declaration.tree_format {
-                        Some(format) => {
-                            let (tree, head) = (of.project.tree.as_str(), place.reference());
-                            crate::tree::unknown(&place.dir, tree, format, &head, names).await
-                        }
-                        None => Err(no_tree_format()),
-                    };
+                    let (tree, head) = (of.project.tree.as_str(), place.reference());
+                    let looked =
+                        crate::tree::unknown(&place.dir, tree, &of.beside.acts.tree.format, &head, names).await;
                     match looked {
                         Ok(lines) => (came.found).extend(lines.into_iter().map(|line| Unmet::NotAnEntry { line })),
+                        Err(why) => {
+                            return Ok(Carried::Failed(
+                                why,
+                                Failure::Other,
+                                failure::Said::default(),
+                                read.spent,
+                            ));
+                        }
+                    }
+                }
+                // A return that does the cell's work, of a line that may change the work and not only its tests,
+                // leaves the files of the design tree in their forms where the work's change against main changes the
+                // tree: its agent is here to put them right, which a line of tests cannot, the tree being no test of
+                // the project's. A return that asks for calls is held to nothing, as it is for the worktree. A look
+                // that cannot be made fails the round, as the look at the tests does.
+                if !round.cell.reads_only && !round.cell.tests_only && came.asks.is_empty() {
+                    let (tree, head) = (of.project.tree.as_str(), place.reference());
+                    let unformed =
+                        crate::tree::unformed(&of.project, &place, &of.main, tree, &of.beside.acts.tree, &head).await;
+                    match unformed {
+                        Ok(lines) if lines.is_empty() => {}
+                        Ok(lines) => came.found.push(Unmet::TreeForm { lines }),
                         Err(why) => {
                             return Ok(Carried::Failed(
                                 why,

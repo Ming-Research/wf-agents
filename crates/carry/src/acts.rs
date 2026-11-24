@@ -368,6 +368,7 @@ impl<H: Host> Inner<H> {
                     reviewed: reviewed.as_deref(),
                     protecting: &self.protecting,
                     work: &round.kept,
+                    tree: &words.tree,
                 };
                 let asking = Asking::Round(round.run, round.number);
                 // The round reads main at the head the check takes in, which it is told of, so that main's block at
@@ -589,13 +590,15 @@ pub(crate) type Wrote<'a> = &'a (dyn Fn(BlockId, String) + Sync);
 /// told to `wrote` as it now stands, against what each cell that judges the work by its head dealt with last
 /// ([`branch::reviewed`]), none where the flow has no head; for its change under the protected paths, the paths and
 /// the question's words; and the work as it is kept, which says what the owner answered, of that change and of the
-/// questions whose answers go into the design tree.
+/// questions whose answers go into the design tree; and the tree's rules the check holds the design tree to.
 pub(crate) struct Gate<'a> {
     pub(crate) branch: &'a mut Looking,
     pub(crate) wrote: Wrote<'a>,
     pub(crate) reviewed: Option<&'a [Option<String>]>,
     pub(crate) protecting: &'a Protecting,
     pub(crate) work: &'a Work,
+    /// The tree's rules, which the files of the design tree are held to.
+    pub(crate) tree: &'a flow::agents::Tree,
 }
 
 /// The work's head, where the check holds it to what the judges dealt with and one of them dealt last with another
@@ -618,7 +621,9 @@ fn unreviewed<'g>(gate: &'g Gate<'_>) -> Option<&'g str> {
 /// so that the judge runs first on the new head and the check is taken again after it; all found holding the
 /// repository. Then main's head is merged into the branch, where it does not hold it, as a commit of the engine's, so
 /// that what is judged is what a merge would land, which fails the check where it changes nothing against main, there
-/// being nothing to merge; then that commit's own change under the paths the project protects is empty or one the owner
+/// being nothing to merge; then that, where the work's change changes the design tree, that commit holds the tree's
+/// files in their forms ([`crate::tree::unformed`]), so that a fault only main and the work together make is found;
+/// then that commit's own change under the paths the project protects is empty or one the owner
 /// let merge, which fails the check otherwise, with what the engine asks of it, and fails it too where it cannot be
 /// looked at ([`crate::protected`]); then the host's verdict on the commit, waited for without the repository, as the
 /// round of the check that asks finds it, which may hold the work where what failed fails on main as well, and may
@@ -709,6 +714,22 @@ pub(crate) async fn check(
                 commit,
                 took_in,
                 ..found(empty)
+            }));
+        }
+        // The commit that would merge, with main taken in, is what holds the files of the design tree in their forms
+        // where the work's change changes the tree: a name that main and the work each added, or an entry main took
+        // out that the work names, is a fault of neither alone.
+        let unformed = crate::tree::unformed(project, place, &main, &project.tree, gate.tree, &commit).await?;
+        if !unformed.is_empty() {
+            let faults = unformed.join("\n");
+            let text = fill(
+                &words.found.tree_form,
+                &[("main", project.main.as_str()), ("faults", &faults)],
+            );
+            return Ok(Some(Checked {
+                commit,
+                took_in,
+                ..found(text)
             }));
         }
         (commit, took_in, main)
@@ -1273,6 +1294,7 @@ mod tests {
     async fn check_failing(repo: &Repo, host: &impl Host, stop: &mut Stop) -> Result<Option<Checked>, Failed> {
         let place = repo.place(WORK);
         let (protecting, work) = (Protecting::default(), Work::default());
+        let tree = words().tree;
         let mut looking = Looking::nothing();
         let mut gate = Gate {
             branch: &mut looking,
@@ -1280,6 +1302,7 @@ mod tests {
             reviewed: None,
             protecting: &protecting,
             work: &work,
+            tree: &tree,
         };
         check(
             &repo.project,
@@ -1318,6 +1341,7 @@ mod tests {
             reviewed: Some(reviewed),
             protecting: &protecting,
             work: &work,
+            tree: &words.tree,
         };
         let checked = check(
             &repo.project,
@@ -1453,6 +1477,7 @@ mod tests {
     /// paths to what the owner answered in the work, and its head to nothing.
     async fn check_held(repo: &Repo, host: &impl Host, protecting: &Protecting, work: &Work) -> Checked {
         let place = repo.place(WORK);
+        let tree = words().tree;
         let mut looking = Looking::nothing();
         let mut gate = Gate {
             branch: &mut looking,
@@ -1460,6 +1485,7 @@ mod tests {
             reviewed: None,
             protecting,
             work,
+            tree: &tree,
         };
         let (repository, mut stop) = (Mutex::new(()), Stop::never());
         check(
@@ -1886,6 +1912,90 @@ mod tests {
             assert_eq!(checked.failed, None, "{checked:?}");
             assert_eq!(host.asked(), [Asked::Main, Asked::Verdict(checked.commit.clone())]);
         }
+    }
+
+    /// What the check says where the commit that would merge holds files of the design tree that are not in their
+    /// forms: these faults, a line each.
+    fn not_in_form(faults: &[&str]) -> String {
+        let faults = faults.join("\n");
+        fill(&words().check.found.tree_form, &[("main", "main"), ("faults", &faults)])
+    }
+
+    /// A file of the design tree of one decision, in the forms of the tree's rules, named `name`.
+    fn formed(title: &str, name: &str) -> String {
+        format!(
+            "# {title}\n\nCovers {title}.\n\n### decision {name}\nIt holds.\n- rejected: an agent proposed dropping it; \
+             the owner rejected it, because it is needed.\n"
+        )
+    }
+
+    // The work's change changes the design tree and a file of it is not in the forms of the tree's rules: the check
+    // names each fault and asks the host for no verdict; once the work puts it right, it goes on to the host. Well
+    // under a second alone: a repository on disk and the fake host; no other test holds the check to the forms.
+    #[tokio::test]
+    async fn a_design_tree_the_works_change_leaves_out_of_its_forms_fails_the_check_until_it_is_in_them() {
+        let repo = Repo::new("true");
+        let (place, main) = building(&repo).await;
+        std::fs::create_dir_all(place.dir.join("design/decisions")).unwrap();
+        commit(
+            &place.dir,
+            "design/decisions/x.md",
+            "# X\n\nCovers X.\n\n### decision keep-it\nIt holds.\n",
+        );
+        let host = Fake::new(&main).judges(Ok(Some(passes())));
+        let checked = check_held(&repo, &host, &Protecting::default(), &Work::default()).await;
+        let fault = "design/decisions/x.md:6: decision keep-it: a decision has a `rejected` or a `replaced` line, or \
+                     more, under its first line";
+        assert_eq!(checked.failed, Some(not_in_form(&[fault])), "{checked:?}");
+        assert_eq!(host.asked(), [Asked::Main], "the host is not asked for a verdict");
+        commit(&place.dir, "design/decisions/x.md", &formed("X", "keep-it"));
+        let host = Fake::new(&main).judges(Ok(Some(passes())));
+        let checked = check_held(&repo, &host, &Protecting::default(), &Work::default()).await;
+        assert_eq!(checked.failed, None, "{checked:?}");
+        assert_eq!(host.asked(), [Asked::Main, Asked::Verdict(checked.commit.clone())]);
+    }
+
+    // Main and the work each add an entry of one name, each file in its forms and each branch clean: it is the commit
+    // that would merge, with main taken in, that holds two of the name, which only the check on it finds. Well under a
+    // second alone: a repository on disk and the fake host; it catches a check made on the work's head alone.
+    #[tokio::test]
+    async fn a_fault_only_main_and_the_work_together_make_in_the_design_tree_fails_the_check() {
+        let repo = Repo::new("true");
+        let local = run(&repo.project.repo, &["rev-parse", "main"]);
+        let started = start_with(&repo, &Fake::new(&local)).await.unwrap();
+        std::fs::create_dir_all(started.place.dir.join("design/decisions")).unwrap();
+        commit(&started.place.dir, "design/decisions/b.md", &formed("B", "keep-it"));
+        std::fs::create_dir_all(repo.project.repo.join("design/decisions")).unwrap();
+        let main = aside(&repo, "design/decisions/a.md", &formed("A", "keep-it"));
+        let host = Fake::new(&main).judges(Ok(Some(passes())));
+        let checked = check_held(&repo, &host, &Protecting::default(), &Work::default()).await;
+        let fault = "design/decisions/b.md:5: decision keep-it: the name is taken by design/decisions/a.md:5";
+        assert_eq!(checked.failed, Some(not_in_form(&[fault])), "{checked:?}");
+        assert!(
+            checked.took_in,
+            "it is the commit with main taken in that was looked at"
+        );
+        assert_eq!(host.asked(), [Asked::Main]);
+    }
+
+    // The work's change leaves the design tree alone, though main's holds a fault: nothing is said of what main holds,
+    // and the check goes on to the host. Well under a second alone: a repository on disk and the fake host.
+    #[tokio::test]
+    async fn a_fault_in_the_design_tree_the_work_does_not_change_holds_nothing_back() {
+        let repo = Repo::new("true");
+        let local = run(&repo.project.repo, &["rev-parse", "main"]);
+        let started = start_with(&repo, &Fake::new(&local)).await.unwrap();
+        commit(&started.place.dir, "farewell.txt", "Bye.\n");
+        std::fs::create_dir_all(repo.project.repo.join("design/decisions")).unwrap();
+        let main = aside(
+            &repo,
+            "design/decisions/a.md",
+            "# A\n\nCovers A.\n\n### decision keep-it\nIt holds.\n",
+        );
+        let host = Fake::new(&main).judges(Ok(Some(passes())));
+        let checked = check_held(&repo, &host, &Protecting::default(), &Work::default()).await;
+        assert_eq!(checked.failed, None, "{checked:?}");
+        assert_eq!(host.asked(), [Asked::Main, Asked::Verdict(checked.commit.clone())]);
     }
 
     // A conflict with main and answers missing from the tree are both said, a blank line between, so that one commit

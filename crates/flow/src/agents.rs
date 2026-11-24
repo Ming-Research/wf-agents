@@ -44,6 +44,10 @@ pub const INSTALLATION_FILE: &str = "installation.toml";
 /// The file, in `agents/`, of what every agent is refused whatever its project.
 pub const REFUSED_FILE: &str = "refused.toml";
 
+/// The file, in `agents/`, of the design tree's format and of the words of each fault in the forms of its files: the
+/// tree's rules, the same for every project.
+pub const TREE_FILE: &str = "tree.toml";
+
 /// The slot in an entry of [`REFUSED_FILE`] that stands for the agents' program the installation names
 /// (`agents.command`): the only slot the file may hold, filled where the refusals are made.
 pub const PROGRAM_SLOT: &str = "{agents.command}";
@@ -386,8 +390,8 @@ impl Agents {
     }
 }
 
-/// `wf-agents.toml` at the root of a project's repository: what is the project's: its design tree, its files the engine
-/// gives every agent, its settings the words sent to the agents may name, its tests, its workflows, its heavy commands,
+/// `wf-agents.toml` at the root of a project's repository: what is the project's: where its design tree is, its files
+/// the engine gives every agent, its settings the words sent to the agents may name, its tests, its workflows, its heavy commands,
 /// which no agent runs, the variables its toolchain reads, which every agent's command line is given, and what its host
 /// needs to check and merge: the command that checks it where its repository is the host, and how its pull requests
 /// are merged where GitHub is.
@@ -396,8 +400,10 @@ impl Agents {
 pub struct Declaration {
     /// The directory of the project's checkout that holds its design tree, from the root of the checkout.
     pub tree: String,
-    /// How an entry of the design tree is found and referred to; none where the declaration says nothing of it, and a
-    /// block whose lines name entries of the tree (`names_tree_entries`) can then be neither checked nor given.
+    /// How an entry of the design tree is found and referred to, as a declaration written before the tree's format
+    /// became the flow's gave it, which an engine installed before that still reads. This engine does not use it: it is
+    /// refused where it differs from the flow's format, so that it cannot be a second one.
+    #[serde(default)]
     pub tree_format: Option<TreeFormat>,
     /// The project's files, by the name a part of a session gives them.
     pub files: BTreeMap<String, ProjectFile>,
@@ -471,10 +477,19 @@ impl Declaration {
     }
 
     /// What is wrong with the declaration whatever the project's host is, each in words with its key: a format of the
-    /// design tree that cannot find an entry, a file the session names that it does not have, a merge method the host
+    /// design tree that is not the flow's, a file the session names that it does not have, a merge method the host
     /// does not take, a check that names no command, and a workflow's time limit that is not a time.
     pub fn faults(&self, beside: &Agents) -> Vec<String> {
-        let mut faults = self.tree_format.as_ref().map(TreeFormat::faults).unwrap_or_default();
+        let mut faults = Vec::new();
+        if let Some(format) = &self.tree_format
+            && *format != beside.acts.tree.format
+        {
+            let tree = beside.root.join(AGENTS_DIR).join(TREE_FILE);
+            faults.push(format!(
+                "tree_format: is not the format of the design tree in [format] of {}, which is the same for every project",
+                tree.display()
+            ));
+        }
         for part in &beside.session.parts {
             if let Some(name) = part.file()
                 && !self.files.contains_key(name)
@@ -534,8 +549,8 @@ pub fn span(text: &str) -> Result<std::time::Duration, String> {
     Ok(std::time::Duration::from_secs(seconds))
 }
 
-/// `[tree_format]` of the declaration: how an entry of the project's design tree is found and referred to, so that the
-/// engine names no kind, directory or form of the tree's own (Article 1). An entry begins at a line in the form of
+/// `[format]` of `agents/tree.toml`: how an entry of a design tree is found and referred to, as the tree's rules write
+/// them, which are the same for every project. An entry begins at a line in the form of
 /// `heading` and runs to the line before the next line in that form, of any kind, or to its file's end, less the blank
 /// lines at its end; a text refers to it in the form of `reference`. In both, `{kind}` stands for a kind's name and
 /// `{name}` for the entry's, which holds no white space.
@@ -568,17 +583,17 @@ impl TreeFormat {
     pub fn faults(&self) -> Vec<String> {
         let mut faults = Vec::new();
         if self.kinds.is_empty() {
-            faults.push("tree_format.kinds names no kind".to_string());
+            faults.push("format.kinds names no kind".to_string());
         }
         for (i, kind) in self.kinds.iter().enumerate() {
             if kind.kind.trim().is_empty() || kind.dir.trim().is_empty() {
-                faults.push(format!("tree_format.kinds[{i}] must give a kind and a directory"));
+                faults.push(format!("format.kinds[{i}] must give a kind and a directory"));
             }
         }
         for (field, form) in [("heading", &self.heading), ("reference", &self.reference)] {
             for place in [KIND, NAME] {
                 if !form.contains(place) {
-                    faults.push(format!("tree_format.{field} must hold {place}"));
+                    faults.push(format!("format.{field} must hold {place}"));
                 }
             }
         }
@@ -604,6 +619,84 @@ impl TreeFormat {
             (!name.is_empty() && !name.contains(char::is_whitespace)).then_some((kind.kind.as_str(), name))
         })
     }
+}
+
+/// The kinds of entry the forms of the tree's files are checked for: the check has the form of each by its name.
+pub const FORMED_KINDS: [&str; 2] = ["principle", "decision"];
+
+/// `agents/tree.toml`: the tree's rules as the engine carries them, the same for every project: how an entry is found
+/// and referred to, and the words of each fault found in the forms of the tree's files.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Tree {
+    pub format: TreeFormat,
+    pub faults: TreeFaults,
+}
+
+impl Tree {
+    /// What is wrong with the file, each in words: what is wrong with its format, and a kind the forms are checked for
+    /// that it lacks.
+    pub fn faults(&self) -> Vec<String> {
+        let mut faults = self.format.faults();
+        for kind in FORMED_KINDS {
+            if !self.format.kinds.iter().any(|k| k.kind == kind) {
+                faults.push(format!(
+                    "format.kinds lacks the kind {kind}, which the forms of the tree's files are checked for"
+                ));
+            }
+        }
+        faults
+    }
+}
+
+/// The words of each fault the check finds in the forms of the tree's files, and of the line that names it. In a text,
+/// `{count}` is the number of characters a part holds and `{most}` the most it may; `{kind}` and `{name}` an entry's
+/// kind and name; `{dir}` the directory that holds the files of a kind; `{heading}` the line an entry of that kind
+/// begins with, as the format writes it, `<name>` standing for its name; `{what}` the work, item or date a line names;
+/// `{data}` a path a line gives as its data; `{file}` and `{line}` where a name is taken; `{is}` the kind a name is of.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TreeFaults {
+    /// One fault as a line of what a round is told: `{path}` the file, `{line}` the number of its line, `{entry}` the
+    /// words of `entry` where the fault is in an entry and nothing where it is in the file, `{text}` the fault's words.
+    pub line: String,
+    /// Where a fault is in an entry: `{kind}` and `{name}`.
+    pub entry: String,
+    /// The file is not text, so that its forms cannot be read.
+    pub not_text: String,
+    /// A file does not open with its title, a blank line and one line of what it covers.
+    pub opens: String,
+    /// The line of what a file covers is more than one line, or no blank line follows it.
+    pub covers: String,
+    /// Two entries are parted by more or less than one blank line, or a blank line ends the file.
+    pub blank_lines: String,
+    /// An entry does not begin as its directory's kind does: `{dir}`, `{heading}`.
+    pub heading: String,
+    /// An entry's name is not lowercase words joined by hyphens.
+    pub name_shape: String,
+    /// A principle is not its rule on one line and its reason on one line after `Why: `.
+    pub principle_form: String,
+    pub rule_long: String,
+    pub why_empty: String,
+    pub why_long: String,
+    /// A decision's first line is missing or is a line of an approach.
+    pub decision_first: String,
+    pub first_long: String,
+    /// A decision has no line of an approach under its first line.
+    pub no_lines: String,
+    /// A line under a decision's first is not in the form of a `rejected` or a `replaced` line.
+    pub line_form: String,
+    pub line_long: String,
+    /// A line of a decision names a work, an item or a date: `{what}`.
+    pub names_a_moment: String,
+    /// A line gives data that the repository does not hold: `{data}`.
+    pub data_missing: String,
+    /// An entry's name is the name of another entry, which is at `{file}` and `{line}`.
+    pub name_taken: String,
+    /// A line names an entry no file holds: `{kind}`, `{name}`.
+    pub unknown: String,
+    /// A line names an entry as another kind than it is: `{kind}`, `{name}`, `{is}`.
+    pub wrong_kind: String,
 }
 
 /// The paths of the project's checkout that govern its agents, which the owner changes (principle
@@ -1178,8 +1271,13 @@ pub struct SentBackFaults {
     /// against main changes nothing in the tree.
     pub tree_unchanged: String,
     /// `{line}` a line of a block whose lines name entries of the design tree (`names_tree_entries`) that is not
-    /// written as the project's `[tree_format]` refers to an entry, or names one the tree on the work's branch lacks.
+    /// written as the tree's format (`agents/tree.toml`) refers to an entry, or names one the tree on the work's branch
+    /// lacks.
     pub not_an_entry: String,
+    /// `{faults}` each fault found in the forms of the design tree's files on the work's branch, a line to a fault, as
+    /// `agents/tree.toml` words it, where the round's line may change the work, its return asks for no call, and the
+    /// work's change against main changes the tree.
+    pub tree_form: String,
     /// `{block}` what an act of the engine's wrote, dealt with by a return that leaves nothing new that runs the act.
     pub unanswered: String,
     /// `{name}` a dialogue the cell answers as the maker, named as dealt with and answered in nothing, and `{watched}`
@@ -1648,13 +1746,15 @@ impl Commits {
     }
 }
 
-/// What the engine's acts write into the blocks their cells write: `agents/acts/<act>.toml`.
+/// What the engine's acts write into the blocks their cells write: `agents/acts/<act>.toml`; and the tree's rules the
+/// check before the merge holds the work to, which the rounds of the lines hold it to as well: `agents/tree.toml`.
 #[derive(Clone, Debug)]
 pub struct Acts {
     pub start: Start,
     pub check: Check,
     pub merge: Merge,
     pub deliver: Deliver,
+    pub tree: Tree,
 }
 
 /// `agents/acts/start.toml`.
@@ -1739,6 +1839,10 @@ pub struct Found {
     /// against main changes nothing in the design tree: `{questions}` their names, one to a line, and `{main}` the main
     /// branch's name. Said after `conflict` where both are found, a blank line between.
     pub tree_unchanged: String,
+    /// The commit that would merge, main taken in, has these faults in the forms of the design tree's files, where the
+    /// work's own change against main changes the tree: `{faults}` each, a line to a fault, as `agents/tree.toml` words
+    /// it.
+    pub tree_form: String,
     /// The work's own change touches paths the project protects, and the owner has not let it merge.
     pub protected: String,
     /// The change under the paths the project protects could not be looked at.
@@ -2054,14 +2158,21 @@ fn commits(path: &Path) -> Result<Commits, String> {
     Ok(commits)
 }
 
-/// The acts' words alone, read from the directory that holds the flows, as [`read`] reads them.
+/// The acts' words and the tree's rules alone, read from the directory that holds the flows, as [`read`] reads them.
 pub fn acts(root: &Path) -> Result<Acts, String> {
+    let tree_file = root.join(AGENTS_DIR).join(TREE_FILE);
+    let tree: Tree = file(&tree_file)?;
+    let faults = tree.faults();
+    if !faults.is_empty() {
+        return Err(format!("{}: {}", tree_file.display(), faults.join("; ")));
+    }
     let at = root.join(AGENTS_DIR).join(ACTS_DIR);
     Ok(Acts {
         start: file(&at.join("start.toml"))?,
         check: file(&at.join("check.toml"))?,
         merge: file(&at.join("merge.toml"))?,
         deliver: file(&at.join("deliver.toml"))?,
+        tree,
     })
 }
 

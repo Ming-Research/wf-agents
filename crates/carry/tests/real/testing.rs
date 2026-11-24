@@ -8,7 +8,7 @@ use decide::run::{Failure, Unmet};
 use service::Act;
 use work::{Back, Given};
 
-use crate::{Fake, On, Real, ended};
+use crate::{FORMED_FILE, Fake, On, Real, ended};
 
 /// The file the fake's build commits beside the project's tests, as the send-back names it.
 fn beside() -> Unmet {
@@ -84,6 +84,39 @@ async fn a_build_that_commits_beside_the_tests_and_then_asks_for_a_call_is_sent_
         None,
         "the run entered for the results changed nothing"
     );
+}
+
+// The design tree is no test of the project's, so a line that changes only the tests cannot put its forms right: a build
+// that commits a decision out of its forms beside the tests is sent back for the files that are no tests, and for no
+// fault of the tree's forms, which it could not mend. Well under a second alone, on the fake agent; it catches a look at
+// the tree's forms made on a line of tests, which sends the build back for what only another line can do.
+#[tokio::test]
+async fn a_build_on_a_line_of_tests_that_commits_a_tree_out_of_its_forms_is_sent_back_for_no_fault_of_the_tree() {
+    let fake = Fake {
+        ill_formed_tree: true,
+        ..Fake::default()
+    };
+    let mut real = Real::open(On::Testing, fake, None, "true");
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    let sent_back = |real: &Real| {
+        let kept = real.work(work);
+        (kept.records.started.iter())
+            .filter(|started| started.cell.as_str() == "build")
+            .any(|started| kept.given.contains_key(&(started.run, 2)))
+    };
+    real.until(sent_back).await;
+    let kept = real.work(work);
+    let build = real.run_of(work, "build");
+    let not_tests = [
+        Unmet::NotATest {
+            path: "built.txt".to_string(),
+        },
+        Unmet::NotATest {
+            path: FORMED_FILE.to_string(),
+        },
+    ];
+    assert_eq!(kept.given.get(&(build, 2)), Some(&Given::SentBack(not_tests.to_vec())));
 }
 
 // Nothing after the round holds the line to its tests: a round whose branch cannot be read as it ends fails as a cause

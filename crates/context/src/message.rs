@@ -879,6 +879,7 @@ impl Build<'_> {
             Unmet::Merging { changes } => vec![("changes", changes.clone())],
             Unmet::TreeUnchanged { name } => vec![("name", name.clone())],
             Unmet::NotAnEntry { line } => vec![("line", line.clone())],
+            Unmet::TreeForm { lines } => vec![("faults", lines.join("\n"))],
             Unmet::Unanswered { block } => vec![("block", block.to_string())],
             Unmet::WordOwed { name, watched } => {
                 let ticked: Vec<String> = watched.iter().map(|b| format!("`{b}`")).collect();

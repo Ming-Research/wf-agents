@@ -5,13 +5,17 @@
 # how its host checks and merges. This one is the declaration of the project whose repository holds the flows. A path
 # is from the root of the project's checkout.
 
-# The directory that holds the project's design tree, which the engine looks at on each work's branch.
+# The directory that holds the project's design tree, which the engine looks at on each work's branch. How its entries
+# are found and what forms its files take are the tree's rules, the same for every project (`agents/tree.toml` of the
+# flow's files).
 tree = "design/"
 
-# How an entry of the design tree is found and referred to, as the tree's rules write them: each kind with the directory
-# under `tree` that holds its files, in the order the rules read them; the line an entry begins with, running to the
-# line before the next such line or to its file's end; and how a text refers to an entry, as a line of a block whose
-# file says `names_tree_entries` names one. `{kind}` stands for a kind, `{name}` for the entry's name.
+# Transitional: how an entry is found and referred to, as the engine installed before the tree's format became the
+# flow's reads it from here. This engine does not use it and refuses one that differs from `agents/tree.toml`. It goes,
+# with `files.tree_rules` and `project.tree_check` below, `design/README.md`, `design/lint.py`, its test
+# `design/lint_test.py` (which the full workflow on main runs until this change merges) and the measurement
+# `measure/design-lint`, in the change that follows the install of the build that carries the tree's rules and its
+# check, which puts the refusal of this table back.
 [tree_format]
 kinds = [{ kind = "principle", dir = "principles/" }, { kind = "decision", dir = "decisions/" }]
 heading = "### {kind} {name}"
@@ -25,7 +29,8 @@ path = "AGENTS.md"
 [files.constitution]
 path = "design/constitution.md"
 
-# The rules of the project's design tree.
+# Transitional, as `tree_format` above: the rules of the project's design tree, which the engine installed before the
+# flow gave them reads from here. This engine gives the rules from `agents/tree_rules.md` and names no such file.
 [files.tree_rules]
 path = "design/README.md"
 
@@ -36,8 +41,8 @@ research = "research/"
 measure_names = '''
 A measurement is named by its file in `measure/`: `design-lint` times `measure/design-lint`. A name holds letters, digits,
 `_` and `-`.'''
-# The command that checks the design tree's files, which an agent runs after changing the tree, before the project's
-# check.
+# Transitional, as `tree_format` above: the command that checks the design tree's files, which the I1 task of the engine
+# installed before the engine ran the check names. This engine runs the check itself and names no such setting.
 tree_check = "python3 design/lint.py"
 # How an agent names a test to `run_tests`, by the name the project's test runners give it: one phrase, which the
 # tool's words follow the setting's name with.

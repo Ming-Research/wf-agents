@@ -743,7 +743,7 @@ mod tests {
         ] {
             git(repo, &["config", key, value]);
         }
-        for path in ["AGENTS.md", "design/constitution.md", "design/README.md"] {
+        for path in ["AGENTS.md", "design/constitution.md"] {
             std::fs::write(repo.join(path), "Some text.\n").unwrap();
         }
         if let Some(declaration) = declaration {
@@ -1036,16 +1036,16 @@ mod tests {
         );
         assert_eq!(started.held, Vec::<String>::new(), "the flow's fault holds no project");
         let repo = &settings.projects["example"].repo;
-        git(repo, &["rm", "-q", "design/README.md"]);
-        git(repo, &["commit", "-q", "-m", "No rules"]);
+        git(repo, &["rm", "-q", "design/constitution.md"]);
+        git(repo, &["commit", "-q", "-m", "No constitution"]);
         let started = start(&settings, &beside, &compiled);
         assert_eq!(started.faults.len(), lines.len(), "{:?}", started.faults);
         assert_eq!(started.held.len(), 1, "{:?}", started.held);
         assert!(
             started.held[0].starts_with("projects.example: held")
                 && started.held[0].contains(
-                    "wf-agents.toml: the file tree_rules, design/README.md, is not on main, refs/heads/main, where works \
-                     branch from"
+                    "wf-agents.toml: the file constitution, design/constitution.md, is not on main, \
+                     refs/heads/main, where works branch from"
                 ),
             "{:?}",
             started.held
