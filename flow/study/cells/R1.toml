@@ -1,0 +1,34 @@
+# Why this cell exists: so that what the item asks is studied from facts checked in the code and the tree, and what
+# follows from it is handed in as a conclusion, from which the items that come next are made. It is the one cell that
+# decides how a deliverable is to be split, and nothing reviews it, so its line runs above the item's.
+title = "Study"
+kind = "agent"
+line = "study"
+effort = "xhigh"
+task = '''
+Study what the item asks. Read the design tree as its rules say, beyond `tree_entries`, for what the study reaches.
+Where the study reaches entries that `tree_entries` does not name, hand in `tree_entries` again, the whole list. Check
+each fact the item rests on where it can be seen, and research every approach that could work. Where a fact can be
+checked only by changing code, say in `conclusion` which item is to check it. Where the design tree's rules say a choice
+is the owner's, ask it in a question of its own, with each approach as an option and what it gains and costs. Before
+handing in, ask yourself where the conclusion is most likely wrong, and check that point.
+'''
+watches = ["background", "r1_questions", "r1_words"]
+reads = ["tree", "tree_entries"]
+outputs = ["conclusion", "r1_questions", "r1_words", "tree_entries"]
+must_write = ["conclusion"]
+
+# What the cell does when each datum it watches is new; a datum with none is the task's alone.
+[do]
+background = """Look at what changed since the version you last worked from (all of it, if you have worked from none), and update the conclusion for it."""
+r1_questions = """The owner has answered one of your questions in `r1_questions`, either with an option other than the one you recommended or one you were waiting for: update the conclusion to match."""
+r1_words = """The owner has written to you in `r1_words`: deal with that first. Go through each point: change the conclusion only where it applies, or say why not, and answer in `r1_words`."""
+
+# `all` for a dialogue, `last_and_latest` where the cell works from what changed, `latest` for the rest. The cell's own
+# questions and words are of the kind every agent cell takes them in.
+[kinds]
+# Given as the files that changed since the tree this session read.
+tree = "last_and_latest"
+# The entries of the design tree the study was worked from, whole.
+tree_entries = "latest"
+background = "last_and_latest"

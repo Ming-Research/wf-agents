@@ -12,6 +12,7 @@ mod items;
 mod observing;
 mod pulling;
 mod starting;
+mod studying;
 mod waiting;
 
 use std::io::{BufRead, BufReader, Read};

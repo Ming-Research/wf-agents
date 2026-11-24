@@ -1,17 +1,18 @@
 //! The engine's own acts, as the rounds of the cells they carry out (`CellSpec.act`): `start` makes the work's branch
-//! and worktree, `check` checks the work before its merge, `merge` merges the commit the check passed, and `deliver`
-//! says that a deliverable item, made of the items it depends on, is delivered. An act hands in the cell's outputs with
-//! what it did, and only the check writes a choice ([`faults`] says what a flow needs for them, [`main_faults`] what
-//! the watch of main needs, [`word_faults`] what the merge needs of the check's words); where git or the host fails,
-//! or the act cannot be done, the round fails and hands in nothing. A stopped act ends its round with nothing handed
-//! in. An act takes no cost and no tokens.
+//! and worktree, `check` checks the work before its merge, `merge` merges the commit the check passed, `deliver` says
+//! that a deliverable item, made of the items it depends on, is delivered, and `conclude` says that a study is
+//! concluded. An act hands in the cell's outputs with what it did, and only the check writes a choice ([`faults`] says
+//! what a flow needs for them, [`main_faults`] what the watch of main needs, [`word_faults`] what the merge needs of
+//! the check's words); where git or the host fails, or the act cannot be done, the round fails and hands in nothing. A
+//! stopped act ends its round with nothing handed in. An act takes no cost and no tokens.
 //!
 //! What is done in the project's local repository is done the same whatever the host; the host gives the head of
 //! main, the verdict on the work's commit and the merge ([`Host`]).
 //!
 //! One act at a time works in the project's repository: two at once would race over its worktrees and its main branch.
 //! The host's verdict is waited for beside what other acts do. `deliver` does nothing outside the engine: the items it
-//! is made of were each merged by their own works, and what it writes is said from its item.
+//! is made of were each merged by their own works, and what it writes is said from its item; `conclude` does nothing
+//! outside the engine either.
 //!
 //! Once a work has ended and nothing of it is under way, the acts let go of what they made for it: its worktree is
 //! taken away, and the host closes what it holds open for a work that did not merge, its pull request; the branch
@@ -442,6 +443,10 @@ impl<H: Host> Inner<H> {
                 let content = delivered(&round.item.depends_on, &words.deliver);
                 Ok(Done::HandsIn(Box::new(Came::hands_in(prose(&outputs, &content)))))
             }
+            "conclude" => {
+                let content = words.conclude.text.clone();
+                Ok(Done::HandsIn(Box::new(Came::hands_in(prose(&outputs, &content)))))
+            }
             other => Err(format!("the engine has no act named {other}").into()),
         }
     }
@@ -816,8 +821,9 @@ pub fn main_faults(flow: &Compiled) -> Vec<String> {
 }
 
 /// What is wrong with the flow for the acts, each in words with the cell: the cell of `check` has one choice among its
-/// outputs, and it offers the values the check writes; the cells of `start`, `merge` and `deliver` have no choice among
-/// their outputs, since they have no outcome to choose. A flow with any of these is not run with the real carriers.
+/// outputs, and it offers the values the check writes; the cells of `start`, `merge`, `deliver` and `conclude` have no
+/// choice among their outputs, since they have no outcome to choose. A flow with any of these is not run with the real
+/// carriers.
 pub fn faults(flow: &Compiled, values: &CheckValues) -> Vec<String> {
     let (passed, failed) = (&values.passed, &values.failed);
     let mut faults = Vec::new();

@@ -23,6 +23,7 @@ mod refused;
 mod room;
 mod sessions;
 mod stalling;
+mod studying;
 mod times;
 mod words;
 

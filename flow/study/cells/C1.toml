@@ -1,0 +1,10 @@
+# Why this cell exists: so that a study ends only once its conclusion is in and the owner has answered every question
+# of the work. A run of the study that asks a question the owner is waited for is a finished run, so that the study's
+# own cell cannot be the last: the work would end with no conclusion, and an answer other than the recommended one would
+# run nothing.
+title = "Conclude"
+kind = "engine"
+act = "conclude"
+requires = { asked = "answered" }
+watches = ["conclusion"]
+outputs = ["concluded"]
