@@ -1,12 +1,12 @@
 // The console's tree in columns, drawn in WebGL by PixiJS. One column for each level, from the roots at the left; in
 // each, the level's items one under another, those under one item standing apart from those under the next. Scrolling
 // over a column moves it with the scroll, as far as leaves a few of its rows on the screen, and it rests where the
-// scroll stops. Each column beside it keeps on the screen what joins it to the items the screen shows of the one beside
-// it, the block of items under each or the item above it: all of it where it fits, and else the screen full of it,
-// with no room left at either edge. Within that, each of those items wants what it joins level with it, any part of a
-// block doing, all alike, and the column stands where the wants not met pull it no further either way. It glides there
-// while the column it follows moves, and only that way, so that none goes against it and every column stops when the
-// scroll does. Each column further out follows the one beside it the same way.
+// scroll stops. Each column beside it goes with the one it follows, a row for a row, and keeps on the screen what joins
+// it to the items the screen shows of that one, the block of items under each or the item above it: all of it where it
+// fits, and else the screen full of it, with no room left at either edge; where keeping that on the screen holds it,
+// it stands, and where it pushes it on, it goes on. Where it is first placed, the item at the middle has what it joins
+// level with it. It moves only while the one it follows moves, and only that way, so that none goes against it and
+// every column stops when the scroll does. Each column further out follows the one beside it the same way.
 //
 // Each item is a card; one a work goes on on is a faint tint of the colour of what the work does, and one above such
 // an item has an edge of the light accent. Under each item that depends on an item besides its main dependent, a
@@ -94,7 +94,7 @@ const MAP_FRAME_FILL = 0.06;
 const TURN = 140;
 /// How far in from the top and the bottom of the screen the columns fade out into the page, in pixels; and how thick the
 /// blue line is at each edge of the column under the pointer.
-const EDGE = 48;
+export const EDGE = 48;
 const EDGE_LINE = 6;
 /// How quickly the blue rings and ribbons of the item under the pointer come in, and fade out once it leaves: the
 /// milliseconds in which each goes about two thirds of the way.
@@ -442,11 +442,9 @@ const GLIDE = 0.35;
 const REST = 0.01;
 /// How many rows of the column scrolled stay on the screen at least, at its top or its bottom.
 export const KEEP = 3;
-/// How much of the way to where it stands a column beside the one scrolled goes each frame: one that was the one
-/// scrolled rests where its own scroll left it, not where its links would put it, and glides there once another is.
-/// It goes only while the column it follows moves, and only that way, so that no column goes against the one it
-/// follows and every column stops when the scroll does: what joins it to what the screen shows, which it keeps on the
-/// screen, only ever asks it to go the way the scroll goes, and a want to stand level that asks the other way waits.
+/// How much of the way to where it stands a column beside the one scrolled goes each frame where it glides: where it is
+/// first placed, and where what keeps what joins it on the screen is far, as for a column that was the one scrolled and
+/// rests where its own scroll left it until another is.
 const LINK_EASE = 0.2;
 
 /// The console's colours: words, marks and lines in greys; one accent for what runs; red for a stop, what waits for the
@@ -2247,85 +2245,68 @@ export class SnapScene {
     this.columns[c].at = to - (this.middle(from, best) - line);
   }
 
-  /// Moves column `c` towards where it stands by its links with the column `from` beside it, which it follows. What
-  /// joins it to the items of `from` the screen shows, the item above each or the block of the items under it, stays on
-  /// the screen, as much of it as the screen holds: all of it where it fits, and else the screen full of it, with no room
-  /// left at either edge. Within that, each of those items wants what it is joined to level with it, all alike, and the
-  /// column goes to the place where the wants not met, each pulling by how far it is from being met, pull it no further
-  /// either way. Given `way`, how far the column it follows moved in this frame, it goes only that way, and stays where
-  /// it stands while that one stands or its place is the other way. Without it, as where it is first placed, it goes
-  /// either way. With nothing joining them on the screen, it stays.
+  /// Moves column `c` by its links with the column `from` beside it, which it follows. What joins `c` to the part of
+  /// `from` within the screen's clear part, the block of the items under each item or the item above it, stays on the
+  /// screen: all of it where it fits, and else the screen full of it. Given `way`, how far `from` moved in this frame,
+  /// `c` goes as far as `from`, a row for a row, and no further than keeps what joins them on the screen; where keeping
+  /// it there pushes it on, it goes on. Each goes only the way `from` moved, so that no column goes against the one it
+  /// follows, none outruns it but where the screen asks, and none moves while it stands. Without `way`, as where it is
+  /// first placed, it glides to standing level, kept as above: where the item of `from` at the middle of the screen has
+  /// what it joins level with it, going over evenly between two such items, and the first's or the last's beyond them.
+  /// With nothing joining them, it stays.
   private link(c: number, from: number, way?: number): void {
     const t = this.tree as Tree;
-    const src = this.columns[from];
     const me = this.columns[c];
     const col = t.columns[from];
-    const line = src.at;
-    // Where each want is met, as the places of the column `c` at the middle of the screen, from `lows` to `highs`: what
-    // stands from `top` to `bottom` of the column is level with an item `s` rows below the middle while its place is
-    // between `top - s` and `bottom - s`. And what joins them, from `first` to `end` of the column.
-    const lows: number[] = [];
-    const highs: number[] = [];
-    let first = Infinity;
-    let end = -Infinity;
-    const half = this.app.screen.height / 2 / ROW;
-    const last = Math.min(col.length - 1, this.rankAt(from, line + half));
-    for (let r = this.rankAt(from, line - half); r <= last; r += 1) {
-      const s = this.middle(from, r) - line;
-      if (Math.abs(s) > half) continue;
+    // Each item of `from` that joins `c`: where its middle stands in `from`, and the rows of `c` its block takes.
+    const ys: number[] = [];
+    const tops: number[] = [];
+    const bottoms: number[] = [];
+    for (let r = 0; r < col.length; r += 1) {
       const item = col[r];
-      let top: number;
-      let bottom: number;
       if (c > from) {
         const kids = t.children[item];
         if (kids.length === 0) continue;
         const lastKid = t.rank[kids[kids.length - 1]];
-        top = this.slot(c, t.rank[kids[0]]);
-        bottom = this.slot(c, lastKid) + this.rowsAt(c, lastKid);
+        tops.push(this.slot(c, t.rank[kids[0]]));
+        bottoms.push(this.slot(c, lastKid) + this.rowsAt(c, lastKid));
       } else {
         const above = t.parent[item];
         if (above < 0) continue;
-        top = this.slot(c, t.rank[above]);
-        bottom = top + this.rowsAt(c, t.rank[above]);
+        tops.push(this.slot(c, t.rank[above]));
+        bottoms.push(tops[tops.length - 1] + this.rowsAt(c, t.rank[above]));
       }
-      lows.push(top - s);
-      highs.push(bottom - s);
-      first = Math.min(first, top);
-      end = Math.max(end, bottom);
+      ys.push(this.middle(from, r));
     }
-    if (lows.length === 0) return;
-    // How hard the wants not met pull the column below `x`, those above it counted against: it grows with `x`.
-    const pull = (x: number) => {
-      let g = 0;
-      for (let i = 0; i < lows.length; i += 1) {
-        if (x < lows[i]) g += x - lows[i];
-        else if (x > highs[i]) g += x - highs[i];
-      }
-      return g;
+    if (ys.length === 0 || way === 0) return;
+    // What `v` gives for the row `y` of `from`: its value at each item, going over evenly between two, and the first's or
+    // the last's beyond them.
+    const along = (v: number[], y: number) => {
+      if (y <= ys[0]) return v[0];
+      for (let i = 1; i < ys.length; i += 1)
+        if (y <= ys[i]) return v[i - 1] + ((v[i] - v[i - 1]) * (y - ys[i - 1])) / (ys[i] - ys[i - 1]);
+      return v[v.length - 1];
     };
-    // The nearest place where the pull is spent: the last below where it still pulls down, or the first above where it
-    // still pulls up.
-    let to = me.at;
-    const g = pull(to);
-    if (g !== 0) {
-      let lo = g > 0 ? Math.min(...lows) : to;
-      let hi = g > 0 ? to : Math.max(...highs);
-      for (let i = 0; i < 40; i += 1) {
-        const mid = (lo + hi) / 2;
-        if (g > 0 ? pull(mid) <= 0 : pull(mid) < 0) lo = mid;
-        else hi = mid;
-      }
-      to = g > 0 ? lo : hi;
+    const line = this.columns[from].at;
+    const clear = Math.max(0, this.app.screen.height / 2 / ROW - EDGE / ROW);
+    const level = (along(tops, line) + along(bottoms, line)) / 2;
+    // From `first` to `end` is all on the screen while the place is between `end - clear` and `first + clear`; where it
+    // is more than the screen holds the two cross, and between them the screen is full of it.
+    const a = along(bottoms, line + clear) - clear;
+    const b = along(tops, line - clear) + clear;
+    const [lo, hi] = [Math.min(a, b), Math.max(a, b)];
+    if (way === undefined) {
+      const to = Math.max(lo, Math.min(hi, level));
+      me.at = Math.abs(to - me.at) * ROW < REST ? to : me.at + (to - me.at) * LINK_EASE;
+      return;
     }
-    // Kept where the screen shows what joins them, inside the fade at its edges: from `first` to `end` is all on the
-    // screen while the place is between `end - clear` and `first + clear`; where it is more than the screen holds, the
-    // two cross, and between them the screen is full of it.
-    const clear = Math.max(0, half - EDGE / ROW);
-    const a = end - clear;
-    const b = first + clear;
-    to = Math.max(Math.min(a, b), Math.min(Math.max(a, b), to));
-    if (way !== undefined && !(way * (to - me.at) > 0)) return;
-    me.at = Math.abs(to - me.at) * ROW < REST ? to : me.at + (to - me.at) * LINK_EASE;
+    let next = me.at + way;
+    const walled = Math.max(lo, Math.min(hi, next));
+    // Pushed on by what keeps it on the screen: at once while that is near, and gliding where it is far, as for a
+    // column that was the one scrolled and stood apart.
+    if ((walled - next) * way > 0) next += (walled - next) * (Math.abs(walled - next) <= 1 ? 1 : LINK_EASE);
+    else if (walled !== next) next = way > 0 ? Math.max(me.at, hi) : Math.min(me.at, lo);
+    me.at = next;
   }
 
   /// Adds to the funnels, or to `g`, the one from an item ending at `px`, its box from `top` to `bottom`, to items

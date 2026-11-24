@@ -5,7 +5,7 @@
 // the item it points to, brought to the middle; the tree drawn again stands where it stood, the item selected kept; an
 // item revealed comes into the room the panel leaves, or to the middle when it is above or below what is seen; the
 // columns beside the one scrolled follow it, each where what joins it to the next near the middle of the screen is
-// level, keeping what joins them on the screen and moving only the way the one it follows moves; the view stands through a change of height or theme; and
+// level, going with it a row for a row, keeping what joins them on the screen, and moving only the way it moves; the view stands through a change of height or theme; and
 // once destroyed, the scene listens to nothing. The pointer and the wheel are events sent to the canvas at the points
 // the test works out from where the columns stand (`place`), so that each lands where the test means; the keys are the
 // browser's own. They pin as well: a click on an item's funnel folds what is under it
@@ -36,6 +36,7 @@ import type { Shown, ShownWork } from './items';
 import {
   DIM,
   DOT_AT,
+  EDGE,
   FLASH_MS,
   FOLD_MS,
   KEEP,
@@ -793,7 +794,7 @@ describe('the tree in columns', () => {
     expect(p.columns[1].at).toBeLessThanOrEqual(slot1(9) + 1 + 1e-9);
   });
 
-  it('keeps on the screen what joins the column beside to the items the screen shows, or fills the screen with it', () => {
+  it('keeps on the screen what joins the column beside to the items the screen shows clearly, or fills the screen with it', () => {
     // Twelve items, the first eight with three under each and the last four with none: past the eighth, every item with
     // items under it stands above the middle, and the blocks under them, three times as tall, ran off the top while the
     // bottom of the screen stood empty.
@@ -805,7 +806,8 @@ describe('the tree in columns', () => {
     for (let step = 0; step < 24; step += 1) {
       wheel(0, 0.5 * ROW);
       settle(scene);
-      const shown = Array.from({ length: 8 }, (_, k) => k).filter((k) => y(k + 1) >= 0 && y(k + 1) <= HEIGHT);
+      // The items within the screen's clear part, inside the fade at its edges.
+      const shown = Array.from({ length: 8 }, (_, k) => k).filter((k) => y(k + 1) >= EDGE && y(k + 1) <= HEIGHT - EDGE);
       const ys = shown.flatMap((k) => under(k).map(y));
       if (ys.length === 0) continue;
       const [top, bottom] = [Math.min(...ys), Math.max(...ys)];
