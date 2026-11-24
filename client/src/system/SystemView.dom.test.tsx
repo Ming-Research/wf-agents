@@ -665,8 +665,8 @@ describe('the System view', () => {
     } finally {
       window.history.replaceState(null, '', where);
     }
-    // The project of the works' fixtures' round under way is among the fixtures' projects, as one alone.
-    const running = fixtureItems().items.find((i) => i.work.now.kind === 'round');
+    // With one project asked for, the project of the works' fixtures' round under way is that one alone.
+    const running = fixtureItems(1).items.find((i) => i.work.now.kind === 'round');
     expect(fixtureSystem([Date.now()], 1).byProject.map((p) => p.project)).toEqual([running?.project]);
   });
 });
