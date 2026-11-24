@@ -839,18 +839,21 @@ impl History {
         Err(format!("no run of {cell} took main in"))
     }
 
-    /// The owner says some words to the cell.
-    fn say_to(&mut self, cell: &str) {
+    /// The owner says some words to the cell. Says whether the work takes them: a cell has words of its own or not, and
+    /// takes none while its condition does not hold.
+    fn say_to(&mut self, cell: &str) -> bool {
         let id = (self.sim.flow.cells.iter())
             .find(|c| c.id.as_str() == cell)
             .map(|c| c.id.clone())
             .expect("a cell of the flow");
+        let to = To::Cell(id);
+        if spoken::receiver(&self.sim.flow, &self.sim.work, &to).is_err() {
+            return false;
+        }
         self.count += 1;
         let words = format!("Do it again, {}", self.count);
-        self.sim.take(Event::Said {
-            to: To::Cell(id),
-            words,
-        });
+        self.sim.take(Event::Said { to, words });
+        true
     }
 
     /// The owner answers each question that stands unanswered.
@@ -1198,16 +1201,17 @@ impl History {
             let ran_by = (decide::told(&self.sim.flow.flow, &self.sim.work.records, round.run))
                 .map(|told| told.ran_by)
                 .unwrap_or_default();
-            if let Some(words) = spoken::words_of(&self.sim.flow, &cell.id).cloned() {
-                if ran_by.contains(&words) && !writes.iter().any(|w| w.block == words) {
-                    let content = self.content(words.as_str());
-                    writes.push(Handed {
-                        block: words,
-                        content,
-                        matters: true,
-                        value: None,
-                    });
-                }
+            if let Some(words) = spoken::words_of(&self.sim.flow, &cell.id).cloned()
+                && ran_by.contains(&words)
+                && !writes.iter().any(|w| w.block == words)
+            {
+                let content = self.content(words.as_str());
+                writes.push(Handed {
+                    block: words,
+                    content,
+                    matters: true,
+                    value: None,
+                });
             }
         }
         let mut came = Came::hands_in(writes);
@@ -1909,7 +1913,7 @@ fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() 
 const RUNS: usize = 300;
 
 /// How many runs without a line reached end the search.
-const PLATEAU: usize = 60;
+const PLATEAU: usize = 40;
 const RUN_STEPS: usize = 30;
 const QUIET_STEPS: usize = 150;
 const ARCHIVE: usize = 50;
@@ -2319,19 +2323,17 @@ impl Between {
     fn done(&self, history: &mut History, reached: &mut Reached) -> bool {
         match self {
             Between::Put(block) => history.put(block),
-            Between::Words(cell) => history.say_to(cell),
+            Between::Words(cell) => return history.say_to(cell),
             Between::Writes(cell, block) => {
                 history.says.insert(cell.clone(), vec![Say::all(&[block.as_str()])]);
-                history.say_to(cell);
-                if !history.until_within(reached, cell, LADDER_STEPS) {
+                if !history.say_to(cell) || !history.until_within(reached, cell, LADDER_STEPS) {
                     return false;
                 }
                 history.carry_round(reached);
             }
             Between::Asks(cell) => {
                 history.says.insert(cell.clone(), vec![Say::all(&[]).asking()]);
-                history.say_to(cell);
-                if !history.until_within(reached, cell, LADDER_STEPS) {
+                if !history.say_to(cell) || !history.until_within(reached, cell, LADDER_STEPS) {
                     return false;
                 }
                 history.carry_round(reached);
@@ -2350,7 +2352,7 @@ impl Between {
 /// How many steps a directed attempt waits for a round of a cell, and how many rounds the attempts at the lines still open
 /// may carry together.
 const LADDER_STEPS: usize = 30;
-const LADDER_ROUNDS: usize = 4000;
+const LADDER_ROUNDS: usize = 3000;
 
 /// Tries to bring the work to a round that stands in the state of a datum this line says, by what the owner and the outside
 /// do to the datum between two rounds of one line's session: from each base, the line's session is reopened or not, a cell
