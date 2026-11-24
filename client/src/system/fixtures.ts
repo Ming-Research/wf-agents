@@ -3,11 +3,22 @@
 // views agree: what each work spent, the one merged, the one cancelled, and a round failed of the work the engine
 // paused. What was spent by cell, by model and by project is split from what the works spent in all; the projects are
 // those the works' fixtures name, then made-up ones, as many as the address asks for, else three and the items of none.
-// The settings are a file like the sample's, with a value the engine runs at another and a table left out.
+// The settings are a file like the sample's, with a value the engine runs at another and a table left out, and four
+// projects, each in a state the engine may hold its declaration in.
 
 import { fixtureItems } from '../works/fixtures';
 import type { Line, Spent } from '../works-api';
-import type { AccountsPage, AccountUsage, Figure, Going, SettingsPage, System, Week } from './api';
+import type {
+  AccountsPage,
+  AccountUsage,
+  Figure,
+  Going,
+  ProjectSettings,
+  SettingsKey,
+  SettingsPage,
+  System,
+  Week,
+} from './api';
 
 const nothing = (): Spent => ({
   usdMicros: 0,
@@ -188,13 +199,10 @@ export function fixtureSettings(): SettingsPage {
     unreadable: null,
     levels: ['1', '2', '3'],
     git: { committed: true },
+    declarationFile: 'wf-agents.toml',
+    projects: fixtureProjects(),
     tables: [
       { name: 'owner', leftOut: false, keys: [key('language', '"Chinese"', null, { kind: 'name' })] },
-      {
-        name: 'project',
-        leftOut: false,
-        keys: [key('repo', '"/path/to/the/repository"'), key('main', '"main"'), key('check', '"./test.sh"')],
-      },
       {
         name: 'agents',
         leftOut: false,
@@ -214,7 +222,6 @@ export function fixtureSettings(): SettingsPage {
         leftOut: false,
         keys: [key('default_level', '"2"'), key('highest_level', '"3"', null, { kind: 'level' }), key('title_max', '20')],
       },
-      { name: 'github', leftOut: false, keys: [key('repository', '"owner/name"'), key('token_env', '"WF_GITHUB_TOKEN"')] },
       {
         name: 'sessions',
         leftOut: true,
@@ -224,7 +231,131 @@ export function fixtureSettings(): SettingsPage {
   };
 }
 
-function key(name: string, written: string, running: string | null = null, change: SettingsPage['tables'][number]['keys'][number]['change'] = null) {
+/// The projects: `wf-agents`, hosted on GitHub, whose declaration the engine read from the remote's main; `site`,
+/// hosted in its own repository, whose declaration needs no variable and so writes `[environment]` with nothing in it;
+/// `notes`, which the engine holds, its declaration not on its main; and `drafts`, added to the file after the engine
+/// started, which the engine runs with none of and read no declaration of.
+export function fixtureProjects(): ProjectSettings[] {
+  const leftOut = (name: string, running: string) => ({ key: name, written: null, running, change: null });
+  return [
+    {
+      name: 'wf-agents',
+      tables: [
+        {
+          name: 'projects.wf-agents',
+          leftOut: false,
+          keys: [key('repo', '"/path/to/wf-agents"'), key('main', '"main"'), leftOut('allowed_config', '[]')],
+        },
+        {
+          name: 'projects.wf-agents.github',
+          leftOut: false,
+          keys: [
+            key('repository', '"owner/wf-agents"'),
+            key('token_env', '"WF_GITHUB_TOKEN"'),
+            key('runners', '["github", "14900k"]'),
+          ],
+        },
+      ],
+      declaration: {
+        kind: 'read',
+        at: 'refs/remotes/origin/main:wf-agents.toml',
+        tables: [
+          { name: '', leftOut: false, keys: [key('tree', '"design/"')] },
+          { name: 'files.guide', leftOut: false, keys: [key('path', '"AGENTS.md"')] },
+          { name: 'files.constitution', leftOut: false, keys: [key('path', '"design/constitution.md"')] },
+          {
+            name: 'project',
+            leftOut: false,
+            keys: [key('research', '"research/"'), key('test_names', '"a Rust test as nextest names it"')],
+          },
+          {
+            name: 'tests',
+            leftOut: false,
+            keys: [key('paths', '[\n  ":(glob)crates/**/tests/**",\n  ":(glob)client/**/*.test.ts",\n]')],
+          },
+          {
+            name: 'ci.fast',
+            leftOut: false,
+            keys: [key('workflow', '"fast.yml"'), key('runner', '"14900k"'), key('too_long', '"2h"')],
+          },
+          {
+            name: 'ci.full',
+            leftOut: false,
+            keys: [key('workflows', '["ci.yml"]'), key('runner', '"14900k"'), key('too_long', '"2h"')],
+          },
+          {
+            name: 'pull_request',
+            leftOut: false,
+            keys: [key('merge_method', '"squash"'), key('delete_branch', 'true')],
+          },
+          {
+            name: 'protected',
+            leftOut: false,
+            keys: [key('paths', '["AGENTS.md", "design/constitution.md", "flow/", "wf-agents.toml"]')],
+          },
+          { name: 'heavy', leftOut: false, keys: [key('commands', '["cargo", "npm", "npx"]')] },
+          { name: 'environment', leftOut: false, keys: [key('RUSTUP_AUTO_INSTALL', '"0"')] },
+        ],
+      },
+    },
+    {
+      name: 'site',
+      tables: [
+        {
+          name: 'projects.site',
+          leftOut: false,
+          keys: [key('repo', '"/path/to/site"'), key('main', '"trunk"'), leftOut('allowed_config', '[]')],
+        },
+      ],
+      declaration: {
+        kind: 'read',
+        at: 'refs/heads/trunk:wf-agents.toml',
+        tables: [
+          { name: '', leftOut: false, keys: [key('tree', '"docs/design/"')] },
+          { name: 'files.guide', leftOut: false, keys: [key('path', '"CONTRIBUTING.md"')] },
+          { name: 'local', leftOut: false, keys: [key('check', '"./check.sh"')] },
+          { name: 'protected', leftOut: false, keys: [key('paths', '["CONTRIBUTING.md", "wf-agents.toml"]')] },
+          { name: 'heavy', leftOut: false, keys: [key('commands', '["make"]')] },
+          { name: 'environment', leftOut: false, keys: [] },
+        ],
+      },
+    },
+    {
+      name: 'notes',
+      tables: [
+        {
+          name: 'projects.notes',
+          leftOut: false,
+          keys: [key('repo', '"/path/to/notes"'), key('main', '"main"'), leftOut('allowed_config', '[]')],
+        },
+      ],
+      declaration: {
+        kind: 'held',
+        why:
+          "refs/heads/main:wf-agents.toml, the project's declaration on main where works branch from, cannot be read: " +
+          "fatal: path 'wf-agents.toml' does not exist in 'refs/heads/main'",
+      },
+    },
+    {
+      name: 'drafts',
+      tables: [
+        {
+          name: 'projects.drafts',
+          leftOut: false,
+          keys: [key('repo', '"/path/to/drafts"', 'none'), key('main', '"main"', 'none')],
+        },
+      ],
+      declaration: { kind: 'notRead' },
+    },
+  ];
+}
+
+function key(
+  name: string,
+  written: string,
+  running: string | null = null,
+  change: SettingsKey['change'] = null,
+): SettingsKey {
   return { key: name, written, running, change };
 }
 

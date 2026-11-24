@@ -99,7 +99,7 @@ pub fn carriers(
     beside: flow::agents::Agents,
     flows: &[flow::Compiled],
 ) -> Result<Carriers, String> {
-    carry(settings, data, beside, flows).map(|(carriers, _)| carriers)
+    carry(settings, data, beside, flows).map(|(carriers, _, _)| carriers)
 }
 
 /// The carriers [`carriers`] gives, the tokens of the accounts kept by what is given here in place of the login
@@ -111,7 +111,7 @@ pub fn carriers_keeping(
     flows: &[flow::Compiled],
     tokens: Arc<dyn service::Tokens>,
 ) -> Result<Carriers, String> {
-    carry_keeping(settings, data, beside, flows, Some(tokens)).map(|(carriers, _)| carriers)
+    carry_keeping(settings, data, beside, flows, Some(tokens)).map(|(carriers, _, _)| carriers)
 }
 
 /// The watch of main of a project's acts, with the project's name and the name of its main branch.
@@ -121,28 +121,29 @@ pub struct ProjectWatch {
     pub watch: Watch,
 }
 
-/// The carriers of these settings, as [`carriers`] gives them, and the watch of main of each project's acts, which
-/// whoever runs the loop runs beside it, saying what it finds to the loop as the source [`MAIN`] of that project. The
+/// The carriers of these settings, as [`carriers`] gives them; the watch of main of each project's acts, which
+/// whoever runs the loop runs beside it, saying what it finds to the loop as the source [`MAIN`] of that project; and
+/// each project's declaration as the carriers read it, or why the project is held, which the owner's page shows. The
 /// acts and the commits the engine makes say what is written beside the flows says, as the agents' rounds do.
 pub fn carry(
     settings: Settings,
     data: &Path,
     beside: flow::agents::Agents,
     flows: &[flow::Compiled],
-) -> Result<(Carriers, Vec<ProjectWatch>), String> {
+) -> Result<(Carriers, Vec<ProjectWatch>, projects::Declarations), String> {
     carry_keeping(settings, data, beside, flows, None)
 }
 
-/// The carriers and the watches [`carry`] gives, the tokens of the accounts kept by what is given, or, with none, in
-/// the login keychain under the installation's id; the agents' program's directory, `profile` in the data directory,
-/// made where it is missing, whose settings file may name no credential and no permission mode.
+/// The carriers, the watches and the declarations [`carry`] gives, the tokens of the accounts kept by what is given,
+/// or, with none, in the login keychain under the installation's id; the agents' program's directory, `profile` in the
+/// data directory, made where it is missing, whose settings file may name no credential and no permission mode.
 fn carry_keeping(
     settings: Settings,
     data: &Path,
     beside: flow::agents::Agents,
     flows: &[flow::Compiled],
     tokens: Option<Arc<dyn service::Tokens>>,
-) -> Result<(Carriers, Vec<ProjectWatch>), String> {
+) -> Result<(Carriers, Vec<ProjectWatch>, projects::Declarations), String> {
     let words = beside.acts.clone();
     // The worktrees are given to git by their path, which git would read against the repository's directory were it
     // relative.
@@ -170,6 +171,7 @@ fn carry_keeping(
     let tag = git::tag(&installation);
     let query = querying(&beside, &data);
     let (mut acts, mut tools, mut watches, mut of) = (BTreeMap::new(), BTreeMap::new(), Vec::new(), BTreeMap::new());
+    let mut declarations = projects::Declarations::new();
     // The network reaches a project's host on GitHub, one look for every such project, and no network a local one.
     let mut host_look: Option<Arc<dyn service::Network>> = None;
     let (declared, faults) = projects::declared(&settings, &beside, flows);
@@ -183,10 +185,12 @@ fn carry_keeping(
             Err(why) => {
                 acts.insert(name.clone(), Err(why.clone()));
                 tools.insert(name.clone(), Err(why.clone()));
+                declarations.insert(name.clone(), Err(why.clone()));
                 of.insert(name, Err(why));
                 continue;
             }
         };
+        declarations.insert(name.clone(), Ok(declared.text));
         let declaration = declared.declaration;
         let mut project = declared.settings;
         project.commits = beside.commits.clone();
@@ -268,7 +272,7 @@ fn carry_keeping(
         tokens,
         calls: beside.calls.clone(),
     };
-    Ok((carriers, watches))
+    Ok((carriers, watches, declarations))
 }
 
 /// The tool `query` as the files beside the flows say, on the store in `data`: always open, held to the bounds every

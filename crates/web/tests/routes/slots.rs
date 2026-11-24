@@ -52,6 +52,7 @@ fn serving() -> (Router, Handle, tempfile::TempDir) {
         file,
         read: Box::new(read),
         running: read(FILE).unwrap(),
+        declarations: Default::default(),
         git: &[],
     };
     let flows = Flows::dirs(trial_dir().join("flow"), Box::new(trial_has));

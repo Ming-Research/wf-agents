@@ -39,10 +39,23 @@ pub struct Declared {
     pub settings: Project,
     /// What it declares.
     pub declaration: Declaration,
+    /// Its declaration as it was read, which the owner's page shows.
+    pub text: DeclarationText,
     /// What is written beside the flows, with, where its host is its local repository, the words of `run_tests` for
     /// that host.
     pub beside: flow::agents::Agents,
 }
+
+/// A project's declaration as the engine read it: where, as `<main>:wf-agents.toml`, and its text.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DeclarationText {
+    pub at: String,
+    pub text: String,
+}
+
+/// What the engine holds of each project's declaration, by the project's name: the declaration as it read it, or why
+/// the project is held.
+pub type Declarations = BTreeMap<String, Result<DeclarationText, String>>;
 
 /// Each project the settings name, by its name, with its declaration, or with why it is held; and every fault that
 /// keeps the engine from starting, each said with the projects' keys: two projects that name one repository, whose
@@ -78,8 +91,8 @@ pub fn declared(
     let mut declared = BTreeMap::new();
     let mut of_flow: Vec<String> = Vec::new();
     for (name, project) in &settings.projects {
-        let declaration = match declaration(project, beside) {
-            Ok(declaration) => declaration,
+        let (declaration, text) = match declaration(project, beside) {
+            Ok(read) => read,
             Err(why) => {
                 declared.insert(name.clone(), Err(why));
                 continue;
@@ -116,6 +129,7 @@ pub fn declared(
             Ok(Declared {
                 settings: project.clone(),
                 declaration,
+                text,
                 beside,
             }),
         );
@@ -125,8 +139,9 @@ pub fn declared(
 }
 
 /// The declaration of the project, read from its main as its host last gave it, where works branch from, and never from
-/// its checkout's files, which the engine does not move for a project hosted elsewhere; or why it cannot be read.
-fn declaration(project: &Project, beside: &flow::agents::Agents) -> Result<Declaration, String> {
+/// its checkout's files, which the engine does not move for a project hosted elsewhere, with its text as read there; or
+/// why it cannot be read.
+fn declaration(project: &Project, beside: &flow::agents::Agents) -> Result<(Declaration, DeclarationText), String> {
     let at = format!("{}:{}", crate::host::kept_main(project), flow::agents::DECLARATION);
     let read = std::process::Command::new("git")
         .arg("-C")
@@ -141,7 +156,8 @@ fn declaration(project: &Project, beside: &flow::agents::Agents) -> Result<Decla
         ));
     }
     let text = String::from_utf8(read.stdout).map_err(|_| format!("{at}: the declaration is not UTF-8"))?;
-    Declaration::read(&text, &at, beside)
+    let declaration = Declaration::read(&text, &at, beside)?;
+    Ok((declaration, DeclarationText { at, text }))
 }
 
 /// What the project's host needs of its declaration and does not find: the command that checks it where its own

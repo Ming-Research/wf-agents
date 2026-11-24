@@ -140,6 +140,7 @@ fn serving_holding(tokens: Arc<KeptTokens>, records: &[AccountRecord]) -> (Route
         file,
         read: Box::new(|_| Ok(json!({}))),
         running: json!({ "agents": { "command": "claude" } }),
+        declarations: Default::default(),
         git: &[],
     };
     (web::settings::router(install, handle), dir, by_token)

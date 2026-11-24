@@ -10,6 +10,7 @@ mod calls;
 mod changed;
 mod changing;
 mod copies;
+mod declarations;
 mod definition;
 mod directories;
 mod engine;

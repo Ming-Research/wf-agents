@@ -1,6 +1,6 @@
 # The system
 
-The view of the state of the whole system, and the installation's settings.
+The view of the state of the whole system, and the settings of the installation and of each project.
 
 ### decision the-copies-stand-on-the-system-view
 The state of the database's copies is shown in the System view's section on what is going on now, and nowhere on the Works page.
@@ -30,6 +30,11 @@ The Settings view puts the switch Move on at the limit above the accounts and, o
 - rejected: an agent proposed only the switch, each move shown on the in-use mark as it is pointed at; the owner rejected it, because only the latest move would be kept, and an earlier one, or the account it left, could not be found.
 - rejected: an agent proposed the record of moves in the System view's section on what is going on now; the owner rejected it, because the switch and its record would stand on two pages, and a thing is shown in one place.
 - rejected: an agent proposed the switch at the bar's right end beside the keep-warm switch; the owner rejected it, because it only manages the accounts and is set once, unlike Pause all and the slots, which are pressed at any time, and it belongs beside the accounts it moves between.
+
+### decision each-project-has-a-section-of-its-own
+After the installation's parts, the Settings view has a section for each project: its tables of install.toml, then its declaration as the engine read it as it started, or why it holds the project.
+- replaced: A project's tables of install.toml among the installation's own, and nothing of its declaration, was on main; the owner changed it, because what is a project's is in two files, the installation's and its declaration, and he governs the whole configuration in one place.
+- rejected: an agent proposed a page of its own for the levels alone; the owner rejected it, because he governs the whole configuration in one place.
 
 ### decision a-round-under-way-shows-its-figures-against-their-lines
 The System view's rounds under way have the columns Context, Added, Per call and Cost; the last three read value of line, and the one value past its own line is in the warning colour.

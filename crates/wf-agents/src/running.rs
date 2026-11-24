@@ -9,6 +9,7 @@
 //! hands nothing out, and two engines never drive the same works: each would give every round under way to its own
 //! carriers, and both would carry it out.
 
+use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions, TryLockError};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
@@ -200,7 +201,13 @@ pub fn run(data: &Path, flows: &Flows, with: With, port: u16, new: bool) -> Exit
                     }
                 }
                 match carry::carry(*settings, data, *beside, &flows) {
-                    Ok((carriers, watches)) => (carriers, watches),
+                    Ok((carriers, watches, declarations)) => {
+                        // The page shows each project's declaration as the carriers read it, or why it is held.
+                        if let Some(install) = install.as_mut() {
+                            install.declarations = declarations_shown(declarations);
+                        }
+                        (carriers, watches)
+                    }
                     Err(why) => {
                         eprintln!("The carriers cannot be made: {why}");
                         return ExitCode::FAILURE;
@@ -306,7 +313,8 @@ where
     }
 }
 
-/// The settings as the page shows them: their file, read as the engine reads it, beside those the engine runs with.
+/// The settings as the page shows them: their file, read as the engine reads it, beside those the engine runs with. The
+/// projects' declarations are given once the carriers have read them ([`declarations_shown`]).
 fn installed(file: PathBuf, settings: &carry::Settings) -> Result<web::settings::Install, String> {
     let running = serde_json::to_value(settings).map_err(|e| format!("the settings cannot be shown: {e}"))?;
     Ok(web::settings::Install {
@@ -317,8 +325,24 @@ fn installed(file: PathBuf, settings: &carry::Settings) -> Result<web::settings:
             serde_json::to_value(&settings).map_err(|e| e.to_string())
         }),
         running,
+        declarations: BTreeMap::new(),
         git: &carry::git::SAFE,
     })
+}
+
+/// Each project's declaration as the carriers read it, or why it is held, as the page is given it.
+fn declarations_shown(
+    declarations: carry::projects::Declarations,
+) -> BTreeMap<String, Result<web::settings::DeclarationText, String>> {
+    (declarations.into_iter())
+        .map(|(name, read)| {
+            let read = read.map(|read| web::settings::DeclarationText {
+                at: read.at,
+                text: read.text,
+            });
+            (name, read)
+        })
+        .collect()
 }
 
 /// The directory in the data directory that holds the copies of the database.
@@ -1091,7 +1115,8 @@ mod tests {
         std::fs::write(&file, &sample).unwrap();
         let install = installed(file.clone(), &settings).expect("it is made");
         let differ = |page: &web::settings::SettingsPage| -> Vec<String> {
-            (page.tables.iter())
+            let projects = page.projects.iter().flat_map(|p| p.tables.iter());
+            (page.tables.iter().chain(projects))
                 .flat_map(|t| {
                     (t.keys.iter())
                         .filter(|k| k.written.is_some() && k.running.is_some())

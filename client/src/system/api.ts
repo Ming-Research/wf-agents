@@ -6,7 +6,8 @@
 //   until now (`System`). The page cuts the weeks at Monday's midnight in the browser's time zone.
 // - `GET  /api/v1/system/under-way`: what the calls of each agent's round under way have come to so far (`Going`),
 //   read each time the stream of changes says `going`.
-// - `GET  /api/v1/settings`: the installation's settings as their file writes them (`SettingsPage`).
+// - `GET  /api/v1/settings`: the installation's settings as their file writes them, and each project's declaration as
+//   the engine holds it (`SettingsPage`).
 // - `POST /api/v1/settings`: the owner's change of a few keys (`SettingsChange`), answered with what changed (`Saved`).
 // - `GET  /api/v1/settings/accounts`: the accounts the agents' program may run under, as the engine holds them
 //   (`AccountsPage`).
@@ -271,11 +272,33 @@ export interface SettingsPage {
   base: string;
   /// Why the file as it is now does not read as settings; none where it does.
   unreadable: string | null;
+  /// The file's tables, but the projects', which are each project's own.
   tables: SettingsTable[];
   levels: string[];
   /// How the directory the file is in keeps it in git; none where it does not.
   git: { committed: boolean } | null;
+  /// The file each project declares what is its own in, at the root of its repository.
+  declarationFile: string;
+  /// The projects, in the order of their first tables among the file's: those the file names, then those the engine
+  /// runs that it leaves out.
+  projects: ProjectSettings[];
 }
+
+/// A project's settings: its tables of the installation's file, `[projects.<name>]` and those under it, and what the
+/// engine holds of its declaration.
+export interface ProjectSettings {
+  name: string;
+  tables: SettingsTable[];
+  declaration: DeclarationRead;
+}
+
+/// What the engine holds of a project's declaration, which it reads from the project's main only as it starts: the
+/// declaration as it read it, where, as `<main>:wf-agents.toml`, and its tables as it writes them; or why it holds the
+/// project, whose works pause, in its words; or none, the file not naming the project as the engine started.
+export type DeclarationRead =
+  | { kind: 'read'; at: string; tables: SettingsTable[] }
+  | { kind: 'held'; why: string }
+  | { kind: 'notRead' };
 
 export interface SettingsChange {
   base: string;
