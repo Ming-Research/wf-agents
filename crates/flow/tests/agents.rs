@@ -639,6 +639,23 @@ fn a_file_of_the_project_the_session_names_is_one_its_declaration_has() {
     assert!(refused.contains(&session.display().to_string()), "{refused}");
 }
 
+// A part of a line's session is a file of the project, the line's rules, words or the return's form: what the guide says
+// about a datum is no part of it.
+#[test]
+fn a_part_of_the_session_that_names_a_datum_is_refused() {
+    let dir = copy("datum");
+    let session = dir.join("agents/session.toml");
+    let text = fs::read_to_string(&session).unwrap();
+    fs::write(
+        &session,
+        text.replace("{ project = \"constitution\" }", "{ datum = \"constitution\" }"),
+    )
+    .unwrap();
+    let refused = agents::read(&dir).unwrap_err();
+    fs::remove_dir_all(&dir).unwrap();
+    assert!(refused.contains(&session.display().to_string()), "{refused}");
+}
+
 #[test]
 fn each_field_the_form_and_told_name_is_a_field_of_the_return() {
     for (name, from, to) in [
@@ -745,6 +762,29 @@ fn the_context_part_orders_what_a_round_is_given_by_naming_each_list_of_a_cell_o
         assert!(refused.contains(&file), "{name}: {refused}");
         assert!(refused.contains(named), "{name}: {refused}");
     }
+}
+
+// A part of the message other than the context that names an `order` is refused, saying which part and that only the
+// context has one: it would order what nothing of it lists. A few files read: milliseconds.
+#[test]
+fn a_part_of_the_message_other_than_the_context_that_names_an_order_is_refused() {
+    let dir = copy("order-on-task");
+    let message = dir.join("agents/message/message.toml");
+    let text = fs::read_to_string(&message).unwrap();
+    let ordered = text.replace(
+        "part = \"task\"\n",
+        "part = \"task\"\norder = [\"every_agent\", \"reads\", \"watches\", \"outputs\"]\n",
+    );
+    assert_ne!(ordered, text, "the words have a task part");
+    fs::write(&message, ordered).unwrap();
+    let read = agents::read(&dir);
+    fs::remove_dir_all(&dir).unwrap();
+    let refused = read.map(|_| ()).unwrap_err();
+    assert!(refused.contains(&message.display().to_string()), "{refused}");
+    assert!(
+        refused.contains("the part task has an `order`, which only context has"),
+        "{refused}"
+    );
 }
 
 /// The text of `file` under `agents/` in a copy of the files with `key` of `table` taken out, or set to `to`.

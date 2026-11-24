@@ -128,6 +128,13 @@ fn words_go_to_no_cell_that_has_none_of_its_own_nor_to_one_the_flow_does_not_hav
         }),
         Refused::NoOneSpokenTo(NoOne::NoSuchCell("nowhere".into()))
     );
+    assert_eq!(
+        w.refused(Event::Said {
+            to: To::Line("nowhere".to_string()),
+            words: "Wait.".to_string()
+        }),
+        Refused::NoOneSpokenTo(NoOne::NoSuchLine("nowhere".to_string()))
+    );
 }
 
 #[test]

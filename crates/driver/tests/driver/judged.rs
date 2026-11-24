@@ -254,6 +254,26 @@ fn the_size_of_a_calls_result_is_judged_by_the_sizes_of_the_results_of_its_tool_
     );
 }
 
+// The size of a result is the bytes the engine keeps of it, not its characters: results of two-byte letters, half as
+// many, are judged as the same bytes of the letter `x` are.
+#[test]
+fn the_size_of_a_result_is_counted_in_the_bytes_the_engine_keeps_and_not_in_characters() {
+    let mut h = harness();
+    let mut calls = Vec::new();
+    for letters in [2_500, 5_000, 30_000] {
+        calls.push(call(&mut h, Some((2_000, "é".repeat(letters)))));
+    }
+    let judged: Judged = h.d().judged(None, Time(h.clock + 600_000));
+    let size = judged.calls[&calls[2]].size.expect("its size is judged");
+    assert_eq!(size.value, 60_000.0);
+    assert_eq!(
+        (size.line.value, size.line.samples),
+        (2.0 * 10_000.0 - 7_500.0, 2),
+        "the line of the two results before it, of 5000 and 10000 bytes"
+    );
+    assert!(size.past());
+}
+
 #[test]
 fn a_call_withdrawn_with_its_work_is_neither_judged_nor_part_of_its_tool_s_history() {
     let mut h = harness();

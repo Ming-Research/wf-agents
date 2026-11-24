@@ -244,6 +244,15 @@ fn what_every_agent_cell_takes_is_only_read() {
     assert!(message.contains("unknown field `watches`"), "{message}");
 }
 
+// Nor does `[every_agent]` say what a cell does when a datum is new: it runs no cell, so there is nothing to do.
+#[test]
+fn what_every_agent_cell_takes_has_no_say_of_what_to_do() {
+    let mut source = plan_takes("watches = [\"request\"]\nreads = [\"opinions\"]");
+    source.flow.push_str("\n[every_agent.do]\nrequest = \"Read it.\"\n");
+    let message = unreadable(&source, FLOW_FILE);
+    assert!(message.contains("unknown field `do`"), "{message}");
+}
+
 #[test]
 fn an_engine_cell_watches_and_is_given_nothing_nor_told_what_to_do() {
     let mut source = edit(
@@ -325,6 +334,62 @@ fn a_datum_a_cell_has_its_own_of_takes_its_kind_from_what_every_agent_cell_takes
     assert!(
         given.contains(&("answer_words".to_string(), InputKind::Latest)),
         "{given:?}"
+    );
+}
+
+// What every agent cell reads is named once, is a datum of the flow, and has the kind it is read in; a kind for a name it
+// does not read is refused beside the kind.
+#[test]
+fn what_every_agent_cell_reads_is_refused_where_a_name_is_twice_unknown_without_a_kind_or_a_kind_has_no_name() {
+    let given = |text: &str| {
+        let mut source = laid_out();
+        source.flow.push_str(text);
+        faults(&source)
+    };
+    let twice =
+        given("\n[every_agent]\nreads = [\"request\", \"request\"]\n\n[every_agent.kinds]\nrequest = \"latest\"\n");
+    assert_eq!(
+        twice,
+        [at(
+            FLOW_FILE,
+            "every_agent.reads[1]",
+            Twice {
+                name: "request".to_string()
+            }
+        )]
+    );
+    let unknown = given("\n[every_agent]\nreads = [\"nowhere\"]\n\n[every_agent.kinds]\nnowhere = \"latest\"\n");
+    assert_eq!(
+        unknown,
+        [at(
+            FLOW_FILE,
+            "every_agent.reads[0]",
+            NoSuchData {
+                name: "nowhere".to_string()
+            }
+        )]
+    );
+    let no_kind = given("\n[every_agent]\nreads = [\"request\"]\n");
+    assert_eq!(
+        no_kind,
+        [at(
+            FLOW_FILE,
+            "every_agent.reads[0]",
+            NoKind {
+                block: "request".to_string()
+            }
+        )]
+    );
+    let not_read = given("\n[every_agent]\n\n[every_agent.kinds]\nrequest = \"latest\"\n");
+    assert_eq!(
+        not_read,
+        [at(
+            FLOW_FILE,
+            "every_agent.kinds.request",
+            NotGiven {
+                block: "request".to_string()
+            }
+        )]
     );
 }
 
@@ -580,4 +645,97 @@ fn the_item_s_card_shows_data_of_the_flow_in_the_order_it_names_them() {
         block: "nowhere".to_string(),
     };
     assert_eq!(faults(&unknown), [at(FLOW_FILE, "card[1]", what)]);
+    // A datum named twice is refused at its second naming.
+    let twice = edit(
+        laid_out(),
+        FLOW_FILE,
+        "data = [\"request\", \"main\"]",
+        "data = [\"request\", \"main\"]\ncard = [\"request\", \"plan\", \"request\"]",
+    );
+    let what = Twice {
+        name: "request".to_string(),
+    };
+    assert_eq!(faults(&twice), [at(FLOW_FILE, "card[2]", what)]);
+}
+
+// A datum each cell has its own of is named by what its file writes, which holds `{cell}`: a file that writes no name,
+// or one that holds no `{cell}`, would make the same datum for every cell, so it is refused in its own file, saying
+// which placeholder it lacks.
+#[test]
+fn the_name_a_file_of_a_datum_of_a_cell_s_own_writes_holds_what_stands_for_whose_own_it_is() {
+    let questions = "../data/of_a_cell/questions.toml";
+    for text in ["from = \"answer\"\n", "name = \"questions\"\nfrom = \"answer\"\n"] {
+        let what = MissingPlaceholder {
+            placeholder: "{cell}".to_string(),
+        };
+        let source = set(laid_out(), questions, text);
+        assert_eq!(
+            faults_with(&source, &has_all()),
+            [at(questions, "name", what)],
+            "{text}"
+        );
+    }
+}
+
+// Two files that write one name make one datum twice: the second, by the order of the paths, is refused naming the first.
+#[test]
+fn two_files_of_data_of_a_cell_s_own_that_write_one_name_are_refused_on_the_second() {
+    let questions = "../data/of_a_cell/questions.toml";
+    let words = "../data/of_a_cell/words.toml";
+    let source = set(laid_out(), questions, "name = \"{cell}_asked\"\nfrom = \"answer\"\n");
+    let source = set(source, words, "name = \"{cell}_asked\"\nfrom = \"words\"\n");
+    let what = DefinedTwice {
+        name: "{cell}_asked".to_string(),
+        also: questions.to_string(),
+    };
+    assert_eq!(faults_with(&source, &has_all()), [at(words, "name", what)]);
+}
+
+// An engine cell has no kinds: it is given nothing, so a kind of a datum it watches is refused beside the datum.
+#[test]
+fn an_engine_cell_that_names_a_kind_of_what_it_watches_is_refused_at_the_kind() {
+    let mut source = laid_out();
+    source
+        .cells
+        .get_mut("check")
+        .expect("the check")
+        .push_str("\n[kinds]\nmain = \"latest\"\n");
+    let what = EngineIsGiven {
+        block: "main".to_string(),
+    };
+    assert_eq!(faults(&source), [at("cells/check.toml", "kinds.main", what)]);
+}
+
+// A cell is asked in only if it can change the work and be spoken to: the owner's answer and words would reach no one
+// if it were a cell of the engine, or one of a line that only reads.
+#[test]
+fn the_engine_asks_in_no_cell_of_the_engine_and_none_of_a_line_that_only_reads() {
+    let source = edit(
+        answer_asks(),
+        FLOW_FILE,
+        "data = [\"request\", \"main\"]",
+        "data = [\"request\", \"main\"]\nengine_asks_in = \"check\"",
+    );
+    let what = CannotBeAskedIn {
+        cell: "check".to_string(),
+    };
+    assert_eq!(
+        faults_with(&source, &has_all()),
+        [at(FLOW_FILE, "engine_asks_in", what)]
+    );
+    let source = edit(
+        answer_asks(),
+        FLOW_FILE,
+        "data = [\"request\", \"main\"]",
+        "data = [\"request\", \"main\"]\nengine_asks_in = \"answer\"",
+    );
+    assert!(compiled_all(&source).engine_asks_in.is_some());
+    let reading = set(source, "lines/engineer.toml", "reads_only = true");
+    let what = CannotBeAskedIn {
+        cell: "answer".to_string(),
+    };
+    assert_eq!(
+        faults_with(&reading, &has_all()),
+        [at(FLOW_FILE, "engine_asks_in", what)]
+    );
 }

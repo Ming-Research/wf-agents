@@ -38,6 +38,25 @@ impl Rounds for Reached {
     fn release(&self, release: Release, _: ReleaseReply) {
         self.note("release", &release.item);
     }
+
+    fn seen(&self, asked: OfWork) -> Pin<Box<dyn Future<Output = Result<Seen, String>> + Send + '_>> {
+        self.note("seen", &asked.item);
+        Box::pin(async { Ok(Seen::default()) })
+    }
+
+    fn changes(&self, asked: OfWork) -> Pin<Box<dyn Future<Output = Result<Option<Changes>, String>> + Send + '_>> {
+        self.note("changes", &asked.item);
+        Box::pin(async { Ok(None) })
+    }
+
+    fn diff(
+        &self,
+        asked: OfWork,
+        _: String,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<Diff>, String>> + Send + '_>> {
+        self.note("diff", &asked.item);
+        Box::pin(async { Ok(None) })
+    }
 }
 
 impl Tools for Reached {
@@ -265,6 +284,34 @@ fn the_words_beside_the_flows_say_a_call_of_no_project_named() {
     let said = &beside.installation.no_project;
     assert!(said.unnamed.contains("{project}"), "{}", said.unnamed);
     assert!(!said.none.contains('{'), "{}", said.none);
+}
+
+/// The work of this item as the driver gives it to be looked at.
+fn of_work(item: Item) -> OfWork {
+    OfWork {
+        work: WORK,
+        item,
+        merged: None,
+        place: decide::Seq(1),
+        under_way: false,
+    }
+}
+
+// What a work changed is asked of the carrier of its item's project; where the item has a project the settings do not
+// name, or none, there is nothing to say of it, and no carrier is asked. Well under a millisecond alone; no other test
+// holds this to the carriers of more than one project.
+#[tokio::test]
+async fn what_a_work_changed_is_asked_of_its_projects_carrier_and_is_nothing_where_it_has_none() {
+    let reached = Arc::new(Reached::default());
+    let rounds = by_project::<dyn Rounds>(reached.clone());
+    for project in [Some("one"), Some("two"), None] {
+        let number = if project == Some("one") { 1 } else { 2 };
+        let of = || of_work(item(number, project));
+        assert!(rounds.seen(of()).await.is_ok());
+        assert!(matches!(rounds.changes(of()).await, Ok(None)));
+        assert!(matches!(rounds.diff(of(), "farewell.txt".to_string()).await, Ok(None)));
+    }
+    assert_eq!(*reached.0.lock().unwrap(), ["seen #1", "changes #1", "diff #1"]);
 }
 
 // A project held for its declaration carries nothing out: a round of its works fails with why, and stopped ends with

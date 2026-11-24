@@ -834,6 +834,34 @@ mod tests {
     }
 
     #[test]
+    fn a_table_for_the_log_a_failed_job_was_read_by_is_refused_in_words_that_say_what_is_read_now() {
+        let github = "\n[projects.example.github]\nrepository = \"owner/name\"\n";
+        let log = format!("{SAMPLE}{github}[projects.example.github.log]\n");
+        let refused = Settings::read(&log).expect_err("refused");
+        assert!(
+            refused.starts_with("projects.example.github.log: the engine reads no log by a project's patterns"),
+            "{refused}"
+        );
+        assert!(
+            refused.contains("the end of its failed step") && refused.ends_with("delete the table"),
+            "{refused}"
+        );
+    }
+
+    #[test]
+    fn what_a_letting_on_allows_is_20_dollars_where_none_is_named_and_a_number_of_dollars_none_below_nothing() {
+        let without = SAMPLE.replace("let_on_allowance_usd = 2.0\n", "");
+        assert_ne!(without, SAMPLE, "the sample sets it");
+        let budget = Settings::read(&without).expect("it reads without").budget();
+        assert_eq!(budget.expect("a budget").let_on, 20_000_000);
+        for bad in ["-1.0", "nan", "inf"] {
+            let text = SAMPLE.replace("let_on_allowance_usd = 2.0", &format!("let_on_allowance_usd = {bad}"));
+            let refused = Settings::read(&text).expect_err(bad);
+            assert!(refused.contains("agents.let_on_allowance_usd"), "{bad}: {refused}");
+        }
+    }
+
+    #[test]
     fn the_samples_levels_read_with_their_default_and_highest() {
         let settings = Settings::read(SAMPLE).expect("the sample reads");
         let levels = settings.levels().expect("its levels are made");
@@ -1138,6 +1166,15 @@ mod tests {
         assert_eq!(github.token_env, "WF_GITHUB_TOKEN");
         assert_eq!(github.start_minutes, 10);
         assert_eq!(github.gh, "gh");
+    }
+
+    #[test]
+    fn a_work_s_pull_request_is_at_github_by_the_repository_and_its_number() {
+        let github = Settings::read(&on_github()).expect("it reads").projects["example"]
+            .github
+            .clone()
+            .expect("GitHub is the host");
+        assert_eq!(github.pull_at(12), "https://github.com/owner/name/pull/12");
     }
 
     #[test]
