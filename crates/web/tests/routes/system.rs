@@ -40,6 +40,9 @@ async fn all_time_gives_the_merge_and_what_was_spent_on_each_cell_and_model() {
     let running = merged().await;
     let router = &running.router;
     let system = get_json(router, "/api/v1/system").await;
+    // What the calls of the rounds under way have come to is a route of its own, and nothing is under way once the work
+    // has merged.
+    assert_eq!(get_json(router, "/api/v1/system/under-way").await, json!([]));
     let work = get_json(router, "/api/v1/works/1").await;
     let spent = work["summary"]["spent"].clone();
     assert_eq!(system["from"], Value::Null);
