@@ -48,22 +48,44 @@
   color: var(--red-text);
 }
 
-/* The search, under the boxes: the page's field, and under it what it finds, or that it finds nothing, on the card in a
-   hairline frame as the legend's panel is, wider than the tree's first column (its cards are 300 pixels wide, from
-   40 in: `NODE_W` and the scene's first `left` in snap.ts), so that no card of the tree shows through it or beside
-   it. Each item found is a list row of one line, its path, its title cut at the edge, and how it stands: under the
+/* The search, while it is open: one card over the middle of the console's top, a sixth of the way down, so that what
+   it finds has room under it, over the tree and the window: with a card's corners, its hairline frame lit with the
+   accent, in a soft light of the accent's colour, which is the focus's, close round it and wider further out (decision
+   what-the-owner-points-at-stands-in-a-soft-light), and the shadow of what floats over a view. In it the page's
+   field, as wide as the card, with no frame and no ring of the focus of its own, written on the card, the card's light
+   saying where the keys are; and under the field what it finds, or that it finds nothing.
+   Each item found is a list row of one line, its number, its title cut at the edge, and how it stands: under the
    pointer a step darker, the row the arrow keys stand on in the accent's tint, as a row chosen is. */
 .console-find {
+  position: absolute;
+  top: 16%;
+  left: 50%;
+  z-index: 3;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: var(--space-4);
+  gap: var(--space-8);
+  width: min(600px, calc(100% - 2 * var(--space-16)));
+  padding: var(--space-8);
+  border: var(--hairline) solid color-mix(in srgb, var(--accent) 60%, var(--line));
+  border-radius: var(--corner);
+  background: var(--card);
+  box-shadow:
+    0 0 12px 4px color-mix(in srgb, var(--accent) 50%, transparent),
+    0 0 48px 16px color-mix(in srgb, var(--accent) 28%, transparent),
+    var(--window-shadow);
+  transform: translateX(-50%);
+}
+
+.console-find .field {
+  width: 100%;
+  border-color: transparent;
+}
+
+.console-find .field:focus-visible {
+  outline: none;
 }
 
 .console-found {
-  width: var(--wide-cell);
-  border: var(--hairline) solid var(--line);
-  background: var(--card);
   font-size: var(--size-small);
 }
 
