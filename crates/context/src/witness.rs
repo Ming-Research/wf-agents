@@ -1155,18 +1155,17 @@ impl Search<'_> {
     }
 
     /// How much the search has spent on a kept state's pending cell and on the state itself: the less, the sooner the
-    /// search goes on from it, so that the cells few rounds were carried out of get their share.
+    /// search goes on from it, so that each cell, one of the engine's own that no round of an agent is carried out of
+    /// included, gets its share of the times a state is gone on from.
     fn rank(&self, kept: &Kept) -> usize {
         self.rank_of(&kept.key.0, kept.turns)
     }
 
-    /// The same for a state of this pending cell that was gone on from so many times.
+    /// The same for a state of this pending cell that was gone on from so many times: a time one is gone on from is
+    /// weighed as the draws it makes, many to one turn of a state.
     fn rank_of(&self, cell: &str, turns: usize) -> usize {
-        let carried = match cell {
-            AT_REST => self.found.rounds / self.flow.cells.len().max(1),
-            cell => self.found.cells.get(cell).copied().unwrap_or(0),
-        };
-        carried * 4 + turns
+        let chosen = self.chosen_at.get(cell).copied().unwrap_or(0);
+        chosen * self.bounds.draws * 4 + turns
     }
 
     /// The kept state gone on from soonest by its rank: of those of the least, the newest on one turn and the oldest on
