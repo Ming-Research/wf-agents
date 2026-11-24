@@ -36,7 +36,10 @@ const PLAIN: [&str; 3] = ["--no-renames", "--no-ext-diff", "--no-textconv"];
 /// What a diff against the worktree is given so that it writes nothing. `--no-optional-locks` does not stop it: with
 /// `diff.autoRefreshIndex`, which is on unless it is turned off, `git diff` rewrites the index with the stat
 /// information of each file whose time or size changed and whose content did not. A diff is still taken of the
-/// content of such a file, which is the same, and so it lists none.
+/// content of such a file, which is the same, and so it lists none. The one-file diff [`Known::diff`] takes is given
+/// it too: `git diff <base> -- <path>` writes the index only where the file's content is the base's while its time
+/// is not what the index knows, and a file is diffed only where the look just listed it as differing from the base,
+/// so that holds only where the agent put it back in the moment between the two; no test can make that moment come.
 const WRITES_NOTHING: [&str; 4] = ["--no-optional-locks", "-c", "diff.autoRefreshIndex=false", "diff"];
 
 /// The most of one file's diff that is given, in bytes: a file made by a program, such as a lock file, can change by

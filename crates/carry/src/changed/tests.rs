@@ -520,25 +520,3 @@ async fn a_look_at_the_worktree_leaves_its_index_as_it_was_so_an_agent_s_own_git
         .expect("a head");
     assert_eq!(std::fs::read(&index).unwrap(), before, "a look wrote the index");
 }
-
-#[tokio::test]
-async fn the_diff_of_a_file_against_the_worktree_leaves_its_index_as_it_was_too() {
-    let (repo, place) = started().await;
-    let r = &repo.project.repo;
-    // The file is tracked, committed by the work, and differs from the base: its diff is the one taken against the
-    // worktree, which is not the diff of a file git does not track.
-    commit(&place.dir, "greeting.txt", "Hello.\nHi.\n");
-    touched_later(&place.dir, "greeting.txt");
-    let known = Known::default();
-    // The look that tells which files changed is no part of what is checked here.
-    known.changed(r, MAIN, WORK, &place).await.unwrap().expect("a head");
-    let index = index_of(&place.dir);
-    let before = std::fs::read(&index).unwrap();
-    let diff = known
-        .diff(r, MAIN, (WORK, &place), "greeting.txt")
-        .await
-        .unwrap()
-        .expect("changed");
-    assert!(diff.text.contains("+Hi."), "{}", diff.text);
-    assert_eq!(std::fs::read(&index).unwrap(), before, "a diff wrote the index");
-}
