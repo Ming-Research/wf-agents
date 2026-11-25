@@ -75,7 +75,6 @@ const withState = (item: Item, state: 'done' | 'running' | 'calling'): Item => (
   work: { ...item.work, cells: item.work.cells.map((c) => ({ ...c, state })) },
 });
 const calm = (item: Item) => withState(item, 'done');
-const busy = (item: Item) => withState(item, 'running');
 const retitled = (item: Item): Item => ({ ...item, title: `${item.title}, said again` });
 
 /// The engine as the page sees it: its answers to the reads of items given by `serve`, which each read of the items
@@ -263,7 +262,7 @@ describe('the items the page holds', () => {
 
   it('are the whole list where the engine says so, and a read that failed keeps what was shown and the cursor', async () => {
     const [a, b, c] = base;
-    const w = wire((since, n) => {
+    const w = wire((_since, n) => {
       if (n === 1) return { cursor: 'p.1', full: true, items: [a, b, c], outage: null };
       if (n === 2) return new Error('the server went away');
       // The engine started again: it does not know the cursor, and says the whole list is here.
