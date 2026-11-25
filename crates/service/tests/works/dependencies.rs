@@ -86,7 +86,7 @@ async fn a_work_that_has_run_waits_where_it_stands_for_an_item_it_comes_to_depen
             Waited::Precondition { by, .. } if by == &[Maker::Outside { source: "dependencies".to_string() }])))
     };
     let held = until_held(&mut trial, second, holds).await;
-    let Decision::Wait { at, .. } = held else {
+    let Decision::Wait { ref at, .. } = held else {
         unreachable!()
     };
     assert_ne!(at.as_str(), "plan", "{held:?}");
