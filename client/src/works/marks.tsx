@@ -46,7 +46,7 @@ export function useNow(on: boolean): number {
 
 /// How long a work has waited for the calls of tools it waits for, kept current; nothing where it waits for none, or
 /// the engine does not say when they were made.
-export function CallsTook({ work }: { work: Pick<Summary, 'now'> }) {
+export function CallsTook({ work }: { work: Pick<Summary, 'now' | 'cells'> }) {
   const calls = callsWaited(work);
   const now = useNow(calls.length > 0);
   const took = callsTook(calls, now);

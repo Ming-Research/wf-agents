@@ -4,6 +4,7 @@ import type { Now, RanOn, Round, Summary, Wait, Waited } from '../works-api';
 import {
   STATE,
   callState,
+  callsWaited,
   causeWords,
   clock,
   dollars,
@@ -157,12 +158,18 @@ describe('what a work does now, in words', () => {
     const tool: Waited = { kind: 'call', call: 2, who: null, what: { kind: 'tool', name: 'ci', input: 'all' } };
     const calling = { now: { kind: 'waits', at: 'M1', on: [tool] } as Now, cells: [{ cell: 'M1', state: 'calling' as const, finished: 0, record: null, open: 1 }], waits: [] };
     expect(stateOf(calling)).toEqual({ tone: 'calling', word: 'Waiting for ci by the engine', cell: 'M1' });
-    // An act of the engine's own under way is a round, and runs.
-    expect(stateOf({ ...calling, now: { kind: 'round', cell: 'M1', run: 3, round: 1, since: 0 } })).toEqual({
-      tone: 'running',
-      word: STATE.running,
+    // The act of an engine cell under way, its cell marked as calling, is waited for as a call, by where it runs.
+    const act = { ...calling, now: { kind: 'round', cell: 'M1', run: 3, round: 1, since: 5, at: 'https://ci/9' } as Now };
+    expect(stateOf(act)).toEqual({ tone: 'calling', word: 'Waiting for CI', cell: 'M1' });
+    expect(callsWaited(act)).toEqual([{ tool: null, ci: 'https://ci/9', made: 5 }]);
+    expect(stateOf({ ...act, now: { kind: 'round', cell: 'M1', run: 3, round: 1, since: 5 } })).toEqual({
+      tone: 'calling',
+      word: 'Waiting for the engine',
       cell: 'M1',
     });
+    // An agent's round under way runs: its cell is marked as running.
+    const agent = { ...act, cells: [{ cell: 'M1', state: 'running' as const, finished: 0, record: null, open: 1 }] };
+    expect(stateOf(agent)).toEqual({ tone: 'running', word: STATE.running, cell: 'M1' });
     expect(stateOf(doing({ kind: 'waits', at: 'merge', on: [precondition] }, [limit]))).toEqual({
       tone: 'owner',
       word: STATE.owner,
