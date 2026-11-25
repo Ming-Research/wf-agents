@@ -12,6 +12,7 @@ use std::time::Duration;
 use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
+use decide::run::Failure;
 use serde_json::{Value, json};
 use service::{Diffstat, OfWork, Round, RoundReply, Rounds, Scripted, Seen};
 use store::Store;
@@ -346,6 +347,57 @@ async fn the_items_a_page_holds_are_what_a_working_out_of_every_item_gives_after
     assert_eq!(page.items[&1]["work"]["now"]["kind"], "merged");
     assert_eq!(page.items[&2]["work"]["now"]["kind"], "paused");
     page.is_whole(router, &handle, "the merge").await;
+}
+
+// What holds every work at once changes with no record of any work: the agents' command line cannot run, and the engine's
+// check finds it well again. The items a page holds are what a working out of every item gives all the while.
+#[tokio::test(start_paused = true)]
+async fn the_items_a_page_holds_are_what_a_working_out_of_every_item_gives_while_the_agents_wait_comes_and_goes() {
+    let mut script = trial_script();
+    let plan = script.flows.get_mut("trial").unwrap();
+    let mut failing = plan.rounds[0].clone();
+    failing.round = 4;
+    failing.asks = None;
+    failing.took = Default::default();
+    failing.fails = Some("no account is in use".to_string());
+    failing.failure = Some(Failure::CannotRun);
+    plan.rounds.push(failing);
+    let (running, _, handle, _) = kept(script, BOUND_MS);
+    let router = &running.router;
+    let mut page = Page {
+        items: BTreeMap::new(),
+        cursor: None,
+    };
+    greeted(router).await;
+    assert_eq!(
+        post(router, "/api/v1/items", &item("Second", json!([]), "trial"))
+            .await
+            .0,
+        StatusCode::OK
+    );
+    page.is_whole(router, &handle, "a work waiting for the owner").await;
+    let waits_for_agents = |page: &Page, number: u64| {
+        (page.items[&number]["work"]["waits"].as_array().unwrap())
+            .iter()
+            .any(|wait| wait["key"] == "agents")
+    };
+    assert!(!waits_for_agents(&page, 1));
+
+    let go_on: Value = serde_json::from_str(GO_ON).unwrap();
+    assert_eq!(
+        post(router, "/api/v1/works/1/acts", &go_on).await.0,
+        StatusCode::NO_CONTENT
+    );
+    // Within the half minute before the engine's first check of the outside, the wait holds, and every work is told it.
+    pass(5000).await;
+    page.is_whole(router, &handle, "the agents' command line cannot run")
+        .await;
+    assert!(waits_for_agents(&page, 1));
+
+    // The check finds it well: the wait no longer holds, with no record of either work.
+    pass(40_000).await;
+    page.is_whole(router, &handle, "the wait no longer holds").await;
+    assert!(!waits_for_agents(&page, 1));
 }
 
 // A work with a round under way changes with time and its worktree with no record: its summary is worked out again, and
