@@ -225,6 +225,8 @@ async fn a_cursor_of_another_process_or_unreadable_gives_every_item_and_says_so(
         "garbage".to_string(),
         "ffff.1".to_string(),
         "x.y".to_string(),
+        format!("{boot}.y"),
+        format!("{boot}."),
         String::new(),
         format!("{boot}.999999"),
     ] {
