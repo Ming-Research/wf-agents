@@ -59,6 +59,7 @@ struct Looking {
     lines: AtomicU64,
     waits: AtomicBool,
     fails: AtomicBool,
+    panics: AtomicBool,
     let_end: tokio::sync::Semaphore,
 }
 
@@ -74,6 +75,9 @@ impl Rounds for Looking {
     fn seen(&self, _: OfWork) -> Pin<Box<dyn Future<Output = Result<Seen, String>> + Send + '_>> {
         Box::pin(async move {
             self.asked.fetch_add(1, Ordering::SeqCst);
+            if self.panics.load(Ordering::SeqCst) {
+                panic!("the carrier broke");
+            }
             tokio::time::sleep(Duration::from_millis(self.delay.load(Ordering::SeqCst))).await;
             if self.waits.load(Ordering::SeqCst) {
                 self.let_end.acquire().await.expect("the semaphore is open").forget();
@@ -126,6 +130,7 @@ fn kept_on(
         lines: AtomicU64::new(3),
         waits: AtomicBool::new(false),
         fails: AtomicBool::new(false),
+        panics: AtomicBool::new(false),
         let_end: tokio::sync::Semaphore::new(0),
     });
     carriers.acts = looking.clone();
@@ -863,4 +868,164 @@ async fn the_page_of_a_work_and_the_list_give_the_same_summary() {
     let (status, _, _) = crate::ask(router, axum::http::Method::GET, "/api/v1/pulls").await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(cache.built(), built, "neither worked the summary out again");
+}
+
+// A look that was asked before the work moved again, and ended with what the item already said, is not the look of the
+// work as it stands: the page, which reads again only where it is told, is told, or a look of the work as it stands is
+// made, so that the lines do not stay those of before the work's last record until something else makes the page read.
+#[tokio::test(start_paused = true)]
+async fn a_look_that_ends_after_the_work_moved_again_leaves_no_old_lines_until_something_else_is_read() {
+    let (running, _, _, looking) = kept(trial_script(), BOUND_MS);
+    let router = &running.router;
+    greeted(router).await;
+    let first = read(router, None).await;
+    assert_eq!(first["items"][0]["work"]["changed"]["added"], 3);
+    let request = Request::builder().uri("/api/v1/changes").body(Body::empty()).unwrap();
+    let mut stream = router.clone().oneshot(request).await.unwrap().into_body();
+    next(&mut stream).await;
+
+    // The work moves, and the look the read starts is held.
+    looking.waits.store(true, Ordering::SeqCst);
+    let pause = json!({ "kind": "pause" });
+    assert_eq!(
+        post(router, "/api/v1/works/1/acts", &pause).await.0,
+        StatusCode::NO_CONTENT
+    );
+    let held = read(router, Some(&cursor(&first))).await;
+    pass(10).await;
+    assert_eq!(looking.asked(), 2);
+    // It moves again while the look is held, and the read after that starts no second look.
+    assert_eq!(
+        post(router, "/api/v1/works/1/acts", &json!({ "kind": "resume" }))
+            .await
+            .0,
+        StatusCode::NO_CONTENT
+    );
+    read(router, Some(&cursor(&held))).await;
+    pass(10).await;
+    assert_eq!(looking.asked(), 2);
+    // What the page was told so far is read and gone.
+    while tokio::time::timeout(Duration::from_millis(500), next(&mut stream))
+        .await
+        .is_ok()
+    {}
+
+    // The held look ends with the lines the item has, and the worktree holds more afterwards.
+    looking.let_end.add_permits(1);
+    pass(50).await;
+    looking.lines.store(9, Ordering::SeqCst);
+    let mut told = false;
+    while let Ok(said) = tokio::time::timeout(Duration::from_millis(500), next(&mut stream)).await {
+        told |= said.contains("\"items\":true");
+    }
+    assert!(
+        told || looking.asked() >= 3,
+        "no notice of the items and no look of the work as it stands, asked {} looks",
+        looking.asked()
+    );
+}
+
+// What git says of a work cannot make every later read of the items wait for ever: a look whose carrier broke, as a
+// task that ended with a panic, is a look that failed, which gives the work no lines and is made again after the bound.
+#[tokio::test(start_paused = true)]
+async fn a_look_whose_carrier_broke_is_a_look_that_failed_and_no_read_waits_for_it_for_ever() {
+    let (running, _, _, looking) = kept(trial_script(), 10_000);
+    let router = &running.router;
+    looking.panics.store(true, Ordering::SeqCst);
+    assert_eq!(
+        post(router, "/api/v1/items", &item("First", json!([]), "trial"))
+            .await
+            .0,
+        StatusCode::OK
+    );
+    let read = tokio::time::timeout(Duration::from_secs(5), read(router, None))
+        .await
+        .expect("the read is given though the look broke");
+    assert_eq!(numbers(&read), vec![1]);
+    assert_eq!(read["items"][0]["work"]["changed"], Value::Null);
+    // Made again once the bound has passed, and then it gives the lines.
+    looking.panics.store(false, Ordering::SeqCst);
+    pass(10_000).await;
+    tokio::time::timeout(Duration::from_secs(5), self::read(router, None))
+        .await
+        .expect("the next read is given");
+    pass(100).await;
+    let mended = tokio::time::timeout(Duration::from_secs(5), self::read(router, None))
+        .await
+        .expect("and the one after");
+    assert_eq!(mended["items"][0]["work"]["changed"]["added"], 3);
+}
+
+// A work nothing is under way for, and an item held, are what a whole working out gives however long they have stood
+// since they were worked out: nothing in a summary but a round or a call under way moves with time alone.
+#[tokio::test(start_paused = true)]
+async fn the_items_of_works_waiting_or_held_are_what_a_working_out_gives_hours_after_they_were_worked_out() {
+    let (running, cache, handle, _) = kept(trial_script(), BOUND_MS);
+    let router = &running.router;
+    let mut page = Page {
+        items: BTreeMap::new(),
+        cursor: None,
+    };
+    greeted(router).await;
+    assert_eq!(
+        post(router, "/api/v1/items", &item("Held", json!([1]), "trial"))
+            .await
+            .0,
+        StatusCode::OK
+    );
+    page.is_whole(router, &handle, "a work waiting for the owner and one held")
+        .await;
+    assert_eq!(page.items[&1]["work"]["now"]["kind"], "waits");
+    let built = cache.built();
+    for hour in 1..=3 {
+        pass(3_600_000).await;
+        page.is_whole(router, &handle, &format!("{hour} hours on")).await;
+    }
+    // Nothing was worked out again for time alone, and what the page holds is still what a whole working out gives.
+    assert_eq!(cache.built(), built);
+}
+
+// Two pages that hold different cursors are each given what changed since their own, and no change is lost between them.
+#[tokio::test(start_paused = true)]
+async fn pages_with_different_cursors_are_each_given_what_changed_since_their_own() {
+    let (running, _, _, _) = kept(trial_script(), BOUND_MS);
+    let router = &running.router;
+    for title in ["First", "Second", "Third"] {
+        assert_eq!(
+            post(router, "/api/v1/items", &item(title, json!([]), "trial")).await.0,
+            StatusCode::OK
+        );
+    }
+    let c0 = read(router, None).await;
+    let retitle = |item: u64, title: &str| json!({ "why": "Say what it is", "changes": [{ "kind": "title", "item": item, "title": title }] });
+    assert_eq!(
+        post(router, "/api/v1/items/changes", &retitle(1, "First, narrowed"))
+            .await
+            .0,
+        StatusCode::OK
+    );
+    let c1 = read(router, Some(&cursor(&c0))).await;
+    assert_eq!(numbers(&c1), vec![1]);
+    assert_eq!(
+        post(router, "/api/v1/items/changes", &retitle(3, "Third, narrowed"))
+            .await
+            .0,
+        StatusCode::OK
+    );
+    let c2 = read(router, Some(&cursor(&c1))).await;
+    assert_eq!(numbers(&c2), vec![3]);
+    // The page that stayed at the first cursor is given both, the one at the second only the second's.
+    assert_eq!(numbers(&read(router, Some(&cursor(&c0))).await), vec![1, 3]);
+    assert_eq!(numbers(&read(router, Some(&cursor(&c1))).await), vec![3]);
+    assert_eq!(numbers(&read(router, Some(&cursor(&c2))).await), Vec::<u64>::new());
+    // Changing an item back to what it was is a change too.
+    assert_eq!(
+        post(router, "/api/v1/items/changes", &retitle(1, "First")).await.0,
+        StatusCode::OK
+    );
+    let back = read(router, Some(&cursor(&c2))).await;
+    assert_eq!(
+        (numbers(&back), back["items"][0]["title"].clone()),
+        (vec![1], json!("First"))
+    );
 }
