@@ -146,7 +146,7 @@ pub use versions::{Misread, On};
 use work::{Ask, Call, KeptTime, Moment, Time, TurnSpan, Work};
 
 pub use budget::Budget;
-pub use changes::{Asked, Gone, NotMade, Planned, Unchangeable};
+pub use changes::{Asked, NotMade, Planned, Unchangeable};
 pub use history::HISTORY_SAMPLES;
 pub use sessions::{Policy, Warm};
 pub use usage::{LOOK_AFTER_MS, Said, Usage, Usages, Window};
