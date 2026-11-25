@@ -259,6 +259,9 @@ impl ItemsCache {
 
     /// Takes the end of the look at this item's work, which was asked as the work stood after this many things had
     /// happened to it, at this time: how old it is is counted from there, as a summary's is from when it was asked.
+    /// The pages are told where what they are given changed, and where the work has moved since the look was asked: the
+    /// look is then of what the work was, a read starts the look of what it is, and a page that was told nothing would
+    /// not read again to have it started.
     fn ended(&self, item: u64, moments: usize, at: Time, said: Result<Seen, String>) {
         let changed = {
             let mut inner = self.lock();
@@ -271,6 +274,7 @@ impl ItemsCache {
                 None => return,
             };
             entry.looking = false;
+            let moved = entry.key.moments != moments;
             entry.looked = match said {
                 Ok(seen) => LastLook::Looked { moments, at, seen },
                 Err(why) => {
@@ -295,7 +299,7 @@ impl ItemsCache {
             changed
         };
         self.looked.notify_waiters();
-        if changed {
+        if changed || moved {
             self.handle.items_changed();
         }
     }
