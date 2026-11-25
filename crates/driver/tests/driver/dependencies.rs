@@ -4,7 +4,7 @@
 //! as its dependencies block, which the driver writes as the item is added, in the very call in which the last of them
 //! merges or is cancelled, and, on opening, wherever the block and what it stands for have come apart.
 
-use driver::{MERGED, NewItem, WAITING};
+use driver::{Asked, MERGED, NewItem, WAITING};
 use store::{ItemChange, Storage};
 
 use super::*;
@@ -64,6 +64,38 @@ fn a_started_work_given_a_dependency_ends_its_round_waits_where_it_stands_and_go
     // The one it waits for merges: the work goes on at that cell, and the cell before it is not run again.
     h.let_on(wa);
     let todos = h.through(wa);
+    assert_eq!(rounds(&todos), [(wb, "judge".to_string(), 1)]);
+    assert_eq!(h.dependencies(wb).as_deref(), Some(MERGED));
+    let cells: Vec<String> = (h.d().work(wb).expect("the work is there").work.records.started.iter())
+        .map(|s| s.cell.to_string())
+        .collect();
+    assert_eq!(cells, ["write", "judge"]);
+}
+
+#[test]
+fn a_started_work_waits_for_each_item_it_depends_on_and_goes_on_where_it_stands_once_the_last_is_merged_or_cancelled() {
+    let mut h = H::new();
+    let (a1, wa1) = h.add(new_item("a1", &[], "short"));
+    let (a2, _) = h.add(new_item("a2", &[], "short"));
+    let (b, wb) = h.add(new_item("b", &[], "judged"));
+    h.let_on(wb);
+    assert_eq!(h.change(b, ItemChange::DependsOn(a1)), (true, vec![]));
+    assert_eq!(h.change(b, ItemChange::DependsOn(a2)), (true, vec![]));
+    let kept = h.d().work(wb).expect("the work is there");
+    let came = proper(kept.flow, "write");
+    assert_eq!(h.returns(wb, came), vec![]);
+    assert_eq!(h.decision(wb), waits_for_dependencies("judge"));
+    assert_eq!(h.d().items_waited_for(wb), [a1, a2]);
+    // One has merged: the work waits for the other, and begins nothing.
+    h.let_on(wa1);
+    let todos = h.through(wa1);
+    assert!(rounds(&todos).is_empty(), "{:?}", rounds(&todos));
+    assert_eq!(h.dependencies(wb).as_deref(), Some(WAITING));
+    assert_eq!(h.decision(wb), waits_for_dependencies("judge"));
+    assert_eq!(h.d().items_waited_for(wb), [a2]);
+    // The other is cancelled, which holds as a merge does: the work goes on at the cell it stood at.
+    let (_, todos) = h.changes(vec![(a2, Asked::Cancel)]).expect("a2 is cancelled");
+    let todos = h.released(todos);
     assert_eq!(rounds(&todos), [(wb, "judge".to_string(), 1)]);
     assert_eq!(h.dependencies(wb).as_deref(), Some(MERGED));
     let cells: Vec<String> = (h.d().work(wb).expect("the work is there").work.records.started.iter())

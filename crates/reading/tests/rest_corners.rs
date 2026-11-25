@@ -253,3 +253,63 @@ fn a_cell_whose_runs_in_a_row_only_asked_waits_for_the_owner_at_its_limit_of_cal
     w.let_go("first");
     assert_eq!(rest(&w), Rest::Moving { at: id("first") });
 }
+
+/// A work whose first cell waits for the items it depends on, which a source outside the work writes; the cells it
+/// begins with, and the tests by which the first of them holds the work.
+fn waiting_for_items(cells: Vec<Cell>, more: Vec<(TestName, Test)>) -> World {
+    let mut tests = BTreeMap::from([("may start".into(), named(TestKind::All, &["dependencies"], "yes"))]);
+    tests.extend(more);
+    let mut w = World::with_tests(cells, tests);
+    w.written_outside("dependencies", "dependencies");
+    w.outside_sets("dependencies", "yes");
+    w
+}
+
+// Decisions a-work-no-cell-can-move-is-stalled (a work that a source outside the work can set going waits) and
+// dependencies-hold-a-started-work-where-it-would-run.
+#[test]
+fn a_work_held_for_the_items_that_also_lacks_what_only_cells_write_waits_where_it_would_stall() {
+    let cells = vec![
+        requiring("may start", cell("start", &["go"], &[])),
+        cell("work", &["plan"], &["code", "checked"]),
+        requiring("checked", cell("merge", &["checked"], &[])),
+    ];
+    let mut w = waiting_for_items(
+        cells,
+        vec![("checked".into(), named(TestKind::All, &["checked"], "yes"))],
+    );
+    w.written_by_cells("checked");
+    w.person_writes("go");
+    w.person_writes("plan");
+    w.run("start", &[]);
+    w.run("work", &[("code", Matters)]);
+    assert_eq!(
+        rest(&w),
+        Rest::Stalled {
+            at: id("merge"),
+            on: vec![Condition::Test("checked".into())]
+        }
+    );
+    w.outside_sets("dependencies", "no");
+    assert_eq!(rest(&w), Rest::Waiting { at: id("merge") });
+    w.outside_sets("dependencies", "yes");
+    assert!(matches!(rest(&w), Rest::Stalled { .. }), "{:?}", rest(&w));
+}
+
+// Decision the-walk-goes-from-the-first-cell: what comes before a held cell is not held by it.
+#[test]
+fn what_a_later_cell_holds_back_does_not_hold_a_cell_before_it_that_has_something_new() {
+    let cells = vec![
+        cell("first", &["plan"], &["code"]),
+        requiring("may start", cell("gated", &["go"], &[])),
+        gate(),
+    ];
+    let mut w = waiting_for_items(cells, Vec::new());
+    w.person_writes("go");
+    w.person_writes("plan");
+    w.run("first", &[("code", Matters)]);
+    w.run("gated", &[]);
+    w.outside_sets("dependencies", "no");
+    w.person_writes("plan");
+    assert_eq!(rest(&w), Rest::Moving { at: id("first") });
+}
