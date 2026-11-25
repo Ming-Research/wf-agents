@@ -2085,20 +2085,6 @@ pub struct Refusal {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Broken(pub String);
 
-impl Items {
-    /// Every item the driver holds, each with its work, as they stand at this time, its rounds at these levels.
-    pub fn of(driver: &Driver, levels: &Levels, now: Time) -> Result<Items, Broken> {
-        let mut items = Vec::new();
-        let every = EveryWork::of(driver);
-        let outage = every.outages.agents.clone();
-        for kept in driver.works() {
-            items.push(Item::of(kept, driver, &every, levels, now)?);
-        }
-        items.sort_by_key(|item| item.number);
-        Ok(Items { items, outage })
-    }
-}
-
 impl Item {
     /// The item of this kept work with its work in brief, as the driver holds them and what holds every work at once
     /// says, its rounds at these levels, at this time; what git says of the work is not in it ([`Summary::saw`]).

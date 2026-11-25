@@ -7,7 +7,7 @@
 //! the room the engine leaves it (the pause of everything, a slot, the turn), the items it waits for, and what holds
 //! every work at once. One more thing changes it with no record: time, for a work with a round or a call under way,
 //! whose time bar counts what is under way to now; such a summary is worked out again once the bound has passed.
-//! [`Items::of`] is what a summary is worked out by, and stays the one reading of it: the cache only decides when to
+//! [`Item::of`] is what a summary is worked out by, and stays the one reading of it: the cache only decides when to
 //! call it again.
 //!
 //! What git says of a work (the lines its work changed) is not worked out in a read. A read gives what the last look
@@ -99,7 +99,7 @@ struct Entry {
     /// Whether a round of the work or a tool run for it was under way as the summary was worked out: only then does
     /// time and the worktree change it with no record.
     under_way: bool,
-    /// The item as [`Items::of`] gives it, with no lines of what git says.
+    /// The item as [`Item::of`] gives it, with no lines of what git says.
     base: Item,
     looked: LastLook,
     /// Whether a look at the work is under way, off the loop.
