@@ -25,12 +25,14 @@
 //! - `output`: what a test said, as a reader wants it.
 //! - `log`: what a job's log says of the step that failed it, which is said of a job that failed with no failed test
 //!   of its own to say why.
+//! - `looks`: the looks at a workflow's runs, which every wait for a run of that workflow shares.
 //! - `fake`: GitHub for the tests, with a bare repository on disk to push to.
 
 mod api;
 mod fast;
 mod gh;
 mod log;
+mod looks;
 mod output;
 mod results;
 mod workflow;
@@ -56,8 +58,9 @@ use crate::held::Stop;
 use crate::settings::{self, Project};
 use fast::Role;
 
-/// How often GitHub is asked how a run of a workflow goes: a run takes from half a minute to some minutes, and is waited
-/// for while an agent or the check before a merge waits, so it is seen done within a few seconds, for a call a time.
+/// How often GitHub is asked how the runs of a workflow go: a run takes from half a minute to some minutes, and is
+/// waited for while an agent or the check before a merge waits, so it is seen done within a few seconds. One look serves
+/// every wait on the workflow, and costs GitHub's limit on requests nothing where nothing changed (the module `looks`).
 pub const FAST_POLL: Duration = Duration::from_secs(5);
 
 /// What GitHub says where it refuses a merge because main moved as it was to merge (`HTTP 405`).
@@ -90,7 +93,7 @@ pub struct Config {
     pub tool: Option<flow::agents::Tool>,
     /// The words of the check before a merge, from its file beside the flows, which say what it ran again.
     pub check: Option<flow::agents::Check>,
-    /// How often GitHub is asked how a run of a workflow goes.
+    /// How often GitHub is asked how the runs of a workflow go, by a look every wait on the workflow shares.
     pub fast_poll: Duration,
     /// The engine's token, which git's pushes and fetches are given in their environment; none where the address
     /// needs none.
@@ -129,6 +132,8 @@ pub struct GitHub<A> {
     api: A,
     project: Project,
     config: Config,
+    /// The last look at the runs of each workflow, which every wait for a run shares.
+    looks: looks::Looks,
 }
 
 /// The variable of a git command's environment that holds the token for its credential helper.
@@ -186,7 +191,12 @@ impl GitHub<Gh> {
 
 impl<A: Api> GitHub<A> {
     pub fn new(api: A, project: Project, config: Config) -> GitHub<A> {
-        GitHub { api, project, config }
+        GitHub {
+            api,
+            project,
+            config,
+            looks: looks::Looks::default(),
+        }
     }
 
     /// What git is given to push and fetch: neither the user's nor the system's configuration, no credential helper of

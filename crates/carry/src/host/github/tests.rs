@@ -6,10 +6,12 @@
 //! - `again`: a check or a call of `run_tests` given again after the engine started again, which finds the runs it
 //!   asked for.
 //! - `red`: a check whose full workflows failed tests alone, which are run again on the commit and on main's head.
+//! - `looks`: what the waits for runs of a workflow cost GitHub's limit on requests.
 
 mod again;
 mod continued;
 mod ends;
+mod looks;
 mod red;
 
 use std::sync::atomic::{AtomicU64, Ordering};

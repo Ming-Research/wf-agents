@@ -644,10 +644,16 @@ impl<A: Api> GitHub<A> {
     /// cancelled where it is listed, so that it does not run later for nothing, and fails in passing: what stops it is
     /// no work's (GitHub, or a runner offline), and asked for again after a wait it may start. A run not complete in the
     /// time it may take is cancelled, and is what it found: its jobs not complete said so, and no test's result known.
+    ///
+    /// The runs are looked at by the look every wait on the workflow shares ([`super::looks`]): the first time by one
+    /// sent now, so that a run the request asked for moments before is found; then by the last one, where it is younger
+    /// than [`Config::fast_poll`](super::Config::fast_poll), and the wait sleeps until that one is that old, so that the
+    /// waits on a workflow look at it together, once each time.
     async fn execute(&self, plan: &Plan<'_>, commit: &str, stop: &mut Stop) -> Result<Option<Ran>, Failed> {
         let workflow = plan.workflow;
         let main = &self.project.main;
-        let Some(asked) = self.runs_of(plan, stop).await? else {
+        let poll = self.config.fast_poll;
+        let Some((asked, _)) = self.runs_of(plan, Duration::ZERO, stop).await? else {
             return Ok(None);
         };
         // A run cancelled judged nothing, and is passed over: the request asks for another.
@@ -659,7 +665,7 @@ impl<A: Api> GitHub<A> {
         }
         let began = tokio::time::Instant::now();
         let run = loop {
-            let Some(runs) = self.runs_of(plan, stop).await? else {
+            let Some((runs, at)) = self.runs_of(plan, poll, stop).await? else {
                 return Ok(None);
             };
             let mine = (runs.into_iter())
@@ -708,7 +714,7 @@ impl<A: Api> GitHub<A> {
                 _ => {}
             }
             tokio::select! {
-                () = tokio::time::sleep(self.config.fast_poll) => {}
+                () = tokio::time::sleep_until(at + poll) => {}
                 () = stop.told() => return Ok(None),
             }
         };
@@ -741,16 +747,23 @@ impl<A: Api> GitHub<A> {
         ends
     }
 
-    /// The runs by hand of the plan's workflow on main whose name holds the plan's value; none where it was told to
-    /// stop.
-    async fn runs_of(&self, plan: &Plan<'_>, stop: &mut Stop) -> Result<Option<Vec<Run>>, Failed> {
-        let runs = tokio::select! {
-            runs = self.api.runs(plan.workflow, &self.project.main) => runs?,
+    /// The runs by hand of the plan's workflow on main whose name holds the plan's value, as the shared look found them
+    /// that was sent less than `within` ago, or else one sent now, and when that look was sent; none where it was told
+    /// to stop.
+    async fn runs_of(
+        &self,
+        plan: &Plan<'_>,
+        within: Duration,
+        stop: &mut Stop,
+    ) -> Result<Option<(Vec<Run>, tokio::time::Instant)>, Failed> {
+        let found = tokio::select! {
+            found = self.looks.runs(&self.api, plan.workflow, &self.project.main, within) => found?,
             () = stop.told() => return Ok(None),
         };
-        Ok(Some(
-            runs.into_iter().filter(|r| r.title.contains(&plan.call)).collect(),
-        ))
+        let mine = (found.runs.into_iter())
+            .filter(|r| r.title.contains(&plan.call))
+            .collect();
+        Ok(Some((mine, found.at)))
     }
 }
 

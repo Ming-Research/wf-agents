@@ -13,7 +13,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use tokio::io::AsyncWriteExt;
 
-use super::api::{Api, Check, File, OPEN_PULLS, Outcome, Pull, Run, State};
+use super::api::{Api, Check, File, Listed, OPEN_PULLS, Outcome, Pull, Run, State};
 use crate::host::Failed;
 
 /// GitHub's REST API, through `gh`, in one repository.
@@ -42,13 +42,14 @@ impl std::fmt::Debug for Gh {
     }
 }
 
-/// What GitHub answered: the status, and the body; and whether its headers say it limits the requests it takes, none
-/// remaining of them or a time given to try again after.
+/// What GitHub answered: the status, and the body; whether its headers say it limits the requests it takes, none
+/// remaining of them or a time given to try again after; and the entity tag they give the answer, where they give one.
 #[derive(Debug, PartialEq, Eq)]
 struct Answer {
     status: u16,
     body: String,
     limited: bool,
+    tag: Option<String>,
 }
 
 impl Gh {
@@ -246,14 +247,32 @@ impl Api for Gh {
             .ok_or_else(|| "GitHub's answer to the merge names no commit".into())
     }
 
-    async fn runs(&self, workflow: &str, branch: &str) -> Result<Vec<Run>, Failed> {
+    async fn runs(&self, workflow: &str, branch: &str, tag: Option<&str>) -> Result<Listed, Failed> {
         let path = format!(
             "repos/{}/actions/workflows/{workflow}/runs?branch={branch}&event=workflow_dispatch&per_page=50",
             self.repository
         );
-        let listed = self.json("GET", &path, None, &[200]).await?;
-        let runs = listed["workflow_runs"].as_array().cloned().unwrap_or_default();
-        Ok(runs.iter().filter_map(run).collect())
+        // GitHub answers 304 to a request that names the entity tag of the answer it would give again, and does not
+        // count it against the limit; `gh` exits with 1 on it, and its status line says what GitHub answered.
+        let condition = tag.map(|tag| format!("If-None-Match: {tag}"));
+        let flags: Vec<&str> = condition.iter().flat_map(|header| ["-H", header.as_str()]).collect();
+        let answer = self.ask_with("GET", &path, None, &flags).await?;
+        match answer.status {
+            200 => {
+                let listed: Value = serde_json::from_str(&answer.body)
+                    .map_err(|e| format!("GitHub's answer to GET {path} is not JSON: {e}"))?;
+                let runs = listed["workflow_runs"].as_array().cloned().unwrap_or_default();
+                Ok(Listed::Runs {
+                    runs: runs.iter().filter_map(run).collect(),
+                    tag: answer.tag,
+                })
+            }
+            304 if tag.is_some() => Ok(Listed::Unchanged),
+            304 => {
+                Err(format!("GitHub answered GET {path} with 304, unchanged, though it was sent no entity tag").into())
+            }
+            _ => Err(refused(&answer)),
+        }
     }
 
     async fn dispatch(&self, workflow: &str, branch: &str, inputs: &[(String, String)]) -> Result<(), Failed> {
@@ -439,14 +458,19 @@ fn included(out: &str) -> Option<Answer> {
     let (head, body) = (out.split_once("\r\n\r\n")).or_else(|| out.split_once("\n\n"))?;
     let mut lines = head.lines();
     let status = lines.next()?.split_whitespace().nth(1)?.parse().ok()?;
-    let limited = lines.filter_map(|line| line.split_once(':')).any(|(name, value)| {
-        let (name, value) = (name.trim().to_ascii_lowercase(), value.trim());
-        name == "retry-after" || (name == "x-ratelimit-remaining" && value == "0")
-    });
+    let headers: Vec<(String, &str)> = (lines.filter_map(|line| line.split_once(':')))
+        .map(|(name, value)| (name.trim().to_ascii_lowercase(), value.trim()))
+        .collect();
+    let limited = (headers.iter())
+        .any(|(name, value)| name == "retry-after" || (name == "x-ratelimit-remaining" && *value == "0"));
+    let tag = (headers.iter())
+        .find(|(name, value)| name == "etag" && !value.is_empty())
+        .map(|(_, value)| value.to_string());
     Some(Answer {
         status,
         body: body.to_string(),
         limited,
+        tag,
     })
 }
 
