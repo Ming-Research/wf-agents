@@ -2,7 +2,7 @@
 //! that gives the cursor it was last given is given only what changed since, what git says of a work is looked at off
 //! the read and told when it ended, and what is kept is what a whole working out gives.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -19,18 +19,40 @@ use store::Store;
 use tower::ServiceExt;
 use web::items_cache::{BOUND_MS, ItemsCache};
 
-use crate::{Running, get_json, greeted, levels, next, pass, post, projects, running_kept, trial_flow, trial_script};
+use crate::{
+    Running, edit, get_json, greeted, levels, next, pass, post, projects, running_kept, trial_flow, trial_script,
+};
 
 /// The CI run a round is said to stand as, where the test has it said.
 const RUN: &str = "https://ci.example/runs/7";
 
-/// The trial's acts, whose repository says each work changed one file and as many lines as the test says, as the
-/// test lets it: a look that waits until it is let end, or fails; and how many looks were asked of it. Where the test
-/// sets `link_after`, each round begun is said to stand as a CI run that many milliseconds after it began, which no
+/// The trial's agents, each round of which is said to stand as a CI run this many milliseconds after it began, which no
 /// record of the work tells.
+struct Linking {
+    agents: Arc<dyn Rounds>,
+    after: u64,
+}
+
+impl Rounds for Linking {
+    fn give(&self, round: Round, reply: RoundReply) {
+        let saying = reply.saying(round.number);
+        let after = self.after;
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(after)).await;
+            saying.say(Some(Along::Runs { at: RUN.to_string() }));
+        });
+        self.agents.give(round, reply);
+    }
+
+    fn stop(&self, round: Round, reply: RoundReply) {
+        self.agents.stop(round, reply);
+    }
+}
+
+/// The trial's acts, whose repository says each work changed one file and as many lines as the test says, as the
+/// test lets it: a look that waits until it is let end, or fails; and how many looks were asked of it.
 struct Looking {
     acts: Arc<dyn Rounds>,
-    link_after: AtomicU64,
     asked: AtomicUsize,
     lines: AtomicU64,
     waits: AtomicBool,
@@ -40,14 +62,6 @@ struct Looking {
 
 impl Rounds for Looking {
     fn give(&self, round: Round, reply: RoundReply) {
-        let after = self.link_after.load(Ordering::SeqCst);
-        if after > 0 {
-            let saying = reply.saying(round.number);
-            tokio::spawn(async move {
-                tokio::time::sleep(Duration::from_millis(after)).await;
-                saying.say(Some(Along::Runs { at: RUN.to_string() }));
-            });
-        }
         self.acts.give(round, reply);
     }
 
@@ -85,6 +99,17 @@ impl Looking {
 /// The trial flow run with this script, its acts' repository as [`Looking`] says it, its items kept this long where
 /// something is under way.
 fn kept(script: service::Script, bound: u64) -> (Running, Arc<ItemsCache>, service::Handle, Arc<Looking>) {
+    kept_on(script, bound, None, &trial_flow())
+}
+
+/// [`kept`] on this flow, with each round of its agents said to run as a CI run this many milliseconds after it began,
+/// where that is given.
+fn kept_on(
+    script: service::Script,
+    bound: u64,
+    link_after: Option<u64>,
+    flow: &flow::Source,
+) -> (Running, Arc<ItemsCache>, service::Handle, Arc<Looking>) {
     // Slots enough that one work's round takes none that another waits for, unless the script sets them.
     let mut script = script;
     script.slots = script.slots.or(Some(8));
@@ -93,7 +118,6 @@ fn kept(script: service::Script, bound: u64) -> (Running, Arc<ItemsCache>, servi
     let mut carriers = Scripted::new(script).carriers();
     let looking = Arc::new(Looking {
         acts: carriers.acts.clone(),
-        link_after: AtomicU64::new(0),
         asked: AtomicUsize::new(0),
         lines: AtomicU64::new(3),
         waits: AtomicBool::new(false),
@@ -101,7 +125,13 @@ fn kept(script: service::Script, bound: u64) -> (Running, Arc<ItemsCache>, servi
         let_end: tokio::sync::Semaphore::new(0),
     });
     carriers.acts = looking.clone();
-    let (running, cache, handle) = running_kept(Box::new(store), dir, carriers, &trial_flow(), levels(), bound);
+    if let Some(after) = link_after {
+        carriers.agents = Arc::new(Linking {
+            agents: carriers.agents.clone(),
+            after,
+        });
+    }
+    let (running, cache, handle) = running_kept(Box::new(store), dir, carriers, flow, levels(), bound);
     (running, cache, handle, looking)
 }
 
@@ -419,9 +449,13 @@ async fn the_items_a_page_holds_are_what_a_working_out_of_every_item_gives_while
 #[tokio::test(start_paused = true)]
 async fn the_items_a_page_holds_are_what_a_working_out_of_every_item_gives_when_a_round_is_said_to_run_as_a_ci_run() {
     let script = trial_script_text().replacen("ms = 1500", "ms = 600000", 1);
-    let (running, _, handle, looking) = kept(service::Script::read(&script).unwrap(), BOUND_MS);
+    let (running, _, handle, _) = kept_on(
+        service::Script::read(&script).unwrap(),
+        BOUND_MS,
+        Some(2000),
+        &trial_flow(),
+    );
     let router = &running.router;
-    looking.link_after.store(2000, Ordering::SeqCst);
     let mut page = Page {
         items: BTreeMap::new(),
         cursor: None,
@@ -489,6 +523,84 @@ async fn the_items_a_page_holds_are_what_a_working_out_of_every_item_gives_when_
     handle.stop(false).await.unwrap();
     page.is_whole(router, &handle, "the engine asked to stop").await;
     assert_eq!(page.items[&2]["work"]["now"]["on"][0]["kind"], "stopping");
+}
+
+// The works of a project take turns at the merge, the one that waited longest first: a work that waits behind two others
+// is told whose turn it is as the turn passes on, though no record of it grew.
+#[tokio::test(start_paused = true)]
+async fn the_items_a_page_holds_are_what_a_working_out_of_every_item_gives_while_works_wait_for_the_turn_of_their_project()
+ {
+    let taking = edit(
+        trial_flow(),
+        Some("merge"),
+        "outputs = [\"merged\"]",
+        "outputs = [\"merged\"]\ntakes_turn = true",
+    );
+    let (running, _, handle, _) = kept_on(trial_script(), BOUND_MS, None, &taking);
+    let router = &running.router;
+    let mut page = Page {
+        items: BTreeMap::new(),
+        cursor: None,
+    };
+    for title in ["First", "Second", "Third"] {
+        assert_eq!(
+            post(router, "/api/v1/items", &item(title, json!([]), "trial")).await.0,
+            StatusCode::OK
+        );
+    }
+    for work in 1..=3 {
+        assert_eq!(
+            post(
+                router,
+                &format!("/api/v1/works/{work}/acts"),
+                &json!({ "kind": "resume" })
+            )
+            .await
+            .0,
+            StatusCode::NO_CONTENT
+        );
+    }
+    pass(6000).await;
+    page.is_whole(router, &handle, "each plan at its limit").await;
+    // Each run at its limit waits for the owner to let it go on, as the call its wait names.
+    for work in 1..=3u64 {
+        let call = page.items[&work]["work"]["waits"][0]["ends"]["call"].as_u64().unwrap();
+        assert_eq!(
+            post(
+                router,
+                &format!("/api/v1/works/{work}/acts"),
+                &json!({ "kind": "goOn", "call": call })
+            )
+            .await
+            .0,
+            StatusCode::NO_CONTENT
+        );
+    }
+    let mut holders: BTreeMap<u64, BTreeSet<u64>> = BTreeMap::new();
+    for step in 0..400 {
+        pass(250).await;
+        page.is_whole(router, &handle, &format!("step {step} to the merges"))
+            .await;
+        for (number, item) in &page.items {
+            for waited in item["work"]["now"]["on"].as_array().into_iter().flatten() {
+                if waited["kind"] == "turn" {
+                    holders
+                        .entry(*number)
+                        .or_default()
+                        .insert(waited["holder"].as_u64().unwrap());
+                }
+            }
+        }
+        if page.items.values().all(|item| item["work"]["now"]["kind"] == "merged") {
+            break;
+        }
+    }
+    let kinds: Vec<&Value> = page.items.values().map(|item| &item["work"]["now"]["kind"]).collect();
+    assert_eq!(kinds, vec!["merged"; 3], "{holders:?}");
+    assert!(
+        holders.values().any(|holders| holders.len() >= 2),
+        "a work was told of a turn that passed on: {holders:?}"
+    );
 }
 
 // A work with a round under way changes with time and its worktree with no record: its summary is worked out again, and
