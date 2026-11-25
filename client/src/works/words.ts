@@ -478,19 +478,25 @@ function whoGives(w: Waited): string | null {
 /// yellow of a call for one that waits for the calls of tools the engine carries out.
 export type Tone = 'running' | 'calling' | 'owner' | 'failed' | 'quiet' | 'done';
 
-/// A call of a tool a work waits for the result of, which the engine carries out: the tool, by its name; the link of
-/// the CI run it runs as, where the engine gives one; and when it was made, none where the engine does not say.
+/// A call of a tool a work waits for the result of, which the engine carries out: the tool, by its name, none for the
+/// act of an engine cell, which no tool makes; the link of the CI run it runs as, where the engine gives one; and when
+/// it was made, none where the engine does not say.
 export interface CallWaited {
-  tool: string;
+  tool: string | null;
   ci: string | null;
   made: number | null;
 }
 
 /// The calls of tools a work waits at its cell for the results of, which the engine carries out, in the order it waits
 /// for them; none where it waits for none. Its cell is then the one the engine marks as carrying out a call
-/// (`calling`).
-export function callsWaited(s: Pick<Summary, 'now'>): CallWaited[] {
+/// (`calling`). The act of an engine cell under way is one such call: the engine carries it out for the run, and marks
+/// its cell so.
+export function callsWaited(s: Pick<Summary, 'now' | 'cells'>): CallWaited[] {
   const now = s.now;
+  if (now.kind === 'round') {
+    const act = s.cells.some((c) => c.cell === now.cell && c.state === 'calling');
+    return act ? [{ tool: null, ci: now.at ?? null, made: now.since }] : [];
+  }
   if (now.kind !== 'waits') return [];
   return now.on.flatMap((w) =>
     engineToolCall(w) ? [{ tool: w.what.name, ci: w.at ?? null, made: w.made ? w.made : null }] : [],
@@ -503,14 +509,15 @@ const engineToolCall = (w: Waited): w is Extract<Waited, { kind: 'call' }> & { w
 
 /// What a work that waits for calls of tools waits for, the word of its state, in pieces: each tool by its name, and
 /// where it runs: in CI, a link to its run, where the engine gives the run's link, else by the engine. `Waiting for
-/// run_tests in CI`.
+/// run_tests in CI`. An act, which no tool makes, is said by where it runs alone: `Waiting for CI`.
 export function callWaitParts(calls: CallWaited[]): Part[] {
   return [
     'Waiting for ',
     ...calls.flatMap((c, i): Part[] => [
       ...(i === 0 ? [] : [' and ']),
-      { name: c.tool },
-      ...(c.ci !== null ? [' in ', { link: 'CI', href: c.ci }] : [' by the engine']),
+      ...(c.tool === null
+        ? [c.ci !== null ? { link: 'CI', href: c.ci } : 'the engine']
+        : [{ name: c.tool }, ...(c.ci !== null ? [' in ', { link: 'CI', href: c.ci }] : [' by the engine'])]),
     ]),
   ];
 }
@@ -538,10 +545,10 @@ export interface WorkState {
 }
 
 /// The state of a work. Whatever the engine's list of what waits on the owner holds waits for you; a fault and a stalled
-/// work are halted; the owner's own pause, and the owner's pause of everything, are a pause; a round under way, an act
-/// of the engine's own among them, is running; the calls of tools the engine carries out for a cell are waited for,
-/// each by its tool and where it runs, in the yellow of a call, and are neither running nor done; anything else waits
-/// for whoever gives it.
+/// work are halted; the owner's own pause, and the owner's pause of everything, are a pause; an agent's round under way
+/// is running; the calls of tools the engine carries out for a cell, and the act of an engine cell under way, which the
+/// engine carries out as it does a call and marks its cell so, are waited for, each by its tool and where it runs, in
+/// the yellow of a call, and are neither running nor done; anything else waits for whoever gives it.
 export function stateOf(s: Pick<Summary, 'now' | 'cells' | 'waits'>): WorkState {
   const now = s.now;
   const at =
@@ -553,8 +560,11 @@ export function stateOf(s: Pick<Summary, 'now' | 'cells' | 'waits'>): WorkState 
   if (waitsOf(s).length > 0) return { tone: 'owner', word: STATE.owner, cell: at };
   switch (now.kind) {
     case 'round':
-    case 'next':
+    case 'next': {
+      const calls = callsWaited(s);
+      if (calls.length > 0) return { tone: 'calling', word: partsText(callWaitParts(calls)), cell: at };
       return { tone: 'running', word: STATE.running, cell: at };
+    }
     case 'waits': {
       const calls = callsWaited(s);
       if (calls.length > 0) return { tone: 'calling', word: partsText(callWaitParts(calls)), cell: at };
