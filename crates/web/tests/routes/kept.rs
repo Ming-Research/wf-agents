@@ -639,7 +639,7 @@ async fn a_work_under_way_is_worked_out_again_after_the_bound_and_not_before() {
     // What its worktree holds changes at any moment: the look after the bound finds more lines.
     looking.lines.store(9, Ordering::SeqCst);
     pass(10_000).await;
-    let after = read(router, Some(&cursor(&first))).await;
+    read(router, Some(&cursor(&first))).await;
     pass(100).await;
     assert_eq!(
         cache.built(),
@@ -647,7 +647,9 @@ async fn a_work_under_way_is_worked_out_again_after_the_bound_and_not_before() {
         "the work under way was worked out again, the other was not"
     );
     assert_eq!(looking.asked(), asked + 1, "and git was asked of it");
-    let found = read(router, Some(&cursor(&after))).await;
+    // Whether the look ended before that read gave its answer or after it, what changed since the first read is the
+    // work under way, with the lines the look found.
+    let found = read(router, Some(&cursor(&first))).await;
     assert_eq!(numbers(&found), vec![1]);
     assert_eq!(found["items"][0]["work"]["changed"]["added"], 9);
 }
@@ -702,14 +704,16 @@ async fn a_read_the_page_gave_up_does_not_leave_a_work_waiting_for_a_look_that_n
             .0,
         StatusCode::OK
     );
-    let given_up = {
-        let router = router.clone();
-        tokio::spawn(async move { read(&router, None).await })
-    };
-    // The request has asked the loop and waits for its answer; it is given up before the loop answers.
-    tokio::task::yield_now().await;
-    given_up.abort();
-    assert!(given_up.await.is_err_and(|e| e.is_cancelled()));
+    // The request is polled once, which asks the loop, and given up before the loop answers: the loop still checks the
+    // items, as it was asked.
+    {
+        let mut request = std::pin::pin!(read(&router, None));
+        std::future::poll_fn(|cx| {
+            assert!(request.as_mut().poll(cx).is_pending(), "the loop has not answered yet");
+            std::task::Poll::Ready(())
+        })
+        .await;
+    }
     let next = tokio::time::timeout(Duration::from_secs(5), read(&router, None))
         .await
         .expect("the next read is given");
@@ -801,20 +805,26 @@ async fn a_look_that_failed_gives_no_lines_and_is_made_again_after_the_bound() {
     let first = read(router, None).await;
     assert_eq!(first["items"][0]["work"]["changed"]["added"], 3);
 
+    looking.waits.store(true, Ordering::SeqCst);
     looking.fails.store(true, Ordering::SeqCst);
     let pause = json!({ "kind": "pause" });
     assert_eq!(
         post(router, "/api/v1/works/1/acts", &pause).await.0,
         StatusCode::NO_CONTENT
     );
-    let held = read(router, Some(&cursor(&first))).await;
+    let held = tokio::time::timeout(Duration::from_secs(1), read(router, Some(&cursor(&first))))
+        .await
+        .expect("the read does not wait for the look");
     assert_eq!(numbers(&held), vec![1]);
     assert_eq!(
         held["items"][0]["work"]["changed"]["added"], 3,
         "while the look runs, the lines as they were"
     );
-    pass(100).await;
+    pass(10).await;
     let asked = looking.asked();
+    looking.waits.store(false, Ordering::SeqCst);
+    looking.let_end.add_permits(1);
+    pass(100).await;
     let failed = read(router, Some(&cursor(&held))).await;
     assert_eq!(numbers(&failed), vec![1]);
     assert_eq!(
