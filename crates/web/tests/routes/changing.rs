@@ -206,10 +206,7 @@ async fn a_change_says_why_and_what_the_engine_refuses_says_why_and_changes_noth
     let depend = |item: u64, on: u64| json!([{ "kind": "dependsOn", "item": item, "on": on }]);
     assert_eq!(
         post(router, CHANGES, &changes("why", depend(1, 2))).await,
-        refused(
-            "The work of #1 has started, and what an item depends on changes only until its work starts: what it \
-             depends on is what its work started on. What turns up for it is a new item, which may depend on it."
-        )
+        refused("#1 cannot depend on #2, which depends on it already: #2 depends on #1.")
     );
     assert_eq!(
         post(router, CHANGES, &changes("why", depend(2, 2))).await,
@@ -251,6 +248,36 @@ async fn a_change_says_why_and_what_the_engine_refuses_says_why_and_changes_noth
         post(router, CHANGES, &changes("why", title(1, "Greet the user by name"))).await,
         (StatusCode::OK, json!({ "changed": [true] }))
     );
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_item_whose_work_has_started_comes_to_depend_on_another_item_and_gives_it_up_again() {
+    let running = running();
+    let router = &running.router;
+    greeted(router).await;
+    post(router, "/api/v1/items", &item("Second", json!([]))).await;
+    let depend = json!([{ "kind": "dependsOn", "item": 1, "on": 2 }]);
+    assert_eq!(
+        post(router, CHANGES, &changes("why", depend)).await,
+        (StatusCode::OK, json!({ "changed": [true] }))
+    );
+    // The work, which has run, says it waits for the item at the cell where it stands, beside what it waited for.
+    let items = get_json(router, "/api/v1/items").await;
+    assert_eq!(items["items"][0]["dependsOn"], json!([2]));
+    let now = &items["items"][0]["work"]["now"];
+    assert_eq!(now["kind"], "waits", "{now}");
+    let waited = now["on"].as_array().expect("what it waits for");
+    assert!(waited.contains(&json!({ "kind": "items", "items": [2] })), "{now}");
+    let leave = json!([{ "kind": "noLongerDependsOn", "item": 1, "on": 2 }]);
+    assert_eq!(
+        post(router, CHANGES, &changes("why", leave)).await,
+        (StatusCode::OK, json!({ "changed": [true] }))
+    );
+    let items = get_json(router, "/api/v1/items").await;
+    assert_eq!(items["items"][0]["dependsOn"], json!([]));
+    let now = &items["items"][0]["work"]["now"];
+    let waited = now["on"].as_array().map_or(&[][..], Vec::as_slice);
+    assert!(!waited.contains(&json!({ "kind": "items", "items": [2] })), "{now}");
 }
 
 #[tokio::test(start_paused = true)]

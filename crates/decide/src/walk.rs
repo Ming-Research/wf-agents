@@ -14,7 +14,10 @@
 //! cell that is skipped holds nothing;
 //! at the first whose preconditions do not hold, or that something new runs and that has reached a limit, the work
 //! waits; the first that something new runs is otherwise entered, whether a cell before it or a cell after it wrote
-//! what is new (decision the-walk-goes-from-the-first-cell); the rest are passed. A work that waits only for what
+//! what is new (decision the-walk-goes-from-the-first-cell); the rest are passed. A precondition that only a source
+//! outside the work can make hold, of a cell a run of which has finished, does not stop the walk at its cell: it
+//! holds back the run the walk comes to after it, and the work waits at that cell, for it and for whatever else holds
+//! that cell (decision dependencies-hold-a-started-work-where-it-would-run). A work that waits only for what
 //! cells write, and in which nothing new runs a cell, nothing is under way and no one is waited for, is stalled: every
 //! cell before where it stands was passed and every one after it is held, so no cell will write what it waits for, and
 //! it goes on only once a person or a source outside the work writes what runs a cell ([`Decision::Stalled`]). One
@@ -287,16 +290,33 @@ pub fn decide_in(flow: &Flow, records: &Records, room: Room) -> Decision {
             };
         }
     }
+    // What only a source outside the work can make hold, of the cells passed, which holds back whatever the walk comes
+    // to after them (decision dependencies-hold-a-started-work-where-it-would-run).
+    let mut held: Vec<Waited> = Vec::new();
     for (i, cell) in cells.iter().enumerate() {
         // A cell that is skipped holds nothing, its questions included: nothing runs it to take the answer.
         if !walk.applies(i) {
             continue;
         }
-        let wait = |on| walk.waiting(i, on);
+        let (gates, outside) = walk.unmet(i);
+        for waited in outside {
+            if !held.contains(&waited) {
+                held.push(waited);
+            }
+        }
+        // Every wait from here on says what holds the cell back and what holds back the work as well.
+        let wait = |mut on: Vec<Waited>| {
+            for waited in &held {
+                if !on.contains(waited) {
+                    on.push(waited.clone());
+                }
+            }
+            walk.waiting(i, on)
+        };
         if let Some(run) = walk.runs.values().find(|r| r.at_rest() && r.started.cell == cell.id) {
             let mut on = walk.open_calls(run);
-            on.extend(walk.unmet(i));
-            if !on.is_empty() {
+            on.extend(gates);
+            if !on.is_empty() || !held.is_empty() {
                 return wait(on);
             }
             return Decision::GoOn {
@@ -309,7 +329,7 @@ pub fn decide_in(flow: &Flow, records: &Records, room: Room) -> Decision {
         let (because, mut on) = walk.entering(i);
         // A precondition that does not hold holds the work at its cell whether or not something new runs the cell: a
         // gate guards what comes after it as much as its own cell.
-        on.extend(walk.unmet(i));
+        on.extend(gates);
         if because.is_empty() {
             if on.is_empty() {
                 continue;
@@ -317,7 +337,7 @@ pub fn decide_in(flow: &Flow, records: &Records, room: Room) -> Decision {
             return wait(on);
         }
         on.extend(walk.at_limit(cell, &because));
-        if !on.is_empty() {
+        if !on.is_empty() || !held.is_empty() {
             return wait(on);
         }
         // A pause holds back the run, unless it is for a note a person wrote or the owner turning to the cell:
@@ -1056,9 +1076,12 @@ impl<'a> Walk<'a> {
 
     /// The preconditions of the cell at this place that do not hold, each with who writes a block that keeps it from
     /// holding; or, where only cells write those blocks and the latest run of each said that what it wrote waits for a
-    /// source outside the work, the wait for that source.
-    fn unmet(&self, i: usize) -> Vec<Waited> {
-        let mut unmet = Vec::new();
+    /// source outside the work, the wait for that source. They are in two lists. The first holds the work at the cell.
+    /// The second holds what only a source outside the work can make hold, of a cell the work has passed, a run of
+    /// which finished: it holds back the run the walk comes to after the cell and does not stop the walk at it.
+    fn unmet(&self, i: usize) -> (Vec<Waited>, Vec<Waited>) {
+        let passed = (self.runs.values()).any(|r| r.started.cell == self.flow.cells()[i].id && r.finished.is_some());
+        let (mut gates, mut held) = (Vec::new(), Vec::new());
         for key in &self.flow.cells()[i].requires {
             let keeping = self.keeping(key, i);
             if keeping.is_empty() {
@@ -1074,15 +1097,24 @@ impl<'a> Walk<'a> {
             match outside {
                 Some(outside) if !outside.is_empty() => {
                     for waited in outside {
-                        if !unmet.contains(&waited) {
-                            unmet.push(waited);
+                        if !gates.contains(&waited) {
+                            gates.push(waited);
                         }
                     }
                 }
-                _ => unmet.push(Waited::Precondition { on: key.clone(), by }),
+                _ if passed && !by.is_empty() && by.iter().all(|maker| matches!(maker, Maker::Outside { .. })) => {
+                    held.push(Waited::Precondition { on: key.clone(), by });
+                }
+                _ => gates.push(Waited::Precondition { on: key.clone(), by }),
             }
         }
-        unmet
+        (gates, held)
+    }
+
+    /// Whether a precondition that only a source outside the work can make hold, of a cell the work has passed at or
+    /// before the place `j`, does not hold: nothing at or after the cell at `j` runs.
+    fn held_up_to(&self, j: usize) -> bool {
+        (0..=j).any(|i| self.applies(i) && !self.unmet(i).1.is_empty())
     }
 
     /// What the cell's latest finished run waits for, where it said that what it wrote, one of these blocks among it,
@@ -1344,7 +1376,8 @@ impl<'a> Walk<'a> {
                 Cause::Changed { block, .. } if self.flow.interrupts(block) => Some(block.clone()),
                 _ => None,
             })?;
-            let held = !self.unmet(j).is_empty()
+            let held = !self.unmet(j).0.is_empty()
+                || self.held_up_to(j)
                 || self.at_limit(cell, &because).is_some()
                 || (paused && !self.for_a_note(j, &because, None));
             // The latest version of the block that the cell did not write itself: what the owner turned to it by.

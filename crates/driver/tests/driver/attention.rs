@@ -6,6 +6,7 @@
 use driver::Asked;
 use driver::attention::{Attention, Heed, Idle, LINES, Line, Mark, Refused, Stuck};
 use rusqlite::{Connection, params};
+use store::ItemChange;
 
 use super::*;
 
@@ -263,6 +264,34 @@ fn a_work_waiting_for_an_item_nobody_lets_on_is_idle_and_again_when_that_item_st
         }]
     );
     assert_eq!(heeds(&since(&h, Some(&again.mark))), vec![]);
+}
+
+#[test]
+fn a_started_work_waiting_where_it_stands_for_an_item_it_came_to_depend_on_is_idle_as_one_not_begun_is() {
+    let mut h = H::new();
+    let (a, wa) = h.add(new_item("a", &[], "short"));
+    let (b, wb) = h.add(new_item("b", &[], "judged"));
+    h.let_on(wb);
+    assert_eq!(h.round(wb).1, "write");
+    assert!(h.change(b, ItemChange::DependsOn(a)).0);
+    // Its round ends as it would, the work waits at the cell it would run, and nobody lets the item on.
+    let kept = h.d().work(wb).expect("the work is there");
+    let came = proper(kept.flow, "write");
+    h.returns(wb, came);
+    assert_eq!(h.decision(wb), waits_for_dependencies("judge"));
+    assert_eq!(
+        heeds(&since(&h, None)),
+        vec![Heed::Idle {
+            work: wb,
+            items: vec![Idle {
+                item: a,
+                why: Stuck::Paused
+            }],
+        }]
+    );
+    // The item goes on, and the work waiting for it is idle no more.
+    h.let_on(wa);
+    assert_eq!(heeds(&since(&h, None)), vec![]);
 }
 
 #[test]

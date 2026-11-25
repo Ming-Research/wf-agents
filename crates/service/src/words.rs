@@ -183,9 +183,9 @@ fn unchangeable_words(item: ItemNumber, why: &Unchangeable) -> String {
         Unchangeable::Ended(End::Cancelled) => format!(
             "{item} is cancelled: an item that has ended takes no change, and is what it ended as; reopen it first"
         ),
-        Unchangeable::Started => format!(
-            "the work of {item} has started, and what an item depends on changes only until its work starts: \
-             what it depends on is what its work started on. What turns up for it is a new item, which may depend on it"
+        Unchangeable::Merging(on) => format!(
+            "the work of {item} is merging, and a merged item depends on nothing that has not ended: {item} cannot \
+             depend on {on}, which has not ended"
         ),
         Unchangeable::Placed => format!(
             "the work of {item} has made its branch, and what an item continues changes only until its work's \
@@ -206,15 +206,15 @@ fn unchangeable_words(item: ItemNumber, why: &Unchangeable) -> String {
             "{} merged depending on {item}, and a merged item depends on nothing that has not ended",
             items(merged)
         ),
-        Unchangeable::StartedDependants(started) => {
-            let (depend, works, they) = match started.len() {
-                1 => ("depends", "its work has", "it has"),
-                _ => ("depend", "their works have", "they have"),
+        Unchangeable::MergingDependants(merging) => {
+            let (depend, works, they) = match merging.len() {
+                1 => ("depends", "its work is", "it merges"),
+                _ => ("depend", "their works are", "they merge"),
             };
             format!(
-                "{} {depend} on {item}, and {works} started: a work goes on from what it depended on as it \
-                 started, so {item} is not reopened while {they} not ended",
-                items(started)
+                "{} {depend} on {item}, and {works} merging: a merged item depends on nothing that has not ended, \
+                 so {item} is not reopened until {they}",
+                items(merging)
             )
         }
         Unchangeable::NotCancelled => format!("{item} is not cancelled: only a cancelled item is reopened"),
@@ -515,8 +515,8 @@ mod tests {
                 &["#7 is cancelled", "reopen it first"],
             ),
             (
-                Unchangeable::Started,
-                &["work of #7 has started", "changes only until its work starts"],
+                Unchangeable::Merging(on),
+                &["work of #7 is merging", "#7 cannot depend on #3", "has not ended"],
             ),
             (
                 Unchangeable::Placed,
@@ -540,16 +540,12 @@ mod tests {
                 &["#4 and #5 merged depending on #7"],
             ),
             (
-                Unchangeable::StartedDependants(n(&[4])),
-                &["#4 depends on #7", "its work has started", "while it has not ended"],
+                Unchangeable::MergingDependants(n(&[4])),
+                &["#4 depends on #7", "its work is merging", "until it merges"],
             ),
             (
-                Unchangeable::StartedDependants(n(&[4, 5])),
-                &[
-                    "#4 and #5 depend on #7",
-                    "their works have started",
-                    "while they have not ended",
-                ],
+                Unchangeable::MergingDependants(n(&[4, 5])),
+                &["#4 and #5 depend on #7", "their works are merging", "until they merge"],
             ),
             (
                 Unchangeable::NotCancelled,

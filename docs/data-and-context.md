@@ -49,7 +49,12 @@ the owner's pauses, when a work is at its end.
 8. When the round ends, the versions of what it says it has dealt with are consumed, and are old to this cell from then
    on; what it did not deal with stays new, and the cell is entered again for it. A round that fails or is given up
    before its end consumes nothing. Data become old in no other way: a datum new to a cell that the flow does not let
-   run yet, its precondition not holding, stays new, and the cell runs once the precondition holds.
+   run yet, its precondition not holding, stays new, and the cell runs once the precondition holds. A precondition that
+   only a source outside the work can make hold, such as the items the work depends on having merged, of a cell a run
+   of which has finished, holds back the run the walk comes to after it, and the work waits at that cell for it as it
+   does for the others; before such a run has finished, it holds the work at its own cell. So a work that has started
+   and comes to depend on an item finishes the round it has under way and waits where it stands, going on from there
+   once the items have merged or were cancelled.
 
 9. What the round hands in becomes new versions of the cell's outputs. They are new to the other cells that watch them,
    and not to the cell that wrote them. A round that hands in nothing new makes nothing new, and no cell runs because
@@ -308,7 +313,7 @@ new session lacks it.
 
     | Cell | Runs where | Watches | Reads | Writes |
     |---|---|---|---|---|
-    | S1 Start | the items it depends on merged or were cancelled | `start` | | `place` |
+    | S1 Start | the items it depends on merged or were cancelled; once it has run, they hold back what runs after it | `start` | | `place` |
     | R0 Understand the problem and the design tree | | `background` | `tree` | `tree_entries` every time |
     | R1 Initial research | no deep research | `background`, `better_found`, `plan_review`, `tree_review`, `plan_doubts` | `tree`, `tree_entries` | `deep_needed` every time; with yes, `found` and nothing else; with no, plan, `tree_entries` where the plan reaches further, answers in its dialogues, questions |
     | R2 Is there a better way | no deep research, and R2 has not handed in | plan, `better_found` | `background`, `tree`, `tree_entries` | a better way in `better_found`, where it finds one |

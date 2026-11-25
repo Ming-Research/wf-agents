@@ -1,10 +1,10 @@
 //! Changing items after they were added, several at once and all or none, each change saying why: an item's title,
-//! level and tags until its work ends, and what it depends on while its work has started no run, each kept as the
-//! item's own record, after which the work's dependencies block says what it now waits for; its cancel, which takes
-//! away no dependency on it, so that what depends on it waits for it no more; and the reopening of a cancelled item,
-//! whose work is paused, and once let on makes its place again, and which what depends on it waits for again. A change
-//! that would close a circle of dependencies, that its work has gone too far for, or that would make a work wait that
-//! has started, is refused and changes nothing, nor do the changes asked with it.
+//! level, tags and what it depends on until its work ends, each kept as the item's own record, after which the work's
+//! dependencies block says what it now waits for; its cancel, which takes away no dependency on it, so that what
+//! depends on it waits for it no more; and the reopening of a cancelled item, whose work is paused, and once let on
+//! makes its place again, and which what depends on it waits for again. A change that would close a circle of
+//! dependencies, that its work has gone too far for, or that would leave a work that merges as its last run finishes
+//! depending on an item that has not ended, is refused and changes nothing, nor do the changes asked with it.
 
 use driver::changes::Refused;
 use driver::{Asked, MERGED, NotMade, Unchangeable, WAITING};
@@ -116,18 +116,16 @@ fn an_item_may_come_to_depend_on_one_added_after_it_but_never_in_a_circle() {
 }
 
 #[test]
-fn a_started_work_keeps_what_it_depends_on_and_takes_another_title_level_and_tags() {
+fn a_started_work_takes_a_dependency_gives_it_up_and_takes_another_title_level_and_tags() {
     let mut h = H::new();
     let (a, wa) = h.add(new_item("a", &[], "short"));
     let (b, _) = h.add(new_item("b", &[], "short"));
     h.let_on(wa);
     h.round(wa);
-    for change in [ItemChange::DependsOn(b), ItemChange::NoLongerDependsOn(b)] {
-        assert_eq!(
-            refused(&mut h, vec![(a, item(change))]),
-            unchangeable(a, Unchangeable::Started)
-        );
-    }
+    assert_eq!(h.change(a, ItemChange::DependsOn(b)), (true, vec![]));
+    assert_eq!(h.dependencies(wa).as_deref(), Some(WAITING));
+    assert_eq!(h.change(a, ItemChange::NoLongerDependsOn(b)), (true, vec![]));
+    assert_eq!(h.dependencies(wa).as_deref(), Some(MERGED));
     assert_eq!(
         h.change(a, ItemChange::Title("what is left of a".into())),
         (true, vec![])
@@ -139,13 +137,40 @@ fn a_started_work_keeps_what_it_depends_on_and_takes_another_title_level_and_tag
     assert_eq!(h.change(a, ItemChange::Level("3".into())), (true, vec![]));
     assert_eq!(h.change(a, ItemChange::Tagged("parser".into())), (true, vec![]));
     assert_eq!(h.change(a, ItemChange::Tagged("parser".into())), (false, vec![]));
-    let item = h.d().work(wa).unwrap().item.clone();
+    let kept = h.d().work(wa).unwrap().item.clone();
     assert_eq!(
-        (item.title.as_str(), item.level.as_deref(), item.tags.as_slice()),
+        (kept.title.as_str(), kept.level.as_deref(), kept.tags.as_slice()),
         ("what is left of a", Some("3"), ["parser".to_string()].as_slice())
     );
-    assert_eq!(item.first.title, "a");
-    assert_eq!(item.changes.len(), 3, "a change that changed nothing was kept");
+    assert_eq!(kept.first.title, "a");
+    assert_eq!(kept.changes.len(), 5, "a change that changed nothing was kept");
+    // A circle is refused for a started work as for any.
+    let (c, _) = h.add(new_item("c", &[a], "short"));
+    assert_eq!(
+        refused(&mut h, vec![(a, item(ItemChange::DependsOn(c)))]),
+        unchangeable(a, Unchangeable::Circle(vec![c, a]))
+    );
+}
+
+#[test]
+fn a_work_whose_merge_is_under_way_takes_no_dependency_on_an_item_that_has_not_ended() {
+    let mut h = H::new();
+    let (a, wa) = h.add(new_item("a", &[], "short"));
+    let (b, _) = h.add(new_item("b", &[], "short"));
+    let (c, wc) = h.add(new_item("c", &[], "short"));
+    h.let_on(wa);
+    h.hands_in(wa, &[("plan", None)]);
+    assert_eq!(h.round(wa).1, "merge");
+    assert_eq!(
+        refused(&mut h, vec![(a, item(ItemChange::DependsOn(b)))]),
+        unchangeable(a, Unchangeable::Merging(b))
+    );
+    // An item that has ended holds nothing, and giving a dependency up is always let through.
+    let (_, todos) = h.changes(vec![(c, Asked::Cancel)]).expect("c is cancelled");
+    h.released(todos);
+    assert_eq!(h.decision(wc), Decision::Ended(End::Cancelled));
+    assert_eq!(h.change(a, ItemChange::DependsOn(c)), (true, vec![]));
+    assert_eq!(h.change(a, ItemChange::NoLongerDependsOn(c)), (true, vec![]));
 }
 
 #[test]
@@ -343,27 +368,57 @@ fn an_item_reopened_is_waited_for_again_by_those_that_depend_on_it_and_have_not_
 }
 
 #[test]
-fn an_item_is_not_reopened_while_a_work_that_depends_on_it_has_started_and_not_ended() {
+fn an_item_is_reopened_under_a_started_work_which_waits_for_it_where_it_stands() {
     let mut h = H::new();
-    let (a, _) = h.add(new_item("a", &[], "short"));
-    let (b, wb) = h.add(new_item("b", &[a], "short"));
+    let (a, wa) = h.add(new_item("a", &[], "short"));
+    let (_, wb) = h.add(new_item("b", &[a], "short"));
     let (_, todos) = h.changes(vec![(a, Asked::Cancel)]).expect("a is cancelled");
     h.released(todos);
-    // b begins past a, cancelled: reopened, a would hold b back midway, or b would merge with a not ended.
+    // b begins past a, cancelled, and a is reopened under it: b waits for a again, once its round has ended.
     let todos = h.let_on(wb);
     assert_eq!(rounds(&todos), [(wb, "draft".to_string(), 1)]);
+    let (changed, todos) = h.changes(vec![(a, Asked::Reopen)]).expect("a is reopened");
+    assert_eq!((changed, todos), (vec![true], vec![]));
+    assert_eq!(h.dependencies(wb).as_deref(), Some(WAITING));
+    let kept = h.d().work(wb).expect("the work is there");
+    let came = proper(kept.flow, "draft");
+    assert_eq!(h.returns(wb, came), vec![]);
+    assert_eq!(h.decision(wb), waits_for_dependencies("merge"));
+    // a goes on and merges: b goes on at its merge, with nothing before it run again.
+    h.let_on(wa);
+    let todos = h.through(wa);
+    assert_eq!(rounds(&todos), [(wb, "merge".to_string(), 1)]);
+    assert_eq!(h.dependencies(wb).as_deref(), Some(MERGED));
+}
+
+#[test]
+fn an_item_is_not_reopened_under_a_work_that_merged_or_whose_merge_is_under_way() {
+    let mut h = H::new();
+    let (a, _) = h.add(new_item("a", &[], "short"));
+    let (_, wb) = h.add(new_item("b", &[a], "short"));
+    let (_, todos) = h.changes(vec![(a, Asked::Cancel)]).expect("a is cancelled");
+    h.released(todos);
+    h.let_on(wb);
     let asked = vec![(a, Asked::Reopen)];
+    // b's merge under way: it merges as the round ends, and would be merged on an item that has not ended.
+    h.hands_in(wb, &[("plan", None)]);
+    assert_eq!(h.round(wb).1, "merge");
     assert_eq!(
         refused(&mut h, asked.clone()),
-        unchangeable(a, Unchangeable::StartedDependants(vec![b]))
+        unchangeable(a, Unchangeable::MergingDependants(vec![b_item(&h, wb)]))
     );
     // Merged, b keeps a cancelled as well.
     h.through(wb);
     assert_eq!(h.decision(wb), Decision::Ended(End::Merged));
     assert_eq!(
         refused(&mut h, asked),
-        unchangeable(a, Unchangeable::MergedDependants(vec![b]))
+        unchangeable(a, Unchangeable::MergedDependants(vec![b_item(&h, wb)]))
     );
+}
+
+/// The number of the work's item.
+fn b_item(h: &H, work: WorkNumber) -> ItemNumber {
+    h.d().work(work).expect("the work is there").item.number
 }
 
 #[test]

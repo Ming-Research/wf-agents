@@ -353,3 +353,72 @@ fn a_cell_at_its_limit_of_ways_round_waits_for_the_owner_and_moves_once_let_go()
     w.let_go("implement");
     assert_eq!(rest(&w), Rest::Moving { at: id("implement") });
 }
+
+/// A work whose first cell waits for the items it depends on, which a source outside the work writes, then a cell that
+/// works, a cell that goes over what it made, and the owner's merge. The items have merged and the first two cells
+/// have run, so that the review is to run.
+fn past_its_start() -> World {
+    let (start, named) = waiting_for("may start", "dependencies", cell("start", &["go"], &[]));
+    let cells = vec![
+        start,
+        cell("work", &["plan"], &["code"]),
+        cell("review", &["code"], &["notes"]),
+        support::gate(),
+    ];
+    let mut w = World::with_tests(cells, BTreeMap::from([named]));
+    w.written_outside("dependencies", "dependencies");
+    w.outside_sets("dependencies", "yes");
+    w.person_writes("go");
+    w.person_writes("plan");
+    w.run("start", &[]);
+    w.run("work", &[("code", Matters)]);
+    w
+}
+
+#[test]
+fn what_only_a_source_outside_the_work_makes_hold_of_a_cell_already_run_holds_back_the_cell_the_work_comes_to() {
+    let mut w = past_its_start();
+    assert_eq!(rest(&w), Rest::Moving { at: id("review") });
+    w.outside_sets("dependencies", "no");
+    assert_eq!(rest(&w), Rest::Waiting { at: id("review") });
+    w.outside_sets("dependencies", "yes");
+    assert_eq!(rest(&w), Rest::Moving { at: id("review") });
+}
+
+#[test]
+fn what_a_source_outside_the_work_holds_back_makes_the_work_wait_though_the_call_owed_is_the_engines_own() {
+    let mut w = past_its_start();
+    w.start("review");
+    w.calls("review", None);
+    assert_eq!(rest(&w), Rest::Moving { at: id("review") });
+    w.outside_sets("dependencies", "no");
+    assert_eq!(rest(&w), Rest::Waiting { at: id("review") });
+}
+
+#[test]
+fn a_work_not_yet_started_waits_at_its_first_cell_for_the_items_whatever_a_later_cell_has_new() {
+    let (start, named) = waiting_for("may start", "dependencies", cell("start", &["go"], &[]));
+    let cells = vec![start, cell("work", &["plan"], &["code"]), support::gate()];
+    let mut w = World::with_tests(cells, BTreeMap::from([named]));
+    w.written_outside("dependencies", "dependencies");
+    w.outside_sets("dependencies", "no");
+    w.person_writes("plan");
+    assert_eq!(rest(&w), Rest::Waiting { at: id("start") });
+    w.person_writes("go");
+    assert_eq!(rest(&w), Rest::Waiting { at: id("start") });
+}
+
+#[test]
+fn a_first_cell_that_has_not_finished_a_run_holds_the_work_at_itself_for_the_items() {
+    let (start, named) = waiting_for("may start", "dependencies", cell("start", &["go"], &[]));
+    let cells = vec![start, cell("work", &["plan"], &["code"]), support::gate()];
+    let mut w = World::with_tests(cells, BTreeMap::from([named]));
+    w.written_outside("dependencies", "dependencies");
+    w.outside_sets("dependencies", "yes");
+    w.person_writes("go");
+    w.person_writes("plan");
+    w.start("start");
+    w.returns("start");
+    w.outside_sets("dependencies", "no");
+    assert_eq!(rest(&w), Rest::Waiting { at: id("start") });
+}

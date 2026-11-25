@@ -21,8 +21,8 @@ and those of its look.
 
 ## The item's window
 
-3. What an item depends on can be changed on the page, while its work has started no run (decision
-   dependencies-until-the-work-starts): the owner needs no command line for it (principle
+3. What an item depends on can be changed on the page, until its work ends (decision
+   an-items-dependencies-change-until-its-work-ends): the owner needs no command line for it (principle
    the-console-is-where-the-owner-works).
 
 4. The owner's words can carry pictures, picked or pasted, sent with the words as one message and shown with them,

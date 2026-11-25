@@ -172,9 +172,10 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// Makes an item depend on another, while its work has started no run: its work then waits for that one to merge as
-    /// well, unless that one is cancelled, when it waits for nothing. Refused where that one depends on it already, by
-    /// way of any items.
+    /// Makes an item depend on another, until its work ends: its work then waits for that one to merge as well, unless
+    /// that one is cancelled, when it waits for nothing. A work that has started finishes the round it has under way
+    /// and waits where it stands. Refused where that one depends on it already, by way of any items, and, for a work
+    /// whose merge is under way, where that one has not ended.
     AddDependency {
         item: u64,
         /// The item it comes to depend on.
@@ -184,7 +185,7 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// Makes an item no longer depend on another, while its work has started no run.
+    /// Makes an item no longer depend on another, until its work ends.
     RemoveDependency {
         item: u64,
         /// The item it no longer depends on.
@@ -213,9 +214,9 @@ enum Command {
         at: At,
     },
     /// Reopens a cancelled item: its work is paused, and goes on from its records once it is let on with `wf-agents
-    /// resume`, making its place again on the branch it kept; the items that depend on it wait for it again. Refused
-    /// while an item whose work has started and was not cancelled, merged or not, depends on it, or while its cancel
-    /// still lets go of what its work held.
+    /// resume`, making its place again on the branch it kept; the items that depend on it wait for it again, a work
+    /// that has started where it stands. Refused while an item that merged, or one whose merge is under way, depends on
+    /// it, or while its cancel still lets go of what its work held.
     Reopen {
         item: u64,
         #[command(flatten)]

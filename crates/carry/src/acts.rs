@@ -546,7 +546,10 @@ impl<H: Host> Inner<H> {
 }
 
 /// Merges the work's branch on the host, holding the repository: the host finds a merge made already, and refuses a
-/// main the commit the check passed does not hold ([`Host::merge`]).
+/// main the commit the check passed does not hold ([`Host::merge`]). Before it gives the merge, it reads the head of
+/// main, which the merge moved, so that the work that merged ends only once the reference that holds main's head has
+/// the merge: a work that waited for it and goes on at once takes main in from that reference. A read that fails fails
+/// the merge, which is found made already when it is tried again.
 pub(crate) async fn merge(
     host: &impl Host,
     branch: &Branch<'_>,
@@ -554,7 +557,13 @@ pub(crate) async fn merge(
     repository: &Mutex<()>,
 ) -> Result<String, NotMerged> {
     let _held = repository.lock().await;
-    host.merge(branch, checked).await
+    let commit = host.merge(branch, checked).await?;
+    host.main().await.map_err(|why| {
+        NotMerged::Failed(Failed::passing(format!(
+            "the head of main could not be read after the merge: {why}"
+        )))
+    })?;
+    Ok(commit)
 }
 
 /// Makes the work's branch, and its worktree, holding the repository: from the head of main the host gives, or, where
@@ -2669,6 +2678,35 @@ mod tests {
             moved,
             "nothing was merged"
         );
+    }
+
+    #[tokio::test]
+    async fn the_merge_reads_main_again_before_it_gives_the_merge() {
+        let repo = Repo::new("true");
+        let host = Fake::new("0a1b2c3d");
+        let place = repo.place(WORK);
+        let merged = merge(&host, &branch(&place), Some("abc"), &Mutex::new(())).await;
+        assert_eq!(merged, Ok("0a1b2c3d".to_string()));
+        assert_eq!(host.asked(), [Asked::Merge(Some("abc".to_string())), Asked::Main]);
+    }
+
+    #[tokio::test]
+    async fn a_merge_whose_main_could_not_be_read_fails_and_gives_the_merge_when_given_again() {
+        let repo = Repo::new("true");
+        let host = Fake::new("0a1b2c3d");
+        host.unreadable(Some("the network is down"));
+        let place = repo.place(WORK);
+        let failed = merge(&host, &branch(&place), Some("abc"), &Mutex::new(()))
+            .await
+            .expect_err("a merge main of which is not read is not given");
+        let NotMerged::Failed(failed) = failed else {
+            panic!("{failed:?}");
+        };
+        assert!(failed.why.contains("the network is down"), "{}", failed.why);
+        assert_eq!(failed.kind, Some(decide::run::Failure::Passing), "it is tried again");
+        host.unreadable(None);
+        let merged = merge(&host, &branch(&place), Some("abc"), &Mutex::new(())).await;
+        assert_eq!(merged, Ok("0a1b2c3d".to_string()));
     }
 
     #[tokio::test]

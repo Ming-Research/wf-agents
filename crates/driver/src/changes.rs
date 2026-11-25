@@ -6,12 +6,14 @@
 //! `store`, [`store::Item`]); a cancel and a reopen are the work's own records.
 //!
 //! Every change but a reopen is refused once the item's work has ended: nothing of the work goes on, and the item is
-//! what it ended as. Its title, level and tags change until then; what it depends on only while its work has started
-//! no run, and what it continues only until its work's branch is made (decision
-//! `dependencies-until-the-work-starts`). A cancel takes away no dependency on the item, and an item may come to
-//! depend on a cancelled one: a dependency on a cancelled item holds as one on a merged item does (decision
-//! `a-cancelled-item-keeps-its-place`). Two relations between items hold whatever is changed: an item that has merged
-//! depends on no item that has not ended, and a reopen makes no work wait that has started and not ended.
+//! what it ended as. Its title, level, tags and what it depends on change until then, and what it continues only
+//! until its work's branch is made; a work that depends on an item that has not ended waits for it where it stands
+//! (decision `an-items-dependencies-change-until-its-work-ends`). A cancel takes away no dependency on the item, and
+//! an item may come to depend on a cancelled one: a dependency on a cancelled item holds as one on a merged item does
+//! (decision `a-cancelled-item-keeps-its-place`). One relation between items holds whatever is changed: an item that
+//! has merged depends on no item that has not ended. A work whose last cell has a run open, which merges as it
+//! finishes, is held to it as if it had merged: it is not made to depend on an item that has not ended, and an item it
+//! depends on is not reopened (decision `a-cancelled-item-is-not-reopened-under-a-merged-item`).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -33,13 +35,14 @@ pub enum Asked {
     Reopen,
 }
 
-/// An item as changes of it are judged: the item, how far its work has gone, and whether its end is letting go of what
-/// it held.
+/// An item as changes of it are judged: the item, whether its work is merging, how it ended, and whether its end is
+/// letting go of what it held.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Planned {
     pub item: Item,
-    /// Whether its work has started a run.
-    pub started: bool,
+    /// Whether its work has a run of the last cell of its flow that is open: neither finished nor abandoned, so that the
+    /// work merges as the run finishes.
+    pub merging: bool,
     /// How its work ended, where it has.
     pub ended: Option<End>,
     /// Whether its work's end is letting go of what it held, which a reopen would leave half done.
@@ -50,34 +53,14 @@ pub struct Planned {
     pub starts: bool,
 }
 
-impl Planned {
-    fn gone(&self) -> Gone {
-        match self.ended {
-            Some(end) => Gone::Ended(end),
-            None if self.started => Gone::Started,
-            None => Gone::NotStarted,
-        }
-    }
-}
-
-/// How far an item's work has gone, as a change of the item is judged.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Gone {
-    /// It has started no run.
-    NotStarted,
-    /// It has started a run, and has not ended.
-    Started,
-    /// It has ended, so.
-    Ended(End),
-}
-
 /// Why a change of an item is refused.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Unchangeable {
     /// Its work has ended so: the item is what it ended as.
     Ended(End),
-    /// Its work has started a run: what the item depends on is what its work started on.
-    Started,
+    /// Its work has a run of its last cell open, and merges as it finishes: it is not to depend on an item that has not
+    /// ended, which would leave a merged item depending on one.
+    Merging(ItemNumber),
     /// Its work has made its branch: what an item continues is what its branch was made from.
     Placed,
     /// It would depend on an item that depends on it already, by this way: from the item it was to depend on,
@@ -91,10 +74,9 @@ pub enum Unchangeable {
     /// It is to be reopened, and these items, which have merged, depend on it: a merged item would depend on one that
     /// has not ended.
     MergedDependants(Vec<ItemNumber>),
-    /// It is to be reopened, and these items, whose works have started a run and have not ended, depend on it: a work
-    /// goes on from what it depended on as it started, and one would come to wait for the item midway, or merge while
-    /// it had not ended.
-    StartedDependants(Vec<ItemNumber>),
+    /// It is to be reopened, and these items, whose works have a run of their last cell open, depend on it: they merge
+    /// as the run finishes, and a merged item would depend on one that has not ended.
+    MergingDependants(Vec<ItemNumber>),
     /// It is to be reopened, and is not cancelled.
     NotCancelled,
     /// It is to be reopened, and its cancel is still letting go of what its work held.
@@ -187,6 +169,20 @@ pub fn starts(flow: &Compiled) -> bool {
     flow.cells.iter().any(|cell| cell.act.as_deref() == Some("start"))
 }
 
+/// Whether the work merges as a run finishes: a run of the last cell of its flow is open, neither finished nor
+/// abandoned.
+pub fn merging(flow: &Compiled, work: &Work) -> bool {
+    let records = &work.records;
+    let Some(last) = flow.cells.last() else {
+        return false;
+    };
+    records.started.iter().any(|started| {
+        started.cell == last.id
+            && !records.finished.iter().any(|f| f.run == started.run)
+            && !records.abandoned.iter().any(|a| a.run == started.run)
+    })
+}
+
 /// Whether the work has made its branch: a run of a cell whose act starts a work has handed in its return. A run that
 /// failed, or was refused, has not.
 pub fn placed(flow: &Compiled, work: &Work) -> bool {
@@ -207,7 +203,6 @@ fn judge_one(items: &BTreeMap<ItemNumber, Planned>, number: ItemNumber, asked: &
         return Err(Refused::NoSuchItem(number));
     };
     let item = &planned.item;
-    let gone = planned.gone();
     if *asked == Asked::Reopen {
         if planned.ended != Some(End::Cancelled) {
             return refused(Unchangeable::NotCancelled);
@@ -215,9 +210,9 @@ fn judge_one(items: &BTreeMap<ItemNumber, Planned>, number: ItemNumber, asked: &
         if planned.letting_go {
             return refused(Unchangeable::LettingGo);
         }
-        // Reopened, the item holds again those that depend on it: none that merged, or that has started and not ended,
-        // may come to wait for it. One whose work has started no run waits for it again, and so does one that was
-        // cancelled, once it is reopened in its turn: its walk holds it at the cell that waits for its dependencies.
+        // Reopened, the item holds again those that depend on it: none that merged, or that merges as its last cell's run
+        // finishes, may come to wait for it. Every other, one that has started or not, waits for it again, and so does
+        // one that was cancelled, once it is reopened in its turn: its walk holds it until the item has ended.
         let dependants = |what: fn(&Planned) -> bool| -> Vec<ItemNumber> {
             (items.values())
                 .filter(|other| other.item.depends_on.contains(&number) && what(other))
@@ -228,13 +223,13 @@ fn judge_one(items: &BTreeMap<ItemNumber, Planned>, number: ItemNumber, asked: &
         if !merged.is_empty() {
             return refused(Unchangeable::MergedDependants(merged));
         }
-        let started = dependants(|other| other.gone() == Gone::Started);
-        if !started.is_empty() {
-            return refused(Unchangeable::StartedDependants(started));
+        let merging = dependants(|other| other.ended.is_none() && other.merging);
+        if !merging.is_empty() {
+            return refused(Unchangeable::MergingDependants(merging));
         }
         return Ok(true);
     }
-    if let Gone::Ended(end) = gone {
+    if let Some(end) = planned.ended {
         return refused(Unchangeable::Ended(end));
     }
     match asked {
@@ -252,10 +247,12 @@ fn judge_one(items: &BTreeMap<ItemNumber, Planned>, number: ItemNumber, asked: &
             ItemChange::DependsOn(on) | ItemChange::NoLongerDependsOn(on) if !items.contains_key(on) => {
                 Err(Refused::NoSuchItem(*on))
             }
-            ItemChange::DependsOn(_) | ItemChange::NoLongerDependsOn(_) if gone == Gone::Started => {
-                refused(Unchangeable::Started)
-            }
             ItemChange::DependsOn(on) if item.depends_on.contains(on) => Ok(false),
+            // A work that merges as its run finishes takes on no item that has not ended: an item that has ended holds
+            // nothing, as a merged one does.
+            ItemChange::DependsOn(on) if planned.merging && items.get(on).is_some_and(|p| p.ended.is_none()) => {
+                refused(Unchangeable::Merging(*on))
+            }
             ItemChange::DependsOn(on) => {
                 let depends_on = |n: ItemNumber| items.get(&n).map(|p| p.item.depends_on.clone());
                 match way(*on, number, &depends_on) {

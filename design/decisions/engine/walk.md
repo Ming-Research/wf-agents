@@ -12,7 +12,7 @@ Each time something happens to a work, the walk goes through the cells from the 
 - rejected: an agent proposed that the maker answers only once every review of what it made has seen its latest version; the owner rejected it, because the rules have only reads, writes and the runs that reads bring, and a condition made for reviews would be a new mechanism.
 
 ### decision conditions-and-preconditions
-The walk passes a cell whose condition does not hold, and what it wrote still counts until a newer version; a precondition holds the work at its cell, is worked out at each walk and is never stored.
+A cell whose condition does not hold is passed, what it wrote still counting; a precondition holds the work at its cell, unless only a source outside the work makes it hold and the cell has run.
 - rejected: an agent proposed that what a cell wrote no longer counts while the walk passes it; the owner rejected it, because a cell that is not run leaves what it wrote valid, and only a veto, such as his refused approval, voids something.
 
 ### decision meaning-told-by-the-writer
@@ -31,6 +31,10 @@ Each of these has a limit at which the work waits for the owner: a cell's runs i
 A question its cell waits for holds the work at that cell while the cell applies, until its latest version is answered: no later cell runs, and the answer runs the cell again.
 - replaced: A question its cell waits for holding the work whether or not the cell applied was on main; the owner changed it, because a skipped cell does not run to take the answer, so the work stopped at a cell it would not run.
 - replaced: A cell that asked a question it waits for leaving whatever waited for the answer out of what it dealt with, so that it stayed new, was on main; the owner changed it, because the question itself brings the cell back, which is what its stop flag was set for.
+
+### decision dependencies-hold-a-started-work-where-it-would-run
+A precondition only a source outside the work can make hold, of a cell a run of which has finished, holds back the run the walk comes to, and the work waits at that cell; a round under way ends.
+- replaced: A precondition holding the work at its own cell whatever made it hold was on main; the owner changed it, because a started work that comes to wait for items would stand at the first cell, and the page could not show where it is, which a pause already does.
 
 ### decision a-work-no-cell-can-move-is-stalled
 A work that waits only for what cells write, none of which will run, is stalled: it is shown halted with the walk's reason, worked out each time; it waits on no one, and nothing is recorded for it.
