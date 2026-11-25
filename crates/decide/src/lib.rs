@@ -33,7 +33,7 @@ pub use records::{
     Abandoned, Answered, CallId, Called, Cause, Done, Finished, Hurried, LetGo, Outsider, Pause, Pauser, PutIn,
     Questioned, RecordFault, Records, Returned, Round, RunId, Seq, Started, Who, Write, Written, holds_nothing,
 };
-pub use room::{Holder, Room, begun, holds_turn, taking_slot, wants_turn};
+pub use room::{Holder, Room, begun, comes_to_turn, keeps_turn, taking_slot};
 pub use view::{CellView, InputView, OpenRun, VersionView, View, Writer, ruled_versions, versions, view, view_in};
 pub use walk::{
     Abandoning, Decision, End, Judge, Maker, Stalling, Unrun, Waited, applies, decide, decide_in, ended, hold, hold_in,

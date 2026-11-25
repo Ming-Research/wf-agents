@@ -277,8 +277,7 @@ pub struct Cell {
     /// agent's rounds do, and the engine's own acts do not.
     pub slot: bool,
     /// Whether the cell takes the turn of its work's project: the works of a project take turns at the cells that do,
-    /// one work at a time, each from its first round of such a cell while its walk stays at them
-    /// ([`crate::room::holds_turn`]).
+    /// one work at a time, each from a round of such a cell while its walk stays at them ([`crate::room::keeps_turn`]).
     pub turn: bool,
     /// Of each dialogue the cell holds as the maker with a cell that judges or doubts what it makes (design document
     /// `data-and-context`, 36), by the dialogue's block, the blocks the other side watches that the cell writes: an
