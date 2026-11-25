@@ -1,10 +1,12 @@
 # What a look at a CI run costs GitHub's rate limit, measured on 2026-11-04
 
-Item #289. These are numbers measured before #289 changed the engine, and the ones it rests on: #289 made a look at a
-run one request, sent with the ETag of the last answer, every 5 s instead of every 20 s with `gh run list`. Where this
-note says "before #289" it means the engine of that time. Whom it serves: the implementation of #289 and the reviews that
-judge its claim of calls an hour below GitHub's limit. It is kept until the engine's way of looking at a run changes
-again, and then replaced by the numbers of that change.
+Item #289. These are numbers measured before #289 changed the engine of that time, and the ones it rests on: #289 made a
+look at a run one request, sent with the ETag of the last answer, every 5 s instead of every 20 s with `gh run list`.
+Where this note says "before #289" it means the engine of that time. The engine now rests on them too: every wait for a
+run of a workflow shares one look at the workflow's runs, made at most every 5 s and sent with the ETag of the last
+answer (`crates/carry/src/host/github/looks.rs`), the last row of section 5. Whom it serves: whoever changes how the
+engine looks at a run, and the reviews that judge its cost against GitHub's limit. It is kept until the engine's way of
+looking at a run changes again, and then replaced by the numbers of that change.
 
 Each claim says how it is known: (measured) on the data of the day, (read) from source or documentation, (inferred)
 from measurements, not tried. This is exploratory: the comparison and the result that would reject the proposal were
@@ -77,7 +79,7 @@ research's own). An hour of one poller at that rate is 180 looks and 360 request
 
 ## 5. What each way of looking costs an hour
 
-Requests an hour (arithmetic on sections 3 and 4; the last row is inferred for the number of changes a run shows).
+Requests an hour (arithmetic on sections 3 and 4; the last two rows are inferred for the number of changes a run shows).
 
 | Way of looking | One poller | 6 at once | 12 at once (6 slots, `ci` and `ci_before`) | At the load measured (2.5 at once) plus the other 855 an hour |
 |---|---|---|---|---|
@@ -85,13 +87,20 @@ Requests an hour (arithmetic on sections 3 and 4; the last row is inferred for t
 | `gh run list`, every 5 s | 1440 | 8640 | 17280 | 3600 + 855 = 4455 |
 | `gh api` of the runs, every 5 s, 1 request | 720 | 4320 | 8640 | 1800 + 855 = 2655 |
 | `gh api` with `If-None-Match`, every 5 s (what #289 made) | 720 made, charged only when the answer changed | | 8640 made, about 1200 to 2400 charged | 470 charged at most + 855 = 1325 |
+| one look at a workflow's runs, shared by every wait on it, with `If-None-Match`, every 5 s (the engine now) | 720 made | 720 made for each workflow waited on | 720 made for each workflow waited on | at most 720 for each workflow waited on + 855 |
 
-The charged count of the last row is the answers that are `200`: the first look, the appearance of the run, and each
+The charged count of the row of #289 is the answers that are `200`: the first look, the appearance of the run, and each
 change of the run (queued, started, finished, and a change of its `updated_at`), at most 10 for a run of a few jobs
 (inferred: the run object's fields; not counted on a real run). A poller is in at most about 17 runs an hour
 (a `ci` lasts about 216 s, 3600 / 216 = 16.7) or 23 (a `ci_before`, about 160 s, 3600 / 160 = 22.5); 6 of each is 240
-runs, 10 changes each is 2400 charged, 5 each is 1200. If the ETag never matched, the last row would cost what the one
+runs, 10 changes each is 2400 charged, 5 each is 1200. If the ETag never matched, that row would cost what the one
 above it does.
+
+The last row lists the runs of one workflow on main, which every wait on that workflow reads, so a look is made at most
+every 5 s whatever the number of waits, and the waits share its answer: it is charged only where a run of that workflow
+changed since the look before, once for all the waits. Each wait makes one more look when it begins, so that it finds a
+run it asked for moments before. For wf-agents, whose declaration names three workflows, the most an hour is 3 * 720 =
+2160 looks, all of them charged only where the runs change between every two looks (inferred).
 
 ## 6. The wait the change saves
 
@@ -102,6 +111,7 @@ a random moment of a wait of `T` seconds waits `T/2` on the mean: 10 s at 20 s, 
 
 ## 7. What this does not show
 
+- The shared look of the last row of section 5 was not measured on GitHub: its numbers are arithmetic.
 - One half hour of one token's counter, read through a tool that adds its own requests; the second counter is not
   explained, and whether the engine's looks are charged to it as the tool's are, is inferred from both being the same
   process's `gh`.
