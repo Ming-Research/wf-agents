@@ -10,3 +10,4 @@ The engine keeps each item's summary and gives the page, on a cursor, only the i
 ### decision a-work-under-way-is-looked-at-again-after-30-seconds
 A work with a round or a call under way has its time bar and git's look at its worktree made again once 30 seconds old, and the page reads at that rate while it is seen.
 - replaced: Working out the time bar and looking at the worktree again at every read of a work under way was on main; the owner changed it, because 17 works under way made 17 looks of git at 0.05 to 0.13 s at each read (data: `research/items-read-measured.md`).
+- rejected: an agent proposed redoing a work's time bar and git look only when its records change, the page not reading again by itself; the owner rejected it, because a round can go an hour with no record and its bar and lines would stand still and look stuck.

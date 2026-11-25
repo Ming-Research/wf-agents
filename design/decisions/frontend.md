@@ -134,6 +134,7 @@ While the page is open, a browser notification tells the owner of each work that
 ### decision a-hidden-page-reads-only-the-changed-items
 While the page is hidden it reads only the changed items, at each notice, so the browser's notifications still come; it reads the rest, and the items once more, when it is seen again.
 - replaced: Every read of every part made at each notice, whether or not the page was seen, was on main; the owner changed it, because a page nobody looks at should not ask the engine for what no one reads.
+- rejected: the owner proposed that a hidden page read nothing and read once more when seen; the owner rejected it, because no browser notification would then come while the page is hidden, against decision the-browser-tells-the-owner-what-waits.
 
 ### decision the-page-moves-whatever-the-system-asks
 The page's animations play whether or not the system asks for reduced motion.
