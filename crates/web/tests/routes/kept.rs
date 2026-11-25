@@ -50,10 +50,12 @@ impl Rounds for Linking {
 }
 
 /// The trial's acts, whose repository says each work changed one file and as many lines as the test says, as the
-/// test lets it: a look that waits until it is let end, or fails; and how many looks were asked of it.
+/// test lets it: a look that takes this many milliseconds, waits until it is let end, or fails; and how many looks were
+/// asked of it.
 struct Looking {
     acts: Arc<dyn Rounds>,
     asked: AtomicUsize,
+    delay: AtomicU64,
     lines: AtomicU64,
     waits: AtomicBool,
     fails: AtomicBool,
@@ -72,6 +74,7 @@ impl Rounds for Looking {
     fn seen(&self, _: OfWork) -> Pin<Box<dyn Future<Output = Result<Seen, String>> + Send + '_>> {
         Box::pin(async move {
             self.asked.fetch_add(1, Ordering::SeqCst);
+            tokio::time::sleep(Duration::from_millis(self.delay.load(Ordering::SeqCst))).await;
             if self.waits.load(Ordering::SeqCst) {
                 self.let_end.acquire().await.expect("the semaphore is open").forget();
             }
@@ -119,6 +122,7 @@ fn kept_on(
     let looking = Arc::new(Looking {
         acts: carriers.acts.clone(),
         asked: AtomicUsize::new(0),
+        delay: AtomicU64::new(0),
         lines: AtomicU64::new(3),
         waits: AtomicBool::new(false),
         fails: AtomicBool::new(false),
@@ -646,6 +650,71 @@ async fn a_work_under_way_is_worked_out_again_after_the_bound_and_not_before() {
     let found = read(router, Some(&cursor(&after))).await;
     assert_eq!(numbers(&found), vec![1]);
     assert_eq!(found["items"][0]["work"]["changed"]["added"], 9);
+}
+
+// The page reads again as the bound passes, each time after the response it was last given, and a look takes some time:
+// what git said is as old as the read that asked it, so each read starts a look, not every other one.
+#[tokio::test(start_paused = true)]
+async fn a_work_under_way_is_looked_at_again_at_every_read_a_bound_apart_however_long_a_look_takes() {
+    let script = trial_script_text().replacen("ms = 1500", "ms = 600000", 1);
+    let (running, _, _, looking) = kept(service::Script::read(&script).unwrap(), 10_000);
+    let router = &running.router;
+    assert_eq!(
+        post(router, "/api/v1/items", &item("First", json!([]), "trial"))
+            .await
+            .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        post(router, "/api/v1/works/1/acts", &json!({ "kind": "resume" }))
+            .await
+            .0,
+        StatusCode::NO_CONTENT
+    );
+    pass(1000).await;
+    looking.delay.store(400, Ordering::SeqCst);
+    let first = read(router, None).await;
+    assert_eq!(first["items"][0]["work"]["now"]["kind"], "round", "{first}");
+    let mut last = cursor(&first);
+    for time in 1..=3 {
+        let asked = looking.asked();
+        pass(10_000).await;
+        let read = read(router, Some(&last)).await;
+        last = cursor(&read);
+        pass(10).await;
+        assert_eq!(
+            looking.asked(),
+            asked + 1,
+            "the look of the read {time} after the first"
+        );
+    }
+}
+
+// A page that gives up a read after the loop checked the items, and before the looks it started were taken in hand, leaves
+// no work marked as looked at that nothing looks at: the next read is given, with the lines.
+#[tokio::test(start_paused = true)]
+async fn a_read_the_page_gave_up_does_not_leave_a_work_waiting_for_a_look_that_nothing_makes() {
+    let (running, _, _, looking) = kept(trial_script(), BOUND_MS);
+    let router = running.router.clone();
+    assert_eq!(
+        post(&router, "/api/v1/items", &item("First", json!([]), "trial"))
+            .await
+            .0,
+        StatusCode::OK
+    );
+    let given_up = {
+        let router = router.clone();
+        tokio::spawn(async move { read(&router, None).await })
+    };
+    // The request has asked the loop and waits for its answer; it is given up before the loop answers.
+    tokio::task::yield_now().await;
+    given_up.abort();
+    assert!(given_up.await.is_err_and(|e| e.is_cancelled()));
+    let next = tokio::time::timeout(Duration::from_secs(5), read(&router, None))
+        .await
+        .expect("the next read is given");
+    assert_eq!(next["items"][0]["work"]["changed"]["added"], 3);
+    assert_eq!(looking.asked(), 1, "one look was made, whoever asked");
 }
 
 /// The trial flow's script, as its text.

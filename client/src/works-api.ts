@@ -5,7 +5,8 @@
 //
 // The routes:
 // - `GET  /api/v1/backup`: how the copies of the database stand (`Copies`).
-// - `GET  /api/v1/items`: every item with its work in brief (`Items`).
+// - `GET  /api/v1/items[?since=…]`: the items with their works in brief, every one at the first read and then only
+//   those that changed since the `cursor` the last read gave as `since` (`ItemsRead`).
 // - `POST /api/v1/items`: adds an item with its work (`NewItem`), and gives their numbers (`Added`).
 // - `POST /api/v1/items/changes`: changes items, several at once for one reason, all or none (`ItemChanges`), and says
 //   whether each changed its item (`ItemsChanged`).
