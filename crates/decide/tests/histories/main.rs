@@ -23,7 +23,12 @@
 //!   In a third of the histories a cell drawn at random is run by the owner's words to it, a block that interrupts.
 //!   Each cell may be entered again for the results of what it asked for one to three times in a row. In two histories
 //!   of five, drawn apart from the rest, the cells ask the owner questions, and a cell drawn at random is run by the
-//!   owner's answers to its own, a block that interrupts as the owner's words do.
+//!   owner's answers to its own, a block that interrupts as the owner's words do. In a third of the histories of any
+//!   flow without a drawn failing or judge, drawn apart from the rest, a cell before the merge has the precondition that
+//!   the items the work depends on have merged, which the block `dependencies`, written only by the outside, makes
+//!   hold: it says "merged", or "waiting" at first in a quarter of them, and the outside turns it between the two in
+//!   the first steps and at a wait for it, so that a work that has run waits where it stands for what only the outside
+//!   makes hold.
 //! - people, in the first 0 to 39 steps, at a step with a chance of one in six and at every rest: writing the brief,
 //!   which runs the first cell; writing prose into a block cells write; writing the same marked as not mattering;
 //!   setting the choice to yes or no; confirming the choice; the outside writing main, mattering or not; turning "flip"
@@ -145,6 +150,20 @@ const CHECKED_OK: &str = "checked_ok";
 
 /// The block only the outside writes.
 const MAIN: &str = "main";
+
+/// The block that says whether the items the work depends on have merged, which only the outside writes, as the engine
+/// writes it: "merged", or "waiting" while one has not, and the name of the precondition of a cell that reads it.
+const ITEMS: &str = "dependencies";
+pub const ITEMS_MERGED: &str = "the items have merged";
+
+/// The named test of the precondition [`ITEMS_MERGED`]: the items block says "merged".
+fn items_merged() -> Test {
+    Test {
+        kind: TestKind::All,
+        reads: vec![ITEMS.into()],
+        is: Some("merged".to_string()),
+    }
+}
 
 /// The blocks cells may write: prose, opinions for a cell, and the choice.
 const WRITTEN: [&str; 6] = ["b0", "b1", "b2", "op0", "op1", CHOICE];
@@ -324,6 +343,9 @@ struct History {
     asking: Option<Rng>,
     /// The cell the owner's answers to its questions run, in the histories where cells ask.
     answered: Option<CellId>,
+    /// Draws when the items the work depends on merge or stand unmerged again, apart from `rng`, in the histories
+    /// where a cell has the precondition [`ITEMS_MERGED`], so that the histories without it go as they did before.
+    items: Option<Rng>,
     /// The room the engine leaves the work: the owner's pause of everything, whether a slot is free and whether it is
     /// the work's turn.
     room: Room,
@@ -388,6 +410,16 @@ impl History {
             cells[i].runs_on.push(ANSWERED.into());
             cells[i].id.clone()
         });
+        // The items the work depends on, in a third of the histories of any flow, drawn apart from the rest: a cell
+        // before the merge has the precondition that they have merged, which only the outside makes hold, and the
+        // outside turns the block between "merged" and "waiting" while people act, so that a work that has run comes to
+        // wait for items where it stands.
+        let mut watching = Rng::new(seed ^ 0x0001_7E35_0DE9_E11D);
+        let mut items = (shape.is_none() && !drawn.failing && !drawn.judged && watching.chance(33)).then_some(watching);
+        if let Some(items) = &mut items {
+            let i = items.below(cells.len());
+            cells[i].requires.push(ITEMS_MERGED.into());
+        }
         // A check before the merge in three histories of ten, drawn apart from the rest: a cell the brief runs, which
         // writes the choice the merge also waits for, and which only cells write.
         let mut checking = Rng::new(seed ^ 0x0C4E_C4ED_5A1E_0001);
@@ -435,13 +467,23 @@ impl History {
             if check.is_some() {
                 tests.insert(TestName::from(CHECKED_OK), checked_ok);
             }
+            if items.is_some() {
+                tests.insert(TestName::from(ITEMS_MERGED), items_merged());
+            }
             World::with_tests(cells, tests)
         } else if let Some(check) = check.clone() {
             let mut merge = gate();
             merge.requires.push(CHECKED_OK.into());
             cells.push(check);
             cells.push(merge);
-            World::with_tests(cells, [(TestName::from(CHECKED_OK), checked_ok)].into())
+            let mut tests = BTreeMap::from([(TestName::from(CHECKED_OK), checked_ok)]);
+            if items.is_some() {
+                tests.insert(TestName::from(ITEMS_MERGED), items_merged());
+            }
+            World::with_tests(cells, tests)
+        } else if items.is_some() {
+            cells.push(gate());
+            World::with_tests(cells, [(TestName::from(ITEMS_MERGED), items_merged())].into())
         } else {
             World::with_gate(cells)
         };
@@ -451,6 +493,11 @@ impl History {
         w.notes(&[BRIEF]);
         w.turning(SPOKEN);
         w.answering(ANSWERED);
+        if let Some(items) = &mut items {
+            w.written_outside(ITEMS, "dependencies");
+            let first = if items.chance(25) { "waiting" } else { "merged" };
+            w.outside_sets(ITEMS, first);
+        }
         w.person_writes(BRIEF);
         if rng.chance(40) || judged.is_some() {
             w.says(GATE, true);
@@ -475,6 +522,7 @@ impl History {
             turns,
             asking,
             answered,
+            items,
             room: Room::FREE,
             often: drawn.failing,
             backs: BTreeMap::new(),
@@ -514,6 +562,9 @@ impl History {
         }
         if people && self.turns.as_mut().is_some_and(|turns| turns.chance(15)) {
             self.toggle_turn();
+        }
+        if people && self.items.as_mut().is_some_and(|items| items.chance(12)) {
+            self.turn_items();
         }
         let decision = self.decide();
         self.note(format!("decision: {decision:?}"));
@@ -998,6 +1049,17 @@ impl History {
         self.note(format!("the owner {what} everything"));
     }
 
+    /// The outside says that the items the work depends on have merged, or that one has not, turning what it said last.
+    fn turn_items(&mut self) {
+        let value = if self.value(ITEMS).as_deref() == Some("merged") {
+            "waiting"
+        } else {
+            "merged"
+        };
+        self.note(format!("the outside writes {ITEMS} as {value}"));
+        self.w.outside_sets(ITEMS, value);
+    }
+
     fn toggle_turn(&mut self) {
         self.room.turn = !self.room.turn;
         let what = if self.room.turn {
@@ -1288,6 +1350,14 @@ impl History {
                     self.note(format!("the owner writes {VERDICT} as yes"));
                     self.person_writes_now();
                     self.w.person_sets(VERDICT, "yes");
+                    return;
+                }
+                Waited::Precondition {
+                    on: Condition::Test(test),
+                    ..
+                } if test.as_str() == ITEMS_MERGED && self.items.as_mut().is_some_and(|i| i.chance(60)) => {
+                    self.note(format!("the outside writes {ITEMS} as merged"));
+                    self.w.outside_sets(ITEMS, "merged");
                     return;
                 }
                 _ => {}

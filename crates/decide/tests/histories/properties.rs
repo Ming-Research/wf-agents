@@ -44,7 +44,7 @@ use decide::{
     Waited, Write, decide_in, view,
 };
 
-use crate::{Rng, VERDICT};
+use crate::{ITEMS_MERGED, Rng, VERDICT};
 use reading::{Reading, Reason, Rest, Writer};
 
 pub const UNSEEN: &str = "nothing is written over unseen";
@@ -60,6 +60,7 @@ pub const REACHES: &str = "a person's write reaches the cells it runs";
 pub const SETTLED: &str = "the merge rests on what is current and settled";
 pub const REST: &str = "a run at rest goes on only while its cell applies";
 pub const HELD: &str = "a work is held only by a precondition that does not hold";
+pub const HOLDS_BACK: &str = "a precondition only the outside makes hold holds back the cell the walk comes to, once the work has passed its cell";
 pub const MAKERS: &str = "a precondition's wait names only those who write a block keeping it from holding";
 pub const REST_READ: &str = "the decision stands where the records read the work stands, stalled or waiting or moving";
 pub const STALLED_RIGHT: &str = "a stalled work names what it waits for, who writes it and why none of them runs";
@@ -112,8 +113,10 @@ pub const REACHED: &[&str] = &[
     NO_POINT_SENT_BACK,
     RULED_ON,
     STALLED,
+    HELD_BACK,
 ];
 
+pub const HELD_BACK: &str = "a work that has run waits where it stands for what only the outside makes hold";
 pub const PERSON_UNDER_WAY: &str = "a person writes while a round is under way";
 pub const PERSON_AT_REST: &str = "a person writes while a run is at rest";
 pub const PERSON_AND_CELL: &str = "a block both a person and a cell write";
@@ -632,6 +635,7 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
                     } => {
                         held(v, flow, reading, i, test);
                         made_by(v, flow, reading, at, test, by);
+                        holds_back(v, flow, reading, i, test);
                     }
                     Waited::Precondition { on, .. } => {
                         if reading.key_holds(flow, on, i) {
@@ -651,6 +655,7 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
             let i = flow.place(cell).expect("a cell of the flow");
             first_entered(v, flow, reading, i);
             way_back_first(v, flow, reading, i);
+            begins_held(v, flow, reading, i);
         }
         Decision::GoOn { run, .. } => {
             v.count(GOING_ON);
@@ -664,6 +669,7 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
             }
             if let Some(i) = i {
                 first_entered(v, flow, reading, i);
+                begins_held(v, flow, reading, i);
             }
         }
         Decision::Abandon { run, because, .. } => abandoned(v, flow, reading, *run, because),
@@ -810,7 +816,9 @@ pub fn question_holds(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decis
 
 /// Property entered-only-for-what-is-new, the order: where the walk enters a cell, goes on with its run or waits at it,
 /// no cell before it that applies has a run of its own at rest, anything to be entered for, calls it waits for, or a
-/// precondition that does not hold, by the histories' own reading, whoever wrote what is new to it.
+/// precondition that does not hold, by the histories' own reading, whoever wrote what is new to it. A precondition only
+/// the outside makes hold, of a cell that has finished a run, holds back the cell the walk comes to and not the cells it
+/// passes (decision dependencies-hold-a-started-work-where-it-would-run).
 fn first_entered(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize) {
     let now = Seq(u64::MAX);
     let cells = flow.cells();
@@ -821,7 +829,8 @@ fn first_entered(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize) {
         let at_rest = at_rest(reading, &cell.id);
         let entering = reading.entering(flow, cell, now);
         let owed_open = reading.owed(&cell.id, now).iter().any(|c| !reading.done(*c, now));
-        let unmet = cell.requires.iter().any(|key| !reading.key_holds(flow, key, j));
+        let unmet =
+            (cell.requires.iter()).any(|key| !reading.key_holds(flow, key, j) && !held_back(reading, &cell.id, key));
         if at_rest || !entering.is_empty() || owed_open || unmet {
             v.fail(
                 FIRST,
@@ -852,6 +861,59 @@ fn way_back_first(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize) {
     };
     if ((i + 1)..cells.len()).any(|k| reading.applies(flow, k) && own(k)) {
         v.count(WAY_BACK_FIRST);
+    }
+}
+
+/// Whether the key is a precondition that only the outside makes hold, of a cell that has finished a run, by the
+/// histories' own reading: the histories' one such precondition is [`ITEMS_MERGED`], on a block only the outside writes.
+fn held_back(reading: &Reading, cell: &decide::CellId, key: &Condition) -> bool {
+    matches!(key, Condition::Test(test) if test.as_str() == ITEMS_MERGED)
+        && (reading.records.started.iter()).any(|s| &s.cell == cell && reading.finished.contains_key(&s.run))
+}
+
+/// A further property, of the work held back for what only the outside makes hold (decision
+/// dependencies-hold-a-started-work-where-it-would-run): where the work waits at a cell on [`ITEMS_MERGED`], the
+/// precondition is of that cell or of a cell before it that has finished a run, never of a cell after it.
+fn holds_back(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize, test: &decide::TestName) {
+    if test.as_str() != ITEMS_MERGED {
+        return;
+    }
+    let key = Condition::Test(test.clone());
+    let Some(owner) = flow.cells().iter().position(|c| c.requires.contains(&key)) else {
+        v.fail(HOLDS_BACK, format!("the work waits on {test}, which no cell requires"));
+        return;
+    };
+    if owner > i || (owner < i && !held_back(reading, &flow.cells()[owner].id, &key)) {
+        v.fail(
+            HOLDS_BACK,
+            format!(
+                "the work waits at {} on {test}, which {} requires, a cell with no finished run or after it",
+                flow.cells()[i].id,
+                flow.cells()[owner].id
+            ),
+        );
+    } else if owner < i {
+        v.count(HELD_BACK);
+    }
+}
+
+/// A round begins at the cell at place `i`, whether as a run or as a run going on, while no precondition that only the
+/// outside makes hold, of that cell or of a cell before it that has finished a run, does not hold, by the histories' own
+/// reading: the work is held back there and begins nothing.
+fn begins_held(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize) {
+    for (j, cell) in flow.cells()[..=i].iter().enumerate() {
+        if let Some(key) =
+            (cell.requires.iter()).find(|key| held_back(reading, &cell.id, key) && !reading.key_holds(flow, key, j))
+        {
+            v.fail(
+                HOLDS_BACK,
+                format!(
+                    "a round begins at {}, though {key:?}, which only the outside makes hold, does not hold for {}",
+                    flow.cells()[i].id,
+                    cell.id
+                ),
+            );
+        }
     }
 }
 
