@@ -132,7 +132,7 @@ While the page is open, a browser notification tells the owner of each work that
 - rejected: an agent proposed a notification of the operating system, sent by the engine, as well as the browser's; the owner rejected it, because the browser's notifications are enough.
 
 ### decision a-hidden-page-reads-only-the-changed-items
-While the page is hidden it reads only the items that changed, at each notice, so that the browser's notifications of what waits still come; it reads the rest, and the items once more, when it is seen again.
+While the page is hidden it reads only the changed items, at each notice, so the browser's notifications still come; it reads the rest, and the items once more, when it is seen again.
 - replaced: Every read of every part made at each notice, whether or not the page was seen, was on main; the owner changed it, because a page nobody looks at should not ask the engine for what no one reads.
 
 ### decision the-page-moves-whatever-the-system-asks
