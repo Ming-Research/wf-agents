@@ -81,7 +81,7 @@ impl Inputs {
 
 /// What the last look at a work's repository came to.
 #[derive(Clone, Debug)]
-enum Looked {
+enum LastLook {
     /// No look has ended.
     Never,
     /// The last look could not be made, when it ended.
@@ -101,7 +101,7 @@ struct Entry {
     under_way: bool,
     /// The item as [`Items::of`] gives it, with no lines of what git says.
     base: Item,
-    looked: Looked,
+    looked: LastLook,
     /// Whether a look at the work is under way, off the loop.
     looking: bool,
     /// The item as the pages are given it, written out.
@@ -209,7 +209,7 @@ impl ItemsCache {
                 self.built.fetch_add(1, Ordering::Relaxed);
                 let (looked, looking, rev, old) = match inner.entries.remove(&item) {
                     Some(entry) => (entry.looked, entry.looking, entry.rev, Some(entry.json)),
-                    None => (Looked::Never, false, 0, None),
+                    None => (LastLook::Never, false, 0, None),
                 };
                 let mut entry = Entry {
                     work: number,
@@ -234,19 +234,20 @@ impl ItemsCache {
                 continue;
             };
             let old = match &entry.looked {
-                Looked::Never => true,
-                Looked::Failed { at } => now.0.saturating_sub(at.0) >= self.bound,
-                Looked::Looked { moments: seen, at, .. } => {
+                LastLook::Never => true,
+                LastLook::Failed { at } => now.0.saturating_sub(at.0) >= self.bound,
+                LastLook::Looked { moments: seen, at, .. } => {
                     *seen != moments || (entry.under_way && now.0.saturating_sub(at.0) >= self.bound)
                 }
             };
-            if old && !entry.looking {
-                if let Some(of) = asked(driver, &entry.base.work) {
-                    entry.looking = true;
-                    checked.starts.push(Start { item, moments, of });
-                }
+            if old
+                && !entry.looking
+                && let Some(of) = asked(driver, &entry.base.work)
+            {
+                entry.looking = true;
+                checked.starts.push(Start { item, moments, of });
             }
-            if matches!(entry.looked, Looked::Never) {
+            if matches!(entry.looked, LastLook::Never) {
                 checked.never.push(item);
             }
         }
@@ -283,10 +284,10 @@ impl ItemsCache {
             };
             entry.looking = false;
             entry.looked = match said {
-                Ok(seen) => Looked::Looked { moments, at, seen },
+                Ok(seen) => LastLook::Looked { moments, at, seen },
                 Err(why) => {
                     eprintln!("what git says of {work} could not be worked out: {why}");
-                    Looked::Failed { at }
+                    LastLook::Failed { at }
                 }
             };
             let changed = match written(&entry) {
@@ -323,7 +324,7 @@ impl ItemsCache {
                     inner
                         .entries
                         .get(item)
-                        .is_some_and(|entry| matches!(entry.looked, Looked::Never))
+                        .is_some_and(|entry| matches!(entry.looked, LastLook::Never))
                 })
             };
             if !waiting {
@@ -394,7 +395,7 @@ impl ItemsCache {
 /// The item as the pages are given it: as it was worked out, with the lines the last look found where it ended well.
 fn shown(entry: &Entry) -> Item {
     let mut item = entry.base.clone();
-    if let Looked::Looked { seen, .. } = &entry.looked {
+    if let LastLook::Looked { seen, .. } = &entry.looked {
         item.work.saw(seen.clone());
     }
     item
