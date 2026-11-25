@@ -137,13 +137,13 @@ fn a_started_work_takes_a_dependency_gives_it_up_and_takes_another_title_level_a
     assert_eq!(h.change(a, ItemChange::Level("3".into())), (true, vec![]));
     assert_eq!(h.change(a, ItemChange::Tagged("parser".into())), (true, vec![]));
     assert_eq!(h.change(a, ItemChange::Tagged("parser".into())), (false, vec![]));
-    let item = h.d().work(wa).unwrap().item.clone();
+    let kept = h.d().work(wa).unwrap().item.clone();
     assert_eq!(
-        (item.title.as_str(), item.level.as_deref(), item.tags.as_slice()),
+        (kept.title.as_str(), kept.level.as_deref(), kept.tags.as_slice()),
         ("what is left of a", Some("3"), ["parser".to_string()].as_slice())
     );
-    assert_eq!(item.first.title, "a");
-    assert_eq!(item.changes.len(), 5, "a change that changed nothing was kept");
+    assert_eq!(kept.first.title, "a");
+    assert_eq!(kept.changes.len(), 5, "a change that changed nothing was kept");
     // A circle is refused for a started work as for any.
     let (c, _) = h.add(new_item("c", &[a], "short"));
     assert_eq!(
