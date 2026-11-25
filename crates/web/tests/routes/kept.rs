@@ -14,17 +14,23 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use decide::run::Failure;
 use serde_json::{Value, json};
-use service::{Diffstat, OfWork, Round, RoundReply, Rounds, Scripted, Seen};
+use service::{Along, Diffstat, OfWork, Round, RoundReply, Rounds, Scripted, Seen};
 use store::Store;
 use tower::ServiceExt;
 use web::items_cache::{BOUND_MS, ItemsCache};
 
 use crate::{Running, get_json, greeted, levels, next, pass, post, projects, running_kept, trial_flow, trial_script};
 
+/// The CI run a round is said to stand as, where the test has it said.
+const RUN: &str = "https://ci.example/runs/7";
+
 /// The trial's acts, whose repository says each work changed one file and as many lines as the test says, as the
-/// test lets it: a look that waits until it is let end, or fails; and how many looks were asked of it.
+/// test lets it: a look that waits until it is let end, or fails; and how many looks were asked of it. Where the test
+/// sets `link_after`, each round begun is said to stand as a CI run that many milliseconds after it began, which no
+/// record of the work tells.
 struct Looking {
     acts: Arc<dyn Rounds>,
+    link_after: AtomicU64,
     asked: AtomicUsize,
     lines: AtomicU64,
     waits: AtomicBool,
@@ -34,6 +40,14 @@ struct Looking {
 
 impl Rounds for Looking {
     fn give(&self, round: Round, reply: RoundReply) {
+        let after = self.link_after.load(Ordering::SeqCst);
+        if after > 0 {
+            let saying = reply.saying(round.number);
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(after)).await;
+                saying.say(Some(Along::Runs { at: RUN.to_string() }));
+            });
+        }
         self.acts.give(round, reply);
     }
 
@@ -71,14 +85,15 @@ impl Looking {
 /// The trial flow run with this script, its acts' repository as [`Looking`] says it, its items kept this long where
 /// something is under way.
 fn kept(script: service::Script, bound: u64) -> (Running, Arc<ItemsCache>, service::Handle, Arc<Looking>) {
-    // Slots enough that one work's round takes none that another waits for.
+    // Slots enough that one work's round takes none that another waits for, unless the script sets them.
     let mut script = script;
-    script.slots = Some(8);
+    script.slots = script.slots.or(Some(8));
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(dir.path().join("store.sqlite")).unwrap();
     let mut carriers = Scripted::new(script).carriers();
     let looking = Arc::new(Looking {
         acts: carriers.acts.clone(),
+        link_after: AtomicU64::new(0),
         asked: AtomicUsize::new(0),
         lines: AtomicU64::new(3),
         waits: AtomicBool::new(false),
@@ -398,6 +413,82 @@ async fn the_items_a_page_holds_are_what_a_working_out_of_every_item_gives_while
     pass(40_000).await;
     page.is_whole(router, &handle, "the wait no longer holds").await;
     assert!(!waits_for_agents(&page, 1));
+}
+
+// A round said to stand as a CI run, after it began: no record of the work tells it, and its summary says where it runs.
+#[tokio::test(start_paused = true)]
+async fn the_items_a_page_holds_are_what_a_working_out_of_every_item_gives_when_a_round_is_said_to_run_as_a_ci_run() {
+    let script = trial_script_text().replacen("ms = 1500", "ms = 600000", 1);
+    let (running, _, handle, looking) = kept(service::Script::read(&script).unwrap(), BOUND_MS);
+    let router = &running.router;
+    looking.link_after.store(2000, Ordering::SeqCst);
+    let mut page = Page {
+        items: BTreeMap::new(),
+        cursor: None,
+    };
+    assert_eq!(
+        post(router, "/api/v1/items", &item("First", json!([]), "trial"))
+            .await
+            .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        post(router, "/api/v1/works/1/acts", &json!({ "kind": "resume" }))
+            .await
+            .0,
+        StatusCode::NO_CONTENT
+    );
+    pass(1000).await;
+    page.is_whole(router, &handle, "a round under way, not said to run as a CI run")
+        .await;
+    assert_eq!(page.items[&1]["work"]["now"]["kind"], "round");
+    assert_eq!(page.items[&1]["work"]["now"]["at"], Value::Null);
+
+    pass(2000).await;
+    page.is_whole(router, &handle, "the round said to run as a CI run")
+        .await;
+    assert_eq!(page.items[&1]["work"]["now"]["at"], RUN);
+}
+
+// What holds every work at once changes what each says it waits for though no record of it grew: the engine is asked to
+// stop while a work waits for a slot.
+#[tokio::test(start_paused = true)]
+async fn the_items_a_page_holds_are_what_a_working_out_of_every_item_gives_when_the_engine_is_asked_to_stop() {
+    let script = trial_script_text().replacen("ms = 1500", "ms = 600000", 1);
+    let mut script = service::Script::read(&script).unwrap();
+    script.slots = Some(1);
+    let (running, _, handle, _) = kept(script, BOUND_MS);
+    let router = &running.router;
+    let mut page = Page {
+        items: BTreeMap::new(),
+        cursor: None,
+    };
+    for title in ["First", "Second"] {
+        assert_eq!(
+            post(router, "/api/v1/items", &item(title, json!([]), "trial")).await.0,
+            StatusCode::OK
+        );
+    }
+    for work in [1, 2] {
+        assert_eq!(
+            post(
+                router,
+                &format!("/api/v1/works/{work}/acts"),
+                &json!({ "kind": "resume" })
+            )
+            .await
+            .0,
+            StatusCode::NO_CONTENT
+        );
+        pass(500).await;
+    }
+    page.is_whole(router, &handle, "a work waiting for the slot the other takes")
+        .await;
+    assert_eq!(page.items[&2]["work"]["now"]["on"][0]["kind"], "slot");
+
+    handle.stop(false).await.unwrap();
+    page.is_whole(router, &handle, "the engine asked to stop").await;
+    assert_eq!(page.items[&2]["work"]["now"]["on"][0]["kind"], "stopping");
 }
 
 // A work with a round under way changes with time and its worktree with no record: its summary is worked out again, and
