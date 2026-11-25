@@ -36,6 +36,7 @@ A flagged round is retried in a new session of its line, but not one under way a
 - replaced: Treating a flagged round as a passing failure and trying it again after a wait was on main; the owner changed it, because a round flagged again and again would then be tried again forever.
 
 ### decision one-goes-first-after-a-wait
-Once a check finds the outside well, or a look reaches the acts' host, one held round goes first, of the work that met the wait first; the rest begin once it comes back or is answered.
+Once a check finds the outside well, or a look reaches the acts' host, one held round goes first, of the work that met the wait first; the rest begin once its service answers it or it comes back.
 - replaced: Letting every held round begin at once was on main; the owner changed it, because while the network came and went, every work failed again at the same time and each failure counted toward its pause.
+- replaced: Holding every other act until the act that went first came back was on main; the owner changed it, because a check whose CI ran for an hour held every act that hour, though the host had answered it in seconds.
 - rejected: an agent proposed slots for the engine's acts, as the agents' rounds have; the owner rejected it, because they would hold the acts back at all times, add a number for the owner to set, and still let as many fail together as there are slots.

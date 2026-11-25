@@ -1,9 +1,11 @@
 //! The turn of a project to check and merge (`decide::Room::turn`): where it is not the work's turn, a cell that takes it
-//! waits for it before it runs and a run at rest of such a cell has no round; and the work holds or wants the turn as
-//! its flow and records say, with nothing kept beside them (`holds_turn`, `wants_turn`).
+//! waits for it before it runs and a run at rest of such a cell has no round; and the walk stands where a hold of the
+//! turn goes on, and comes to a cell that takes it, as the work's flow and records say, with nothing kept beside them
+//! (`keeps_turn`, `comes_to_turn`). Whether a work holds the turn, its walk having kept it at every moment since its
+//! round began, is the driver's to work out over the work's moments.
 
 use decide::run::Hold;
-use decide::{Room, Test, TestKind, decide_in, hold_in, holds_turn, wants_turn};
+use decide::{Room, Test, TestKind, comes_to_turn, decide_in, hold_in, keeps_turn};
 
 use super::*;
 
@@ -34,9 +36,9 @@ fn planned() -> World {
     w
 }
 
-/// Whether the work holds the turn, and whether it wants it.
+/// Whether the walk stands where a hold of the turn goes on, and whether it comes to a cell that takes the turn.
 fn stands(w: &World) -> (bool, bool) {
-    (holds_turn(&w.flow, &w.records), wants_turn(&w.flow, &w.records))
+    (keeps_turn(&w.flow, &w.records), comes_to_turn(&w.flow, &w.records))
 }
 
 #[test]
@@ -103,7 +105,7 @@ fn a_run_at_rest_of_a_cell_that_takes_the_turn_goes_on_but_has_no_round_while_it
 }
 
 #[test]
-fn a_work_holds_the_turn_from_its_first_round_of_a_cell_that_takes_it_and_wants_it_before() {
+fn a_work_keeps_the_turn_from_its_round_of_a_cell_that_takes_it_and_comes_to_the_cell_before() {
     let mut w = checking();
     assert_eq!(stands(&w), (false, false), "its plan is next, which takes no turn");
     w.start("plan");
@@ -115,11 +117,11 @@ fn a_work_holds_the_turn_from_its_first_round_of_a_cell_that_takes_it_and_wants_
 }
 
 #[test]
-fn a_check_that_passed_holds_the_turn_for_its_merge_until_the_merge_has_ended() {
+fn a_check_that_passed_keeps_the_turn_for_its_merge_until_the_merge_has_ended() {
     let mut w = planned();
     w.start("check");
     w.finish("check", &[("verdict", Matters)]);
-    assert_eq!(stands(&w), (true, false), "the merge is next, in the same hold");
+    assert_eq!(stands(&w), (true, true), "the merge is next, in the same hold");
     w.start("land");
     assert_eq!(stands(&w), (true, false));
     w.finish("land", &[("landed", Matters)]);
@@ -136,12 +138,43 @@ fn a_check_again_after_main_moved_and_a_round_tried_again_are_one_hold_with_the_
     assert!(matches!(w.decide(), Decision::Run { cell, .. } if cell.as_str() == "check"));
     assert_eq!(
         stands(&w),
-        (true, false),
-        "the check is to run again, and the work still holds the turn"
+        (true, true),
+        "the check is to run again, and the work still keeps the turn"
     );
     w.start("check");
     w.returns("check");
-    assert_eq!(stands(&w), (true, false), "a run at rest goes on");
+    assert_eq!(stands(&w), (true, true), "a run at rest goes on");
+}
+
+// A round that failed in passing is tried again after a wait the engine makes as a call of the run: the walk stays at
+// the cell through that wait, and the work keeps the turn. Fails where the wait lets go of the turn, so that another
+// work begins its check meanwhile, and this one takes the turn back as its wait ends.
+#[test]
+fn a_round_that_failed_in_passing_keeps_the_turn_while_the_engine_waits_to_try_it_again() {
+    let mut w = planned();
+    w.start("check");
+    let wait = w.calls("check", None);
+    assert!(matches!(w.decide(), Decision::Wait { at, .. } if at.as_str() == "check"));
+    assert_eq!(
+        stands(&w),
+        (true, false),
+        "the engine waits before it tries the round again"
+    );
+    w.done(wait);
+    assert_eq!(stands(&w), (true, true), "the round is to be tried again");
+    w.go_on("check");
+    assert_eq!(stands(&w), (true, false), "the round tried again is under way");
+}
+
+// The owner's word at a limit is no wait of the engine's: the work lets go of the turn while it waits for it, as for an
+// answer.
+#[test]
+fn a_run_that_waits_for_the_owners_word_at_a_limit_lets_go_of_the_turn() {
+    let mut w = planned();
+    w.start("check");
+    w.calls("check", Some(Who::Owner));
+    assert!(matches!(w.decide(), Decision::Wait { at, .. } if at.as_str() == "check"));
+    assert_eq!(stands(&w), (false, false));
 }
 
 #[test]
@@ -149,7 +182,7 @@ fn a_work_lets_go_of_the_turn_as_its_walk_stands_anywhere_else() {
     let mut w = planned();
     w.start("check");
     w.finish("check", &[("verdict", Matters)]);
-    assert_eq!(stands(&w), (true, false));
+    assert_eq!(stands(&w), (true, true));
     // Sent back: the request changed, and its plan is to be made again.
     w.person_writes("request");
     assert!(matches!(w.decide(), Decision::Run { cell, .. } if cell.as_str() == "plan"));
@@ -157,35 +190,35 @@ fn a_work_lets_go_of_the_turn_as_its_walk_stands_anywhere_else() {
 }
 
 #[test]
-fn a_work_that_waits_for_an_answer_at_its_check_neither_holds_the_turn_nor_wants_it() {
+fn a_work_that_waits_for_an_answer_at_its_check_neither_keeps_the_turn_nor_comes_to_it() {
     let mut w = planned();
     w.start("check");
     w.finish("check", &[("verdict", Matters)]);
-    assert_eq!(stands(&w), (true, false));
+    assert_eq!(stands(&w), (true, true));
     w.questions("check", "which", true);
     assert!(matches!(w.decide(), Decision::Wait { .. }), "{:?}", w.decide());
     assert_eq!(stands(&w), (false, false));
 }
 
 #[test]
-fn a_cancelled_work_neither_holds_the_turn_nor_wants_it() {
+fn a_cancelled_work_neither_keeps_the_turn_nor_comes_to_it() {
     let mut w = planned();
     w.start("check");
     w.finish("check", &[("verdict", Matters)]);
-    assert_eq!(stands(&w), (true, false));
+    assert_eq!(stands(&w), (true, true));
     w.cancel();
     assert_eq!(stands(&w), (false, false));
 }
 
 #[test]
-fn a_work_paused_while_its_round_is_under_way_holds_the_turn_until_the_round_ends() {
+fn a_work_paused_while_its_round_is_under_way_keeps_the_turn_until_the_round_ends() {
     let mut w = planned();
     w.start("check");
     w.pause();
     assert_eq!(stands(&w), (true, false), "the round under way runs to its end");
     w.returns("check");
     assert!(!stands(&w).0, "its own pause held it as the round ended");
-    assert!(stands(&w).1, "and it wants the turn from its pause on");
+    assert!(stands(&w).1, "and it comes to the check, which its pause holds back");
 }
 
 #[test]
@@ -195,7 +228,7 @@ fn a_pause_set_and_lifted_while_the_round_ran_does_not_let_go_of_the_turn() {
     w.pause();
     w.resume();
     w.finish("check", &[("verdict", Matters)]);
-    assert_eq!(stands(&w), (true, false));
+    assert_eq!(stands(&w), (true, true));
 }
 
 #[test]
@@ -203,21 +236,21 @@ fn a_pause_after_the_round_ended_lets_go_and_lifting_it_does_not_take_the_turn_b
     let mut w = planned();
     w.start("check");
     w.finish("check", &[("verdict", Matters)]);
-    assert_eq!(stands(&w), (true, false));
+    assert_eq!(stands(&w), (true, true));
     w.pause();
     assert_eq!(stands(&w), (false, true), "its merge is next, held by its own pause");
     w.resume();
     assert_eq!(
         stands(&w),
         (false, true),
-        "it wants the turn until its next round of such a cell begins"
+        "it comes to the merge, and keeps no turn until its next round of such a cell begins"
     );
     w.start("land");
     assert_eq!(stands(&w), (true, false));
 }
 
 #[test]
-fn a_round_that_failed_and_paused_the_work_lets_go_of_the_turn_and_wants_it_again() {
+fn a_round_that_failed_and_paused_the_work_lets_go_of_the_turn_and_comes_to_it_again() {
     let mut w = planned();
     w.start("check");
     w.fails("check", "the agents' program could not run");
@@ -233,7 +266,7 @@ fn a_cell_the_flow_no_longer_has_takes_no_turn() {
     let mut w = planned();
     w.start("check");
     w.finish("check", &[("verdict", Matters)]);
-    assert_eq!(stands(&w), (true, false));
+    assert_eq!(stands(&w), (true, true));
     // The flow installed since has no check: the work that ran it holds nothing of it.
     let mut land = cell("land", &["verdict"], &["landed"]);
     land.turn = true;
@@ -252,7 +285,7 @@ fn held_on() -> Vec<Waited> {
 }
 
 #[test]
-fn a_work_held_back_for_items_wants_no_turn_begins_no_check_and_lets_go_of_the_turn_between_rounds() {
+fn a_work_held_back_for_items_comes_to_no_turn_begins_no_check_and_lets_go_of_the_turn_between_rounds() {
     // The plan waits for the items the work depends on, which the outside says have merged; the check after it takes
     // the turn.
     let merged = Test {
@@ -281,7 +314,7 @@ fn a_work_held_back_for_items_wants_no_turn_begins_no_check_and_lets_go_of_the_t
         "the items have merged, and the check is next"
     );
     // An item it comes to depend on has not merged: it waits where it stands, at the check, begins no round of it in
-    // any room, and wants no turn.
+    // any room, and comes to no turn.
     let held = Decision::Wait {
         at: "check".into(),
         on: held_on(),
@@ -312,11 +345,12 @@ fn a_work_held_back_for_items_wants_no_turn_begins_no_check_and_lets_go_of_the_t
     assert_eq!(
         stands(&w),
         (false, false),
-        "a run at rest that waits for the items holds no turn"
+        "a run at rest that waits for the items keeps no turn"
     );
     assert!(matches!(hold_in(&w.flow, &w.records, check, Room::FREE), Hold::Nothing));
-    // The items merge: the run goes on, and holds the turn again.
+    // The items merge: the run goes on. Its walk stands where a hold would go on and comes to the check, but the work
+    // let go of the turn while it waited, and wants it again until its next round begins.
     w.outside_sets("dependencies", "yes");
     assert_eq!(w.decide(), go_on("check", check));
-    assert_eq!(stands(&w), (true, false));
+    assert_eq!(stands(&w), (true, true));
 }

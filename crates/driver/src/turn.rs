@@ -1,11 +1,15 @@
 //! The turn of a project to check and merge, as the driver reads it from the records of the project's works (decision
 //! `one-work-checks-and-merges-at-a-time`).
 //!
-//! The deciding code says, of one work's records, whether the work holds the turn and whether it wants it
-//! ([`decide::holds_turn`], [`decide::wants_turn`]). The driver alone sees every work, so it alone says whose turn it is
-//! in a project: the work that holds it; or, where none does, the one that has wanted it longest, the lower number
-//! first where two began to want it at one time. A work that its own pause holds is passed over, and keeps the place it
-//! has wanted the turn from.
+//! The deciding code says, of one work's records as they are, whether its walk stands where a hold of the turn goes on
+//! and whether it comes to a cell that takes the turn ([`decide::keeps_turn`], [`decide::comes_to_turn`]). A work holds
+//! the turn from the moment a round of such a cell of it began, for as long as its walk keeps it at every moment after;
+//! once it lets go, it holds the turn again only from its next round of such a cell, which begins only where the turn
+//! is given to it, so that no two works of a project hold the turn at once. A work that comes to such a cell and does
+//! not hold the turn wants it. The driver alone sees every work, so it alone says whose turn it is in a project: the
+//! work that holds it; or, where none does, the one that has wanted it longest, the lower number first where two began
+//! to want it at one time. A work that its own pause holds is passed over, and keeps the place it has wanted the turn
+//! from.
 //!
 //! Nothing here is kept beside the records: how a work stands is worked out again each time the work grows, and each
 //! stretch it held the turn, from the moments at which something happened to it, so that a driver opened on the store
@@ -14,17 +18,18 @@
 
 use std::collections::BTreeSet;
 
-use decide::{Flow, RunId, holds_turn, wants_turn};
+use decide::{Flow, RunId, comes_to_turn, keeps_turn};
 use store::WorkNumber;
 use work::{Time, TurnSpan, Work};
 
 /// How a work stands as to the turn of its project.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Turned {
-    /// Whether the work holds the turn now ([`decide::holds_turn`]).
+    /// Whether the work holds the turn now: the last of `spans` is open.
     pub holds: bool,
-    /// Since when the work has wanted the turn without a break, where it wants it now ([`decide::wants_turn`]) and its
-    /// own pause does not hold it. The time of the moment after which it began to, and has after each later one.
+    /// Since when the work has wanted the turn without a break, where it wants it now and its own pause does not hold
+    /// it: the time of the moment after which it came to a cell that takes the turn ([`decide::comes_to_turn`]) and did
+    /// not hold the turn, and did so after each later one.
     pub wants: Option<Time>,
     /// When the work's latest round of a cell that takes the turn began: of two works that hold the turn, which only
     /// records made before the turn was worked out can give, the one that began first has it.
@@ -32,7 +37,10 @@ pub(crate) struct Turned {
     /// Each stretch the work held the turn, in order, the one it holds now open: from the time of the moment after
     /// which it held the turn to the time of the moment after which it did not.
     pub spans: Vec<TurnSpan>,
-    /// How many of the work's moments `spans` are worked out for.
+    /// Since when the work has wanted the turn without a break as of the last moment worked out, whether or not its own
+    /// pause holds it now.
+    wanted: Option<Time>,
+    /// How many of the work's moments `spans` and `wanted` are worked out for.
     seen: usize,
 }
 
@@ -50,17 +58,17 @@ impl Turned {
             .map(|s| s.run)
             .collect();
         let rounds: Vec<_> = r.rounds.iter().filter(|round| turn_runs.contains(&round.run)).collect();
-        // Nothing before the work's first round of a cell that takes the turn can have it held.
-        let first = rounds.iter().map(|round| round.at).min();
         for k in self.seen..moments.len() {
             let after = moments.get(k + 1).map(|next| next.from);
-            let may = first.is_some_and(|first| after.is_none_or(|after| after > first));
-            let held = may && {
-                let then = after.map(|after| r.before(after));
-                holds_turn(flow, then.as_ref().unwrap_or(r))
-            };
-            let at = moments[k].at;
+            let then = after.map(|after| r.before(after));
+            let then = then.as_ref().unwrap_or(r);
+            // A hold begins with a round of a cell that takes the turn that began in this moment, and goes on from the
+            // moment before while the walk keeps it.
+            let began = (rounds.iter())
+                .any(|round| (k == 0 || round.at >= moments[k].from) && after.is_none_or(|after| round.at < after));
             let open = self.spans.last().is_some_and(|span| span.until.is_none());
+            let held = (open || began) && keeps_turn(flow, then);
+            let at = moments[k].at;
             match (held, open) {
                 (true, false) => self.spans.push(TurnSpan { from: at, until: None }),
                 (false, true) => {
@@ -70,6 +78,8 @@ impl Turned {
                 }
                 _ => {}
             }
+            let wanting = !held && comes_to_turn(flow, then);
+            self.wanted = if wanting { self.wanted.or(Some(at)) } else { None };
         }
         self.seen = moments.len();
         self.began = rounds
@@ -78,32 +88,13 @@ impl Turned {
             .max()
             .and_then(|at| work.time_of(at));
         self.holds = going && self.spans.last().is_some_and(|span| span.until.is_none());
-        self.wants = going.then(|| since_wanted(flow, work)).flatten();
+        self.wants = (going && !decide::paused(r)).then_some(self.wanted).flatten();
     }
 
     /// Says the work holds and wants nothing, as a work that no flow decides now does.
     pub fn clear(&mut self) {
         *self = Turned::default();
     }
-}
-
-/// Since when the work has wanted the turn without a break, where it wants it now and its own pause does not hold it:
-/// the time of the earliest moment after which it wanted it, and after every later one. Worked out by deciding back over
-/// the moments from the newest, stopping at the first after which it did not.
-fn since_wanted(flow: &Flow, work: &Work) -> Option<Time> {
-    let r = &work.records;
-    if decide::paused(r) || !wants_turn(flow, r) {
-        return None;
-    }
-    let moments = &work.moments;
-    let mut since = moments.last().map(|moment| moment.at);
-    for k in (0..moments.len().saturating_sub(1)).rev() {
-        if !wants_turn(flow, &r.before(moments[k + 1].from)) {
-            break;
-        }
-        since = Some(moments[k].at);
-    }
-    since
 }
 
 /// Whose turn it is to check and merge in a project, from how its works stand: the work that holds it, the one that

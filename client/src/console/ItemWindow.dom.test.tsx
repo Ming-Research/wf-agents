@@ -672,10 +672,12 @@ describe("the work's state line, one part for every state", () => {
     expect(marks.map((m) => m.style.background)).toEqual(['var(--yellow)']);
   });
 
-  it("says an engine cell's act under way as running", () => {
+  it("says an engine cell's act under way as waiting for it where it runs, as a call", () => {
     const link = 'https://github.example/actions/runs/250';
     const el = at({ kind: 'round', cell: 'check', run: 9, round: 1, since, at: link }, cellsAt('check', 'calling'));
-    expect(lines(el)[1]).toContain('Running check Check with the latest main');
+    expect(lines(el)[1]).toContain('Waiting for CI');
+    expect(lines(el)[1]).toContain('check Check with the latest main');
+    expect(lines(el)[1]).not.toContain('Running');
     expect(noKeys(el)).toBe(true);
   });
 

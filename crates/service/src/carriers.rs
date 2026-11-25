@@ -1158,8 +1158,9 @@ impl Teller {
         let _ = self.to.send(Message::Usage { account, said });
     }
 
-    /// The service of the agents answered the round with a message that is no error: it serves the round, which a wait
-    /// every work shares for it may be over by.
+    /// The service the round reaches answered it: the agents' service, with a message that is no error, or the host,
+    /// at a request of the act that it answered without an error. It serves the round, which a wait every work shares
+    /// for it may be over by.
     pub fn answered(&self) {
         let _ = self.to.send(Message::Answered {
             work: self.work,

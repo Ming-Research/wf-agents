@@ -4,7 +4,8 @@
 //! concluded. An act hands in the cell's outputs with what it did, and only the check writes a choice ([`faults`] says
 //! what a flow needs for them, [`main_faults`] what the watch of main needs, [`word_faults`] what the merge needs of
 //! the check's words); where git or the host fails, or the act cannot be done, the round fails and hands in nothing. A
-//! stopped act ends its round with nothing handed in. An act takes no cost and no tokens.
+//! stopped act ends its round with nothing handed in. An act takes no cost and no tokens. The first of an act's requests
+//! that the host answers without an error tells its round that the host answered it ([`Answering`]).
 //!
 //! What is done in the project's local repository is done the same whatever the host; the host gives the head of
 //! main, the verdict on the work's commit and the merge ([`Host`]).
@@ -32,9 +33,12 @@ use store::{ItemNumber, WorkNumber};
 use tokio::sync::{Mutex, Notify};
 use work::{Handed, Question, Said, Spent, Work};
 
+mod answering;
 #[cfg(test)]
 mod ends;
 mod failing;
+
+use answering::Answering;
 
 use crate::branch::{self, Looking};
 use crate::changed;
@@ -101,7 +105,7 @@ pub struct Acts<H> {
 }
 
 struct Inner<H> {
-    host: H,
+    host: Arc<H>,
     project: Project,
     /// What the acts write, as `agents/acts/` beside the flows says.
     words: Words,
@@ -128,9 +132,9 @@ enum Done {
 }
 
 impl<H: Host> Acts<H> {
-    /// The acts on this host in this project, with this data directory, which is an absolute path, and the
-    /// installation's tag.
-    pub fn new(host: H, project: Project, data: PathBuf, tag: String, words: Words) -> Self {
+    /// The acts on this host, which they may share, in this project, with this data directory, which is an absolute
+    /// path, and the installation's tag.
+    pub fn new(host: Arc<H>, project: Project, data: PathBuf, tag: String, words: Words) -> Self {
         Acts {
             inner: Arc::new(Inner {
                 host,
@@ -335,9 +339,11 @@ impl<H: Host> Inner<H> {
             main: self.host.kept_main(),
         };
         let looking = || Looking::of(&round.flow, &round.kept, read_with.clone(), Some(round.run));
+        // The round is told once the host has answered a request of the act.
+        let host = Answering::new(self.host.clone(), teller.clone());
         match act {
             "start" => {
-                let started = start(project, &self.host, &branch, &self.repository).await?;
+                let started = start(project, &host, &branch, &self.repository).await?;
                 looking().tell(&started.place, teller, false).await;
                 let (reference, worktree) = (started.place.reference(), started.place.dir.display().to_string());
                 let mut parts = vec![
@@ -382,7 +388,7 @@ impl<H: Host> Inner<H> {
                 };
                 let checked = check(
                     project,
-                    &self.host,
+                    &host,
                     &branch,
                     &self.repository,
                     (asking, stop, &reads),
@@ -424,7 +430,7 @@ impl<H: Host> Inner<H> {
                     return Err(Failed::passing(fill(&words.merge.unreviewed, &[("head", &head)])));
                 }
                 let checked = passed(&round.flow, &round.kept, &words.check)?;
-                let merged = merge(&self.host, &branch, checked.as_deref(), &self.repository).await;
+                let merged = merge(&host, &branch, checked.as_deref(), &self.repository).await;
                 // Merged or refused for a moved main, the watch looks at main at once.
                 self.merged.notify_one();
                 let merged = merged_or_failed(merged, &project.main, &words.merge);
@@ -2730,7 +2736,7 @@ mod tests {
         run(&repo.project.repo, &["config", "core.pager", "less"]);
         let main = run(&repo.project.repo, &["rev-parse", "main"]);
         let acts = Acts::new(
-            Fake::new(&main),
+            Arc::new(Fake::new(&main)),
             repo.project.clone(),
             repo.data.clone(),
             "0a1b2c3d".to_string(),
@@ -2751,7 +2757,7 @@ mod tests {
         let repo = Repo::new("true");
         let main = run(&repo.project.repo, &["rev-parse", "main"]);
         let acts = Acts::new(
-            Fake::new(&main),
+            Arc::new(Fake::new(&main)),
             repo.project.clone(),
             repo.data.clone(),
             "0a1b2c3d".to_string(),

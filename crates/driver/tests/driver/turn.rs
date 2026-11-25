@@ -1,10 +1,12 @@
 //! The turn of a project to check and merge, as the driver gives it to the works: of the works of a project due at a
 //! cell that takes the turn only one begins, the one whose walk came to want it first (the lower number where at the
-//! same moment), and it keeps the turn through the cells that take it until its walk stands elsewhere or its own pause
-//! lets it go; the others wait, a paused one passed over and keeping its place; and the turn is the same after a
-//! restart, being worked out from the works' records alone.
+//! same moment), and it keeps the turn through the cells that take it, the waits the engine makes for its run among
+//! them, until its walk stands elsewhere or its own pause lets it go; a work that let go takes the turn back only once
+//! it is given to it again; the others wait, a paused one passed over and keeping its place; and the turn is the same
+//! after a restart, being worked out from the works' records alone.
 
 use decide::Holder;
+use decide::run::Failure;
 use flow::{Compiled, Has, Source, compile};
 
 use super::*;
@@ -135,6 +137,18 @@ fn finishes(h: &mut H, work: WorkNumber, block: &str) -> Vec<(WorkNumber, String
     begun(&h.hands_in(work, &[(block, None)]))
 }
 
+/// The one call the engine made among what is to be done.
+fn call_made(todos: &[Todo]) -> CallId {
+    let calls: Vec<CallId> = (todos.iter())
+        .filter_map(|todo| match &todo.effect {
+            Effect::Call { call, .. } => Some(*call),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(calls.len(), 1, "one call is made: {todos:?}");
+    calls[0]
+}
+
 /// The work's own pause, by the owner.
 fn pauses(h: &mut H, work: WorkNumber) {
     h.on(
@@ -184,6 +198,58 @@ fn the_driver_says_whose_turn_a_waiting_work_waits_for_and_since_when_it_has_wan
     assert_eq!(h.d().turn_waited_at(a, &at_once), None);
     assert_eq!(h.d().turn_waited_at(b, &at_once), None);
     assert_eq!(h.d().turn_waited_at(c, &at_once), Some((b, wanted)));
+}
+
+// A check that fails in passing is tried again after a wait, which the engine makes as a call of the check's run: the
+// work keeps the turn through that wait, so that the other work does not begin its check, and the check tried again is
+// in the same hold. Fails where the wait lets go of the turn: the other work begins its check, and the first takes the
+// turn back as its wait ends, both checking at once.
+#[test]
+fn a_check_that_failed_in_passing_keeps_the_turn_while_it_waits_to_be_tried_again() {
+    let (mut h, works, _) = due(2);
+    let (a, b) = (works[0], works[1]);
+    let wanted = Time(h.clock);
+    let todos = super::outage::fails(&mut h, a, Failure::Passing, None);
+    let wait = call_made(&todos);
+    assert_eq!(begun(&todos), [], "the other work does not begin its check");
+    assert_eq!(h.d().held(b), Some(Holder::Turn));
+    assert_eq!(begun(&h.answer(a, wait)), [(a, "check".to_string(), 2)]);
+    assert_eq!(h.d().held(b), Some(Holder::Turn));
+    let at_once = h.d().at_once();
+    assert_eq!(h.d().turn_waited_at(b, &at_once), Some((a, wanted)));
+    finishes(&mut h, a, "verdict");
+    assert_eq!(finishes(&mut h, a, "merged"), [(b, "check".to_string(), 1)]);
+}
+
+// A work that let go of the turn holds it again only from its next round of a cell that takes it, which begins once the
+// turn is given to it: its walk coming back to such a cell does not take the turn back. Here the check's run waits for
+// the owner's word at its limit of returns, which lets go of the turn, and the other work begins its check; the word
+// comes while that check is under way. Fails where the first takes the turn back as the word comes: two works hold the
+// turn, the driver gives it to the first as the one whose round began first, which then begins no round, nothing
+// looking at a work that holds the turn; and once the other's round ends, the driver says of it neither whose turn it
+// waits for nor since when, which the page cannot show.
+#[test]
+fn a_work_that_let_go_of_the_turn_waits_for_it_once_its_walk_comes_back_to_the_check() {
+    let (mut h, works, _) = due(2);
+    let (a, b) = (works[0], works[1]);
+    let word = h.at_limit(a);
+    assert_eq!(
+        h.round(b).1,
+        "check",
+        "the other work began its check once the first let go"
+    );
+    assert_eq!(begun(&h.answer(a, word)), [], "the first waits for the turn");
+    let came_back = Time(h.clock);
+    assert_eq!(h.d().held(a), Some(Holder::Turn));
+    let at_once = h.d().at_once();
+    assert_eq!(at_once.turn_of(Some(PROJECT)), Some(b));
+    assert_eq!(h.d().turn_waited_at(a, &at_once), Some((b, came_back)));
+    // The other keeps the turn through its merge, and the first checks once the other has merged.
+    assert_eq!(finishes(&mut h, b, "verdict"), [(b, "land".to_string(), 1)]);
+    let after: Vec<(WorkNumber, String)> = (finishes(&mut h, b, "merged").into_iter())
+        .map(|(work, cell, _)| (work, cell))
+        .collect();
+    assert_eq!(after, [(a, "check".to_string())]);
 }
 
 #[test]

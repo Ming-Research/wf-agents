@@ -51,11 +51,11 @@
 //! plans orders what runs.
 //!
 //! The works of a project take turns to check and merge, one at a time ([`turn`]). Whose turn it is in a project is
-//! worked out from the records of its works: the work that holds the turn, which it does from its first round of a cell
-//! that takes it while its walk stays at such cells; else the work that has wanted it longest, the lower number first
-//! where two began to want it at one time. A work whose turn it is not waits for it in its walk, as for a slot; the work
-//! whose turn it is, where it wants it and does not hold it, is looked at each time something was kept, as the free
-//! slots are given, so that it begins its round the moment the work before it lets go.
+//! worked out from the records of its works: the work that holds the turn, which it does from a round of a cell that
+//! takes it while its walk stays at such cells; else the work that has wanted it longest, the lower number first where
+//! two began to want it at one time. A work whose turn it is not waits for it in its walk, as for a slot; the work
+//! whose turn it is, where it has no round under way, is looked at each time something was kept, as the free slots are
+//! given, so that it begins its round the moment the work before it lets go.
 //!
 //! What happens to one work also reaches every other where a round of an agent failed for a cause outside every work,
 //! such as the account's usage limit: no agent's round of any work begins while that wait stands ([`outage`]). It is
@@ -301,8 +301,9 @@ pub struct Driver {
     /// When the driver was last told the time it asked for: a wake at or before it has been acted on. Lost in a stop,
     /// when a wake whose time has come is acted on again.
     ticked: Option<Time>,
-    /// Each round, of a work and run by its number, that the agents' service answered while it was under way. What
-    /// the outside says at a moment, kept only in memory: lost in a stop, the round is given again and answers again.
+    /// Each round, of a work and run by its number, that the service it reaches answered while it was under way: the
+    /// agents' service an agent's round, the host an act. What the outside says at a moment, kept only in memory: lost
+    /// in a stop, the round is given again and answers again.
     answered: BTreeSet<(WorkNumber, decide::RunId, usize)>,
     /// The keep-warm pings given and not yet said to have ended, by work and line ([`warm`]): while one of a line is,
     /// no round of that line of the work begins. Lost in a stop, when a ping still due is given again.
@@ -1857,9 +1858,10 @@ impl Driver {
         .collect()
     }
 
-    /// Takes, at the time the caller's clock gives, that the agents' service answered the round under way of the run:
-    /// where the round began after the latest that failed for a cause outside every work, the wait is over, and every
-    /// work is looked at again; what is to be done is given. A round no longer under way is passed over.
+    /// Takes, at the time the caller's clock gives, that the service the round under way of the run reaches answered
+    /// it: the agents' service an agent's round, the host an act. Where the round began after the latest that failed
+    /// for a cause outside every work, that service's wait is over, and every work is looked at again; what is to be
+    /// done is given. A round no longer under way is passed over.
     pub fn answered(&mut self, now: Time, work: WorkNumber, run: decide::RunId) -> Result<Vec<Todo>, Fault> {
         if let Some(fault) = &self.fault {
             return Err(fault.clone());
@@ -1873,9 +1875,9 @@ impl Driver {
         if began == 0 || ended >= began {
             return Ok(Vec::new());
         }
-        let outage = self.agents_wait();
+        let waits = self.outages();
         self.answered.insert((work, run, began));
-        if self.agents_wait() == outage {
+        if self.outages() == waits {
             return Ok(Vec::new());
         }
         match self.look(now) {
@@ -2386,14 +2388,19 @@ impl Driver {
             .collect()
     }
 
-    /// Whose turn it is to check and merge, where the work waits for it, and since when the work has wanted it: none
-    /// where it waits for no turn, or it is the work's own.
+    /// Whose turn it is to check and merge, where the work waits for it, and since when the work has stood at the cells
+    /// that take it without the turn: since it wanted it, or, of a work that holds it where another that holds it too
+    /// began first, as records kept before one work alone could hold it can say, since its hold began. None where it
+    /// waits for no turn, or it is the work's own.
     pub fn turn_waited_at(&self, work: WorkNumber, at_once: &AtOnce) -> Option<(WorkNumber, Time)> {
         let held = self.works.get(&work)?;
         let whose = at_once
             .turn_of(held.item.project.as_deref())
             .filter(|whose| *whose != work)?;
-        Some((whose, held.turned.wants?))
+        let holding = (held.turned.spans.last())
+            .filter(|span| held.turned.holds && span.until.is_none())
+            .map(|span| span.from);
+        Some((whose, held.turned.wants.or(holding)?))
     }
 
     /// The items a pause waits for, as the pause keeps them, in the order of their numbers, each once: where it is made
@@ -2569,9 +2576,10 @@ impl Driver {
         Ok(todos)
     }
 
-    /// Looks at each work whose turn it is to check and merge in its project, that wants it and does not hold it yet,
-    /// in the room the engine leaves it, which begins its round if nothing else holds it back. Each is looked at once,
-    /// so that one that begins no round does not keep another from being looked at.
+    /// Looks at each work whose turn it is to check and merge in its project, that has no round under way, in the room
+    /// the engine leaves it, which begins its round if nothing else holds it back: one that wants the turn, and one that
+    /// holds it where another that held it too began first. Each is looked at once, so that one that begins no round
+    /// does not keep another from being looked at.
     fn give_turns(&mut self, now: Time) -> Result<Vec<Todo>, Halt<Fault>> {
         let mut todos = Vec::new();
         let mut looked = BTreeSet::new();
@@ -2579,7 +2587,8 @@ impl Driver {
             let next = (self.turns().into_values())
                 .filter(|number| !looked.contains(number))
                 .find(|number| {
-                    (self.works.get(number)).is_some_and(|held| held.turned.wants.is_some() && !held.turned.holds)
+                    (self.works.get(number))
+                        .is_some_and(|held| held.work.records.rounds.len() == held.work.records.returned.len())
                 });
             let Some(number) = next else {
                 break;

@@ -2574,8 +2574,9 @@ impl Now {
         };
         // The turn to check and merge, whose it is, and since when the work has wanted it.
         let turned = || -> Result<Waited, Broken> {
-            let (holder, since) =
-                turn.ok_or_else(|| Broken("the work waits for a turn that is its own".to_string()))?;
+            let (holder, since) = turn.ok_or_else(|| {
+                Broken("the driver says neither whose turn the work waits for nor since when".to_string())
+            })?;
             Ok(Waited::Turn {
                 holder: holder.0,
                 since: since.0,

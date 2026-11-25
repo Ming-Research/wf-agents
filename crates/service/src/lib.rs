@@ -200,7 +200,8 @@ pub enum Message {
     },
     /// A look under the account of this name heard this.
     Looked { account: String, heard: Heard },
-    /// The service of the agents answered the round under way of this run, with a message that is no error.
+    /// The service the round under way of this run reaches answered it: the agents' service an agent's round, with a
+    /// message that is no error, or the host an act, at a request of it that the host answered without an error.
     Answered { work: WorkNumber, run: RunId },
     /// What carries out a round or a call of this work says where it stands now, or that it no longer says so.
     Along {

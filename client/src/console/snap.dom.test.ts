@@ -70,10 +70,13 @@ describe("a card's mood", () => {
     const at: CellNow[] = [{ ...cells[0], cell: 'M2' }];
     expect(stateOf({ now: tool, cells: at, waits: [] }).tone).toBe('calling');
     expect(moodOf({ now: tool, cells: at, waits: [] })).toBe('calling');
-    // An act of the engine's own under way is a round, and its card runs.
+    // The act of an engine cell under way, its cell marked as calling, is waited for as a call, and its card waits in
+    // that yellow; an agent's round, its cell marked as running, runs.
     const act: Now = { kind: 'round', cell: 'M2', run: 2, round: 1, since: 0 };
-    expect(stateOf({ now: act, cells: at, waits: [] }).tone).toBe('running');
-    expect(moodOf({ now: act, cells: at, waits: [] })).toBe('running');
+    expect(stateOf({ now: act, cells: at, waits: [] }).tone).toBe('calling');
+    expect(moodOf({ now: act, cells: at, waits: [] })).toBe('calling');
+    const agent: CellNow[] = [{ ...at[0], state: 'running' }];
+    expect(moodOf({ now: act, cells: agent, waits: [] })).toBe('running');
   });
 });
 
