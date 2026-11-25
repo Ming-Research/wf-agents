@@ -1,12 +1,13 @@
 //! GitHub for the tests of the GitHub host: a bare repository on disk that the host pushes to and fetches from, and
 //! in memory the pull requests, the jobs and results each commit's runs by hand are given, the logs of the jobs, the
-//! merges and the closings. It keeps what it was asked.
+//! merges and the closings. It keeps what it was asked, and each look at the runs of a workflow with whether GitHub
+//! would count it against its limit on requests: an answer of the runs counts, one that they are unchanged does not.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use super::api::{Api, Check, File, Pull, Run, State};
+use super::api::{Api, Check, File, Listed, Pull, Run, State};
 use crate::host::Failed;
 
 /// GitHub, as far as the host reaches it.
@@ -46,6 +47,15 @@ struct Kept {
     /// The log of each job given one, by the job's id; GitHub has no log of any other.
     logs: BTreeMap<u64, String>,
     asked: Vec<Asked>,
+    /// The looks at the runs of a workflow, in order.
+    looked: Vec<Looked>,
+}
+
+/// A look at the runs of a workflow: whether it was answered with the runs, which GitHub counts against its limit on
+/// requests, or as unchanged since the answer whose entity tag it sent, which it does not.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Looked {
+    pub(crate) counted: bool,
 }
 
 /// What a run by hand gives: its jobs, and the artifact it uploads, with its name, where it uploads one.
@@ -285,6 +295,11 @@ impl Fake {
         self.kept().asked.clone()
     }
 
+    /// The looks at the runs of a workflow, in order.
+    pub(crate) fn looked(&self) -> Vec<Looked> {
+        self.kept().looked.clone()
+    }
+
     /// The commit the branch is at in the bare repository, where it is there.
     fn head(&self, branch: &str) -> Option<String> {
         let output = std::process::Command::new("git")
@@ -469,12 +484,22 @@ impl Api for Fake {
             .map_err(|why| answered(&format!("git did not run: {why}")))
     }
 
-    async fn runs(&self, workflow: &str, branch: &str) -> Result<Vec<Run>, Failed> {
-        let kept = self.kept();
-        Ok((kept.runs.iter().rev())
+    async fn runs(&self, workflow: &str, branch: &str, tag: Option<&str>) -> Result<Listed, Failed> {
+        let mut kept = self.kept();
+        let runs: Vec<Run> = (kept.runs.iter().rev())
             .filter(|d| d.workflow == workflow && d.branch == branch)
             .map(|d| d.run.clone())
-            .collect())
+            .collect();
+        // As GitHub's, the entity tag is the same for the same answer, and differs for any other.
+        let mut hasher = std::hash::DefaultHasher::new();
+        std::hash::Hash::hash(&format!("{runs:?}"), &mut hasher);
+        let now = format!("W/\"{:016x}\"", std::hash::Hasher::finish(&hasher));
+        let counted = tag != Some(now.as_str());
+        kept.looked.push(Looked { counted });
+        Ok(match counted {
+            true => Listed::Runs { runs, tag: Some(now) },
+            false => Listed::Unchanged,
+        })
     }
 
     async fn dispatch(&self, workflow: &str, branch: &str, inputs: &[(String, String)]) -> Result<(), Failed> {

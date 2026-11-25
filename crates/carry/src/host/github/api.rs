@@ -92,6 +92,16 @@ pub struct Run {
     pub url: String,
 }
 
+/// What GitHub answered to a look at the runs of a workflow.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Listed {
+    /// The runs, and the entity tag GitHub gave this answer, which a later look sends back; none where it gave none.
+    Runs { runs: Vec<Run>, tag: Option<String> },
+    /// The runs are as the answer whose entity tag the look sent gave them: GitHub answered 304, which costs nothing
+    /// against its limit on requests.
+    Unchanged,
+}
+
 /// A file a run uploaded: its path in the artifact, with `/` between its parts, and its bytes.
 pub type File = (String, Vec<u8>);
 
@@ -131,8 +141,14 @@ pub trait Api: Send + Sync + 'static {
     /// Deletes the branch of the repository; a branch that is not there is no fault.
     fn delete(&self, branch: &str) -> impl Future<Output = Result<(), Failed>> + Send;
 
-    /// The latest runs by hand of the workflow asked for on the branch.
-    fn runs(&self, workflow: &str, branch: &str) -> impl Future<Output = Result<Vec<Run>, Failed>> + Send;
+    /// The latest runs by hand of the workflow asked for on the branch. Given the entity tag of an earlier answer, it is
+    /// [`Listed::Unchanged`] where they are as that answer gave them; given none, it is never that.
+    fn runs(
+        &self,
+        workflow: &str,
+        branch: &str,
+        tag: Option<&str>,
+    ) -> impl Future<Output = Result<Listed, Failed>> + Send;
 
     /// Runs the workflow by hand on the branch, with these inputs.
     fn dispatch(

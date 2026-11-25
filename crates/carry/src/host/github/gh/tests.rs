@@ -552,3 +552,99 @@ async fn as_many_open_pull_requests_as_the_most_are_all_read_and_one_more_is_ref
         refused.why
     );
 }
+
+/// A `gh` in this directory that answers a look at the runs of `fast.yml` as GitHub does, the status line ending in a
+/// line feed and each header in a carriage return and a line feed: with the runs and the entity tag `W/"7"`, or, to a
+/// look that sends that tag, with 304 and no body, exiting with 1 and saying so as `gh` does. Each look's arguments are
+/// written to the file `asked`, one to a line, after a line `--`.
+fn gh_with_runs(dir: &std::path::Path) -> Gh {
+    let runs = json!({ "total_count": 1, "workflow_runs": [{
+        "id": 11, "display_title": "fast 0f3a", "status": "in_progress", "conclusion": null,
+        "html_url": "https://github.com/o/r/actions/runs/11",
+    }] });
+    std::fs::write(dir.join("runs.json"), runs.to_string()).unwrap();
+    let text = r#"#!/bin/sh
+echo '--' >> '{dir}/asked'
+printf '%s\n' "$@" >> '{dir}/asked'
+case "$*" in
+*'If-None-Match: W/"7"'*)
+  printf 'HTTP/2.0 304 Not Modified\nEtag: "7"\r\nX-Ratelimit-Used: 7\r\n\r\n'
+  echo 'gh: HTTP 304' >&2
+  exit 1 ;;
+*) printf 'HTTP/2.0 200 OK\nContent-Type: application/json; charset=utf-8\r\nEtag: W/"7"\r\nX-Ratelimit-Used: 7\r\n\r\n'
+  cat '{dir}/runs.json' ;;
+esac
+"#
+    .replace("{dir}", &dir.display().to_string());
+    let script = dir.join("gh");
+    std::fs::write(&script, text).unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    Gh::new(&script.display().to_string(), "o/r", "the-token", dir)
+}
+
+/// What each look the `gh` of [`gh_with_runs`] was given asked, as its arguments.
+fn looks_asked(dir: &std::path::Path) -> Vec<Vec<String>> {
+    let asked = std::fs::read_to_string(dir.join("asked")).unwrap_or_default();
+    (asked.split("--\n").skip(1))
+        .map(|look| look.lines().map(str::to_string).collect())
+        .collect()
+}
+
+// A look at a workflow's runs sends the entity tag of the answer it is given, and GitHub's 304 to it, on which `gh`
+// exits with 1, is read as the runs unchanged, which costs nothing against GitHub's limit; a look with no tag, or with
+// the tag of another answer, is given the runs and their tag. A script stands in for `gh`, as GitHub answered on
+// 2026-11-04 (`research/ci-poll-cost.md`); it runs in milliseconds, and no other test holds what is sent to GitHub.
+#[tokio::test]
+async fn a_look_at_the_runs_sends_the_tag_it_is_given_and_reads_githubs_304_as_unchanged() {
+    let dir = tempfile::tempdir().unwrap();
+    let gh = gh_with_runs(dir.path());
+    let listed = gh.runs("fast.yml", "main", None).await.expect("the runs");
+    let run = Run {
+        id: 11,
+        title: "fast 0f3a".to_string(),
+        started: true,
+        completed: false,
+        cancelled: false,
+        url: "https://github.com/o/r/actions/runs/11".to_string(),
+    };
+    let tagged = Listed::Runs {
+        runs: vec![run],
+        tag: Some("W/\"7\"".to_string()),
+    };
+    assert_eq!(listed, tagged);
+    let unchanged = gh.runs("fast.yml", "main", Some("W/\"7\"")).await.expect("an answer");
+    assert_eq!(unchanged, Listed::Unchanged);
+    let older = gh.runs("fast.yml", "main", Some("W/\"6\"")).await.expect("the runs");
+    assert_eq!(older, tagged, "the tag of another answer is given the runs");
+    let path = "repos/o/r/actions/workflows/fast.yml/runs?branch=main&event=workflow_dispatch&per_page=50";
+    let asked = looks_asked(dir.path());
+    assert_eq!(asked.len(), 3);
+    assert!(asked.iter().all(|look| look.iter().any(|a| a == path)), "{asked:?}");
+    assert!(
+        !asked[0].iter().any(|a| a.starts_with("If-None-Match")),
+        "a look given no tag sends none: {:?}",
+        asked[0]
+    );
+    let sent = |look: &[String]| {
+        let at = look.iter().position(|a| a.starts_with("If-None-Match"))?;
+        (look[at - 1] == "-H").then(|| look[at].clone())
+    };
+    assert_eq!(sent(&asked[1]).as_deref(), Some("If-None-Match: W/\"7\""));
+    assert_eq!(sent(&asked[2]).as_deref(), Some("If-None-Match: W/\"6\""));
+}
+
+// A 304 is what GitHub answers to a look that sent a tag: to one that sent none it says nothing of the runs, and is no
+// answer the engine can read, rather than an empty list.
+#[tokio::test]
+async fn a_304_to_a_look_that_sent_no_tag_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let script = dir.path().join("gh");
+    let text = "#!/bin/sh\nprintf 'HTTP/2.0 304 Not Modified\\nEtag: \"7\"\\r\\n\\r\\n'\nexit 1\n";
+    std::fs::write(&script, text).unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let gh = Gh::new(&script.display().to_string(), "o/r", "the-token", dir.path());
+    let refused = gh.runs("fast.yml", "main", None).await.expect_err("no runs");
+    assert!(refused.why.contains("though it was sent no entity tag"), "{refused}");
+}
