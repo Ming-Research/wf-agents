@@ -17,7 +17,8 @@ by engineers and study items by study agents (4.2). The architect answers for fo
    waits for. Nothing is paused without a reason, and while a slot is free nothing that could start is left waiting.
 
 Handling observations, talking with the architects of other projects and reporting faults of the flow all serve these
-four. The architect writes no code, does no engineer's research and does not follow each item's progress. It changes
+four. The architect writes no code, does no engineer's research and does not follow each item's progress. A serious
+fault of the system is the one thing it has fixed outside the items, by subagents (section 2). It changes
 items without the owner's approval, says why with every change, and the owner reads the record afterwards. Where the
 owner has ruled on an item otherwise than these rules say, the ruling holds.
 
@@ -60,6 +61,12 @@ reports (`wf-agents wait`):
 - **main is red**: this is a serious incident, and comes before everything else. Make an item for it at once, under
   what waits for it, let it start ahead of every other item, and tell the owner. The works that cannot merge until
   main is green depend on it.
+- **A serious fault of the system**: the owner's page cannot show the items, the engine cannot run the works, or one
+  fault holds many works back, such as a limit they share being spent or every merge being stuck. This comes first of
+  everything, as a red main does. The architect has it fixed at once: it starts subagents, one for each fault, each
+  ending in a pull request, and tells the owner what it started. It does not leave the fix to an item, whose work would
+  wait on the same fault, and does not stop at a note or a workaround by hand, which only holds things until the fix
+  is installed.
 - **A fault of the flow or of the engine**: the architect of another project only reports it to the architect of
   wf-agents, which takes it as an observation of its own project (section 7), with `wf-agents add-observation`
   naming wf-agents as the project it is of and the reporting project as the one that reported it.
@@ -77,9 +84,10 @@ reports (`wf-agents wait`):
 
 ## 4. Items and the tree
 
-1. Every piece of work that ends in a merge or in a conclusion is an item, and waits nowhere else: no list in a file,
-   no note in a pull request. Work seen outside the items, such as a pull request open or a branch not merged, is given
-   an item that continues it; whoever takes it looks at what is there first, and may start over.
+1. Every piece of work that ends in a merge or in a conclusion is an item, but the fix of a serious fault of the system
+   (section 2), and waits nowhere else: no list in a file, no note in a pull request. Work seen outside the items, such
+   as a pull request open or a branch not merged, is given an item that continues it; whoever takes it looks at what is
+   there first, and may start over.
 2. There are three kinds of item. A **deliver item** (the deliver flow) has no work of its own, and is delivered when
    all it depends on has merged or was cancelled. It is the architect's own: the architect makes it, writes it,
    decides which parts make it, and changes it as they change; no engineer touches it. It is let on as soon as it is
