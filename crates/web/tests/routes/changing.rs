@@ -261,19 +261,23 @@ async fn an_item_whose_work_has_started_comes_to_depend_on_another_item_and_give
         post(router, CHANGES, &changes("why", depend)).await,
         (StatusCode::OK, json!({ "changed": [true] }))
     );
-    assert_eq!(
-        get_json(router, "/api/v1/items").await["items"][0]["dependsOn"],
-        json!([2])
-    );
+    // The work, which has run, says it waits for the item at the cell where it stands, beside what it waited for.
+    let items = get_json(router, "/api/v1/items").await;
+    assert_eq!(items["items"][0]["dependsOn"], json!([2]));
+    let now = &items["items"][0]["work"]["now"];
+    assert_eq!(now["kind"], "waits", "{now}");
+    let waited = now["on"].as_array().expect("what it waits for");
+    assert!(waited.contains(&json!({ "kind": "items", "items": [2] })), "{now}");
     let leave = json!([{ "kind": "noLongerDependsOn", "item": 1, "on": 2 }]);
     assert_eq!(
         post(router, CHANGES, &changes("why", leave)).await,
         (StatusCode::OK, json!({ "changed": [true] }))
     );
-    assert_eq!(
-        get_json(router, "/api/v1/items").await["items"][0]["dependsOn"],
-        json!([])
-    );
+    let items = get_json(router, "/api/v1/items").await;
+    assert_eq!(items["items"][0]["dependsOn"], json!([]));
+    let now = &items["items"][0]["work"]["now"];
+    let waited = now["on"].as_array().map_or(&[][..], Vec::as_slice);
+    assert!(!waited.contains(&json!({ "kind": "items", "items": [2] })), "{now}");
 }
 
 #[tokio::test(start_paused = true)]

@@ -3,7 +3,7 @@
 //! plans the work reads the plan with: what changed since a mark, the candidates, a search, a walk of dependencies, the
 //! tags and the text of an item in short.
 
-use crate::{Engine, Place, SCRIPT};
+use crate::{Engine, Place, SCRIPT, plain_line};
 
 /// An item of the trial flow with this title, its request saying this.
 fn add<'a>(title: &'a str, request: &'a str) -> Vec<&'a str> {
@@ -123,6 +123,48 @@ fn an_item_not_begun_is_retitled_made_to_wait_cancelled_and_reopened_saying_why_
         engine.refuses(&["reopen", "2", "--why", "Again."]),
         "#2 is not cancelled: only a cancelled item is reopened.\n"
     );
+}
+
+#[test]
+fn a_work_that_has_begun_waits_for_an_item_it_comes_to_depend_on_and_goes_on_when_it_no_longer_does() {
+    let place = Place::new(SCRIPT);
+    let engine = Engine::start(&place);
+    engine.says(&add("Greet the user", "request=Please."));
+    engine.says(&add("Say goodbye", "request=Please."));
+    // The first work begins, and its plan's run rests at the owner's call, which it made at its limit of returns.
+    assert_eq!(engine.says(&["resume", "1"]), "Work W1 goes on.\n");
+    engine.until(&["show", "1"], |line| {
+        line.starts_with("Now: waits at plan for the owner to answer call 2")
+    });
+    // It comes to depend on an item whose work never begins, and is said to wait for it, in the list and as shown.
+    assert_eq!(
+        engine.says(&["add-dependency", "1", "2", "--why", "The greeting needs the goodbye."]),
+        "#1 depends on #2: its work waits for it to merge.\n"
+    );
+    let waits = "the items it depends on to merge: #2";
+    engine.until(&["list"], |line| {
+        line.contains("\"Greet the user\"") && line.contains(waits)
+    });
+    engine.until(&["show", "1"], |line| {
+        line.starts_with("Now: waits at plan") && line.contains(waits)
+    });
+    // The owner lets the run go on: no round of it begins while the item has not merged, and the work waits where it
+    // stands for the item alone.
+    assert_eq!(
+        engine.says(&["let-go", "1", "--call", "2"]),
+        "The run of work W1 whose call 2 was at its limit goes on.\n"
+    );
+    engine.until(&["show", "1"], |line| {
+        line == format!("Now: waits at plan for {waits}.")
+    });
+    // It goes on by itself once it no longer depends on the item, and merges.
+    assert_eq!(
+        engine.says(&["remove-dependency", "1", "2", "--why", "They are apart after all."]),
+        "#1 no longer depends on #2.\n"
+    );
+    engine.until(&["list", "--all"], |line| {
+        plain_line(line) == "#1 (project script) \"Greet the user\" at level 1, W1 on trial: merged"
+    });
 }
 
 #[test]
