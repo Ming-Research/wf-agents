@@ -14,7 +14,7 @@ use axum::Router;
 use axum::body::Bytes;
 use axum::extract::rejection::{PathRejection, QueryRejection};
 use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{get, post};
@@ -25,30 +25,42 @@ use service::{Handle, Levels, Mark, Projects};
 use store::WorkNumber;
 use tokio::sync::broadcast::error::RecvError;
 
+use crate::items_cache::{Failure, ItemsCache};
 use crate::plan::{Candidates, Graph, HITS, Hits, PlanChanges, PlanMark, Tags, Way};
 use crate::pulls::Pulls;
 use crate::works::{
     Act, Added, Broken, CallPage, Changed, ChangesPage, DiffPage, DoingPage, Done, Engine, EngineAct, ForkAsked,
-    ForkPage, ItemChanges, Items, ItemsChanged, LevelsPage, NewItem, ProjectsPage, Refusal, RoundPage, Said, Summary,
-    SystemPage, ToldPage, VersionPage, WorkPage,
+    ForkPage, ItemChanges, ItemsChanged, LevelsPage, NewItem, ProjectsPage, Refusal, RoundPage, Said, SystemPage,
+    ToldPage, VersionPage, WorkPage,
 };
 
 /// The routes of the items and the works, over the engine's loop; an item is added at one of these levels, to one of
 /// these projects, and a work's rounds run at them.
 pub fn router(handle: Handle, levels: Levels, projects: Projects) -> Router {
+    let cache = std::sync::Arc::new(ItemsCache::new(handle.clone(), levels.clone()));
+    router_over(cache, handle, levels, projects)
+}
+
+/// [`router`], reading the items through this cache, which the caller keeps to see what it has worked out.
+pub fn router_over(cache: std::sync::Arc<ItemsCache>, handle: Handle, levels: Levels, projects: Projects) -> Router {
     let levels = std::sync::Arc::new(levels);
     let shown = LevelsPage::of(&levels);
     let named = ProjectsPage::of(&projects);
     let (to_add, projects) = (levels.clone(), std::sync::Arc::new(projects));
-    let (to_list, to_show, to_pulls) = (levels.clone(), levels.clone(), levels.clone());
-    let items = move |handle: State<Handle>| items(handle, to_list.clone());
+    let to_show = levels.clone();
+    let items = {
+        let cache = cache.clone();
+        move |query: Query<Since>| items(cache.clone(), query)
+    };
     let pulls = {
-        let (levels, projects) = (to_pulls, projects.clone());
+        let (cache, projects) = (cache.clone(), projects.clone());
         move |handle: State<Handle>, query: Result<Query<Pulled>, QueryRejection>| {
-            pulls(handle, levels.clone(), projects.clone(), query)
+            pulls(handle, cache.clone(), projects.clone(), query)
         }
     };
-    let work = move |handle: State<Handle>, path: Result<Path<u64>, PathRejection>| work(handle, to_show.clone(), path);
+    let work = move |handle: State<Handle>, path: Result<Path<u64>, PathRejection>| {
+        work(handle, cache.clone(), to_show.clone(), path)
+    };
     let add = move |handle: State<Handle>, body: Bytes| add(handle, to_add.clone(), projects.clone(), body);
     let change = move |handle: State<Handle>, body: Bytes| change(handle, levels.clone(), body);
     Router::new()
@@ -113,30 +125,26 @@ async fn engine_act(State(handle): State<Handle>, body: Bytes) -> Response {
     }
 }
 
-async fn items(State(handle): State<Handle>, levels: std::sync::Arc<Levels>) -> Response {
-    let read = handle.read_at(move |driver, now| {
-        Items::of(driver, &levels, now).map(|items| {
-            let asked: Vec<Option<service::OfWork>> = (items.items.iter())
-                .map(|item| crate::works::asked(driver, &item.work))
-                .collect();
-            (items, asked)
-        })
-    });
-    match read.await {
-        Ok(Ok((mut items, asked))) => {
-            saw(
-                &handle,
-                asked,
-                items.items.iter_mut().map(|item| &mut item.work).collect(),
-            )
-            .await;
-            Json(items).into_response()
-        }
-        Ok(Err(broken)) => fail(
+/// The items: all of them, or, where the page names the cursor it was last given, those that changed since.
+async fn items(cache: std::sync::Arc<ItemsCache>, Query(query): Query<Since>) -> Response {
+    match cache.read(query.since.as_deref()).await {
+        Ok(body) => (
+            [(header::CONTENT_TYPE, HeaderValue::from_static("application/json"))],
+            body,
+        )
+            .into_response(),
+        Err(failure) => failed(failure),
+    }
+}
+
+/// The answer to what the items could not give.
+fn failed(failure: Failure) -> Response {
+    match failure {
+        Failure::Refused(refusal) => refused(&refusal),
+        Failure::Broken(broken) => fail(
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("The items cannot be shown: {}.", broken.0),
         ),
-        Err(refusal) => refused(&refusal),
     }
 }
 
@@ -151,7 +159,7 @@ struct Pulled {
 /// by itself, with why.
 async fn pulls(
     State(handle): State<Handle>,
-    levels: std::sync::Arc<Levels>,
+    cache: std::sync::Arc<ItemsCache>,
     projects: std::sync::Arc<Projects>,
     query: Result<Query<Pulled>, QueryRejection>,
 ) -> Response {
@@ -171,15 +179,9 @@ async fn pulls(
         },
         None => projects.names().to_vec(),
     };
-    let items = match handle.read_at(move |driver, now| Items::of(driver, &levels, now)).await {
-        Ok(Ok(items)) => items,
-        Ok(Err(broken)) => {
-            return fail(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("The items cannot be shown: {}.", broken.0),
-            );
-        }
-        Err(refusal) => return refused(&refusal),
+    let items = match cache.all().await {
+        Ok(items) => items,
+        Err(failure) => return failed(failure),
     };
     Json(Pulls::of(&items, handle.open_pulls(asked).await)).into_response()
 }
@@ -359,6 +361,7 @@ async fn graph(
 
 async fn work(
     State(handle): State<Handle>,
+    cache: std::sync::Arc<ItemsCache>,
     levels: std::sync::Arc<Levels>,
     path: Result<Path<u64>, PathRejection>,
 ) -> Response {
@@ -367,46 +370,33 @@ async fn work(
         Err(rejection) => return unreadable(&rejection),
     };
     let missing = format!("There is no work {number}.");
+    let checking = cache.clone();
     let page = handle
         .read_at(move |driver, now| {
             driver.work(number).map(|_| {
                 let page = WorkPage::of(driver, &levels, number, now)?;
-                let asked = page
-                    .as_ref()
-                    .and_then(|page| crate::works::asked(driver, &page.summary));
-                Ok::<_, Broken>(page.map(|page| (page, asked)))
+                let checked = match page {
+                    Some(_) => Some(checking.check(driver, now)?),
+                    None => None,
+                };
+                Ok::<_, Broken>(page.zip(checked))
             })
         })
         .await;
     let page = match page {
-        Ok(Some(Ok(Some((mut page, asked))))) => {
-            saw(&handle, vec![asked], vec![&mut page.summary]).await;
+        // The summary is the one the items give, so that the page and the list never say two things of a work.
+        Ok(Some(Ok(Some((mut page, checked))))) => {
+            if let Some(summary) = cache.summary(checked, page.summary.item).await {
+                page.summary = summary;
+            }
             Ok(Some(Ok(Some(page))))
         }
-        other => other.map(|work| work.map(|page| page.map(|page| page.map(|(page, _)| page)))),
+        Ok(Some(Ok(None))) => Ok(Some(Ok(None))),
+        Ok(Some(Err(broken))) => Ok(Some(Err(broken))),
+        Ok(None) => Ok(None),
+        Err(refusal) => Err(refusal),
     };
     found(page, number, missing)
-}
-
-/// Gives each summary what the repository of its work's project says of the work beside its records, as the carrier
-/// of the engine's acts works it out off the loop, `asked` being each summary's work as it is asked of; what could not
-/// be worked out of a work is said on the standard error, and its summary keeps what its records give.
-async fn saw(handle: &Handle, asked: Vec<Option<service::OfWork>>, mut summaries: Vec<&mut Summary>) {
-    let (at, asked): (Vec<usize>, Vec<service::OfWork>) = (asked.into_iter().enumerate())
-        .filter_map(|(at, of)| Some((at, of?)))
-        .unzip();
-    for (at, seen) in at.into_iter().zip(handle.seen(asked).await) {
-        let Some(summary) = summaries.get_mut(at) else {
-            continue;
-        };
-        match seen {
-            Ok(seen) => summary.saw(seen),
-            Err(why) => eprintln!(
-                "what git says of {} could not be worked out: {why}",
-                store::WorkNumber(summary.number)
-            ),
-        }
-    }
 }
 
 /// The content of a version of a block, the version by its number among the block's versions.

@@ -428,6 +428,17 @@ export interface Items {
   outage?: Outage | null;
 }
 
+/// What a read of the items gives. The engine gives where its items stood (`cursor`), to be handed back as `since` at
+/// the next read, so that it gives only the items that changed since: `full` says whether `items` is the whole list
+/// (the first read, or a `since` the engine does not know) or only what changed. `againAfterMs` is how long the page
+/// waits before it reads again while a round is under way, which the engine's own time bar and git look need. A source
+/// that says none of these, as the made-up items do, gives the whole list at each read.
+export interface ItemsRead extends Items {
+  cursor?: string;
+  full?: boolean;
+  againAfterMs?: number;
+}
+
 /// Why a cell runs: it has no record, or a block has another meaning than the one its record knows (`workedFrom`, the
 /// version the cell last worked from, as a message to it names it), which a cell after it gave the block where `behind`.
 export type Cause =
@@ -1050,7 +1061,8 @@ export interface Copies {
 }
 
 export const loadCopies = () => read<Copies>('/api/v1/backup');
-export const loadItems = () => read<Items>('/api/v1/items');
+export const loadItems = (since?: string) =>
+  read<ItemsRead>(since === undefined ? '/api/v1/items' : `/api/v1/items?since=${encodeURIComponent(since)}`);
 export const loadWork = (work: number) => read<WorkPage>(`/api/v1/works/${work}`);
 export const loadVersion = (work: number, block: string, version: number) =>
   read<VersionPage>(`/api/v1/works/${work}/versions/${encodeURIComponent(block)}/${version}`);

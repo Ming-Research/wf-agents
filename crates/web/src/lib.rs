@@ -11,8 +11,8 @@
 //! - `GET /api/v1/flow/given`: what an agent is sent as the engine enters each agent's cell of the definition shown,
 //!   part by part in the order sent ([`given::Given`]): the system prompt and the message as the engine makes them,
 //!   every form of each part.
-//! - With the engine running, the items and the works ([`interface`], whose types are in [`works`]), and what needs
-//!   whoever plans the work since a mark ([`attention`]).
+//! - With the engine running, the items and the works ([`interface`], whose types are in [`works`], the items kept
+//!   between reads in [`items_cache`]), and what needs whoever plans the work since a mark ([`attention`]).
 //! - `GET /api/v1/backup`: how the copies of the database stand ([`copies`]).
 //! - The observations of the installation, and the owner's reading of each ([`observations`]).
 //! - `GET /api/v1/system`: how the whole system went over a span of time ([`system`]).
@@ -28,6 +28,7 @@ pub mod copies;
 pub mod given;
 mod guard;
 pub mod interface;
+pub mod items_cache;
 pub mod observations;
 pub mod plan;
 pub mod pulls;
@@ -150,6 +151,17 @@ pub fn with_works(
     projects: service::Projects,
 ) -> Router {
     router(flows).merge(interface::router(handle, levels, projects))
+}
+
+/// [`with_works`], reading the items through this cache, which the caller keeps to see what it has worked out.
+pub fn with_works_over(
+    flows: Flows,
+    cache: Arc<items_cache::ItemsCache>,
+    handle: service::Handle,
+    levels: service::Levels,
+    projects: service::Projects,
+) -> Router {
+    router(flows).merge(interface::router_over(cache, handle, levels, projects))
 }
 
 /// The same, with the route of how the copies of the database stand: of those the engine keeps, or of none.

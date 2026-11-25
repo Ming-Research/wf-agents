@@ -2529,7 +2529,7 @@ impl Driver {
 
     /// The room the engine leaves a work ([`Driver::room`], a slot given where one is free), as what holds every work
     /// at once says.
-    fn room_at(&self, work: WorkNumber, at_once: &AtOnce) -> Room {
+    pub fn room_at(&self, work: WorkNumber, at_once: &AtOnce) -> Room {
         let project = self.works.get(&work).and_then(|held| held.item.project.as_deref());
         Room {
             paused: at_once.everything.is_some(),

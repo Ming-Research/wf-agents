@@ -1239,6 +1239,20 @@ impl Handle {
         });
     }
 
+    /// Tells whoever listens that an item changed beside the loop: what git says of a work's changes was looked at
+    /// again and was not what it was. The notice holds no record; whoever listens reads the items again.
+    pub fn items_changed(&self) {
+        // Nobody may be listening.
+        let _ = self.changed.send(Changed {
+            works: Vec::new(),
+            items: true,
+            copies: false,
+            accounts: false,
+            observations: false,
+            going: false,
+        });
+    }
+
     /// Tells whoever listens that the observations changed: one was added, or changed. The notice holds no record;
     /// whoever listens reads them again. They are written beside the loop, so it is not the loop that says so.
     pub fn observations_changed(&self) {

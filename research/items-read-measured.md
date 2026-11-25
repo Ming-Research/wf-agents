@@ -39,5 +39,8 @@ first and about 0.05 s for the second, each.
 
 ## Not measured
 
-How the second splits between the summaries and the git looks: the engine has no counter for either. The change that
-follows from this record adds one, and the records its test keeps say it.
+How the second splits between the summaries and the git looks: the engine has no timing of either, and a figure taken
+in the unoptimized build the checks run in is no figure of the installed engine. After the change a read works out only
+the summaries whose inputs changed (`ItemsCache::built` counts them, and the route tests read it) and makes no git look
+of its own, so the split matters only to the first read after the engine starts; it is read off the installed engine
+once the change is installed, with the figures of a read with the cache warm.

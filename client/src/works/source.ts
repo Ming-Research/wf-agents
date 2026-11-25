@@ -6,13 +6,16 @@
 // The page is to stay quick with several hundred works, each change of any of them read again. So the interface's
 // changes come on the page's one stream (changes.ts); a part reads again at most once at a time, and once more after
 // a read where changes came while it was under way; and the items, which the bar, the list of works and the console
-// all show, are read once for all of them, each item that did not change kept as the very object it was, so that what
-// draws it is not drawn again.
+// all show, are read once for all of them, and after the first read only the items that changed are read, each item
+// that did not change kept as the very object it was, so that what draws it is not drawn again. While the page is
+// hidden (seen.ts) the parts read nothing and read once when it is seen again; only the items are still read at each
+// notice, since the browser's notifications of what waits on the owner come from them (notify.ts).
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import { listenShared } from '../changes';
 import { projectsAsked, usesFixtures } from '../mock-data';
+import { pageSeen, usePageSeen, watchSeen } from '../seen';
 import * as api from '../works-api';
 import type {
   Act,
@@ -27,6 +30,7 @@ import type {
   Engine,
   EngineAct,
   Items,
+  ItemsRead,
   Projects,
   RoundPage,
   Said,
@@ -35,11 +39,13 @@ import type {
   VersionPage,
   WorkPage,
 } from '../works-api';
+import { pulsing } from './state-marks';
 import { workName } from './words';
 
 export interface Source {
   loadCopies(): Promise<Copies>;
-  loadItems(): Promise<Items>;
+  /// The items; with `since`, the cursor an earlier read gave, only those that changed since.
+  loadItems(since?: string): Promise<ItemsRead>;
   /// The projects the installation names.
   loadProjects(): Promise<Projects>;
   loadWork(work: number): Promise<WorkPage>;
@@ -215,7 +221,8 @@ export function onlyGoing(changed: Changed): boolean {
 /// Calls `onChanged` each time the source says something happened, and `onOpened` each time its stream opens, for as
 /// long as the part that asks is shown. A change that says only what the rounds under way have come to is not told to
 /// it ([`useGoings`] is told): it comes with every call of every round, and a part that reads the engine, the items or
-/// a work again for each would read for nothing.
+/// a work again for each would read for nothing. While the page is hidden nothing is told, and `onOpened` is called
+/// once when it is seen again, for what was not told.
 export function useChanges(onChanged: (changed: Changed) => void, onOpened: () => void) {
   const source = useSource();
   const latest = useRef({ onChanged, onOpened });
@@ -226,38 +233,49 @@ export function useChanges(onChanged: (changed: Changed) => void, onOpened: () =
     () =>
       source.changes(
         (c) => {
-          if (!onlyGoing(c)) latest.current.onChanged(c);
+          if (!onlyGoing(c) && pageSeen()) latest.current.onChanged(c);
         },
-        () => latest.current.onOpened(),
+        () => {
+          if (pageSeen()) latest.current.onOpened();
+        },
       ),
     [source],
+  );
+  useEffect(
+    () =>
+      watchSeen((seen) => {
+        if (seen) latest.current.onOpened();
+      }),
+    [],
   );
 }
 
 /// Calls `onGoing` each time the source says what the calls of the rounds under way have come to changed, and each
-/// time its stream opens, while `shown`: a part that is hidden is told nothing, and is told once it is shown again by
-/// reading when it is.
+/// time its stream opens, while `shown` and the page is seen: a part that is hidden, or on a page that is, is told
+/// nothing, and is told once it is shown and seen again by reading when it is.
 export function useGoings(onGoing: () => void, shown: boolean) {
   const source = useSource();
+  const seen = usePageSeen();
+  const on = shown && seen;
   const latest = useRef(onGoing);
   useEffect(() => {
     latest.current = onGoing;
   });
   // Shown again after being hidden, a part reads once for what it was not told.
-  const was = useRef(shown);
+  const was = useRef(on);
   useEffect(() => {
-    if (shown && !was.current) latest.current();
-    was.current = shown;
-  }, [shown]);
+    if (on && !was.current) latest.current();
+    was.current = on;
+  }, [on]);
   useEffect(() => {
-    if (!shown) return undefined;
+    if (!on) return undefined;
     return source.changes(
       (c) => {
         if (c.going === true) latest.current();
       },
       () => latest.current(),
     );
-  }, [source, shown]);
+  }, [source, on]);
 }
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -362,6 +380,13 @@ interface ItemsStore {
   shown: Set<() => void>;
   reads: OneAtATime;
   stop: (() => void) | null;
+  /// Where the engine's items stood at the last read that ended well, handed back as `since` at the next; none where
+  /// the source gave none.
+  cursor: string | null;
+  /// How long to wait before reading again while a round is under way, as the last read said.
+  again: number | null;
+  /// The wait for that, while one is set.
+  timer: ReturnType<typeof setTimeout> | null;
 }
 
 const itemsStores = new WeakMap<ItemsFeed, ItemsStore>();
@@ -374,6 +399,9 @@ function itemsStore(feed: ItemsFeed): ItemsStore {
       shown: new Set(),
       reads: oneAtATime(() => readItems(feed, made)),
       stop: null,
+      cursor: null,
+      again: null,
+      timer: null,
     };
     store = made;
     itemsStores.set(feed, store);
@@ -388,7 +416,7 @@ export function keptSame(before: Items, now: Items): Items {
   let changed = before.items.length !== now.items.length;
   const items = now.items.map((item, i) => {
     const old = was.get(item.number);
-    if (old !== undefined && JSON.stringify(old) === JSON.stringify(item)) {
+    if (old !== undefined && (old === item || JSON.stringify(old) === JSON.stringify(item))) {
       if (before.items[i] !== old) changed = true;
       return old;
     }
@@ -400,17 +428,50 @@ export function keptSame(before: Items, now: Items): Items {
   return { ...now, items, outage };
 }
 
+/// The items the page holds once `read` came after `before`: all of them where `read` says it is the whole list, or
+/// says nothing of it as a source of made-up items does, else each item it gives in the place of the one of its number
+/// (a new one after the others), every other as the object it was.
+export function mergedItems(before: Items | null, read: ItemsRead): Items {
+  const given: Items = read.outage === undefined ? { items: read.items } : { items: read.items, outage: read.outage };
+  if (before === null) return given;
+  if (read.full !== false) return keptSame(before, given);
+  const changed = new Map(read.items.map((item) => [item.number, item]));
+  const had = new Set(before.items.map((item) => item.number));
+  const items = [
+    ...before.items.map((item) => changed.get(item.number) ?? item),
+    ...read.items.filter((item) => !had.has(item.number)),
+  ];
+  return keptSame(before, { ...given, items });
+}
+
+/// Sets the wait for the next read of the items, or none. It is set while a part shows the items, the page is seen and
+/// a round or a call of a tool is under way in some item: the engine's time bar of such a work and its look at the
+/// work's worktree move with no record changing, so nothing tells the page, and the engine works them out anew only
+/// when it is asked.
+function arm(store: ItemsStore) {
+  if (store.timer !== null) clearTimeout(store.timer);
+  store.timer = null;
+  if (store.again === null || store.shown.size === 0 || !pageSeen()) return;
+  if (!store.state.value?.items.some((item) => item.work.cells.some((cell) => pulsing(cell.state)))) return;
+  store.timer = setTimeout(() => {
+    store.timer = null;
+    store.reads.ask();
+  }, store.again);
+}
+
 /// Reads the items for every part that shows them, and tells each what came of it. The store's reads run it at most
 /// once at a time.
 function readItems(feed: ItemsFeed, store: ItemsStore): Promise<void> {
   const set = (state: ItemsStore['state']) => {
     store.state = state;
     [...store.shown].forEach((tell) => tell());
+    arm(store);
   };
-  return feed.loadItems().then(
+  return feed.loadItems(store.cursor ?? undefined).then(
     (fresh) => {
-      const before = store.state.value;
-      set({ value: before === null ? fresh : keptSame(before, fresh), failed: null });
+      store.cursor = fresh.cursor ?? null;
+      store.again = fresh.againAfterMs ?? null;
+      set({ value: mergedItems(store.state.value, fresh), failed: null });
     },
     (e: unknown) => set({ value: store.state.value, failed: message(e) }),
   );
@@ -421,21 +482,31 @@ export function useItems(): { value: Items | null; failed: string | null; read: 
   return useItemsOf(useSource());
 }
 
-/// The items `feed` gives, read once for every part of the page that reads them from it: at once, again each time an
-/// item or a work changed and each time the stream of changes opens again, and on `read`. A read that fails keeps
-/// what was shown and says why.
+/// The items `feed` gives, read once for every part of the page that reads them from it: at once, then only what
+/// changed since the last read, each time an item or a work changed and each time the stream of changes opens again,
+/// and on `read`; also each time the engine's wait says (`arm`), and once when the page is seen again. A hidden page
+/// still reads at each change, since the notifications of what waits on the owner are told from the items. A read that
+/// fails keeps what was shown and says why.
 export function useItemsOf(feed: ItemsFeed): { value: Items | null; failed: string | null; read: () => void } {
   const store = itemsStore(feed);
   const subscribe = useCallback(
     (tell: () => void) => {
       store.shown.add(tell);
       if (store.shown.size === 1) {
-        store.stop = feed.changes(
+        const stopChanges = feed.changes(
           (changed) => {
             if (changed.items || changed.works.length > 0) store.reads.ask();
           },
           () => store.reads.ask(),
         );
+        const stopSeen = watchSeen((seen) => {
+          if (seen) store.reads.ask();
+          else arm(store);
+        });
+        store.stop = () => {
+          stopChanges();
+          stopSeen();
+        };
         store.reads.ask();
       }
       return () => {
@@ -443,6 +514,7 @@ export function useItemsOf(feed: ItemsFeed): { value: Items | null; failed: stri
         if (store.shown.size === 0) {
           store.stop?.();
           store.stop = null;
+          arm(store);
         }
       };
     },
