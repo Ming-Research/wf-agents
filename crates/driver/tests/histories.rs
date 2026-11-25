@@ -559,10 +559,15 @@ impl History {
             }
         }
         // The works of a project take turns to check and merge: of the works that have not ended, one holds the turn at
-        // most, whatever stopped or failed before, the turn being worked out from the records alone.
+        // most, whatever stopped or failed before, the turn being worked out from the records alone. A work holds it
+        // where the last stretch it held it is open.
+        let holding: BTreeSet<u64> = (d.turn_spans().into_iter())
+            .filter(|(_, _, spans)| spans.last().is_some_and(|span| span.until.is_none()))
+            .map(|(_, work, _)| work.0)
+            .collect();
         let holders: Vec<u64> = (d.works())
-            .filter(|kept| decide::holds_turn(&kept.flow.flow, &kept.work.records))
             .map(|kept| kept.head.number.0)
+            .filter(|number| holding.contains(number))
             .collect();
         assert!(
             holders.len() <= 1,
@@ -578,10 +583,19 @@ impl History {
                 Some(decide::Holder::Everything) => self.seen.held_by_everything += 1,
                 _ => {}
             }
-            if matches!(self.h.decision(number), Decision::Wait { on, .. } if on == [Waited::Turn]) {
+            // A work that waits for the turn is told whose it is and since when it has wanted it, as the page shows it.
+            let waits = matches!(self.h.decision(number), Decision::Wait { on, .. } if on == [Waited::Turn]);
+            if waits || d.held(number) == Some(decide::Holder::Turn) {
+                assert!(
+                    d.turn_waited_at(number, &d.at_once()).is_some(),
+                    "W{} waits for the turn of its project, and the driver says neither whose it is nor since when",
+                    number.0
+                );
+            }
+            if waits {
                 self.seen.waited_for_the_turn += 1;
             }
-            if decide::holds_turn(&kept.flow.flow, &kept.work.records) {
+            if holding.contains(&number.0) {
                 self.seen.held_the_turn += 1;
             }
             if !self.h.let_on.contains(&number) {

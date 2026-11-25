@@ -13,13 +13,16 @@
 //! the calls it asked for are made, whether a slot is free or not. The turn is wanted by every round of a cell that
 //! takes it, and likewise by nothing else.
 //!
-//! The turn is a function of the records of the works of a project: a work holds it from its first round of a cell that
-//! takes it for as long as its walk stays at such cells ([`holds_turn`]), and the work that wants it longest is the one
-//! to have it next ([`wants_turn`]). Nothing is kept for it beyond those records and the flow.
+//! The turn is a function of the records of the works of a project: a work holds it from a round of a cell that takes
+//! it for as long as its walk stays at such cells, and the work that has wanted it longest is the one to have it next.
+//! Whether the walk stands where a hold goes on ([`keeps_turn`]), and whether it comes to a cell that takes the turn
+//! ([`comes_to_turn`]), is said here of the records as they are; whether the walk stayed so since the round began, and
+//! so whether the work holds the turn, is the scheduler's to work out over the moments of the work (crate `driver`).
+//! Nothing is kept for it beyond those records and the flow.
 
 use crate::flow::{CellId, Flow};
 use crate::records::{Records, Seq};
-use crate::walk::{Decision, decide, ended, read_runs};
+use crate::walk::{Decision, Waited, decide, ended, read_runs};
 
 /// What the engine leaves room for, as the scheduler gives it to the walk of one work.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -84,19 +87,21 @@ fn takes_turn(flow: &Flow, cell: &CellId) -> bool {
     flow.place(cell).is_some_and(|i| flow.cells()[i].turn)
 }
 
-/// Whether the work holds the turn of its project: it has not ended, and its latest round is of a cell that takes the
-/// turn, and either that round is under way, or it has ended and the work's walk stands at a cell that takes the turn,
-/// to begin a round of it (a run to start, or a run at rest to go on), with no pause of its own having held it since
-/// the round ended. So a check, the check again where main moved, a round that failed and is tried again, and the merge
-/// that follows a check that passed are one hold; the work lets go as its walk stands anywhere else (it was sent back,
-/// waits for main or for an answer, has ended), and as its own pause, the owner's or the engine's after rounds that
-/// failed, holds it once its round under way has ended, and the hold stays ended until the work's next round of such a
-/// cell begins. A pause set and lifted while the round was under way does not end it; the owner's pause of everything
-/// is no pause of the work's own, and does not.
+/// Whether the work's walk stands where a hold of its project's turn goes on: it has not ended, and its latest round is
+/// of a cell that takes the turn, and either that round is under way, or it has ended and the work's walk stands at a
+/// cell that takes the turn, to begin a round of it (a run to start, or a run at rest to go on) or waiting there only for
+/// what the engine does for the run (the wait before a round that failed in passing is tried again, a tool's call), with
+/// no pause of its own having held it since the round ended. So a check, the check again where main moved, a round that
+/// failed and is tried again, and the merge that follows a check that passed are one hold; the work lets go as its walk
+/// stands anywhere else (it was sent back, waits for main, for an answer or for the owner's word, has ended), and as its
+/// own pause, the owner's or the engine's after rounds that failed, holds it once its round under way has ended. A pause
+/// set and lifted while the round was under way does not end it; the owner's pause of everything is no pause of the
+/// work's own, and does not.
 ///
-/// A function of the work's flow and records alone, so that the turn is the same however and whenever it is read, and
-/// after a restart.
-pub fn holds_turn(flow: &Flow, records: &Records) -> bool {
+/// A work holds the turn only while this has held at every moment since its round of such a cell began: once it let go,
+/// its walk coming back to such a cell takes the turn back no more, and the hold begins again only with the work's next
+/// round of such a cell, which begins only where the turn is given to it.
+pub fn keeps_turn(flow: &Flow, records: &Records) -> bool {
     let Some(latest) = records.rounds.iter().max_by_key(|round| round.at) else {
         return false;
     };
@@ -134,17 +139,19 @@ pub fn holds_turn(flow: &Flow, records: &Records) -> bool {
     }
     match decide(flow, records) {
         Decision::Run { cell, .. } | Decision::GoOn { cell, .. } => takes_turn(flow, &cell),
+        Decision::Wait { at, on } => {
+            takes_turn(flow, &at)
+                && !on.is_empty()
+                && (on.iter()).all(|waited| matches!(waited, Waited::Call { on: None, .. }))
+        }
         _ => false,
     }
 }
 
-/// Whether the work wants the turn of its project and does not hold it: it has not ended, and its walk stands at a cell
-/// that takes the turn, to begin a round of it, or, its own pause holding it back, would. The one that has wanted it
+/// Whether the work's walk comes to a cell that takes the turn of its project, to begin a round of it, or, its own pause
+/// holding it back, would. A work that comes to one and does not hold the turn wants it, and the one that has wanted it
 /// longest has it next.
-pub fn wants_turn(flow: &Flow, records: &Records) -> bool {
-    if holds_turn(flow, records) {
-        return false;
-    }
+pub fn comes_to_turn(flow: &Flow, records: &Records) -> bool {
     match decide(flow, records) {
         Decision::Run { cell, .. } | Decision::GoOn { cell, .. } | Decision::Paused { cell } => takes_turn(flow, &cell),
         _ => false,
