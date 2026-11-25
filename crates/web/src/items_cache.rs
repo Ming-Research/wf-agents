@@ -263,7 +263,7 @@ impl ItemsCache {
     /// look is then of what the work was, a read starts the look of what it is, and a page that was told nothing would
     /// not read again to have it started.
     fn ended(&self, item: u64, moments: usize, at: Time, said: Result<Seen, String>) {
-        let changed = {
+        let (changed, moved) = {
             let mut inner = self.lock();
             let Some(entry) = inner.entries.get(&item) else {
                 return;
@@ -296,7 +296,7 @@ impl ItemsCache {
                 }
             };
             inner.entries.insert(item, entry);
-            changed
+            (changed, moved)
         };
         self.looked.notify_waiters();
         if changed || moved {
