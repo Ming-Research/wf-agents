@@ -599,7 +599,10 @@ impl Reading<'_> {
     /// the work at its cell, whether or not something new runs it; and a cell with something new runs, at its limit
     /// waiting for the owner. A work held at a precondition is stalled where each block it waits for is written by
     /// cells alone, and none of them said what it wrote waits for a source outside the work (decisions
-    /// a-work-no-cell-can-move-is-stalled and what-a-run-wrote-may-wait-for-the-outside).
+    /// a-work-no-cell-can-move-is-stalled and what-a-run-wrote-may-wait-for-the-outside). A precondition that only a
+    /// source outside the work can make hold, of a cell a run of which has finished, does not stop the walk at its
+    /// cell: it holds back what the walk comes to after it, which waits where it stands, for whatever else it waits for
+    /// besides (decision dependencies-hold-a-started-work-where-it-would-run).
     pub fn rest(&self, flow: &Flow) -> Rest {
         let now = Seq(u64::MAX);
         let cells = flow.cells();
@@ -636,12 +639,18 @@ impl Reading<'_> {
                 return Rest::Moving { at: s.cell.clone() };
             }
         }
+        let mut held = false;
         for (i, cell) in cells.iter().enumerate() {
             let waiting = || Rest::Waiting { at: cell.id.clone() };
             // A cell that is skipped holds nothing, its questions included.
             if !self.applies(flow, i) {
                 continue;
             }
+            // What a source outside the work holds back, of the cells passed, is waited for wherever the walk comes to.
+            let (gate, holds) = self.gate(flow, i);
+            held |= holds;
+            let held = held;
+            let stands = |rest: Rest| if held { waiting() } else { rest };
             // The calls with no result yet: a call for a person, the owner or the architect is waited for; one the
             // engine makes itself is not, the work moves on as the engine makes it. What the preconditions that do
             // not hold make of the work counts beside them: a person's word still to come is waited for.
@@ -673,22 +682,22 @@ impl Reading<'_> {
                 let open = (records.called.iter())
                     .filter(|c| c.run == run.run && !self.done(c.call, now))
                     .collect();
-                return with_gate(calls(open), self.gate(flow, i)).unwrap_or(Rest::Moving { at: cell.id.clone() });
+                return stands(with_gate(calls(open), gate).unwrap_or(Rest::Moving { at: cell.id.clone() }));
             }
             let reasons = self.entering(flow, cell, now);
             if reasons.is_empty() {
                 if self.held(&cell.id, now) {
                     return waiting();
                 }
-                if let Some(rest) = with_gate(owed_open, self.gate(flow, i)) {
-                    return rest;
+                if let Some(rest) = with_gate(owed_open, gate) {
+                    return stands(rest);
                 }
                 continue;
             }
-            if let Some(gate) = self.gate(flow, i) {
-                return with_gate(owed_open, Some(gate)).unwrap_or(Rest::Moving { at: cell.id.clone() });
+            if let Some(gate) = gate {
+                return stands(with_gate(owed_open, Some(gate)).unwrap_or(Rest::Moving { at: cell.id.clone() }));
             }
-            return if self.at_limit(flow, i, &reasons) {
+            return if self.at_limit(flow, i, &reasons) || held {
                 waiting()
             } else {
                 Rest::Moving { at: cell.id.clone() }
@@ -702,14 +711,27 @@ impl Reading<'_> {
 
     /// What the cell at place `i`'s preconditions that do not hold make of the work: none where they all hold;
     /// waiting, where a block that keeps one from holding is written by a person, the owner or a source outside the
-    /// work, or each cell that writes it said that what it wrote waits for one; else stalled on those keys.
-    fn gate(&self, flow: &Flow, i: usize) -> Option<Rest> {
+    /// work, or each cell that writes it said that what it wrote waits for one; else stalled on those keys. Whether
+    /// the cell has been passed, and a key of its preconditions that does not hold is one only a source outside the
+    /// work can make hold: it is not of the first kind, the work not standing at the cell for it, and is said apart.
+    fn gate(&self, flow: &Flow, i: usize) -> (Option<Rest>, bool) {
         let cell = &flow.cells()[i];
+        let passed = self.finished.values().any(|f| self.started[&f.run].cell == cell.id);
         let mut stalled = Vec::new();
         let mut waiting = false;
+        let mut held = false;
         for key in &cell.requires {
             let keeping = self.keeping(flow, key, i);
             if keeping.is_empty() {
+                continue;
+            }
+            let only_outside = keeping.iter().all(|block| {
+                flow.outsiders(block)
+                    .is_some_and(|o| !o.people && !o.by_owner && o.outside.is_some())
+                    && flow.writers(block).next().is_none()
+            });
+            if passed && only_outside {
+                held = true;
                 continue;
             }
             let mut writers: Vec<&CellId> = Vec::new();
@@ -729,15 +751,18 @@ impl Reading<'_> {
             stalled.push(key.clone());
         }
         if stalled.is_empty() {
-            return None;
+            return (None, held);
         }
         if waiting {
-            return Some(Rest::Waiting { at: cell.id.clone() });
+            return (Some(Rest::Waiting { at: cell.id.clone() }), held);
         }
-        Some(Rest::Stalled {
-            at: cell.id.clone(),
-            on: stalled,
-        })
+        (
+            Some(Rest::Stalled {
+                at: cell.id.clone(),
+                on: stalled,
+            }),
+            held,
+        )
     }
 
     /// The blocks that keep this key of the cell at place `i` from holding, by the value each has now: none where it

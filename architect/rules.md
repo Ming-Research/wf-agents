@@ -118,6 +118,10 @@ reports (`wf-agents wait`):
 - An order someone prefers, touching the same code, and a slot or a machine being busy are no dependencies.
 - A study that settles how other work is to be done is a dependency of that work.
 - A finished item depends on nothing unfinished: what is left goes to a new item.
+- An item found midway to need another's result gets a dependency (`wf-agents add-dependency`), not a pause: its work
+  finishes the round it has under way and waits where it stands for that item, and goes on once it has merged or been
+  cancelled. A work whose merge is under way takes no dependency on an item that has not ended: what it needs is then a
+  new item.
 
 ## 6. Size, joining, splitting, narrowing, cancelling
 

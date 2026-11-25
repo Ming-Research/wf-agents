@@ -18,6 +18,8 @@ pub(crate) struct Fake {
     verdicts: Mutex<VecDeque<Result<Option<Verdict>, Failed>>>,
     /// Why letting go fails, where it does.
     ending: Mutex<Option<String>>,
+    /// Why reading the head of main fails, where it does.
+    unreadable: Mutex<Option<String>>,
     asked: Mutex<Vec<Asked>>,
     /// What it says of the tests it is asked to run; its reason for running none where there are none.
     tests: Mutex<Option<String>>,
@@ -59,6 +61,7 @@ impl Fake {
             main: Mutex::new(main.to_string()),
             verdicts: Mutex::new(VecDeque::new()),
             ending: Mutex::new(None),
+            unreadable: Mutex::new(None),
             asked: Mutex::new(Vec::new()),
             tests: Mutex::new(None),
             titles: Mutex::new(Vec::new()),
@@ -76,6 +79,11 @@ impl Fake {
     /// Fails to let go, with these words, until it is told otherwise.
     pub(crate) fn ending(&self, refused: Option<&str>) {
         *lock(&self.ending) = refused.map(str::to_string);
+    }
+
+    /// Fails to give the head of main, with these words, until it is told otherwise.
+    pub(crate) fn unreadable(&self, why: Option<&str>) {
+        *lock(&self.unreadable) = why.map(str::to_string);
     }
 
     /// Gives this verdict when it is next asked for one.
@@ -114,7 +122,10 @@ impl Fake {
 impl Host for Fake {
     async fn main(&self) -> Result<String, String> {
         lock(&self.asked).push(Asked::Main);
-        Ok(lock(&self.main).clone())
+        match lock(&self.unreadable).clone() {
+            Some(why) => Err(why),
+            None => Ok(lock(&self.main).clone()),
+        }
     }
 
     async fn verdict(

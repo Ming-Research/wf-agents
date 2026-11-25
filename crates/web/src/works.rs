@@ -1577,9 +1577,9 @@ pub enum ChangeAsked {
     Title { item: u64, title: String },
     /// The item is put at this level, among those the settings name and at most the highest an item may be at.
     Level { item: u64, level: String },
-    /// The item comes to depend on this one, while its work has started no run.
+    /// The item comes to depend on this one, until its work ends: a work that has started waits for it where it stands.
     DependsOn { item: u64, on: u64 },
-    /// The item no longer depends on this one, while its work has started no run.
+    /// The item no longer depends on this one, until its work ends.
     NoLongerDependsOn { item: u64, on: u64 },
     /// The item comes to carry this tag.
     Tag { item: u64, tag: String },

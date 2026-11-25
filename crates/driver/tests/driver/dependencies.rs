@@ -1,10 +1,11 @@
 //! Other works: an item waits before its first cell until every item it depends on has merged or was cancelled, a
-//! dependency on a cancelled item holding as one on a merged item does. That those items have ended so reaches the work
+//! dependency on a cancelled item holding as one on a merged item does, and a work that has started waits where it
+//! stands for one it came to depend on. That those items have ended so reaches the work
 //! as its dependencies block, which the driver writes as the item is added, in the very call in which the last of them
 //! merges or is cancelled, and, on opening, wherever the block and what it stands for have come apart.
 
 use driver::{MERGED, NewItem, WAITING};
-use store::Storage;
+use store::{ItemChange, Storage};
 
 use super::*;
 
@@ -43,6 +44,52 @@ fn an_item_waits_before_its_first_cell_until_the_one_it_depends_on_merges_and_st
 
 // An item may depend on an item of another project: it uses that item's result, and waits for it to merge into its
 // own project's main as it would for one of its own project.
+#[test]
+fn a_started_work_given_a_dependency_ends_its_round_waits_where_it_stands_and_goes_on_when_it_merges() {
+    let mut h = H::new();
+    let (a, wa) = h.add(new_item("a", &[], "short"));
+    let (b, wb) = h.add(new_item("b", &[], "judged"));
+    h.let_on(wb);
+    assert_eq!(h.round(wb).1, "write");
+    // The dependency is added while its round is under way: the round is not touched.
+    assert_eq!(h.change(b, ItemChange::DependsOn(a)), (true, vec![]));
+    assert_eq!(h.dependencies(wb).as_deref(), Some(WAITING));
+    assert!(matches!(h.decision(wb), Decision::Busy { .. }), "{:?}", h.decision(wb));
+    // The round ends as it would, and no round begins: the work waits at the cell it would run.
+    let kept = h.d().work(wb).expect("the work is there");
+    let came = proper(kept.flow, "write");
+    assert_eq!(h.returns(wb, came), vec![]);
+    assert_eq!(h.decision(wb), waits_for_dependencies("judge"));
+    assert_eq!(h.d().items_waited_for(wb), [a]);
+    // The one it waits for merges: the work goes on at that cell, and the cell before it is not run again.
+    h.let_on(wa);
+    let todos = h.through(wa);
+    assert_eq!(rounds(&todos), [(wb, "judge".to_string(), 1)]);
+    assert_eq!(h.dependencies(wb).as_deref(), Some(MERGED));
+    let cells: Vec<String> = (h.d().work(wb).expect("the work is there").work.records.started.iter())
+        .map(|s| s.cell.to_string())
+        .collect();
+    assert_eq!(cells, ["write", "judge"]);
+}
+
+#[test]
+fn a_started_work_that_gives_a_dependency_up_goes_on_at_once_where_it_stands() {
+    let mut h = H::new();
+    let (a, _) = h.add(new_item("a", &[], "short"));
+    let (b, wb) = h.add(new_item("b", &[], "judged"));
+    h.let_on(wb);
+    let (changed, _) = h.change(b, ItemChange::DependsOn(a));
+    assert!(changed);
+    let kept = h.d().work(wb).expect("the work is there");
+    let came = proper(kept.flow, "write");
+    assert_eq!(h.returns(wb, came), vec![]);
+    assert_eq!(h.decision(wb), waits_for_dependencies("judge"));
+    let (changed, todos) = h.change(b, ItemChange::NoLongerDependsOn(a));
+    assert!(changed);
+    assert_eq!(rounds(&todos), [(wb, "judge".to_string(), 1)]);
+    assert_eq!(h.dependencies(wb).as_deref(), Some(MERGED));
+}
+
 #[test]
 fn an_item_waits_for_the_item_of_another_project_it_depends_on_as_for_one_of_its_own() {
     let mut h = H::new();

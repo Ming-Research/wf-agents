@@ -16,10 +16,11 @@
 //! block waits for no item.
 //!
 //! Whoever plans the work changes items after they were added, several at once all or none, each change saying why:
-//! an item's title, level and tags, and, while its work has started no run, what it depends on; its cancel; and the
-//! reopening of a cancelled item ([`Driver::change`], module [`changes`]). A change of an item is kept as a record of
-//! the item's own, a cancel and a reopen as the work's; a change of what an item depends on writes the work's block of
-//! [`DEPENDENCIES`] anew, as an add does.
+//! an item's title, level, tags and what it depends on, until its work ends; its cancel; and the reopening of a
+//! cancelled item ([`Driver::change`], module [`changes`]). A change of an item is kept as a record of the item's own, a
+//! cancel and a reopen as the work's; a change of what an item depends on writes the work's block of [`DEPENDENCIES`]
+//! anew, as an add does, and a work that has started waits where it stands for the items it depends on that have not
+//! ended (decision `dependencies-hold-a-started-work-where-it-would-run`).
 //!
 //! The driver writes the block of a flow whose source is [`START`] as the owner starts the work: as the work, added
 //! paused, is first let on with nothing of it started, or, reopened, is first let on since, so that the cell it runs,
@@ -1023,7 +1024,7 @@ impl Driver {
             .map(|held| {
                 let planned = Planned {
                     item: held.item.clone(),
-                    started: !held.work.records.started.is_empty(),
+                    merging: changes::merging(&held.flow, &held.work),
                     ended: match held.standing {
                         Standing::Ended(end) => Some(end),
                         _ => None,
