@@ -3,8 +3,9 @@
 //! itself, at times that grow longer while it stays down, giving no round and touching no work's session, and every
 //! work goes on once a check finds it well. The engine's own acts go on meanwhile, and no work is paused for it. An act
 //! that fails for want of the network to its host holds the acts of every work, and only those, until a look at the
-//! host reaches it. A usage limit is its account's own: it holds the rounds only while its account is in use, and
-//! taking another account has the outside checked at once under it.
+//! host reaches it and the host answers the act that goes first, or that act comes back. A usage limit is its account's
+//! own: it holds the rounds only while its account is in use, and taking another account has the outside checked at
+//! once under it.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -289,6 +290,36 @@ fn an_act_that_fails_for_want_of_its_hosts_network_holds_the_acts_alone_until_a_
     assert_eq!(ended.iter().map(|t| t.work).collect::<Vec<_>>(), vec![a]);
     let acts: Vec<Todo> = acts.into_iter().cloned().collect();
     assert_eq!(rounds(&acts), vec![(b, "merge".to_string(), 1)]);
+}
+
+// Once a look has let one act go first, the host's first answer to that act ends the acts' wait, not the act's end,
+// which may be an hour after: every other act begins at once (decision one-goes-first-after-a-wait). Fails where the
+// other acts wait for the first to come back. Milliseconds.
+#[test]
+fn the_acts_wait_is_over_once_the_host_answers_the_act_that_goes_first() {
+    let (mut h, a, b) = two();
+    h.hands_in(a, &[("text", None)]);
+    fails(&mut h, a, Failure::Offline, None);
+    assert_eq!(
+        rounds(&h.hands_in(b, &[("text", None)])),
+        vec![],
+        "the other act is held"
+    );
+    let at = Time(h.d().host_outage().expect("the acts' wait stands").met.0 + PROBE);
+    let todos = h.tick_host(at, true);
+    assert_eq!(rounds(&todos), vec![(a, "merge".to_string(), 2)]);
+    // The host answers the act that went first, which is still under way.
+    let todos = h.service_answers(a);
+    assert_eq!(h.d().host_outage(), None);
+    assert_eq!(rounds(&todos), vec![(b, "merge".to_string(), 1)]);
+    let (_, cell, number, _) = h.round(a);
+    assert_eq!(
+        (cell.as_str(), number),
+        ("merge", 2),
+        "the first act is still under way"
+    );
+    // Answered again, it changes nothing.
+    assert_eq!(h.service_answers(a), vec![]);
 }
 
 #[test]

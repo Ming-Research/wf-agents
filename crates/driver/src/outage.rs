@@ -28,8 +28,11 @@
 //! added, each check kept with the `since` of the wait it was taken in.
 //!
 //! The acts' wait stands from the latest act, of any work, that failed for want of the network, until an act that began
-//! after it comes back. A look at the acts' host is taken every half minute: a look is what an act tries, at no cost,
-//! and once one reaches the host one act goes first, as one agent's round does once a check finds the outside well.
+//! after it comes back, or the host answers it while it is under way: an act says so at the first of its requests that
+//! the host answers without an error, as an agent's round does at the service's first message that is no error. A look
+//! at the acts' host is taken every half minute: a look is what an act tries, at no cost, and once one reaches the host
+//! one act goes first, as one agent's round does once a check finds the outside well. While that act is under way the
+//! wait holds every other act; once the host answers it, every act goes on, however long that act runs after.
 //!
 //! A check of the outside, and a look at the network, is no record: it is what the outside says at a moment, which the
 //! driver keeps only while its wait stands. Lost in a stop, it is taken again.
