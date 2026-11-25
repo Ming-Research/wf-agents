@@ -11,7 +11,7 @@
 //! call it again.
 //!
 //! What git says of a work (the lines its work changed) is not worked out in a read. A read gives what the last look
-//! gave and, where that is old, starts one look off the loop and does not wait for it ([`ItemsCache::start`]); where it
+//! gave and, where that is old, starts one look off the loop and does not wait for it ([`ItemsCache::look`]); where it
 //! ends, the pages are told with a notice of the items. An item no look has ended for is waited for. A look that
 //! failed gives no lines, as a look that cannot be made always has, and is made again once the bound has passed. The
 //! rule for when what git says is old is here and nowhere else.
@@ -110,16 +110,8 @@ struct Entry {
     rev: u64,
 }
 
-/// A look to start, with where the work stood as it was asked.
-pub(crate) struct Start {
-    item: u64,
-    moments: usize,
-    of: OfWork,
-}
-
-/// What a check of the cache against the driver found: the looks to start, and the items no look has ended for.
+/// What a check of the cache against the driver found: the items no look has ended for.
 pub(crate) struct Checked {
-    starts: Vec<Start>,
     never: Vec<u64>,
 }
 
@@ -179,18 +171,16 @@ impl ItemsCache {
     }
 
     /// Checks every item against the driver, as the loop's read does: works out again each whose inputs changed, and
-    /// gives the looks at the repositories to start. It reads nothing but the driver and the cache, and runs on the
-    /// loop.
-    pub(crate) fn check(&self, driver: &Driver, now: Time) -> Result<Checked, Broken> {
+    /// starts the looks at the repositories that are due. It reads nothing but the driver and the cache, and runs on the
+    /// loop. A look is marked as under way and started together, here, so that a read the page gave up after the loop
+    /// ran this leaves no item marked with no look under way.
+    pub(crate) fn check(self: &Arc<Self>, driver: &Driver, now: Time) -> Result<Checked, Broken> {
         let at_once = driver.at_once();
         let outages = Outages::of(&at_once);
         let mut inner = self.lock();
         let everything_changed = inner.outages.as_ref() != Some(&outages);
         let mut every: Option<EveryWork> = None;
-        let mut checked = Checked {
-            starts: Vec::new(),
-            never: Vec::new(),
-        };
+        let mut checked = Checked { never: Vec::new() };
         for kept in driver.works() {
             let (number, item) = (kept.head.number, kept.item.number.0);
             let moments = kept.work.moments.len();
@@ -245,7 +235,7 @@ impl ItemsCache {
                 && let Some(of) = asked(driver, &entry.base.work)
             {
                 entry.looking = true;
-                checked.starts.push(Start { item, moments, of });
+                self.look(item, moments, of, now);
             }
             if matches!(entry.looked, LastLook::Never) {
                 checked.never.push(item);
@@ -255,22 +245,20 @@ impl ItemsCache {
         Ok(checked)
     }
 
-    /// Starts the looks, each off the loop, and gives what comes of each to the item: the pages are told where it is not
-    /// what it was.
-    pub(crate) fn start(self: &Arc<Self>, starts: Vec<Start>) {
-        for start in starts {
-            let cache = self.clone();
-            tokio::spawn(async move {
-                let said = (cache.handle.seen(vec![start.of]).await.pop())
-                    .unwrap_or_else(|| Err("nothing came of the look".to_string()));
-                let at = cache.handle.now().await.unwrap_or(Time(0));
-                cache.ended(start.item, start.moments, at, said);
-            });
-        }
+    /// Starts a look at this item's work, off the loop, which was asked as the work stood after this many things had
+    /// happened to it and at this time, and gives what comes of it to the item: the pages are told where it is not what
+    /// it was.
+    fn look(self: &Arc<Self>, item: u64, moments: usize, of: OfWork, now: Time) {
+        let cache = self.clone();
+        tokio::spawn(async move {
+            let said = (cache.handle.seen(vec![of]).await.pop())
+                .unwrap_or_else(|| Err("nothing came of the look".to_string()));
+            cache.ended(item, moments, now, said);
+        });
     }
 
     /// Takes the end of the look at this item's work, which was asked as the work stood after this many things had
-    /// happened to it.
+    /// happened to it, at this time: how old it is is counted from there, as a summary's is from when it was asked.
     fn ended(&self, item: u64, moments: usize, at: Time, said: Result<Seen, String>) {
         let changed = {
             let mut inner = self.lock();
@@ -334,14 +322,13 @@ impl ItemsCache {
         }
     }
 
-    /// Checks the items against the driver on the loop, starts the looks that are due, and waits for the first look at
-    /// each item that has had none.
+    /// Checks the items against the driver on the loop, which starts the looks that are due, and waits for the first
+    /// look at each item that has had none.
     async fn fresh(self: &Arc<Self>) -> Result<(), Failure> {
         let cache = self.clone();
         let checked = (self.handle.read_at(move |driver, now| cache.check(driver, now)).await)
             .map_err(Failure::Refused)?
             .map_err(Failure::Broken)?;
-        self.start(checked.starts);
         self.waited_for(&checked.never).await;
         Ok(())
     }
@@ -384,8 +371,7 @@ impl ItemsCache {
 
     /// The work of this item in brief, as the items give it, after the driver was checked ([`ItemsCache::check`]) and
     /// the first look at the work, if none had ended, did.
-    pub(crate) async fn summary(self: &Arc<Self>, checked: Checked, item: u64) -> Option<Summary> {
-        self.start(checked.starts);
+    pub(crate) async fn summary(&self, item: u64) -> Option<Summary> {
         self.waited_for(&[item]).await;
         let inner = self.lock();
         inner.entries.get(&item).map(|entry| shown(entry).work)

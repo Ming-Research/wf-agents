@@ -375,18 +375,17 @@ async fn work(
         .read_at(move |driver, now| {
             driver.work(number).map(|_| {
                 let page = WorkPage::of(driver, &levels, number, now)?;
-                let checked = match page {
-                    Some(_) => Some(checking.check(driver, now)?),
-                    None => None,
-                };
-                Ok::<_, Broken>(page.zip(checked))
+                if page.is_some() {
+                    checking.check(driver, now)?;
+                }
+                Ok::<_, Broken>(page)
             })
         })
         .await;
     let page = match page {
         // The summary is the one the items give, so that the page and the list never say two things of a work.
-        Ok(Some(Ok(Some((mut page, checked))))) => {
-            if let Some(summary) = cache.summary(checked, page.summary.item).await {
+        Ok(Some(Ok(Some(mut page)))) => {
+            if let Some(summary) = cache.summary(page.summary.item).await {
                 page.summary = summary;
             }
             Ok(Some(Ok(Some(page))))
