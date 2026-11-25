@@ -873,7 +873,7 @@ fn held_back(reading: &Reading, cell: &decide::CellId, key: &Condition) -> bool 
 
 /// A further property, of the work held back for what only the outside makes hold (decision
 /// dependencies-hold-a-started-work-where-it-would-run): where the work waits at a cell on [`ITEMS_MERGED`], the
-/// precondition is of that cell or of a cell before it that has finished a run, never of a cell after it.
+/// precondition is of that cell or of a cell before it that applies and has finished a run, never of a cell after it.
 fn holds_back(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize, test: &decide::TestName) {
     if test.as_str() != ITEMS_MERGED {
         return;
@@ -883,11 +883,12 @@ fn holds_back(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize, test: &
         v.fail(HOLDS_BACK, format!("the work waits on {test}, which no cell requires"));
         return;
     };
-    if owner > i || (owner < i && !held_back(reading, &flow.cells()[owner].id, &key)) {
+    let holds = owner < i && reading.applies(flow, owner) && held_back(reading, &flow.cells()[owner].id, &key);
+    if owner > i || (owner < i && !holds) {
         v.fail(
             HOLDS_BACK,
             format!(
-                "the work waits at {} on {test}, which {} requires, a cell with no finished run or after it",
+                "the work waits at {} on {test}, which {} requires, a cell that is skipped, has no finished run or is after it",
                 flow.cells()[i].id,
                 flow.cells()[owner].id
             ),
@@ -898,10 +899,13 @@ fn holds_back(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize, test: &
 }
 
 /// A round begins at the cell at place `i`, whether as a run or as a run going on, while no precondition that only the
-/// outside makes hold, of that cell or of a cell before it that has finished a run, does not hold, by the histories' own
-/// reading: the work is held back there and begins nothing.
+/// outside makes hold, of that cell or of a cell before it that applies and has finished a run, does not hold, by the
+/// histories' own reading: the work is held back there and begins nothing. A cell that is skipped holds nothing.
 fn begins_held(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize) {
     for (j, cell) in flow.cells()[..=i].iter().enumerate() {
+        if !reading.applies(flow, j) {
+            continue;
+        }
         if let Some(key) =
             (cell.requires.iter()).find(|key| held_back(reading, &cell.id, key) && !reading.key_holds(flow, key, j))
         {
