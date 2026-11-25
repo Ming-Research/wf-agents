@@ -301,8 +301,9 @@ pub struct Driver {
     /// When the driver was last told the time it asked for: a wake at or before it has been acted on. Lost in a stop,
     /// when a wake whose time has come is acted on again.
     ticked: Option<Time>,
-    /// Each round, of a work and run by its number, that the agents' service answered while it was under way. What
-    /// the outside says at a moment, kept only in memory: lost in a stop, the round is given again and answers again.
+    /// Each round, of a work and run by its number, that the service it reaches answered while it was under way: the
+    /// agents' service an agent's round, the host an act. What the outside says at a moment, kept only in memory: lost
+    /// in a stop, the round is given again and answers again.
     answered: BTreeSet<(WorkNumber, decide::RunId, usize)>,
     /// The keep-warm pings given and not yet said to have ended, by work and line ([`warm`]): while one of a line is,
     /// no round of that line of the work begins. Lost in a stop, when a ping still due is given again.
@@ -1857,9 +1858,10 @@ impl Driver {
         .collect()
     }
 
-    /// Takes, at the time the caller's clock gives, that the agents' service answered the round under way of the run:
-    /// where the round began after the latest that failed for a cause outside every work, the wait is over, and every
-    /// work is looked at again; what is to be done is given. A round no longer under way is passed over.
+    /// Takes, at the time the caller's clock gives, that the service the round under way of the run reaches answered
+    /// it: the agents' service an agent's round, the host an act. Where the round began after the latest that failed
+    /// for a cause outside every work, that service's wait is over, and every work is looked at again; what is to be
+    /// done is given. A round no longer under way is passed over.
     pub fn answered(&mut self, now: Time, work: WorkNumber, run: decide::RunId) -> Result<Vec<Todo>, Fault> {
         if let Some(fault) = &self.fault {
             return Err(fault.clone());
@@ -1873,9 +1875,9 @@ impl Driver {
         if began == 0 || ended >= began {
             return Ok(Vec::new());
         }
-        let outage = self.agents_wait();
+        let waits = self.outages();
         self.answered.insert((work, run, began));
-        if self.agents_wait() == outage {
+        if self.outages() == waits {
             return Ok(Vec::new());
         }
         match self.look(now) {

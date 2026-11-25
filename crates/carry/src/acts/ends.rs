@@ -17,7 +17,7 @@ const WORK: WorkNumber = WorkNumber(1);
 /// The acts on the fake host in the repository.
 fn acts(repo: &Repo, host: Fake) -> Acts<Fake> {
     Acts::new(
-        host,
+        Arc::new(host),
         repo.project.clone(),
         repo.data.clone(),
         TAG.to_string(),
@@ -443,6 +443,63 @@ async fn a_held_check_writes_its_choice_alone_and_hands_in_what_the_host_observe
     assert_eq!(came.said.observations, ["The test `a` may be flaky."]);
     // What it wrote waits for main to move, so that the work waits for main and not for the owner.
     assert_eq!(came.waits_for, Some(BlockId::from("main")));
+}
+
+// The host's first answer to an act tells the act's round, while it is under way, that the host answered it: the check
+// reads main of the host first, and its round is told so before the verdict comes, which may be an hour after, so that
+// the acts' wait every work shares ends then and not at the check's end (decision one-goes-first-after-a-wait). It is
+// told once for the round. Fails where an act tells nothing until it comes back. Well under a second alone: a
+// repository on disk and the fake host, its verdict held until the test lets it go.
+#[tokio::test]
+async fn an_act_tells_its_round_once_the_host_answers_it_while_it_is_still_under_way() {
+    let repo = Repo::new("true");
+    started(&repo).await;
+    let main = run(&repo.project.repo, &["rev-parse", "main"]);
+    let head = run(&repo.project.repo, &["rev-parse", &repo.place(WORK).reference()]);
+    let verdict = Arc::new(Notify::new());
+    let host = Fake::new(&main)
+        .judges(Ok(Some(Verdict::default())))
+        .holding(verdict.clone());
+    let acts = acts(&repo, host);
+    let code = format!("Greets the user, in commit {head}.");
+    let round = checking(item("Greet the user"), written(&[("code", code.as_str())]));
+    let (to, mut told) = tokio::sync::mpsc::unbounded_channel();
+    acts.give(round, RoundReply::new(WORK, RunId(4), to));
+    let answered = async {
+        loop {
+            match told.recv().await.expect("the round goes on") {
+                service::Message::Answered { work, run } => break (work, run),
+                service::Message::Happened {
+                    event: engine::Event::Returned { .. } | engine::Event::Failed { .. },
+                    ..
+                } => panic!("the round ended before it was told the host answered it"),
+                _ => {}
+            }
+        }
+    };
+    let answered = tokio::time::timeout(Duration::from_secs(10), answered).await;
+    assert_eq!(
+        answered.expect("the round is told while the verdict is held"),
+        (WORK, RunId(4))
+    );
+    // Let go, the verdict ends the round, and the round is told nothing more of the host's answers.
+    verdict.notify_one();
+    let mut again = 0;
+    loop {
+        match told.recv().await.expect("the round ends") {
+            service::Message::Answered { .. } => again += 1,
+            service::Message::Happened {
+                event: engine::Event::Returned { .. },
+                ..
+            } => break,
+            service::Message::Happened {
+                event: engine::Event::Failed { why, .. },
+                ..
+            } => panic!("the check failed: {why}"),
+            _ => {}
+        }
+    }
+    assert_eq!(again, 0, "the round is told once");
 }
 
 #[test]

@@ -1,13 +1,15 @@
 //! A host for the tests of the acts: it gives the head of main it is set to and the verdicts it is given, in order,
-//! merges by saying main is where it is, and keeps what it was asked, the title of each branch it was given, and what
-//! asked for each verdict and each run of the tests. It runs no test for the agents' tool, and keeps what it was asked
-//! to run, giving the words it is set to. Its pull requests are at addresses of its own.
+//! each once it is let go where it is told to hold them; merges by saying main is where it is; and keeps what it was
+//! asked, the title of each branch it was given, and what asked for each verdict and each run of the tests. It runs no
+//! test for the agents' tool, and keeps what it was asked to run, giving the words it is set to. Its pull requests are
+//! at addresses of its own.
 
 use std::collections::VecDeque;
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use service::OpenPull;
 use store::Continues;
+use tokio::sync::Notify;
 
 use super::{Asking, Branch, Failed, Host, Named, NotMerged, Verdict};
 use crate::held::Stop;
@@ -16,6 +18,8 @@ use crate::held::Stop;
 pub(crate) struct Fake {
     main: Mutex<String>,
     verdicts: Mutex<VecDeque<Result<Option<Verdict>, Failed>>>,
+    /// What lets each verdict go, where it is held until then.
+    holding: Option<Arc<Notify>>,
     /// Why letting go fails, where it does.
     ending: Mutex<Option<String>>,
     /// Why reading the head of main fails, where it does.
@@ -60,6 +64,7 @@ impl Fake {
         Fake {
             main: Mutex::new(main.to_string()),
             verdicts: Mutex::new(VecDeque::new()),
+            holding: None,
             ending: Mutex::new(None),
             unreadable: Mutex::new(None),
             asked: Mutex::new(Vec::new()),
@@ -89,6 +94,12 @@ impl Fake {
     /// Gives this verdict when it is next asked for one.
     pub(crate) fn judges(self, verdict: Result<Option<Verdict>, Failed>) -> Fake {
         lock(&self.verdicts).push_back(verdict);
+        self
+    }
+
+    /// Holds each verdict it is asked for until `until` lets it go, as a host whose checks run long.
+    pub(crate) fn holding(mut self, until: Arc<Notify>) -> Fake {
+        self.holding = Some(until);
         self
     }
 
@@ -140,6 +151,9 @@ impl Host for Fake {
         self.given(branch);
         lock(&self.askings).push(asking);
         lock(&self.asked).push(Asked::Verdict(commit.to_string()));
+        if let Some(until) = &self.holding {
+            until.notified().await;
+        }
         let next = lock(&self.verdicts).pop_front();
         next.unwrap_or_else(|| Err("the fake host has no verdict to give".into()))
     }
