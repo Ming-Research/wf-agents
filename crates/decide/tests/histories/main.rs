@@ -23,7 +23,7 @@
 //!   In a third of the histories a cell drawn at random is run by the owner's words to it, a block that interrupts.
 //!   Each cell may be entered again for the results of what it asked for one to three times in a row. In two histories
 //!   of five, drawn apart from the rest, the cells ask the owner questions, and a cell drawn at random is run by the
-//!   owner's answers to its own, a block that interrupts as the owner's words do. In a third of the histories of any
+//!   owner's answers to its own, a block that interrupts as the owner's words do. In half the histories of any
 //!   flow without a drawn failing or judge, drawn apart from the rest, a cell before the merge has the precondition that
 //!   the items the work depends on have merged, which the block `dependencies`, written only by the outside, makes
 //!   hold: it says "merged", or "waiting" at first in a quarter of them, and the outside turns it between the two in
@@ -410,12 +410,12 @@ impl History {
             cells[i].runs_on.push(ANSWERED.into());
             cells[i].id.clone()
         });
-        // The items the work depends on, in a third of the histories of any flow, drawn apart from the rest: a cell
+        // The items the work depends on, in half the histories of any flow, drawn apart from the rest: a cell
         // before the merge has the precondition that they have merged, which only the outside makes hold, and the
         // outside turns the block between "merged" and "waiting" while people act, so that a work that has run comes to
         // wait for items where it stands.
         let mut watching = Rng::new(seed ^ 0x0001_7E35_0DE9_E11D);
-        let mut items = (shape.is_none() && !drawn.failing && !drawn.judged && watching.chance(33)).then_some(watching);
+        let mut items = (shape.is_none() && !drawn.failing && !drawn.judged && watching.chance(50)).then_some(watching);
         if let Some(items) = &mut items {
             let i = items.below(cells.len());
             cells[i].requires.push(ITEMS_MERGED.into());
