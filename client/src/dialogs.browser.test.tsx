@@ -75,6 +75,8 @@ describe.each(['light', 'dark'] as const)('the page’s dialogs in the %s theme'
     expect.soft(look.fontSize).toBe(named('font-size', 'var(--size-body)'));
     expect.soft(look.borderRadius).toBe(named('border-radius', 'var(--dialog-corner)'));
     expect.soft(look.boxShadow).toBe(named('box-shadow', 'var(--dialog-shadow)'));
+    // The shadow's first layer is the page's line in this theme: the token takes `--line` where it is set on the root.
+    expect.soft(look.boxShadow.startsWith(named('color', 'var(--line)'))).toBe(true);
     expect.soft(getComputedStyle(dialog.querySelector('.confirm-body') as HTMLElement).fontSize).toBe(size);
     const buttons = [...dialog.querySelectorAll<HTMLButtonElement>('.confirm-buttons .button')];
     expect(buttons).toHaveLength(2);
