@@ -136,7 +136,7 @@ use decide::run::Failure;
 use decide::{BlockId, CellId, Decision, End, Holder, Outsider, Pauser, Room, View, begun, decide, taking_slot};
 use engine::{Effect, Event, Gate, Hold, Refused, handle_held, handle_then, held};
 use flow::Compiled;
-use flow::agents::fill;
+use flow::agents::{ResultGiven, fill};
 pub use outage::{Candidate, CannotRun, Checked, Found, Limit, Move, Outage, Service, Until};
 use store::{
     AccountAct, AccountRecord, AccountTaker, Change, Continues, EverythingPaused, First, Item, ItemChange, ItemNumber,
@@ -294,6 +294,9 @@ pub struct Driver {
     fault: Option<Fault>,
     /// When a line begins a new session; with none, only what others record of sessions is followed.
     policy: Option<Policy>,
+    /// How much of a result of `run_tests` a round is given, which the datum `test_runs` gives of each call too; with
+    /// none, a result is given whole.
+    tests_given: Option<ResultGiven>,
     /// The checks of the outside taken while the agents' rounds wait for it, by the account each was taken under, none
     /// where none was in use, with when the wait they were taken in began ([`Outage::since`]): a check speaks only of
     /// its own account, and checks of a wait that ended are of no other. A check under an account that is not the one
@@ -720,8 +723,8 @@ pub enum Failed {
 }
 
 impl Driver {
-    /// Opens the driver on a store, with the flows the works run on, this many slots and the policy of when a line
-    /// begins a new session, and gives everything that is to be done: what was to be done before and is not known as
+    /// Opens the driver on a store, with the flows the works run on, this many slots, the policy of when a line
+    /// begins a new session and how much of a result of `run_tests` is given, and gives everything that is to be done: what was to be done before and is not known as
     /// done, and what follows from looking at every work now, the free slots given in the engine's order.
     ///
     /// Where a work is going on, one that has not ended and that its own pause does not hold, and nothing pauses
@@ -735,6 +738,7 @@ impl Driver {
         flows: Vec<Compiled>,
         slots: usize,
         policy: Option<Policy>,
+        tests_given: Option<ResultGiven>,
         now: Time,
     ) -> Result<(Driver, Vec<Todo>), Fault> {
         let mut given = BTreeMap::new();
@@ -796,6 +800,7 @@ impl Driver {
             stops,
             fault: None,
             policy,
+            tests_given,
             checked: BTreeMap::new(),
             looked_at_host: None,
             ticked: None,
@@ -1320,7 +1325,7 @@ impl Driver {
         };
         let block = block.clone();
         let had = decide::versions(&held.work.records).get(&block).map_or(0, Vec::len);
-        let missing: Vec<String> = timed::runs(&held.work, &declared.writes)
+        let missing: Vec<String> = timed::runs(&held.work, &declared.writes, self.tests_given.as_ref())
             .into_iter()
             .skip(had)
             .collect();
@@ -3214,7 +3219,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("a directory for the store");
         let store = Store::open(dir.path().join("store.db")).expect("the store opens");
         let mut now = Time(1_800_000_000_000);
-        let (mut driver, _) = Driver::open(Box::new(store), vec![flow()], 1, None, now).expect("the driver opens");
+        let (mut driver, _) =
+            Driver::open(Box::new(store), vec![flow()], 1, None, None, now).expect("the driver opens");
         for i in 0..works {
             now.0 += 1_000;
             let new = NewItem {
@@ -3353,7 +3359,7 @@ mod tests {
             warm: None,
         };
         let (mut driver, _) =
-            Driver::open(Box::new(store), vec![flow()], 10, Some(policy), now).expect("the driver opens");
+            Driver::open(Box::new(store), vec![flow()], 10, Some(policy), None, now).expect("the driver opens");
         let works: Vec<WorkNumber> = (0..3).map(|_| written(&mut driver, &mut now)).collect();
         for work in &works {
             hands_in(&mut driver, &mut now, *work, "merged");

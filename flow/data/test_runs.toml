@@ -1,10 +1,13 @@
 # The engine writes one version for each call of `run_tests` of the work, as the call ends, in the order the calls ended:
-# what the call asked for and the result the engineer was given. A cell reads it and none is run by it. The engine
-# parses nothing of the result: whoever reads this does.
+# what the call asked for and the result the engineer was given, cut where the tool's words (`[given]` of
+# `agents/tools/run_tests.toml`) cut it. A cell reads it and none is run by it. The engine parses nothing of the result:
+# whoever reads this does.
 what = "Each call of `run_tests` this work made, one to a version, in the order the calls ended: what it asked for, and the result the call gave. A result says the commit it ran on, each test and check it was asked for with how it ended and how long it took, what a failed test said, and the number of each measurement. A work with no version of it made no call of `run_tests`."
 from = "test_runs"
 
 # What the engine writes, a text filled in a run: `{n}` how many calls of `run_tests` ended up to this one, `{request}`
-# what the call asked for as it was written, and `{result}` the result the call gave.
+# what the call asked for as it was written, and `{result}` the result the call gave. `cut` is said after a result that
+# was cut: `{given}` the bytes of it given and `{size}` the bytes it is whole.
 [writes]
 call = "Call {n} of `run_tests`, asked as {request}. It gave:\n{result}"
+cut = "(The result is cut here: {given} of its {size} bytes are given.)"

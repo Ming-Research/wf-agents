@@ -148,7 +148,8 @@ async fn started_on_a_work_going_on_the_engine_says_it_holds_everything_until_th
         )
         .unwrap();
         let store = store::Store::open(&path).unwrap();
-        let (mut driver, _) = driver::Driver::open(Box::new(store), vec![flow], 2, None, work::Time(START)).unwrap();
+        let (mut driver, _) =
+            driver::Driver::open(Box::new(store), vec![flow], 2, None, None, work::Time(START)).unwrap();
         let new = driver::NewItem {
             title: "First".to_string(),
             level: "2".to_string(),

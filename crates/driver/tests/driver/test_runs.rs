@@ -25,7 +25,7 @@ fn runs() -> Compiled {
         writes = { text = "The owner started the work." }
         [blocks.calls]
         outside = "test_runs"
-        writes = { call = "Call {n}, asked as {request}. It gave:\n{result}" }
+        writes = { call = "Call {n}, asked as {request}. It gave:\n{result}", cut = "(cut: {given} of {size})" }
     "#;
     let write = r#"
         title = "Write"
@@ -161,5 +161,40 @@ fn a_call_is_written_once_however_often_the_engine_starts_again() {
             "Call 2, asked as {}. It gave:\ntwo",
             "Call 3, asked as {}. It gave:\nthree",
         ]
+    );
+}
+
+// A result longer than the tool's bound is a version cut as the engineer's round is given it: at the bound, at a whole
+// character, with the datum's own words and no file; one no longer than the bound is whole, with its trailing blanks left off.
+#[test]
+fn a_result_over_the_tools_bound_is_cut_in_the_version_with_the_datums_words() {
+    let mut h = H::with(vec![runs()]);
+    h.tests_given = Some(flow::agents::ResultGiven {
+        bound: 20,
+        cut: "(cut here, the rest is in {file})".to_string(),
+    });
+    h.restart();
+    let (_, work) = h.add_let_on(new_item("Greet", &[], "runs"));
+    let long = format!("{}é{}", "a".repeat(19), "b".repeat(30));
+    calls(&mut h, work, driver::timed::RUN_TESTS, "{}", &long);
+    calls(
+        &mut h,
+        work,
+        driver::timed::RUN_TESTS,
+        "{}",
+        &format!("{}\n\n", "c".repeat(20)),
+    );
+    assert_eq!(
+        versions(&h, work),
+        [
+            format!("Call 1, asked as {{}}. It gave:\n{}\n\n(cut: 19 of 51)", "a".repeat(19)),
+            format!("Call 2, asked as {{}}. It gave:\n{}", "c".repeat(20)),
+        ],
+        "the first result is cut before the character the bound falls in, the second is whole with its trailing blanks left off"
+    );
+    let kept = h.d().work(work).expect("the work").work;
+    assert!(
+        kept.results.values().any(|r| r == &long),
+        "the whole result is kept in the work's records"
     );
 }

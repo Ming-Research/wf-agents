@@ -271,6 +271,7 @@ fn carry_keeping(
         host: host_look,
         tokens,
         calls: beside.calls.clone(),
+        tests_given: beside.tools.get(tools::RUN_TESTS).and_then(|tool| tool.given.clone()),
     };
     Ok((carriers, watches, declarations))
 }

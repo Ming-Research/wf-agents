@@ -22,7 +22,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use flow::Texts;
-use flow::agents::fill;
+use flow::agents::{ResultGiven, fill};
 use store::WorkNumber;
 use work::timed::Source;
 use work::{Ask, Call, Time, Work};
@@ -39,7 +39,7 @@ pub const TEST_TIMES: &str = "test_times";
 pub const TEST_RUNS: &str = "test_runs";
 
 /// The words the datum `test_runs`' definition gives in its `writes`, each a text the engine fills.
-pub const RUNS_WORDS: [&str; 1] = ["call"];
+pub const RUNS_WORDS: [&str; 2] = ["call", "cut"];
 
 /// The words the datum's definition gives in its `writes`, each a text the engine fills.
 pub const WORDS: [&str; 15] = [
@@ -595,10 +595,11 @@ pub fn render(facts: &Facts, texts: &Texts) -> String {
 
 /// The versions of the datum `test_runs` as the work's records now say them: one for each call of `run_tests` that has
 /// a result, in the order the results were recorded, in the words of the datum's definition (`texts`), each filled with
-/// the call's number among them, what it asked for as the agent wrote it, and its result with its end of whitespace
-/// left off. The result is given whole: it is kept whole, and nothing of it is read here.
-pub fn runs(work: &Work, texts: &Texts) -> Vec<String> {
-    let says = texts.get("call").unwrap_or_default();
+/// the call's number among them, what it asked for as the agent wrote it, and its result as a round of the engineer is
+/// given it: its end of whitespace left off, and cut where the tool's words (`given`) say, with the datum's own `cut`
+/// words, which name no file. Nothing of the result is read here.
+pub fn runs(work: &Work, texts: &Texts, given: Option<&ResultGiven>) -> Vec<String> {
+    let says = |name: &str| texts.get(name).unwrap_or_default();
     let asked = work
         .records
         .done
@@ -610,10 +611,12 @@ pub fn runs(work: &Work, texts: &Texts) -> Vec<String> {
     asked
         .enumerate()
         .map(|(i, (call, input))| {
-            let result = work.results.get(&call).map(|r| r.trim_end()).unwrap_or_default();
+            let result = work.results.get(&call).map(String::as_str).unwrap_or_default();
+            let _ = given;
+            let result = result.trim_end().to_string();
             fill(
-                says,
-                &[("n", &(i + 1).to_string()), ("request", input), ("result", result)],
+                says("call"),
+                &[("n", &(i + 1).to_string()), ("request", input), ("result", &result)],
             )
         })
         .collect()
@@ -921,10 +924,11 @@ mod tests {
     }
 
     // The calls of `run_tests` are written in the order their results were recorded, not the order they were asked in,
-    // each result whole however long and with no place in it filled again; a call of another tool, and a call with no
-    // result yet, are none of them.
+    // each result as the tool's bound gives it (cut at a whole character, with the datum's own words, and whole where
+    // there is no bound) and with no place in it filled again; a call of another tool, and a call with no result yet,
+    // are none of them.
     #[test]
-    fn the_calls_of_the_tests_are_given_in_the_order_they_ended_whole_and_no_other_call_is() {
+    fn the_calls_of_the_tests_are_given_in_the_order_they_ended_cut_at_the_bound_and_no_other_call_is() {
         use decide::{CallId, Done};
         let tool = |name: &str, input: &str| {
             Call::Asked(Ask::Tool {
@@ -937,7 +941,8 @@ mod tests {
         work.calls.insert(CallId(5), tool(RUN_TESTS, "second asked"));
         work.calls.insert(CallId(6), tool("query", "other"));
         work.calls.insert(CallId(7), tool(RUN_TESTS, "not ended"));
-        let long = "x".repeat(30_000);
+        // Nine bytes, then characters of two bytes each: the bound of ten bytes falls inside the first of them.
+        let long = format!("{}{}", "x".repeat(9), "é".repeat(5));
         for (n, (call, result)) in [(5, "ended first {n}\n"), (6, "q"), (4, long.as_str())]
             .into_iter()
             .enumerate()
@@ -948,13 +953,30 @@ mod tests {
             });
             work.results.insert(CallId(call), result.to_string());
         }
-        let texts = Texts(vec![("call".to_string(), "#{n} {request}: {result}".to_string())]);
+        let texts = Texts(vec![
+            ("call".to_string(), "#{n} {request}: {result}".to_string()),
+            ("cut".to_string(), "(cut: {given} of {size})".to_string()),
+        ]);
+        let given = ResultGiven {
+            bound: 10,
+            cut: "(cut: {given} of {size}, in {file})".to_string(),
+        };
         assert_eq!(
-            runs(&work, &texts),
+            runs(&work, &texts, Some(&given)),
             [
                 "#1 second asked: ended first {n}".to_string(),
-                format!("#2 first asked: {long}")
-            ]
+                "#2 first asked: xxxxxxxxx\n\n(cut: 9 of 19)".to_string(),
+            ],
+            "a result longer than the bound is cut before the character the bound falls in, with no file named, and a \
+             shorter one is whole"
+        );
+        assert_eq!(
+            runs(&work, &texts, None),
+            [
+                "#1 second asked: ended first {n}".to_string(),
+                format!("#2 first asked: {long}"),
+            ],
+            "with no bound a result is given whole"
         );
     }
 }

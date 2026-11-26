@@ -102,6 +102,18 @@ fn a_call_report_the_flow_gives_no_words_for_is_a_fault_on_the_file_that_holds_t
     assert!(faults[0].ends_with("its writes must give call"), "{}", faults[0]);
 }
 
+// A result of the calls of `run_tests` that is cut is told so in words the datum's file gives: where it gives none, it is
+// a fault on that file, whichever of its words is the one lacking.
+#[test]
+fn a_cut_result_the_flow_gives_no_words_for_is_a_fault_on_the_file_that_holds_them() {
+    let dir = copied();
+    without(dir.path(), "data/test_runs.toml", "cut = ");
+    let faults = driver::faults(&engineer(dir.path()));
+    assert_eq!(faults.len(), 1, "{faults:?}");
+    assert!(faults[0].contains("data/test_runs.toml"), "{}", faults[0]);
+    assert!(faults[0].ends_with("its writes must give cut"), "{}", faults[0]);
+}
+
 #[test]
 fn a_start_the_flow_gives_no_words_for_is_a_fault_on_the_file_that_holds_them() {
     let dir = copied();
