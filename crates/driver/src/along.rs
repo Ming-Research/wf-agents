@@ -4,6 +4,7 @@
 //! once it is given again after a stop.
 
 use decide::{CallId, Records, RunId};
+use store::WorkNumber;
 
 use crate::history::{Line, Lines};
 use crate::judged::Against;
@@ -15,8 +16,13 @@ pub enum Along {
     /// for.
     Runs { at: String, queued_for: Option<String> },
     /// It waits for its turn on the machine of this runner's label, on which one measurement runs at a time, since this
-    /// time, in milliseconds since 1970.
-    WaitsForMachine { machine: String, since: u64 },
+    /// time, in milliseconds since 1970: behind the work whose measurement has the turn, where the engine's turns know
+    /// one, and else behind a run on the machine they do not know, as one asked for before the engine started again.
+    WaitsForMachine {
+        machine: String,
+        since: u64,
+        behind: Option<WorkNumber>,
+    },
     /// An agent's round: what its calls to the model have come to so far.
     Going(Going),
 }

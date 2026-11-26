@@ -9,7 +9,9 @@
 //! main, and a pause of the owner's whose items have all ended. Beside them, what holds work back without anyone being
 //! asked: a project's turn to check and merge, held by a work whose round or call has been under way longer than
 //! [`Times::turn`] while other works wait for it; a round or call that has waited for a runner longer than
-//! [`Times::queued`]; slots free while items could be let on, as `wf-agents candidates` counts them; an item that has
+//! [`Times::queued`]; a measurement that has waited for its turn on its machine longer than [`Times::machine`], read
+//! from the same summary the page draws the wait from, so that it is never one the page counts as waiting on the owner;
+//! slots free while items could be let on, as `wf-agents candidates` counts them; an item that has
 //! not ended, is not a deliverable, and that no item that has not ended depends on, so that it stands at a root; and a
 //! work the owner paused without saying why. Two things are said once, as they come, and never again: a work that
 //! ended, and a work that came to wait for items none of which is going on.
@@ -68,6 +70,8 @@ pub struct Times {
     pub turn: u64,
     /// How long a round or call may wait for a runner before that is something to handle.
     pub queued: u64,
+    /// How long a measurement may wait for its turn on its machine before that is something to handle.
+    pub machine: u64,
 }
 
 /// What needs the planner: what came since the mark, or what stands, given whole.
@@ -142,6 +146,16 @@ pub enum Line {
         of: Of,
         since: u64,
         runner: String,
+        now: Now,
+    },
+    /// A measurement the work's call asked for has waited since this time for its turn on this machine, on which one
+    /// measurement runs at a time: behind this work's measurement, where the engine's turns know the one that has the
+    /// turn, and else behind a run on the machine they do not know, as one asked for before the engine started again.
+    Machine {
+        of: Of,
+        since: u64,
+        machine: String,
+        behind: Option<Of>,
         now: Now,
     },
     /// The owner may answer these questions of the work ahead, as the page counts them, since the oldest was asked.
@@ -355,6 +369,7 @@ impl Line {
             Line::Root { of, .. } => (13, of.work, ""),
             Line::Idle { of, .. } => (14, of.work, ""),
             Line::Ended { of, .. } => (15, of.work, ""),
+            Line::Machine { of, machine, .. } => (16, of.work, machine.as_str()),
         };
         let bytes = std::iter::once(kind).chain(work.to_le_bytes()).chain(name.bytes());
         let hash = bytes.fold(0xcbf2_9ce4_8422_2325u64, |hash, byte| {
@@ -375,6 +390,7 @@ impl Line {
             | Line::ForAPerson { since, .. }
             | Line::Turn { since, .. }
             | Line::Queued { since, .. }
+            | Line::Machine { since, .. }
             | Line::Ahead { since, .. }
             | Line::PauseOver { since, .. }
             | Line::Unexplained { since, .. }
@@ -668,6 +684,36 @@ pub(crate) fn gather(cache: &Arc<ItemsCache>, driver: &Driver, now: Time, times:
                 of: of_item(item),
                 since: since.0,
                 runner: runner.to_string(),
+                now: s.now.clone(),
+            };
+            things.push(thing(line, 3, came, work));
+        }
+        // A measurement's wait for its machine, as the page's own summary of the work has it.
+        let calls = match &s.now {
+            Now::Waits { on, .. } => on.as_slice(),
+            _ => &[],
+        };
+        for waited in calls {
+            let Waited::Call {
+                machine: Some(wait), ..
+            } = waited
+            else {
+                continue;
+            };
+            let came = Time(wait.since.saturating_add(times.machine));
+            if came > now {
+                wake(came);
+                continue;
+            }
+            let behind = match wait.behind {
+                Some(holder) => Some(of_item(item_of(&by_work, holder)?)),
+                None => None,
+            };
+            let line = Line::Machine {
+                of: of_item(item),
+                since: wait.since,
+                machine: wait.machine.clone(),
+                behind,
                 now: s.now.clone(),
             };
             things.push(thing(line, 3, came, work));

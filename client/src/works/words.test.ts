@@ -228,7 +228,7 @@ describe('what a work does now, in words', () => {
             who: null,
             what: { kind: 'tool', name: 'run_tests', input: '{}' },
             made: since - 60_000,
-            machine: { machine: '14900k', since },
+            machine: { machine: '14900k', since, behind: 33 },
           },
         ],
       } as Now,
@@ -236,12 +236,20 @@ describe('what a work does now, in words', () => {
       waits: [],
     };
     expect(callsWaited(work)).toEqual([
-      { tool: 'run_tests', ci: null, queued: null, machine: { name: '14900k', since }, made: since - 60_000 },
+      {
+        tool: 'run_tests',
+        ci: null,
+        queued: null,
+        machine: { name: '14900k', since, behind: 33 },
+        made: since - 60_000,
+      },
     ]);
     const twelve = since + 12 * 60_000 + 5_000;
-    expect(stateOf(work, twelve).word).toBe('Waiting for run_tests by the engine (waiting 12m 5s for its turn on 14900k)');
+    expect(stateOf(work, twelve).word).toBe(
+      'Waiting for run_tests by the engine (waiting 12m 5s for its turn on 14900k, behind W33)',
+    );
     expect(stateWords(work, twelve)).toBe(
-      'Waiting for run_tests by the engine (waiting 12m 5s for its turn on 14900k) · 13m 5s · I1',
+      'Waiting for run_tests by the engine (waiting 12m 5s for its turn on 14900k, behind W33) · 13m 5s · I1',
     );
     // Once its turn came and its run is asked for, it waits for the run, and the machine is no longer said.
     const call: Waited = {

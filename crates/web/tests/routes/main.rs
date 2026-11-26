@@ -416,6 +416,7 @@ pub fn times() -> web::attention::Times {
         again: 300_000,
         turn: 1_800_000,
         queued: 900_000,
+        machine: 3_600_000,
     }
 }
 

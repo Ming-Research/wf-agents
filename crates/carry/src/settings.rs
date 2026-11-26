@@ -171,8 +171,9 @@ const MINUTE: u64 = 60_000;
 
 /// What `wf-agents wait` goes by, in minutes: how long after it gave what stands to be handled it gives it whole again,
 /// until each thing is gone; how long a work may hold its project's turn to check and merge, its round or call under
-/// way, while other works wait for the turn, before that is something to handle; and how long a round or call may wait
-/// for a runner before that is something to handle.
+/// way, while other works wait for the turn, before that is something to handle; how long a round or call may wait for
+/// a runner before that is something to handle; and how long a measurement may wait for its turn on its machine before
+/// that is something to handle.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Wait {
@@ -182,6 +183,8 @@ pub struct Wait {
     pub turn_minutes: u64,
     #[serde(default = "queued_minutes")]
     pub queued_minutes: u64,
+    #[serde(default = "machine_minutes")]
+    pub machine_minutes: u64,
 }
 
 impl Default for Wait {
@@ -190,6 +193,7 @@ impl Default for Wait {
             again_minutes: again_minutes(),
             turn_minutes: turn_minutes(),
             queued_minutes: queued_minutes(),
+            machine_minutes: machine_minutes(),
         }
     }
 }
@@ -206,12 +210,21 @@ fn queued_minutes() -> u64 {
     15
 }
 
+fn machine_minutes() -> u64 {
+    60
+}
+
 impl Wait {
-    /// How long after what stands was given whole it is given again, how long a turn may be held so, and how long a
-    /// round may wait for a runner, in milliseconds.
-    pub fn ms(&self) -> (u64, u64, u64) {
+    /// How long after what stands was given whole it is given again, how long a turn may be held so, how long a round
+    /// may wait for a runner, and how long a measurement may wait for its machine, in milliseconds.
+    pub fn ms(&self) -> (u64, u64, u64, u64) {
         let ms = |minutes: u64| minutes.saturating_mul(MINUTE);
-        (ms(self.again_minutes), ms(self.turn_minutes), ms(self.queued_minutes))
+        (
+            ms(self.again_minutes),
+            ms(self.turn_minutes),
+            ms(self.queued_minutes),
+            ms(self.machine_minutes),
+        )
     }
 }
 
@@ -836,10 +849,11 @@ mod tests {
     #[test]
     fn what_wait_goes_by_is_read_each_left_out_at_its_default_and_no_time_between_givings_is_refused() {
         let settings = Settings::read(SAMPLE).expect("the sample reads");
-        assert_eq!(settings.wait.ms(), (5 * MINUTE, 30 * MINUTE, 15 * MINUTE));
+        assert_eq!(settings.wait.ms(), (5 * MINUTE, 30 * MINUTE, 15 * MINUTE, 60 * MINUTE));
         let without = (SAMPLE.replace("again_minutes = 5\n", ""))
             .replace("turn_minutes = 30\n", "")
-            .replace("queued_minutes = 15\n", "");
+            .replace("queued_minutes = 15\n", "")
+            .replace("machine_minutes = 60\n", "");
         assert_ne!(without, SAMPLE, "the sample sets them");
         assert_eq!(
             Settings::read(&without).expect("it reads without").wait,
@@ -847,9 +861,10 @@ mod tests {
         );
         assert_eq!(Wait::default(), settings.wait, "the sample sets each at its default");
         let set = (SAMPLE.replace("again_minutes = 5", "again_minutes = 2"))
-            .replace("queued_minutes = 15", "queued_minutes = 40");
+            .replace("queued_minutes = 15", "queued_minutes = 40")
+            .replace("machine_minutes = 60", "machine_minutes = 90");
         let read = Settings::read(&set).expect("it reads");
-        assert_eq!(read.wait.ms(), (2 * MINUTE, 30 * MINUTE, 40 * MINUTE));
+        assert_eq!(read.wait.ms(), (2 * MINUTE, 30 * MINUTE, 40 * MINUTE, 90 * MINUTE));
         let never = SAMPLE.replace("again_minutes = 5", "again_minutes = 0");
         assert!(
             Settings::read(&never)

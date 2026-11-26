@@ -22,7 +22,8 @@ use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::time::Duration;
 
 use service::{Along, Clock};
-use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use store::WorkNumber;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, watch};
 
 use crate::held::Stop;
 use crate::host::Failed;
@@ -44,13 +45,24 @@ struct Machine {
     /// One turn, given in the order it was asked for: a semaphore of tokio's gives its permits first come, first
     /// served.
     turn: Arc<Semaphore>,
+    /// The work whose measurement has the turn; none while nobody has it. Each request that waits for the turn is told
+    /// when it changes, and says behind whom it waits.
+    holder: watch::Sender<Option<WorkNumber>>,
     /// The projects whose measurements run on it. They are not kept alive by it: a host that is gone lists nothing.
     sharing: Mutex<Vec<Weak<dyn Busy>>>,
 }
 
 /// A request's turn on a machine, held until it is dropped.
 pub(crate) struct Turn {
+    machine: Arc<Machine>,
     _permit: OwnedSemaphorePermit,
+}
+
+impl Drop for Turn {
+    /// The machine has no holder until the next request takes the turn, which the permit, let go after this, gives.
+    fn drop(&mut self) {
+        self.machine.holder.send_replace(None);
+    }
 }
 
 impl std::fmt::Debug for Machines {
@@ -77,6 +89,7 @@ impl Machines {
         (of.entry(label.to_string()).or_insert_with(|| {
             Arc::new(Machine {
                 turn: Arc::new(Semaphore::new(1)),
+                holder: watch::Sender::new(None),
                 sharing: Mutex::new(Vec::new()),
             })
         }))
@@ -101,23 +114,49 @@ impl Machines {
             .push(busy);
     }
 
-    /// Waits for the turn on the machine of this label, saying that it waits for it and since when, then for every
-    /// run of a measurement there that has not completed to end, looking each `poll`; the turn, or none where it was
-    /// told to stop. An `Err` is why GitHub could not say whether the machine is free, or why the time could not be
-    /// read.
-    pub(crate) async fn turn(&self, label: &str, poll: Duration, stop: &mut Stop) -> Result<Option<Turn>, Failed> {
+    /// Waits for the turn on the machine of this label for the measurement of this work, saying that it waits for it,
+    /// since when and behind which work, again each time the work that has the turn changes; then, the turn its own,
+    /// for every run of a measurement there that has not completed to end, looking each `poll`, saying while one is
+    /// listed that it waits behind no work of the turns'. Gives the turn, or none where it was told to stop. An `Err`
+    /// is why GitHub could not say whether the machine is free, or why the time could not be read.
+    pub(crate) async fn turn(
+        &self,
+        label: &str,
+        work: WorkNumber,
+        poll: Duration,
+        stop: &mut Stop,
+    ) -> Result<Option<Turn>, Failed> {
         let since = self
             .clock
             .now()
             .map_err(|why| format!("the time cannot be read: {why}"))?;
-        stop.say(Some(Along::WaitsForMachine {
+        let waits = |behind: Option<WorkNumber>| Along::WaitsForMachine {
             machine: label.to_string(),
             since: since.0,
-        }));
+            behind,
+        };
         let machine = self.machine(label);
-        let permit = tokio::select! {
-            permit = machine.turn.clone().acquire_owned() => permit.map_err(|_| "the turns on a machine were closed")?,
-            () = stop.told() => return Ok(None),
+        let mut holder = machine.holder.subscribe();
+        stop.say(Some(waits(*holder.borrow_and_update())));
+        // The one wait for a permit keeps the request's place in the line while it says each new holder.
+        let asked = machine.turn.clone().acquire_owned();
+        tokio::pin!(asked);
+        let permit = loop {
+            tokio::select! {
+                permit = &mut asked => break permit.map_err(|_| "the turns on a machine were closed")?,
+                // Between two holders the turn passes at once to the next in line: no holder is said meanwhile.
+                Ok(()) = holder.changed() => {
+                    if let Some(holding) = *holder.borrow_and_update() {
+                        stop.say(Some(waits(Some(holding))));
+                    }
+                }
+                () = stop.told() => return Ok(None),
+            }
+        };
+        machine.holder.send_replace(Some(work));
+        let turn = Turn {
+            machine: machine.clone(),
+            _permit: permit,
         };
         loop {
             let sharing: Vec<Arc<dyn Busy>> = (machine.sharing.lock().unwrap_or_else(PoisonError::into_inner))
@@ -129,8 +168,9 @@ impl Machines {
                 going.extend(busy.going(label).await?);
             }
             if going.is_empty() {
-                return Ok(Some(Turn { _permit: permit }));
+                return Ok(Some(turn));
             }
+            stop.say(Some(waits(None)));
             tokio::select! {
                 () = tokio::time::sleep(poll) => {}
                 () = stop.told() => return Ok(None),
@@ -183,7 +223,7 @@ mod tests {
     async fn requests_for_one_machine_take_their_turns_one_at_a_time_in_the_order_they_came() {
         let machines = Arc::new(Machines::new(Arc::new(Still(7))));
         let first = machines
-            .turn("14900k", POLL, &mut Stop::never())
+            .turn("14900k", WorkNumber(1), POLL, &mut Stop::never())
             .await
             .unwrap()
             .expect("a turn");
@@ -191,7 +231,9 @@ mod tests {
         for n in 1..=2 {
             let (machines, to) = (machines.clone(), to.clone());
             tokio::spawn(async move {
-                let turn = machines.turn("14900k", POLL, &mut Stop::never()).await;
+                let turn = machines
+                    .turn("14900k", WorkNumber(10 + n), POLL, &mut Stop::never())
+                    .await;
                 to.send((n, "turn")).expect("sent");
                 tokio::time::sleep(Duration::from_millis(20)).await;
                 to.send((n, "done")).expect("sent");
@@ -200,7 +242,10 @@ mod tests {
             // The second asks after the first has begun to wait.
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        let other = machines.turn("other", POLL, &mut Stop::never()).await.unwrap();
+        let other = machines
+            .turn("other", WorkNumber(2), POLL, &mut Stop::never())
+            .await
+            .unwrap();
         assert!(other.is_some(), "another machine waits for none");
         tokio::time::sleep(Duration::from_millis(30)).await;
         assert!(came.try_recv().is_err(), "nobody has the turn while the first holds it");
@@ -229,7 +274,7 @@ mod tests {
         machines.share("other", weak(&elsewhere));
         whitefoot.going.store(1, Ordering::SeqCst);
         let mut stop = Stop::never();
-        let waiting = machines.turn("14900k", POLL, &mut stop);
+        let waiting = machines.turn("14900k", WorkNumber(1), POLL, &mut stop);
         tokio::pin!(waiting);
         tokio::select! {
             _ = &mut waiting => panic!("the turn is given while a run of whitefoot's is on the machine"),
@@ -241,38 +286,55 @@ mod tests {
         assert_eq!(elsewhere.looked.load(Ordering::SeqCst), 0);
     }
 
-    // A request that waits says that it waits for the machine and since when; told to stop, it leaves the line and the
-    // next request is given the turn in its place. Milliseconds alone; the one test of what a wait says and of a stop
-    // while it waits.
+    // A request that waits says that it waits for the machine, since when and behind which work, and says it again as
+    // the work that has the turn changes; told to stop, it leaves the line and the next request is given the turn in
+    // its place. Milliseconds alone; the one test of what a wait says and of a stop while it waits.
     #[tokio::test]
-    async fn a_request_says_it_waits_for_the_machine_and_leaves_the_line_when_told_to_stop() {
+    async fn a_request_says_behind_which_work_it_waits_and_leaves_the_line_when_told_to_stop() {
         let machines = Arc::new(Machines::new(Arc::new(Still(1_700_000_000_000))));
         let held: Held<u8, service::CallReply> = Held::new();
         let (to, mut came) = tokio::sync::mpsc::unbounded_channel();
-        let reply = service::CallReply::new(store::WorkNumber(3), decide::CallId(4), to);
+        let reply = service::CallReply::new(WorkNumber(3), decide::CallId(4), to);
         let saying = reply.saying();
         let mut stop = held.hold(1, reply).expect("held").saying(saying);
-        let first = machines.turn("14900k", POLL, &mut Stop::never()).await.unwrap();
-        let waits = {
+        let first = (machines.turn("14900k", WorkNumber(9), POLL, &mut Stop::never()).await).unwrap();
+        let second = {
             let machines = machines.clone();
-            tokio::spawn(async move { machines.turn("14900k", POLL, &mut stop).await.map(|t| t.is_some()) })
+            tokio::spawn(async move {
+                let turn = machines.turn("14900k", WorkNumber(4), POLL, &mut Stop::never()).await;
+                tokio::time::sleep(Duration::from_secs(60)).await;
+                drop(turn);
+            })
         };
         tokio::time::sleep(Duration::from_millis(10)).await;
-        let Ok(service::Message::Along { along, .. }) = came.try_recv() else {
-            panic!("where it stands is said");
+        let waits = {
+            let machines = machines.clone();
+            tokio::spawn(
+                async move { (machines.turn("14900k", WorkNumber(3), POLL, &mut stop).await).map(|t| t.is_some()) },
+            )
         };
-        assert_eq!(
-            along,
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        let behind = |work: u64| {
             Some(Along::WaitsForMachine {
                 machine: "14900k".to_string(),
-                since: 1_700_000_000_000
+                since: 1_700_000_000_000,
+                behind: Some(WorkNumber(work)),
             })
-        );
-        let (to, _) = tokio::sync::mpsc::unbounded_channel();
-        held.stop(1, service::CallReply::new(store::WorkNumber(3), decide::CallId(4), to));
-        assert!(!waits.await.expect("ends").unwrap(), "told to stop, it has no turn");
+        };
+        let mut said = || match came.try_recv() {
+            Ok(service::Message::Along { along, .. }) => along,
+            _ => panic!("where it stands is said"),
+        };
+        assert_eq!(said(), behind(9));
         drop(first);
-        let next = machines.turn("14900k", POLL, &mut Stop::never()).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        assert_eq!(said(), behind(4), "the work whose turn came is said");
+        let (to, _) = tokio::sync::mpsc::unbounded_channel();
+        held.stop(1, service::CallReply::new(WorkNumber(3), decide::CallId(4), to));
+        assert!(!waits.await.expect("ends").unwrap(), "told to stop, it has no turn");
+        second.abort();
+        let _ = second.await;
+        let next = (machines.turn("14900k", WorkNumber(5), POLL, &mut Stop::never()).await).unwrap();
         assert!(next.is_some(), "the line goes on without the one that left it");
     }
 }

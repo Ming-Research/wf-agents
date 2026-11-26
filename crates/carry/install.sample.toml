@@ -165,6 +165,10 @@ turn_minutes = 30
 # How long a round or call may wait for a runner before `wf-agents wait` gives that as something to handle, in minutes,
 # as the engine has heard it wait since it started. Left out, it is 15.
 queued_minutes = 15
+# How long a measurement may wait for its turn on its machine, where one measurement runs at a time, before `wf-agents
+# wait` gives that as something to handle, in minutes, with the work it waits behind. A measurement may take an hour or
+# more, so the wait behind one is ordinary for a while. Left out, it is 60.
+machine_minutes = 60
 
 # The copies of the engine's database. Every day while the engine runs, it copies the database whole into
 # `backups/` in the data directory and keeps the newest `keep` there. Without this table, that is all: the copies share

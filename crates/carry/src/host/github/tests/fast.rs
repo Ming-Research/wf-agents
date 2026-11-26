@@ -1345,7 +1345,7 @@ async fn a_run_is_not_timed_while_a_measurement_holds_its_machine() {
     );
     let machines = hub.host.config.machines.clone();
     let poll = Duration::from_millis(10);
-    let turn = (machines.turn("14900k", poll, &mut Stop::never()).await)
+    let turn = (machines.turn("14900k", WorkNumber(7), poll, &mut Stop::never()).await)
         .unwrap()
         .expect("a turn");
     let asked = named(&["tools::tests::a"], &[]);
