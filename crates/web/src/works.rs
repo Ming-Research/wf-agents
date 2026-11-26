@@ -3946,8 +3946,8 @@ pub(crate) mod tests {
         assert_eq!(QuestionPage::ahead(&questions, &[]), 2);
     }
 
-    /// A call the host could not carry out for now is said with the wait it is held until, how many times in a row it was
-    /// held and why, until the wait has its result; a call never held is said with none.
+    /// A call the host could not carry out for now is said with the wait it is held until, how many times in a row it
+    /// was held and why, until the wait has its result; a call never held is said with none.
     #[test]
     fn a_call_held_is_said_with_its_wait_until_the_wait_has_its_result() {
         use decide::{Called, Done, Held, Obstacle as Why, Seq};

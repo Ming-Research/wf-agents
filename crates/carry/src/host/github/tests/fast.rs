@@ -580,8 +580,8 @@ async fn the_workflow_is_run_by_mains_file_with_the_commit_given_and_nothing_sta
     );
 }
 
-// With no runner of its kind online, the run is listed at once, queued: once the start is waited for it is cancelled, and
-// what asked is held, not failed, the timeout of a run not being waited for.
+// With no runner of its kind online, the run is listed at once, queued: once the start is waited for it is cancelled,
+// and what asked is held, not failed, the timeout of a run not being waited for.
 #[tokio::test]
 async fn a_run_no_runner_took_is_cancelled_and_holds_what_asked() {
     let hub = super::queued::on_14900k(Hub::new());
@@ -642,8 +642,8 @@ async fn a_fault_of_githubs_or_its_limit_holds_what_asked_and_says_nothing_of_th
     assert_eq!(failed.held, None);
 }
 
-// A run that ended, whose results GitHub cannot give for now, holds what asked and is not said to have no results; asked
-// again, it reads the same run, which no second one was asked for.
+// A run that ended, whose results GitHub cannot give for now, holds what asked and is not said to have no results;
+// asked again, it reads the same run, which no second one was asked for.
 #[tokio::test]
 async fn results_githubs_fault_keeps_from_being_read_hold_what_asked_and_are_read_by_asking_again() {
     let hub = Hub::new();
@@ -667,8 +667,9 @@ async fn results_githubs_fault_keeps_from_being_read_hold_what_asked_and_are_rea
     assert_eq!(hub.dispatched().len(), 1, "one run on {head}");
 }
 
-// The log of a job that failed with nothing in the results to say why is read to say it: where GitHub cannot give it for
-// now, what asked is held and not told that the log could not be read; asked again, it reads the same run and the log.
+// The log of a job that failed with nothing in the results to say why is read to say it: where GitHub cannot give it
+// for now, what asked is held and not told that the log could not be read; asked again, it reads the same run and the
+// log.
 #[tokio::test]
 async fn a_log_githubs_fault_keeps_from_being_read_holds_what_asked_and_is_read_by_asking_again() {
     let hub = Hub::new();

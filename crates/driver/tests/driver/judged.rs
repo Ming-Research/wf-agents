@@ -222,8 +222,9 @@ fn a_call_of_a_tool_is_judged_by_the_calls_of_its_tool_that_had_their_results_as
     assert!(!size.past(), "the results are alike in size: {size:?}");
 }
 
-// The time a call was held, because the host could not carry it out for now, until a wait of the engine's was over is no
-// time of the call's own: a call that took a minute, fifty seconds of them held, took what is left, and is judged so.
+// The time a call was held, because the host could not carry it out for now, until a wait of the engine's was over is
+// no time of the call's own: a call that took a minute, fifty seconds of them held, took what is left, and is judged
+// so.
 #[test]
 fn the_time_a_call_was_held_is_left_out_of_the_time_it_is_judged_by() {
     let mut h = harness();

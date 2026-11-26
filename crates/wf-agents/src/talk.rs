@@ -3722,8 +3722,8 @@ mod tests {
         assert_eq!(waited(&items), "the items it depends on to merge: #5 and #7");
     }
 
-    // A call the host could not carry out for now is said with the time its wait is until, how many times in a row it was
-    // held and what kept the host, and a call not held as it was.
+    // A call the host could not carry out for now is said with the time its wait is until, how many times in a row it
+    // was held and what kept the host, and a call not held as it was.
     #[test]
     fn a_call_held_is_said_with_the_time_of_its_wait_and_what_kept_the_host() {
         let call = |held| Waited::Call {

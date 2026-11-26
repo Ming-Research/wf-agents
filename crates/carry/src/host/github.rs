@@ -812,7 +812,8 @@ fn fence(text: &str) -> String {
 const TITLE: usize = 200;
 
 impl<A: Api> GitHub<A> {
-    /// What `run_tests` finds of the work, as [`Host::run_tests`] says; a failure is of the kind the host's answer tells.
+    /// What `run_tests` finds of the work, as [`Host::run_tests`] says; a failure is of the kind the host's answer
+    /// tells.
     async fn tests(
         &self,
         branch: &Branch<'_>,

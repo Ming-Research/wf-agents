@@ -258,8 +258,8 @@ struct Judging {
     at: Seq,
     /// When it ended, where it has and the records tell when; none while it is under way.
     ended: Option<u64>,
-    /// The waits a call was held over, as the host could not carry it out for now, each from when it began until when it
-    /// was over, none while it is under way; none for a round.
+    /// The waits a call was held over, as the host could not carry it out for now, each from when it began until when
+    /// it was over, none while it is under way; none for a round.
     held: Vec<(u64, Option<u64>)>,
     what: What,
 }

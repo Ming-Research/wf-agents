@@ -3,13 +3,13 @@
 //! names, as the host runs them ([`Host::run_tests`]): the project's check command in the work's worktree where the
 //! local repository is the host, the fast workflow of the project's CI, on the commit the request names or else the
 //! last commit of the work's branch, where GitHub is; a request that names neither a test nor a check runs nothing on
-//! GitHub. A tool's result is all an agent learns of it, so what goes wrong in running it is said in its result,
-//! once: it is not tried again here, and the agent may ask again. What only keeps the host from running it for now,
-//! GitHub's limit or fault, a run no machine takes or a fault of the network ([`Failed::held`]), is no result: the call
-//! is said to be held, the engine waits, and the same call is given again. Withdrawn, what runs it is stopped. A `run_tests` of
+//! GitHub. A tool's result is all an agent learns of it, so what goes wrong in running it is said in its result, once:
+//! it is not tried again here, and the agent may ask again. What only keeps the host from running it for now, GitHub's
+//! limit or fault, a run no machine takes or a fault of the network ([`Failed::held`]), is no result: the call is said
+//! to be held, the engine waits, and the same call is given again. Withdrawn, what runs it is stopped. A `run_tests` of
 //! a branch that does not merge into main's head is answered at once with the files in conflict (the module
-//! `conflict`). The result is kept whole in the records, and a result too long for a message in a file of the
-//! temporary directory ([`keep_wholes`], removed by [`sweep`]); what a message gives of it is cut as the tool's words say
+//! `conflict`). The result is kept whole in the records, and a result too long for a message in a file of the temporary
+//! directory ([`keep_wholes`], removed by [`sweep`]); what a message gives of it is cut as the tool's words say
 //! ([`given`]).
 
 mod conflict;
