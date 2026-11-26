@@ -10,4 +10,4 @@
 # agents' program the installation names (`agents.command` of its settings), filled in as the engine starts, so that no
 # program is written here.
 commands = ["git push", "{agents.command}"]
-environment = {}
+environment = { GIT_ALLOW_PROTOCOL = "none" }
