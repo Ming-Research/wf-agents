@@ -107,7 +107,7 @@ error: could not compile `driver` (lib) due to 1 previous error
 ##[error]Process completed with exit code 101.";
 
 impl Hub {
-    async fn named_check(&self, named: &Named) -> Result<Option<String>, String> {
+    pub(super) async fn named_check(&self, named: &Named) -> Result<Option<String>, String> {
         let place = self.place();
         self.host
             .run_tests(&branch(&place), named, self.call(), &mut Stop::never())
@@ -578,9 +578,9 @@ async fn the_workflow_is_run_by_mains_file_with_the_commit_given_and_nothing_sta
 // for, and not waited for until the run would time out.
 #[tokio::test]
 async fn a_run_no_runner_took_is_given_up_as_never_started() {
-    let hub = Hub::new();
+    let hub = super::queued::on_14900k(Hub::new());
     let head = hub.committed().await;
-    hub.github().no_runner();
+    hub.github().queue_runs();
     let began = std::time::Instant::now();
     let why = hub.named_check(&named(&["a"], &[])).await.expect_err("not run");
     assert!(
@@ -590,7 +590,9 @@ async fn a_run_no_runner_took_is_given_up_as_never_started() {
         "{why}"
     );
     assert!(
-        why.ends_with("(https://github.example/actions/runs/1000), and the engine cancelled it"),
+        why.ends_with(
+            "(https://github.example/actions/runs/1000), none of 14900k is online, and the engine cancelled the run"
+        ),
         "{why}"
     );
     assert!(
@@ -601,6 +603,7 @@ async fn a_run_no_runner_took_is_given_up_as_never_started() {
         hub.github().asked().contains(&Asked::Cancel(1000)),
         "the run is cancelled"
     );
+    assert_eq!(hub.github().runners_asked(), 1, "the runners were asked after once");
 }
 
 // A run not complete in the time a run may take is cancelled, and said as what it found: each job, the one not
