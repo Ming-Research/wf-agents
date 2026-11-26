@@ -343,7 +343,7 @@ export function fixtureItems(start = Date.now()): Items {
     3: {
       title: 'Keep what each run costs',
       dependsOn: [11, 12],
-      work: work({ kind: 'paused', at: ORDER[0], by: 'owner', why: null }, notStarted, {
+      work: work({ kind: 'paused', ran: false, at: ORDER[0], by: 'owner', why: null }, notStarted, {
         hours: 1,
         dollars: 0,
         rounds: 0,
@@ -357,6 +357,7 @@ export function fixtureItems(start = Date.now()): Items {
       work: work(
         {
           kind: 'paused',
+          ran: true,
           at: 'implement',
           by: 'engine',
           why: "the agent's program exited with an error: the session could not be resumed",
@@ -776,7 +777,8 @@ export function fixtureSource(start = Date.now(), projects = 1): Source {
         if (s.now.kind !== 'round') {
           const now = s.now;
           const at = now.kind === 'next' ? now.cell : 'at' in now && typeof now.at === 'string' ? now.at : ORDER[0];
-          s.now = { kind: 'paused', at, by: 'owner', why: null };
+          // A work paused before any round of it has begun is not started.
+          s.now = { kind: 'paused', ran: s.from != null, at, by: 'owner', why: null };
         }
         return;
       case 'resume': {

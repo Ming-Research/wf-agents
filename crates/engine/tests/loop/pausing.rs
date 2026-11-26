@@ -98,6 +98,40 @@ fn a_return_sent_back_during_a_pause_is_given_back_once_the_work_is_let_on() {
     );
 }
 
+// What the engine decided for the run, to send back what it returned, does not depend on the pause that holds the round
+// it would be given in: the pause holds the round, not what is decided.
+#[test]
+fn the_engine_says_it_would_send_back_a_return_the_pause_holds_back_and_not_one_that_asked_for_calls() {
+    let (mut w, write, _) = W::requested();
+    w.on(Event::Paused {
+        by: Pauser::Owner,
+        why: None,
+        waits_for: Vec::new(),
+    });
+    // A round under way returned nothing yet.
+    assert!(!engine::sends_back(&w.flow, &w.work, write));
+    assert_eq!(w.returns(write, wanting()), vec![]);
+    assert!(engine::sends_back(&w.flow, &w.work, write));
+    assert_eq!(
+        engine::held(&w.flow, &w.work, decide::Room::FREE),
+        Some(decide::Holder::Pause)
+    );
+    // Let on, the round is begun again and the run is under way: nothing to send back.
+    w.on(Event::Resumed);
+    assert!(!engine::sends_back(&w.flow, &w.work, write));
+
+    let (mut w, write, _) = W::requested();
+    w.on(Event::Paused {
+        by: Pauser::Owner,
+        why: None,
+        waits_for: Vec::new(),
+    });
+    let calls = calls_of(&w.returns(write, Came::asks(vec![tool("a")])));
+    assert_eq!(w.done(calls[0].0), vec![]);
+    // A run that asked for calls is given their results, not sent back.
+    assert!(!engine::sends_back(&w.flow, &w.work, write));
+}
+
 #[test]
 fn the_owner_is_asked_at_a_limit_during_a_pause() {
     let (mut w, write, _) = W::requested();

@@ -13,7 +13,7 @@ import { Fragment, type ReactNode, useCallback, useContext, useEffect, useRef } 
 
 import { StateMark, markName } from '../marks';
 import { Attr, Fold, ListRow, Sign, StatusLine } from '../parts';
-import type { CallRow, Following, Handed, Round, Run, Step, Unmet, WorkPage } from '../works-api';
+import type { CallRow, Following, Handed, Now, Round, Run, Step, Unmet, WorkPage } from '../works-api';
 import { ChosenRound } from './chosen-round';
 import { CallsTook, Opener, Parts, useNow } from './marks';
 import { type HistoryRow, type SessionStep, runState } from './placing';
@@ -32,6 +32,7 @@ import {
   clock,
   duration,
   fullTime,
+  givenAgain,
   isOpen,
   isWayRound,
   plain,
@@ -281,11 +282,12 @@ function MeaningWord({ page, block, at }: { page: WorkPage; block: string; at: n
 }
 
 /// How a run stands, as its Step's first line says it: its mark's name, and of a run that failed whether its last round
-/// failed or what it handed in was sent back, each to be given again.
-function standWords(run: Run, mark: RunState): string {
+/// failed or what it handed in was sent back, and when it is given again: once the work is let on, or, where a pause
+/// holds it, once the pause is lifted.
+function standWords(run: Run, mark: RunState, now: Now): string {
   if (mark !== 'failed') return capital(markName(mark));
   const why = run.rounds.at(-1)?.back?.kind === 'handedIn' ? 'its return was sent back' : 'its last round failed';
-  return `${capital(markName(mark))}: ${why}, to be given again`;
+  return `${capital(markName(mark))}: ${why}, ${givenAgain(now)}`;
 }
 
 /// A new session a run began, and why: begun anew, begun again under its id, or compacted.
@@ -346,7 +348,7 @@ function RunStep({ run, mark, began, page, reader, shown }: {
       <div className="status-line">
         <StateMark state={mark} />
         <span className="status-word">
-          {calls.length > 0 ? <Parts parts={callWaitParts(calls, waited)} /> : standWords(run, mark)}
+          {calls.length > 0 ? <Parts parts={callWaitParts(calls, waited)} /> : standWords(run, mark, page.summary.now)}
         </span>
         {calls.length > 0 && <CallsTook work={page.summary} />}
         <span className="mono">{run.cell}</span>

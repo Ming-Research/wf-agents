@@ -41,7 +41,7 @@ pub use handle::{
     at_rest, carried, handle, handle_ended, handle_held, handle_in, handle_then, handle_with, letting_go,
     letting_go_after, pending, pending_after,
 };
-pub use held::held;
+pub use held::{held, sends_back};
 pub use work::{
     Ask, Back, Call, Fill, Filled, Given, Handed, Moment, Question, Ran, RanOn, Session, Spent, Time, Way, Why, Work,
 };

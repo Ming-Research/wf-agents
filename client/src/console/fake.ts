@@ -135,6 +135,7 @@ export function fakeShown(count: number): Shown[] {
     deliver: false,
     begun: i.state !== 'new',
     shadow: false,
+    stands: work(i),
     work: work(i),
     children: i.children.map(shown),
   });

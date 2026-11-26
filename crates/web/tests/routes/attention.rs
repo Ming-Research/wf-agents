@@ -545,7 +545,7 @@ async fn a_work_the_engine_paused_as_its_round_failed_is_given_with_the_reason_s
             "kind": "forAPerson",
             "of": { "work": 1, "item": 1, "title": "Greet the user" },
             "since": START + 7500,
-            "now": { "kind": "paused", "at": "plan", "by": "engine", "why": "The round failed. The cause: The agent's program could not start." },
+            "now": { "kind": "paused", "at": "plan", "by": "engine", "ran": true, "why": "The round failed. The cause: The agent's program could not start." },
             "waits": [{
                 "key": "pause",
                 "why": "The engine paused the work. The round failed. The cause: The agent's program could not start.",

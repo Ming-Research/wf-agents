@@ -4,14 +4,14 @@
 import type { Period } from '../route';
 import type { Spent, Summary } from '../works-api';
 import { waitsOnOwner } from '../works/waiting';
-import { STATE, waitingFor } from '../works/words';
+import { STATE, stateOf, waitingFor } from '../works/words';
 import type { Merged } from './api';
 
 /// Where a work stands now, as the owner acts on it, each work in one place: it is halted at a fault, or stalled, no
 /// cell able to move it on; its state cannot be worked out, though the engine goes on with it; it waits for the owner, as the engine's one list of it says; a round of it runs; its next
 /// round is due, as soon as a slot is free or the owner's pause of everything is lifted; it waits for what another
-/// gives; the owner paused it. What needs the owner comes first.
-export const STANDINGS = ['halted', 'broken', 'owner', 'running', 'due', 'others', 'paused'] as const;
+/// gives; the owner paused it; it is paused and no round of it has begun. What needs the owner comes first.
+export const STANDINGS = ['halted', 'broken', 'owner', 'running', 'due', 'others', 'paused', 'notStarted'] as const;
 export type Standing = (typeof STANDINGS)[number];
 
 /// The tiles' names, the states' own words, and what each counts, said on pointing at it.
@@ -26,12 +26,17 @@ export const STANDING_WORDS: Record<Standing, { name: string; title: string }> =
   },
   others: { name: waitingFor('others'), title: 'Waits for what another gives: a tool, a source outside the work, or the engine' },
   paused: { name: STATE.paused, title: 'Paused by you: only a note to a cell is answered until it is let on' },
+  notStarted: {
+    name: STATE.notStarted,
+    title: 'Paused, and no round of it has begun: it begins once you let it on',
+  },
 };
 
 /// Where a work stands now; none once it has ended.
 export function standingOf(work: Summary): Standing | null {
   const now = work.now;
   if (waitsOnOwner(work)) return 'owner';
+  if (stateOf(work).which === 'notStarted') return 'notStarted';
   switch (now.kind) {
     case 'merged':
     case 'cancelled':

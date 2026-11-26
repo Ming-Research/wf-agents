@@ -90,12 +90,13 @@ export const STRIP_MARKS: MarkKey[] = [
 
 /// Whether the owner's pause of a work is to be said beside its state: wherever it holds the work and the state says
 /// something else, a round still under way or whatever it waits for, what waits on the owner among it, so that the head
-/// says each thing that holds it (decision the-owners-pause-stands-beside-the-state). The engine's pause is said by
-/// the state itself, as what waits on the owner, and a work that has ended is held by no pause of the owner's.
+/// says each thing that holds it (decision the-owners-pause-stands-beside-the-state). A pause's own states, Paused and
+/// Not started, say it themselves, as does the engine's pause, as what waits on the owner; a work that has ended is held
+/// by no pause of the owner's.
 export function pauseDiffers(work: Pick<Summary, 'now' | 'cells' | 'waits' | 'paused'>): boolean {
-  const { word } = stateOf(work);
+  const { which } = stateOf(work);
   const ended = work.now.kind === 'merged' || work.now.kind === 'cancelled';
-  return work.paused === 'owner' && !ended && word !== STATE.paused;
+  return work.paused === 'owner' && !ended && which !== 'paused' && which !== 'notStarted';
 }
 
 /// What a work does now: a dot in its tone, its state's words, the state's word first, from the one catalogue, with how

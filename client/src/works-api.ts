@@ -200,11 +200,11 @@ export type Now =
       queuedFor?: string | null;
     }
   /// It is paused, and what it would do next is begin a round: by the owner, who gives no reason, or by the engine
-  /// for this one.
-  | { kind: 'paused'; at: string; by: Pauser; why: string | null }
+  /// for this one. `ran` is whether a round of it has begun: a work that is paused and has not is not started.
+  | { kind: 'paused'; at: string; by: Pauser; ran: boolean; why: string | null }
   /// The pause of everything holds it back, and what it would do next is begin a round; its own pause does not. `by` is
-  /// who set it: the owner, or the engine as it started again with works going on.
-  | { kind: 'everything'; at: string; by: Pauser }
+  /// who set it: the owner, or the engine as it started again with works going on. `ran` is as it is of a pause.
+  | { kind: 'everything'; at: string; by: Pauser; ran: boolean }
   /// It waits at this cell, for each of these.
   | { kind: 'waits'; at: string; on: Waited[] }
   /// It is about to do something at this cell; a work is never left so between two things that happen to it.
@@ -231,7 +231,8 @@ export interface Stalling {
 
 /// How a cell stands for a work: a round of its run, an agent's, is under way; the engine carries out something for
 /// its run that takes its time, an engine cell's act or a tool's call; its run is at rest, or its act waits for the
-/// project's turn; its run's last round failed, and is given again once the work is let on; its condition is not met;
+/// project's turn; its run's last round failed, or what it returned the engine sends back, and the round is given again
+/// once the work is let on; its condition is not met;
 /// it never finished a run; it has a record and runs again when the walk reaches it; its record knows everything.
 export type CellState =
   | 'running'

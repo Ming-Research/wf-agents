@@ -22,7 +22,7 @@
 import type { Watch } from '../api';
 import type { CallRow, Item, Outline, Run, Step, Summary, WorkPage, Writer } from '../works-api';
 import { type RunState } from './state-marks';
-import { type Part, STATE, callWords, causeWords, plain, sentence, stateOf, stoppedAt, writerWords } from './words';
+import { type Part, callWords, causeWords, plain, sentence, stateOf, stoppedAt, writerWords } from './words';
 
 /// A new session of a line, as a step.
 export type SessionStep = Step & { kind: 'session' };
@@ -203,8 +203,10 @@ export function sessionsBegun(steps: Step[]): Map<number, SessionStep[]> {
 }
 
 /// How a run ended or stands, in the console's strip's states: it finished; it was abandoned, and its cell runs again;
-/// the work is stopped at its cell; a round of it runs, or it waits for a call or an act carried out for it; its last
-/// round failed, or what it handed in last was sent back; or else it is at rest between two rounds.
+/// the work is stopped at its cell; a round of it runs, or it waits for a call or an act carried out for it; its next
+/// round is its last again, that round having failed or what it returned being sent back, as the engine says of its
+/// cell; or else it is at rest between two rounds. A run still open stands as the engine says its cell stands, and is
+/// not read again from what its last round came back as.
 export function runState(run: Run, summary: Pick<Summary, 'now' | 'cells' | 'waits'>): RunState {
   const end = run.end;
   if (end?.kind === 'abandoned') return 'again';
@@ -213,8 +215,7 @@ export function runState(run: Run, summary: Pick<Summary, 'now' | 'cells' | 'wai
   const now = summary.cells.find((c) => c.cell === run.cell && c.open === run.run)?.state;
   if (now === 'running') return 'running';
   if (now === 'calling') return 'waiting';
-  const back = run.rounds.at(-1)?.back?.kind;
-  return now === 'failed' || back === 'failed' || back === 'handedIn' ? 'failed' : 'atRest';
+  return now === 'failed' ? 'failed' : 'atRest';
 }
 
 /// The run the item's window's Step shows where no row of the history is chosen: the run whose round is under way,
@@ -332,15 +333,16 @@ export const wayOf = (order: Order): Way =>
   (FIRST_WAY[order.by] === 'ascending') !== order.turned ? 'ascending' : 'descending';
 
 /// Where a work's state stands in the order of states: waiting for the owner, halted, running, waiting for another,
-/// paused, merged, cancelled.
+/// paused, not started, merged, cancelled.
 function stateRank(work: Summary): number {
-  const { tone, word } = stateOf(work);
+  const { tone, which } = stateOf(work);
   if (tone === 'owner') return 0;
   if (tone === 'failed') return 1;
   if (tone === 'running') return 2;
-  if (tone === 'done') return 5;
-  if (word === STATE.cancelled) return 6;
-  if (word === STATE.paused) return 4;
+  if (tone === 'done') return 6;
+  if (which === 'cancelled') return 7;
+  if (which === 'notStarted') return 5;
+  if (which === 'paused') return 4;
   return 3;
 }
 

@@ -142,7 +142,7 @@ pub use accounts::{Accounts, Instead, Live, Moved};
 pub use along::{Along, Figure, Going, Under};
 use decide::run::Failure;
 use decide::{BlockId, CellId, Decision, End, Holder, Outsider, Pauser, Room, View, begun, decide, taking_slot};
-use engine::{Effect, Event, Gate, Hold, Refused, handle_held, handle_then, held};
+use engine::{Effect, Event, Gate, Hold, Refused, handle_held, handle_then, held, sends_back};
 use flow::Compiled;
 use flow::agents::{ResultGiven, fill};
 pub use outage::{Candidate, CannotRun, Checked, Down, Found, Limit, Move, Outage, Service, Until};
@@ -2540,6 +2540,16 @@ impl Driver {
             return None;
         }
         held(kept.flow, kept.work, self.room_at(number, at_once))
+    }
+
+    /// Whether the run of the work, at rest between two rounds, is one the engine would send back what it last returned
+    /// of, whatever holds its next round back now. False where there is no such work or run, or the flow the work ran on
+    /// is no longer installed, for what the flow requires cannot then be read.
+    pub fn sends_back(&self, number: WorkNumber, run: decide::RunId) -> bool {
+        let Some(kept) = self.work(number) else {
+            return false;
+        };
+        kept.on.installed() && sends_back(kept.flow, kept.work, run)
     }
 
     /// What the work waits on the owner for now, as the one definition of it says ([`owner::waits`]), of its view and

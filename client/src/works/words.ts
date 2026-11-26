@@ -13,6 +13,7 @@ import type {
   Limit,
   Line,
   Maker,
+  Now,
   Obstacle,
   Outage,
   Person,
@@ -410,6 +411,8 @@ export const STATE = {
   /// The engine could not work the state out; the engine goes on with the work.
   broken: 'Broken',
   paused: 'Paused',
+  /// The work is paused and no round of it has begun: it is what a work is as it is added, and until it is let on.
+  notStarted: 'Not started',
   running: 'Running',
   merged: 'Merged',
   cancelled: 'Cancelled',
@@ -420,6 +423,26 @@ export const STATE = {
   /// Waiting, where nothing the engine gives names who gives it.
   waiting: 'Waiting',
 } as const;
+
+/// When a round that is to be given again is given: once the work is let on, or, while a pause of it or of everything
+/// holds it, once that pause is lifted.
+export const givenAgain = (now: Now): string =>
+  now.kind === 'paused' || now.kind === 'everything' ? 'to be given once the pause is lifted' : 'to be given again';
+
+/// What pointing at a work's card says where the engine has its run's last round to be given again and a pause holds
+/// it back, after the state's own words; none otherwise. The card does not tell whether the round failed or what it
+/// returned was sent back, and says what is true of both.
+function heldRoundWords(s: Pick<Summary, 'now' | 'cells'>): string | null {
+  const held = s.now.kind === 'paused' || s.now.kind === 'everything';
+  const again = s.cells.some((c) => c.open !== null && c.state === 'failed');
+  return held && again ? `its last round is ${givenAgain(s.now)}` : null;
+}
+
+/// What pointing at the card of an item says of how its work stands: the engine's state, in its words with the cell it
+/// names, as every view says it (`stateWords`), and, where a pause holds a round that is to be given again, that.
+export function stateSaid(s: Pick<Summary, 'now' | 'cells' | 'waits'>, time = Date.now()): string {
+  return [stateWords(s, time), heldRoundWords(s)].filter((x) => x !== null && x !== '').join(' · ');
+}
 
 /// What the history of a work on no version kept says over it: why its cells have no titles or lines (decision
 /// `a-works-past-is-drawn-from-its-outline`).
@@ -623,11 +646,17 @@ export function stateParts(s: Pick<Summary, 'now' | 'cells' | 'waits'>, time = D
 export interface WorkState {
   tone: Tone;
   word: string;
+  /// Which state it is: a key of the catalogue (`STATE`), or `calling` for a work that waits for calls of tools, whose
+  /// word is made of them. Whoever tells states apart reads this, never the word.
+  which: StateKey;
   cell: string | null;
 }
 
+/// Which state a work is in, as the catalogue names it.
+export type StateKey = keyof typeof STATE | 'calling';
+
 /// The state of a work. Whatever the engine's list of what waits on the owner holds waits for you; a fault and a stalled
-/// work are halted; a state the engine could not work out is broken; the owner's own pause, and the owner's pause of everything, are a pause; an agent's round under way
+/// work are halted; a state the engine could not work out is broken; the owner's own pause, and the owner's pause of everything, are a pause, or not started where no round of the work has begun; an agent's round under way
 /// is running; the calls of tools the engine carries out for a cell, and the act of an engine cell under way, which the
 /// engine carries out as it does a call and marks its cell so, are waited for, each by its tool and where it runs, in
 /// the yellow of a call, and are neither running nor done; anything else waits for whoever gives it.
@@ -639,34 +668,43 @@ export function stateOf(s: Pick<Summary, 'now' | 'cells' | 'waits'>, time = Date
       : now.kind === 'round' || now.kind === 'next'
         ? now.cell
         : null;
-  if (waitsOf(s).length > 0) return { tone: 'owner', word: STATE.owner, cell: at };
+  if (waitsOf(s).length > 0) return { tone: 'owner', word: STATE.owner, which: 'owner', cell: at };
   switch (now.kind) {
     case 'round':
     case 'next': {
       const calls = callsWaited(s);
-      if (calls.length > 0) return { tone: 'calling', word: partsText(callWaitParts(calls, time)), cell: at };
-      return { tone: 'running', word: STATE.running, cell: at };
+      if (calls.length > 0) return { tone: 'calling', word: partsText(callWaitParts(calls, time)), which: 'calling', cell: at };
+      return { tone: 'running', word: STATE.running, which: 'running', cell: at };
     }
     case 'waits': {
       const calls = callsWaited(s);
-      if (calls.length > 0) return { tone: 'calling', word: partsText(callWaitParts(calls, time)), cell: at };
-      if (now.on.length > 0 && now.on.every((w) => w.kind === 'items')) return { tone: 'quiet', word: STATE.items, cell: at };
+      if (calls.length > 0) return { tone: 'calling', word: partsText(callWaitParts(calls, time)), which: 'calling', cell: at };
+      if (now.on.length > 0 && now.on.every((w) => w.kind === 'items')) {
+        return { tone: 'quiet', word: STATE.items, which: 'items', cell: at };
+      }
       const who = [...new Set(now.on.flatMap((w) => whoGives(w) ?? []))];
-      return { tone: 'quiet', word: who.length > 0 ? waitingFor(who.join(' and ')) : STATE.waiting, cell: at };
+      return {
+        tone: 'quiet',
+        word: who.length > 0 ? waitingFor(who.join(' and ')) : STATE.waiting,
+        which: 'waiting',
+        cell: at,
+      };
     }
     case 'paused':
     case 'everything':
-      return { tone: 'quiet', word: STATE.paused, cell: at };
+      return now.ran
+        ? { tone: 'quiet', word: STATE.paused, which: 'paused', cell: at }
+        : { tone: 'quiet', word: STATE.notStarted, which: 'notStarted', cell: at };
     case 'fault':
-      return { tone: 'failed', word: STATE.halted, cell: null };
+      return { tone: 'failed', word: STATE.halted, which: 'halted', cell: null };
     case 'broken':
-      return { tone: 'failed', word: STATE.broken, cell: null };
+      return { tone: 'failed', word: STATE.broken, which: 'broken', cell: null };
     case 'stalled':
-      return { tone: 'failed', word: STATE.halted, cell: at };
+      return { tone: 'failed', word: STATE.halted, which: 'halted', cell: at };
     case 'merged':
-      return { tone: 'done', word: STATE.merged, cell: null };
+      return { tone: 'done', word: STATE.merged, which: 'merged', cell: null };
     case 'cancelled':
-      return { tone: 'quiet', word: STATE.cancelled, cell: null };
+      return { tone: 'quiet', word: STATE.cancelled, which: 'cancelled', cell: null };
   }
 }
 
@@ -704,8 +742,8 @@ export const ORDER_WORDS: Record<OrderBy, Record<Way, string>> = {
   item: { descending: 'Order by item, the newest first', ascending: 'Order by item, the oldest first' },
   title: { ascending: 'Order by title, from A to Z', descending: 'Order by title, from Z to A' },
   state: {
-    ascending: 'Order by state: waiting for you, halted, running, waiting, paused, merged, cancelled',
-    descending: 'Order by state: cancelled, merged, paused, waiting, running, halted, waiting for you',
+    ascending: 'Order by state: waiting for you, halted, running, waiting, paused, not started, merged, cancelled',
+    descending: 'Order by state: cancelled, merged, not started, paused, waiting, running, halted, waiting for you',
   },
   level: {
     descending: 'Order by level, the highest first, those with none last',

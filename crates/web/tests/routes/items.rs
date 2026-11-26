@@ -84,7 +84,7 @@ async fn an_item_is_added_with_its_work_paused_and_what_it_depends_on() {
     );
     assert_eq!(
         items["items"][0]["work"]["now"],
-        json!({ "kind": "paused", "at": "plan", "by": "owner", "why": null })
+        json!({ "kind": "paused", "at": "plan", "by": "owner", "ran": false, "why": null })
     );
 }
 
