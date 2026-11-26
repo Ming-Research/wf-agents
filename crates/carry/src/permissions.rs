@@ -5,7 +5,9 @@
 //! worktree, files in the temporary directory, the web, subagents), which name no program. This module is the adapter
 //! for `claude`: it turns each word into the tools, the allow rules and the directories the program's own flags take
 //! (`--tools`, `--allowedTools`, `--add-dir`), so that what an agent may use is the flow's, and the installation gives
-//! no argument.
+//! no argument. The files of the worktree and of the temporary directory are written the same way, as an absolute
+//! rule and a directory: a rule relative to the current directory would follow the agent's `cd` and refuse a write
+//! outside the directory it moved to, which in a print-mode run no one can allow.
 //!
 //! On every line two kinds of command are refused: what every agent is refused whatever its project, pushing and the
 //! agents' own program the installation names (`agents/refused.toml` beside the flows), and the heavy commands of the
@@ -116,9 +118,10 @@ pub struct Permissions {
 
 impl Permissions {
     /// The permissions of a line that only reads or that writes: what the words of `allowed.toml`, `may`, let it do,
-    /// with `temp_dir` the temporary directory the engine hands the program, and the commands a round of its project
-    /// is refused, `commands` ([`refused_commands`]), each refused whole, whatever a word allows.
-    pub fn of(reads_only: bool, may: &[Ability], temp_dir: &Path, commands: &[String]) -> Permissions {
+    /// with `worktree` the work's worktree, `temp_dir` the temporary directory the engine hands the program, and the
+    /// commands a round of its project is refused, `commands` ([`refused_commands`]), each refused whole, whatever a
+    /// word allows.
+    pub fn of(reads_only: bool, may: &[Ability], worktree: &Path, temp_dir: &Path, commands: &[String]) -> Permissions {
         let (mut tools, mut allowed, mut directories) = (Vec::new(), Vec::new(), Vec::new());
         let add = |list: &mut Vec<String>, items: &[&str]| {
             for item in items {
@@ -127,10 +130,11 @@ impl Permissions {
                 }
             }
         };
-        // The temporary directory without its trailing separators, as the rule and the flag write it: `Edit(//var/T/**)`
-        // is the absolute path `/var/T`, and a trailing `/` of `$TMPDIR` would write it twice.
-        let temp = temp_dir.to_string_lossy();
-        let temp = temp.trim_end_matches('/');
+        // A directory without its trailing separators, as the rule and the flag write it: `Edit(//var/T/**)` is the
+        // absolute path `/var/T`, and a trailing `/` of `$TMPDIR` would write it twice.
+        let bare = |dir: &Path| dir.to_string_lossy().trim_end_matches('/').to_string();
+        let (worktree, temp) = (bare(worktree), bare(temp_dir));
+        let worktree_rule = format!("Edit(/{worktree}/**)");
         let temp_rule = format!("Edit(/{temp}/**)");
         for ability in may {
             match ability {
@@ -140,12 +144,13 @@ impl Permissions {
                 }
                 Ability::Files => {
                     add(&mut tools, &["Read", "Grep", "Glob", "Edit", "Write"]);
-                    add(&mut allowed, &["Grep", "Glob", "Edit(./**)"]);
+                    add(&mut allowed, &["Grep", "Glob", worktree_rule.as_str()]);
+                    add(&mut directories, &[worktree.as_str()]);
                 }
                 Ability::TempFiles => {
                     add(&mut tools, &["Read", "Edit", "Write"]);
                     add(&mut allowed, &[temp_rule.as_str()]);
-                    add(&mut directories, &[temp]);
+                    add(&mut directories, &[temp.as_str()]);
                 }
                 Ability::Web => {
                     add(&mut tools, &["WebSearch", "WebFetch"]);
