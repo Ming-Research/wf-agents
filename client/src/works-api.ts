@@ -267,9 +267,9 @@ export interface Summary {
   /// Who paused it, where it is paused: only a note to a cell is answered; a round under way goes on.
   paused: Pauser | null;
   now: Now;
-  /// The engine could not read the records the rest of this summary is made from: its cells, what it spent, its time,
-  /// what it waits on the owner for and its questions are not worked out and hold nothing. Absent from every summary
-  /// that was read, whose `now` may still be broken.
+  /// The engine could not read the records the rest of this summary is made from: its cells, what it spent, its time
+  /// and how many of its questions may be answered ahead are not worked out and hold nothing; what it waits on the
+  /// owner for is what its view says. Absent from every summary that was read, whose `now` may still be broken.
   unread?: boolean;
   /// In the order of the walk.
   cells: CellNow[];

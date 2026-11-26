@@ -2,18 +2,22 @@
 //! `/api/v1/attention` answer as they do where no work is broken, and the broken work says its state is broken, with
 //! what is certain of it (decision `a-work-whose-state-cannot-be-worked-out-fails-alone`).
 
+use std::future::Future;
 use std::path::Path;
+use std::pin::Pin;
+use std::sync::Arc;
 
 use decide::{BlockId, Pauser};
 use engine::{Came, Effect, Event};
 use serde_json::{Value, json};
+use service::{OpenPull, Round, RoundReply, Rounds, Scripted};
 use store::{
     AccountRecord, EverythingPaused, Fault, First, Item, ItemChange, ItemNumber, KeptFlow, KeptOutline,
     PauseOfEverything, StopRecord, Storage, Store, WorkHead, WorkNumber,
 };
 use work::{Time, Work};
 
-use crate::{START, get_json, levels, running_kept, running_on, trial_flow, trial_has};
+use crate::{START, get_json, levels, running_carried, running_kept, running_on, trial_flow, trial_has, trial_script};
 
 /// A store that gives the first work as the store keeps it, but for the rounds' given texts, which it says were never
 /// kept: the work's rounds then cannot be read into its summary. It changes nothing in what it keeps.
@@ -144,8 +148,8 @@ fn kept(path: &Path) {
         })
         .expect("a round is given");
     let paused = Event::Paused {
-        by: Pauser::Owner,
-        why: None,
+        by: Pauser::Engine,
+        why: Some("The round failed.".to_string()),
         waits_for: Vec::new(),
     };
     driver.happened(at(1500), first, paused).unwrap();
@@ -160,26 +164,31 @@ fn kept(path: &Path) {
     driver
         .happened(at(2000), first, Event::Returned { run: plan, came, spent })
         .unwrap();
+    let pulled = Event::Pulled {
+        number: 12,
+        url: "https://github.com/o/r/pull/12".to_string(),
+    };
+    driver.happened(at(2500), first, pulled).unwrap();
 }
 
-/// What the three reads say of the two works, kept in a directory of its own: through the store as it is, or through
-/// the one that cannot give the first work's rounds.
-async fn read(unreadable: bool) -> (Value, Value, Value) {
+/// A store with the two works kept, as it is or as the one that cannot give the first work's rounds gives it.
+fn store_of(unreadable: bool) -> (Box<dyn Storage + Send>, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("store.sqlite");
     kept(&path);
     let store = Store::open(&path).unwrap();
-    let store: Box<dyn Storage + Send> = match unreadable {
-        true => Box::new(Unreadable { store }),
-        false => Box::new(store),
-    };
+    match unreadable {
+        true => (Box::new(Unreadable { store }), dir),
+        false => (Box::new(store), dir),
+    }
+}
+
+/// What `GET /api/v1/items` says of the two works, through the store as it is or through the one that cannot give the
+/// first work's rounds.
+async fn items_of(unreadable: bool) -> Value {
+    let (store, dir) = store_of(unreadable);
     let running = running_on(store, dir);
-    let router = &running.router;
-    (
-        get_json(router, "/api/v1/items").await,
-        get_json(router, "/api/v1/pulls").await,
-        get_json(router, "/api/v1/attention").await,
-    )
+    get_json(&running.router, "/api/v1/items").await
 }
 
 // Where the first work's rounds cannot be read, the items are still given: it says its state is broken, unread, with
@@ -187,25 +196,30 @@ async fn read(unreadable: bool) -> (Value, Value, Value) {
 // where the broken work's summary is given as a work that did nothing, without saying that it is unread.
 #[tokio::test(start_paused = true)]
 async fn a_work_whose_rounds_cannot_be_read_is_given_broken_and_unread_and_the_other_items_as_they_are() {
-    let (whole, ..) = read(false).await;
-    let (broken, ..) = read(true).await;
+    let whole = items_of(false).await;
+    let broken = items_of(true).await;
     let (before, after) = (&whole["items"], &broken["items"]);
     assert_eq!(after.as_array().map(Vec::len), Some(2), "{broken}");
-    // The work as it was read, paused at the cell after the plan, with the cost and the cells it has.
+    // The work as it was read, paused by the engine at the cell after the plan, with the cost and the cells it has and
+    // the pause it asks the owner to end.
     assert_eq!(before[0]["work"]["now"]["kind"], "paused", "{whole}");
     assert!(before[0]["work"].get("unread").is_none(), "{whole}");
     assert!(!before[0]["work"]["cells"].as_array().unwrap().is_empty());
-    // As it is given where its rounds cannot be read: what is certain of it, and nothing made up.
+    assert!(!before[0]["work"]["waits"].as_array().unwrap().is_empty(), "{whole}");
+    // As it is given where its rounds cannot be read: what is certain of it and what waits on the owner, which its view
+    // says, and nothing made up.
     let work = &after[0]["work"];
     assert_eq!(work["now"]["kind"], "broken", "{work}");
     let words = work["now"]["words"].as_str().expect("the words say why");
     assert!(words.contains("was given nothing"), "{words}");
     assert_eq!(work["unread"], json!(true), "{work}");
     assert_eq!(work["cells"], json!([]), "{work}");
-    assert_eq!(work["waits"], json!([]), "{work}");
-    for certain in ["number", "item", "flow", "added", "paused", "last", "level"] {
+    for certain in [
+        "number", "item", "flow", "added", "paused", "last", "level", "pull", "waits",
+    ] {
         assert_eq!(work[certain], before[0]["work"][certain], "{certain}: {work}");
     }
+    assert_eq!(work["pull"]["number"], 12, "{work}");
     // Its item is as it was, and so is every other item.
     let mut item = after[0].clone();
     item["work"] = before[0]["work"].clone();
@@ -216,13 +230,89 @@ async fn a_work_whose_rounds_cannot_be_read_is_given_broken_and_unread_and_the_o
     );
 }
 
-// The pull requests and what waits are read through the same items and the same works, and answer as well.
+/// A host that says the pull request #12 is open on the repository of the first work's project.
+struct Hosting {
+    acts: Arc<dyn Rounds>,
+}
+
+impl Rounds for Hosting {
+    fn give(&self, round: Round, reply: RoundReply) {
+        self.acts.give(round, reply);
+    }
+
+    fn stop(&self, round: Round, reply: RoundReply) {
+        self.acts.stop(round, reply);
+    }
+
+    fn open_pulls(
+        &self,
+        project: &str,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<Vec<OpenPull>>, String>> + Send + '_>> {
+        let said = match project {
+            "trial" => Ok(Some(vec![OpenPull {
+                number: 12,
+                title: "Greet the user".to_string(),
+                url: "https://github.com/o/r/pull/12".to_string(),
+                draft: false,
+                updated: START - 3_600_000,
+            }])),
+            _ => Ok(None),
+        };
+        Box::pin(async move { said })
+    }
+}
+
+/// What `GET /api/v1/pulls` says, with no read of the items before it, through the store as it is or the other.
+async fn pulls_of(unreadable: bool) -> Value {
+    let (store, dir) = store_of(unreadable);
+    let mut carriers = Scripted::new(trial_script()).carriers();
+    carriers.acts = Arc::new(Hosting {
+        acts: carriers.acts.clone(),
+    });
+    let running = running_carried(store, dir, carriers);
+    get_json(&running.router, "/api/v1/pulls").await
+}
+
+// The pull requests are given where a work cannot be read, and the one that work keeps is still its own: the read of
+// them is the one that fails where the items cannot be given, and it is read here with no read of the items before it.
+// Fails where the pull requests answer 500, or where the broken work's pull request is given as no work's.
 #[tokio::test(start_paused = true)]
-async fn the_pull_requests_and_what_waits_are_given_where_a_work_cannot_be_read() {
-    let (_, whole_pulls, whole_attention) = read(false).await;
-    let (_, pulls, attention) = read(true).await;
-    assert_eq!(pulls, whole_pulls);
-    assert_eq!(attention, whole_attention);
+async fn the_pull_request_a_work_that_cannot_be_read_keeps_is_given_as_its_own() {
+    let whole = pulls_of(false).await;
+    let broken = pulls_of(true).await;
+    assert_eq!(whole["pulls"][0]["work"]["work"], 1, "{whole}");
+    assert_eq!(broken["pulls"].as_array().map(Vec::len), Some(1), "{broken}");
+    let (before, after) = (&whole["pulls"][0], &broken["pulls"][0]);
+    assert_eq!(after["number"], 12, "{broken}");
+    assert_eq!(after["work"]["work"], 1, "{broken}");
+    assert_eq!(
+        (
+            after["work"]["now"]["kind"].as_str(),
+            before["work"]["now"]["kind"].as_str()
+        ),
+        (Some("broken"), Some("paused"))
+    );
+    for same in ["item", "last"] {
+        assert_eq!(after["work"][same], before["work"][same], "{same}: {broken}");
+    }
+    assert_eq!((&broken["failed"], &broken["without"]), (&json!([]), &json!(["other"])));
+}
+
+// What waits on the owner is given where a work cannot be read, with the line of that work, as it is where it can: the
+// read does not work out the summary, and the work's state is read as the summary reads it. Read with no read of the
+// items before it. Fails where the read answers 500 or leaves out the line of the work.
+#[tokio::test(start_paused = true)]
+async fn what_waits_on_the_owner_is_given_where_a_work_cannot_be_read() {
+    let read = |unreadable: bool| async move {
+        let (store, dir) = store_of(unreadable);
+        let running = running_on(store, dir);
+        get_json(&running.router, "/api/v1/attention").await
+    };
+    let whole = read(false).await;
+    let broken = read(true).await;
+    let lines = whole["lines"].as_array().expect("the lines are a list");
+    assert!(lines.iter().any(|line| line["of"]["work"] == 1), "{whole}");
+    assert_eq!(broken, whole);
 }
 
 // A broken work's summary is worked out when what it is made from changes, as any work's is, and not at each read: a
@@ -237,7 +327,7 @@ async fn a_broken_work_is_worked_out_once_until_what_it_is_made_from_changes() {
     let store = Unreadable {
         store: Store::open(&path).unwrap(),
     };
-    let carriers = service::Scripted::new(crate::trial_script()).carriers();
+    let carriers = Scripted::new(trial_script()).carriers();
     let (running, cache, _) = running_kept(
         Box::new(store),
         dir,
