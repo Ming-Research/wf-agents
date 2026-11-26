@@ -28,6 +28,14 @@ Every agent is refused pushing and the agents' program the installation names, a
 - replaced: Refusing every agent pushing alone was on main; the owner changed it, because an agent that ran the agents' program itself spent where no work's record or budget counts it.
 - rejected: an agent proposed dropping the agents' rule against heavy work on this machine once their permissions refuse it; the owner rejected it, because an agent may still try to run it locally for convenience, so the rule says it briefly and the permissions refuse it too.
 
+### decision agents-cannot-push-however-it-is-written
+Every start of the agents' program has GIT_ALLOW_PROTOCOL=none from refused.toml, so its git refuses every transport; unsetting it and `gh` are not stopped, and the engine's own git has none.
+- replaced: Refusing a push only by the command rule `git push` was on main; the owner changed it, because a rule matches how a command starts, so `git -C <path> push`, an environment prefix, `sh -c` or a script pushed past it.
+- rejected: an agent proposed a pre-push hook in the engine's hook directory that always fails; the owner rejected it, because `--no-verify` or `-c core.hooksPath` bypasses it in one argument, which brings back matching by spelling.
+- rejected: an agent proposed only widening the spellings the permission rules match, such as `git * push *` and refusing `env` and `sh -c`; the owner rejected it, because the spellings can never all be listed and a script or another interpreter is not matched.
+- rejected: an agent proposed refusing only the push direction of ssh, by `GIT_ALLOW_PROTOCOL=ssh` and a script the engine writes for `GIT_SSH_COMMAND`; the owner rejected it, because https and file reads are still refused, so it also needs the principle changed, and it adds a script to keep.
+- rejected: an agent proposed taking away the means of pushing, by the program's sandbox on the network or a home with none of the owner's keys; the owner rejected it, because it was not looked into, rests on one program's own feature, and another home breaks git's identity and the tools.
+
 ### decision a-toolchains-variables-are-the-projects
 A project's declaration names the variables its toolchain reads (`[environment]`), given every round of its works after the engine's own; naming one the engine or the program owns is refused.
 - replaced: The engine setting `RUSTUP_AUTO_INSTALL` to 0 for every round of every project was on main; the owner changed it, because a toolchain's variable written in the engine is a toolchain's word in the engine (Article 1).

@@ -14,8 +14,12 @@
 //! project's declaration (`[heavy]`), its compiling, type checking, building, test suites and benchmarks. The project's
 //! tests are had through the tool `run_tests`, and only the engine pushes; run by an agent, they would fight the owner
 //! for the processor, and push what no check passed; and the program run by an agent would spend where nothing counts
-//! it. A line that only reads, as its line in the flow says, is refused the tools that edit files and the git commands
-//! that change the repository; those that only read, such as `show`, `diff` and `log`, it may run. Those two lists are
+//! it. The rule that refuses pushing matches how a command starts, so `git -C <path> push`, an environment prefix, a
+//! shell or a script are not matched by it; what stops them is the variable the same file gives every start of the
+//! agents' program, which has git refuse every transport (`cli::environment`, decision
+//! agents-cannot-push-however-it-is-written). A line that only reads, as its line in the flow says, is refused the
+//! tools that edit files and the git commands that change the repository; those that only read, such as `show`, `diff`
+//! and `log`, it may run. Those two lists are
 //! the engine's. A line that changes only the project's tests is refused nothing more than any line that writes, the
 //! look at its run's change as each round ends holding it to them (`tests_only`); it is told the paths of the tests.
 //!

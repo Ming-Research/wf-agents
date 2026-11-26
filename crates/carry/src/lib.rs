@@ -253,7 +253,7 @@ fn carry_keeping(
         of.insert(name, Ok(agents::Of::new(&settings, project, beside, declaration, main)));
     }
     let slots = settings.agents.slots;
-    let outside = outside::Check::of(&settings, &beside.cost, tokens.clone(), &profile)?;
+    let outside = outside::Check::of(&settings, &beside, tokens.clone(), &profile)?;
     let carriers = Carriers {
         slots,
         agents: Arc::new(Agents::new(settings, data.clone(), installation, of, tokens.clone())),

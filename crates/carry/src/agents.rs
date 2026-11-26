@@ -32,7 +32,8 @@
 //! directory, the engine's (`account::profile`), and the token of the account the round was handed out with, as what
 //! keeps the tokens gives it as the round begins; a token it cannot give, or none where the round was handed out with
 //! no account, fails the round as a command line that cannot run, in its words, nothing being run (decision
-//! no-default-credential). A keep-warm ping runs under the account it is handed out with, which its session's last call
+//! no-default-credential); and, last, the variables the flows give every agent's program (`agents/refused.toml`),
+//! whichever way it is started (decision agents-cannot-push-however-it-is-written). A keep-warm ping runs under the account it is handed out with, which its session's last call
 //! ran under, and a fork under its session's account, or under the one in use where that one was removed or the session
 //! ran under none, which it says. What the program's stream says of the usage of the account a round, a ping or a fork
 //! runs under is said to the loop under that account, a round's as each rate limit event comes. Which of its line's
@@ -736,7 +737,7 @@ impl Inner {
                     let before = before_messages(&on, round.account.as_deref(), &system, &form);
                     let command = self.command(
                         &dir,
-                        &of.declaration.environment,
+                        of,
                         &on,
                         &system,
                         &permissions,
@@ -1125,7 +1126,8 @@ impl Inner {
     /// The program's command line for a round on what it runs on, with its line's system prompt, of a line with these
     /// permissions, given the form of return of its flow, in the session, begun or gone on in, in the worktree, which
     /// the program compacts at the installation's `sessions.compact_at`, given the program's directory and the token of
-    /// the account it runs under and the variables its project's declaration names; where `refusing` says so, with every
+    /// the account it runs under, the variables its project's declaration names and those every agent's program has,
+    /// beside the flows ([`cli::environment`]); where `refusing` says so, with every
     /// use of a tool refused but the return's ([`cli::refusing`]), as a keep-warm ping runs; and with `lines` added to
     /// its environment, which give its git the hook that ends each commit with the item and the work
     /// ([`commit_lines::environment`]).
@@ -1133,7 +1135,7 @@ impl Inner {
     fn command(
         &self,
         dir: &Path,
-        declared: &BTreeMap<String, String>,
+        of: &Of,
         on: &RanOn,
         system: &str,
         permissions: &Permissions,
@@ -1158,7 +1160,8 @@ impl Inner {
                 agents,
                 &profile,
                 crate::programs::engine().iter().cloned(),
-                declared,
+                &of.declaration.environment,
+                &of.beside.refused.environment,
                 token,
             ))
             .current_dir(dir);
@@ -1613,7 +1616,7 @@ impl Inner {
         write(&compacted.again, b"").await.map_err(failed)?;
         let command = self.command(
             &dir,
-            &of.declaration.environment,
+            of,
             &on,
             &system,
             &permissions,
@@ -1985,6 +1988,7 @@ impl Inner {
                 &profile,
                 crate::programs::engine().iter().cloned(),
                 &of.declaration.environment,
+                &of.beside.refused.environment,
                 token,
             ))
             .current_dir(dir);
