@@ -12,9 +12,12 @@
 //! page cuts them at Monday's midnight in the owner's time zone, which knows when its clocks change and the engine does
 //! not. The span begins with the first and lasts until now; with no week given, it is all time, not cut into weeks. A
 //! round counts in the span, and in the week, where it ended: what it took is known only then. Everything is worked out
-//! from the works' records as the driver holds them, on the engine's loop, which alone reads the clock.
+//! from the works' records as the driver holds them, on the engine's loop, which alone reads the clock: what each work
+//! adds is worked out as the work changes and kept between reads ([`Parts`]), and a read puts the kept parts together
+//! for its span with what the driver keeps of the judgments and the merged checks.
 
 use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use axum::extract::rejection::QueryRejection;
 use axum::extract::{Query, State};
@@ -24,11 +27,12 @@ use decide::{CallId, CellId, Decision, End, RunId};
 use driver::{Driver, Kept};
 use serde::{Deserialize, Serialize};
 use service::Handle;
+use store::WorkNumber;
 use work::Time;
 
 use crate::interface::{fail, refused};
 use crate::works::{
-    Against, Back, Broken, Call, Failure, Given, Judged, Line, Run, RunEnd, Spent, runs, time, viewed_at,
+    Against, Back, Beside, Broken, Call, Failure, Given, Judged, Line, Run, RunEnd, Spent, runs, time, viewed_at,
 };
 
 /// What the view asks for: when each week of the span begins, joined by commas; none for all time.
@@ -573,9 +577,244 @@ impl Going {
     }
 }
 
+/// What one work adds to the System view, whatever the span: each thing of it that is counted, with when it happened,
+/// and each round and call of a tool, by which the judgments of the time it is read are looked up. Worked out from the
+/// work's records alone ([`Part::of`]).
+#[derive(Clone, Debug)]
+struct Part {
+    work: u64,
+    item: u64,
+    project: Option<String>,
+    flow: String,
+    /// When its item was added.
+    added: u64,
+    /// Each of its calls beside its rounds, with when it ended and what it took ([`crate::works::beside_rounds`]).
+    beside: Vec<(u64, work::BesideKind, Spent)>,
+    /// Each program run for it that left processes running, the earliest first, with when it ended.
+    left_behind: Vec<(u64, LeftOf, usize)>,
+    /// Its runs, in the order they started.
+    runs: Vec<PartRun>,
+    /// How it ended, where it has.
+    ending: Option<Ended>,
+}
+
+/// A run of a work, as the System view reads it.
+#[derive(Clone, Debug)]
+struct PartRun {
+    run: u64,
+    cell: String,
+    /// Its calls of tools, in the order they were made.
+    calls: Vec<PartCall>,
+    /// Its rounds, in order.
+    rounds: Vec<PartRound>,
+}
+
+/// A call of a tool by a run.
+#[derive(Clone, Debug)]
+struct PartCall {
+    call: u64,
+    tool: String,
+    made: u64,
+    /// When it had its result; none while it has none.
+    done: Option<u64>,
+    /// Whether it is withdrawn with its run or its work, where it has no result ([`driver::judged::withdrawn`]).
+    withdrawn: bool,
+}
+
+/// A round of a run.
+#[derive(Clone, Debug)]
+struct PartRound {
+    number: usize,
+    began: u64,
+    ended: Option<u64>,
+    spent: Option<Spent>,
+    /// Whether it was given back what the round before handed in.
+    sent_back: bool,
+    /// Why it failed, and of what kind of cause, where it did.
+    failed: Option<(String, Failure)>,
+    /// What it ran on ([`RanOn::of`]).
+    on: RanOn,
+}
+
+/// How a work ended, and when, with what the System view says of a merged work.
+#[derive(Clone, Debug)]
+enum Ended {
+    Merged {
+        at: u64,
+        /// When its first round began.
+        from: Option<u64>,
+        /// What it took in all ([`spent_in_all`]).
+        spent: Spent,
+    },
+    Cancelled {
+        at: u64,
+        why: Option<String>,
+    },
+}
+
+impl Part {
+    /// What the work adds to the System view, as the driver holds it, in the room what holds every work at once leaves
+    /// it.
+    fn of(driver: &Driver, kept: Kept<'_>, at_once: &driver::AtOnce) -> Result<Part, Broken> {
+        let runs = runs(kept)?;
+        let models = models(kept);
+        let mut left_behind = Vec::new();
+        for left in &kept.work.left_behind {
+            let Some(at) = kept.work.time_of(left.at).map(|at| at.0) else {
+                continue;
+            };
+            let cell_of = |of: RunId| runs.iter().find(|run| run.run == of.0).map(|run| run.cell.clone());
+            let of = match &left.of {
+                work::Left::Try { run, round, attempt } => cell_of(*run).map(|cell| LeftOf::Try {
+                    cell,
+                    run: run.0,
+                    round: *round,
+                    attempt: *attempt,
+                }),
+                work::Left::Act { run, round } => cell_of(*run).map(|cell| LeftOf::Act {
+                    cell,
+                    run: run.0,
+                    round: *round,
+                }),
+                work::Left::Call { call } => (runs.iter()).find_map(|run| {
+                    let made = run.calls.iter().find(|c| c.call == call.0)?;
+                    let tool = match &made.what {
+                        Call::Tool { name, .. } => name.clone(),
+                        _ => return None,
+                    };
+                    Some(LeftOf::Call {
+                        cell: run.cell.clone(),
+                        run: run.run,
+                        call: call.0,
+                        tool,
+                    })
+                }),
+                work::Left::Ping { line, session } => Some(LeftOf::Ping {
+                    line: line.clone(),
+                    session: *session,
+                }),
+                work::Left::Fork { run, round } => cell_of(*run).map(|cell| LeftOf::Fork {
+                    cell,
+                    run: run.0,
+                    round: *round,
+                }),
+            };
+            if let Some(of) = of {
+                left_behind.push((at, of, left.processes));
+            }
+        }
+        let ending = match ended(driver, kept, &runs, at_once)? {
+            Some(Ending::Merged(at)) => Some(Ended::Merged {
+                at,
+                from: runs.iter().flat_map(|run| &run.rounds).map(|round| round.began).min(),
+                spent: spent_in_all(&runs, kept.work)?,
+            }),
+            Some(Ending::Cancelled(at)) => Some(Ended::Cancelled {
+                at,
+                why: (kept.work.records.cancelled()).and_then(|at| kept.work.why_cancelled.get(&at).cloned()),
+            }),
+            None => None,
+        };
+        let runs = (runs.iter())
+            .map(|run| PartRun {
+                run: run.run,
+                cell: run.cell.clone(),
+                calls: (run.calls.iter())
+                    .filter_map(|call| match &call.what {
+                        Call::Tool { name, .. } => Some(PartCall {
+                            call: call.call,
+                            tool: name.clone(),
+                            made: call.made,
+                            done: call.done,
+                            withdrawn: call.done.is_none() && driver::judged::withdrawn(kept.work, CallId(call.call)),
+                        }),
+                        _ => None,
+                    })
+                    .collect(),
+                rounds: (run.rounds.iter())
+                    .map(|round| PartRound {
+                        number: round.number,
+                        began: round.began,
+                        ended: round.ended,
+                        spent: round.spent,
+                        sent_back: matches!(round.given, Given::SentBack { .. }),
+                        failed: match &round.back {
+                            Some(Back::Failed { why, failure, .. }) => Some((why.clone(), *failure)),
+                            _ => None,
+                        },
+                        on: RanOn::of(kept, &run.cell, models.get(&(run.run, round.number))),
+                    })
+                    .collect(),
+            })
+            .collect();
+        Ok(Part {
+            work: kept.head.number.0,
+            item: kept.item.number.0,
+            project: kept.item.project.clone(),
+            flow: kept.head.flow.clone(),
+            added: kept.item.added.0,
+            beside: crate::works::beside_rounds(kept.work, &|_| true)?,
+            left_behind,
+            runs,
+            ending,
+        })
+    }
+}
+
+/// What each work adds to the System view, kept between reads with the revision of the work it was worked out from
+/// ([`Driver::revision`]): a read works out again only the parts of the works that changed since the last, so that it
+/// reads no other work's records, and puts the parts together for its span.
+#[derive(Debug, Default)]
+pub struct Parts {
+    kept: BTreeMap<WorkNumber, (u64, Part)>,
+    /// How many works' parts the latest read worked out again.
+    worked_out: usize,
+}
+
+impl Parts {
+    /// How many works' parts the latest read worked out again, the others' being as they were kept.
+    pub fn worked_out(&self) -> usize {
+        self.worked_out
+    }
+
+    /// Brings the parts to every work the driver shows as it holds them now: a part kept of a work whose revision is
+    /// not the one it was worked out from is worked out again, and one of a work the driver no longer shows dropped.
+    fn bring_up(&mut self, driver: &Driver) -> Result<(), Broken> {
+        let mut kept = BTreeMap::new();
+        let mut at_once = None;
+        self.worked_out = 0;
+        for work in driver.works() {
+            let number = work.head.number;
+            let revision = driver.revision(number);
+            match self.kept.remove(&number) {
+                Some((was, part)) if Some(was) == revision => {
+                    kept.insert(number, (was, part));
+                }
+                _ => {
+                    let at_once = at_once.get_or_insert_with(|| driver.at_once());
+                    let part = Part::of(driver, work, at_once)?;
+                    self.worked_out += 1;
+                    // A work with no revision is worked out again at every read: no revision given is nought.
+                    kept.insert(number, (revision.unwrap_or_default(), part));
+                }
+            }
+        }
+        self.kept = kept;
+        Ok(())
+    }
+}
+
 impl System {
-    /// How the system went over these weeks, the earliest first, until now; over all time where there are none.
+    /// How the system went over these weeks, the earliest first, until now; over all time where there are none:
+    /// worked out from every work's records.
     pub fn of(driver: &Driver, now: Time, weeks: &[u64]) -> Result<System, Broken> {
+        System::kept(driver, now, weeks, &mut Parts::default())
+    }
+
+    /// How the system went over these weeks ([`System::of`]), from what each work adds to it as these parts keep it,
+    /// each brought up to the work as the driver holds it now.
+    pub fn kept(driver: &Driver, now: Time, weeks: &[u64], parts: &mut Parts) -> Result<System, Broken> {
+        parts.bring_up(driver)?;
         let from = weeks.first().copied();
         let within = |at: u64| from.is_none_or(|from| at >= from);
         let mut system = System {
@@ -614,26 +853,21 @@ impl System {
         let mut by_project: BTreeMap<Option<String>, Spent> = BTreeMap::new();
         let mut by_cell: BTreeMap<(String, String), Spent> = BTreeMap::new();
         let mut by_model: BTreeMap<RanOn, Spent> = BTreeMap::new();
-        // What holds every work at once, worked out once for every work's view.
-        let at_once = driver.at_once();
-        for kept in driver.works() {
-            let (work, item) = (kept.head.number.0, kept.item.number.0);
-            let runs = runs(kept)?;
-            let models = models(kept);
-            if within(kept.item.added.0) {
+        for (number, (_, part)) in &parts.kept {
+            let (number, work, item) = (*number, part.work, part.item);
+            if within(part.added) {
                 system.added.push(Added {
                     work,
                     item,
-                    at: kept.item.added.0,
+                    at: part.added,
                 });
-                if let Some(week) = week_of(&mut counted, kept.item.added.0) {
+                if let Some(week) = week_of(&mut counted, part.added) {
                     week.added += 1;
                 }
             }
-            let beside = crate::works::spent_beside_rounds(kept.work, &within)?;
-            system.pinged = system.pinged.with(beside.pinged);
-            system.spent = system.spent.with(beside.all().as_no_round());
-            for (at, kind, one) in crate::works::beside_rounds(kept.work, &within)? {
+            let mut beside = Beside::default();
+            for &(at, kind, one) in part.beside.iter().filter(|(at, ..)| within(*at)) {
+                beside = beside.with(kind, one);
                 if let Some(week) = week_of(&mut counted, at) {
                     if kind == work::BesideKind::Ping {
                         week.pinged = week.pinged.with(one);
@@ -641,77 +875,34 @@ impl System {
                     week.spent = week.spent.with(one.as_no_round());
                 }
             }
-            for left in &kept.work.left_behind {
-                let Some(at) = kept.work.time_of(left.at).map(|at| at.0).filter(|at| within(*at)) else {
-                    continue;
-                };
-                let cell_of = |of: RunId| runs.iter().find(|run| run.run == of.0).map(|run| run.cell.clone());
-                let of = match &left.of {
-                    work::Left::Try { run, round, attempt } => cell_of(*run).map(|cell| LeftOf::Try {
-                        cell,
-                        run: run.0,
-                        round: *round,
-                        attempt: *attempt,
-                    }),
-                    work::Left::Act { run, round } => cell_of(*run).map(|cell| LeftOf::Act {
-                        cell,
-                        run: run.0,
-                        round: *round,
-                    }),
-                    work::Left::Call { call } => (runs.iter()).find_map(|run| {
-                        let made = run.calls.iter().find(|c| c.call == call.0)?;
-                        let tool = match &made.what {
-                            Call::Tool { name, .. } => name.clone(),
-                            _ => return None,
-                        };
-                        Some(LeftOf::Call {
-                            cell: run.cell.clone(),
-                            run: run.run,
-                            call: call.0,
-                            tool,
-                        })
-                    }),
-                    work::Left::Ping { line, session } => Some(LeftOf::Ping {
-                        line: line.clone(),
-                        session: *session,
-                    }),
-                    work::Left::Fork { run, round } => cell_of(*run).map(|cell| LeftOf::Fork {
-                        cell,
-                        run: run.0,
-                        round: *round,
-                    }),
-                };
-                let Some(of) = of else {
-                    continue;
-                };
+            system.pinged = system.pinged.with(beside.pinged);
+            system.spent = system.spent.with(beside.all().as_no_round());
+            for (at, of, processes) in part.left_behind.iter().filter(|(at, ..)| within(*at)) {
                 system.left_behind.push(LeftBehind {
                     work,
                     item,
-                    of,
-                    at,
-                    processes: left.processes,
+                    of: of.clone(),
+                    at: *at,
+                    processes: *processes,
                 });
             }
             let mut of_work = beside.all().as_no_round();
-            for run in &runs {
-                let (number, cell) = (kept.head.number, &run.cell);
+            for run in &part.runs {
+                let cell = &run.cell;
                 for call in &run.calls {
-                    let Call::Tool { name, .. } = &call.what else {
-                        continue;
-                    };
                     let against = judged.calls.get(&(number, CallId(call.call)));
                     let time = against.and_then(|against| against.time.as_ref()).map(Against::of);
                     let size = against.and_then(|against| against.size.as_ref()).map(Against::of);
                     match call.done {
                         // A call being withdrawn with its run or its work is not under way.
-                        None if driver::judged::withdrawn(kept.work, CallId(call.call)) => {}
+                        None if call.withdrawn => {}
                         None => system.under_way.push(UnderWay::Call {
                             work,
                             item,
                             cell: cell.clone(),
                             run: run.run,
                             call: call.call,
-                            tool: name.clone(),
+                            tool: call.tool.clone(),
                             made: call.made,
                             time,
                         }),
@@ -724,7 +915,7 @@ impl System {
                                     cell: cell.clone(),
                                     run: run.run,
                                     call: call.call,
-                                    tool: name.clone(),
+                                    tool: call.tool.clone(),
                                     done,
                                     time,
                                     size,
@@ -764,13 +955,11 @@ impl System {
                         }
                         Some(_) => {}
                     }
-                    if let Given::SentBack { .. } = round.given
-                        && within(round.began)
-                    {
+                    if round.sent_back && within(round.began) {
                         system.sent_back.push(RoundAt {
                             work,
                             item,
-                            cell: run.cell.clone(),
+                            cell: cell.clone(),
                             run: run.run,
                             round: round.number,
                             began: round.began,
@@ -791,16 +980,15 @@ impl System {
                     if let Some(week) = week_of(&mut counted, ended) {
                         week.spent = week.spent.with(spent);
                     }
-                    let cell = by_cell.entry((kept.head.flow.clone(), run.cell.clone())).or_default();
-                    *cell = cell.with(spent);
-                    let on = RanOn::of(kept, &run.cell, models.get(&(run.run, round.number)));
-                    let model = by_model.entry(on).or_default();
+                    let of_cell = by_cell.entry((part.flow.clone(), cell.clone())).or_default();
+                    *of_cell = of_cell.with(spent);
+                    let model = by_model.entry(round.on.clone()).or_default();
                     *model = model.with(spent);
-                    if let Some(Back::Failed { why, failure, .. }) = &round.back {
+                    if let Some((why, failure)) = &round.failed {
                         system.failed.push(FailedRound {
                             work,
                             item,
-                            cell: run.cell.clone(),
+                            cell: cell.clone(),
                             run: run.run,
                             round: round.number,
                             ended,
@@ -820,30 +1008,30 @@ impl System {
                     item,
                     spent: of_work,
                 });
-                let project = by_project.entry(kept.item.project.clone()).or_default();
+                let project = by_project.entry(part.project.clone()).or_default();
                 *project = project.with(of_work);
             }
-            match ended(driver, kept, &runs, &at_once)? {
-                Some(Ending::Merged(at)) if within(at) => {
+            match &part.ending {
+                Some(Ended::Merged { at, from, spent }) if within(*at) => {
                     system.merged.push(Merged {
                         work,
                         item,
-                        at,
-                        from: runs.iter().flat_map(|run| &run.rounds).map(|round| round.began).min(),
-                        spent: spent_in_all(&runs, kept.work)?,
+                        at: *at,
+                        from: *from,
+                        spent: *spent,
                     });
-                    if let Some(week) = week_of(&mut counted, at) {
+                    if let Some(week) = week_of(&mut counted, *at) {
                         week.merged += 1;
                     }
                 }
-                Some(Ending::Cancelled(at)) if within(at) => {
+                Some(Ended::Cancelled { at, why }) if within(*at) => {
                     system.cancelled.push(Cancelled {
                         work,
                         item,
-                        at,
-                        why: (kept.work.records.cancelled()).and_then(|at| kept.work.why_cancelled.get(&at).cloned()),
+                        at: *at,
+                        why: why.clone(),
                     });
-                    if let Some(week) = week_of(&mut counted, at) {
+                    if let Some(week) = week_of(&mut counted, *at) {
                         week.cancelled += 1;
                     }
                 }
@@ -936,8 +1124,13 @@ pub(crate) async fn under_way(State(handle): State<Handle>) -> Response {
     }
 }
 
-/// Answers `GET /api/v1/system`.
-pub(crate) async fn system(State(handle): State<Handle>, span: Result<Query<Span>, QueryRejection>) -> Response {
+/// Answers `GET /api/v1/system`, from the parts of the works these keep between reads ([`Parts`]): the engine's loop
+/// alone reads and brings them up, one read after another.
+pub(crate) async fn system(
+    State(handle): State<Handle>,
+    parts: Arc<Mutex<Parts>>,
+    span: Result<Query<Span>, QueryRejection>,
+) -> Response {
     let weeks = match span
         .map_err(|rejection| rejection.body_text())
         .and_then(|Query(span)| span.starts())
@@ -945,7 +1138,12 @@ pub(crate) async fn system(State(handle): State<Handle>, span: Result<Query<Span
         Ok(weeks) => weeks,
         Err(why) => return fail(StatusCode::BAD_REQUEST, format!("The span cannot be read: {why}.")),
     };
-    match handle.read_at(move |driver, now| System::of(driver, now, &weeks)).await {
+    let read = move |driver: &Driver, now| {
+        // Each part kept is that of a work at its revision, whatever a read before did, so a read goes on from them.
+        let mut parts = parts.lock().unwrap_or_else(PoisonError::into_inner);
+        System::kept(driver, now, &weeks, &mut parts)
+    };
+    match handle.read_at(read).await {
         Ok(Ok(system)) => Json(system).into_response(),
         Ok(Err(broken)) => fail(
             StatusCode::INTERNAL_SERVER_ERROR,
