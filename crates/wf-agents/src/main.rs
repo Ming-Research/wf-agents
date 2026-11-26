@@ -506,12 +506,19 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// Waits for what needs whoever plans the work and says it, a line each, most pressing first: a work that ended,
-    /// one that waits on the owner, each thing it waits on them for by why, as the engine's one list of what waits on
-    /// the owner says, one that waits for items none of which is going on, and one the owner paused for items
-    /// (`wf-agents pause --waits-for`) each of which has merged or been cancelled. It answers as soon as there is
-    /// something since the mark, and says the mark to give next time; nothing that happens between two calls is lost.
-    /// With no mark, it gives what stands now, the works that ended being taken as read.
+    /// Waits for what needs whoever plans the work and says it, a line each, with how long each has stood: everything
+    /// the owner's page shows as needing someone, counted as the page counts it, each thing a work waits on the owner
+    /// for, by why, and each question the owner may answer ahead; a work at fault, stalled, or whose state cannot be
+    /// worked out; a project's red main, the pause of everything and the wait every work shares; and what holds work
+    /// back with no one asked: a project's turn to check and merge held by a work whose round or call has been under
+    /// way longer than `wait.turn_minutes` while others wait for it, a round or call that has waited for a runner
+    /// longer than `wait.queued_minutes`, slots free while items could be let on, an item that stands at a root and is
+    /// no deliverable, a work the owner paused with no reason, and one whose pause waited for items (`wf-agents pause
+    /// --waits-for`) each of which has merged or been cancelled. A work that ended, and one that came to wait for items
+    /// none of which is going on, are said once, as they come. It answers as soon as something came to stand since the
+    /// mark, and gives everything that stands, whole and most pressing first, at the first call and again each time
+    /// `wait.again_minutes` of the installation's settings has passed since it last did, until each thing is gone; it
+    /// says the mark to give next time, and nothing that happens between two calls is lost.
     Wait {
         /// The mark the last call gave.
         #[arg(long)]

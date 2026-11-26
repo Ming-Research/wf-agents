@@ -343,7 +343,7 @@ fn what_went_past_the_lines_of_its_history_and_what_is_under_way_are_given_again
         run: decide::RunId(run),
         round,
     };
-    assert!(driver.along(third, under, Some(driver::Along::Going(says))));
+    assert!(driver.along(work::Time(START), third, under, Some(driver::Along::Going(says))));
     let going = serde_json::to_value(web::system::Going::of(&driver)).unwrap();
     let figure = |value: u64, line: u64, past: bool| json!({ "value": value, "line": { "value": line, "samples": 5, "scope": "cell" }, "past": past });
     assert_eq!(

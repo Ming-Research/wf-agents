@@ -1,4 +1,5 @@
-//! `wf-agents wait`: what needs whoever plans the work, waited for and said a line each, with the mark to give next.
+//! `wf-agents wait`: what needs whoever plans the work, waited for and said a line each, with the mark to give next:
+//! what stands, whole, with no mark, and what came since a mark.
 
 use crate::{Engine, Place, SCRIPT};
 
@@ -11,13 +12,20 @@ fn split(said: &str) -> (&str, &str) {
     (lines, mark)
 }
 
+/// The first line of an answer that gives what stands whole.
+const WHOLE: &str =
+    "Everything that stands to be handled, most pressing first, given again every 5m 00s until it is gone:";
+
 #[test]
-fn wait_gives_the_owners_call_once_the_plan_reaches_its_limit_then_nothing_from_its_mark_then_the_merge() {
+fn wait_gives_what_stands_then_the_owners_call_once_the_plan_reaches_its_limit_then_nothing_from_its_mark_then_the_merge()
+ {
     let place = Place::new(SCRIPT);
     let engine = Engine::start(&place);
+    let said = engine.says(&["wait", "--for", "0"]);
+    let (lines, _) = split(&said);
     assert_eq!(
-        engine.says(&["wait", "--for", "0"]),
-        "Nothing waits for the owner.\nNext: wf-agents wait --since 0\n"
+        lines,
+        "Nothing stands to be handled; what comes is given as it comes, and what stands every 5m 00s."
     );
     engine.says(&[
         "add",
@@ -31,8 +39,22 @@ fn wait_gives_the_owners_call_once_the_plan_reaches_its_limit_then_nothing_from_
         "request=Greet the user, please.",
     ]);
     engine.says(&["resume", "1"]);
-    // With no time to wait, it waits until the plan's run has reached its limit of returns.
+    // With no mark, what stands: the item stands at a root and is no deliverable.
     let said = engine.says(&["wait"]);
+    let (lines, mark) = split(&said);
+    let mut stands = lines.lines();
+    assert_eq!(stands.next(), Some(WHOLE), "{said}");
+    let root = stands.next().unwrap_or_default();
+    assert!(
+        root.starts_with(
+            "Item #1 \"Greet the user\", work W1: stands at a root and is no deliverable: no item that has not ended \
+             depends on it, for "
+        ),
+        "{said}"
+    );
+    assert_eq!(stands.next(), None, "{said}");
+    // With no time to wait, it waits from the mark until the plan's run has reached its limit of returns.
+    let said = engine.says(&["wait", "--since", mark]);
     let (lines, mark) = split(&said);
     assert!(
         lines.starts_with("Item #1 \"Greet the user\", work W1: waits for the owner at plan for ")
@@ -40,10 +62,8 @@ fn wait_gives_the_owners_call_once_the_plan_reaches_its_limit_then_nothing_from_
         "{said}"
     );
     assert_eq!(lines.lines().count(), 1, "{said}");
-    assert_eq!(
-        engine.says(&["wait", "--since", mark, "--for", "0"]),
-        format!("Nothing for the owner since the mark.\nNext: wf-agents wait --since {mark}\n")
-    );
+    let said = engine.says(&["wait", "--since", mark, "--for", "0"]);
+    assert_eq!(split(&said).0, "Nothing new since the mark.", "{said}");
     engine.says(&["let-go", "1", "--call", "2"]);
     let said = engine.says(&["wait", "--since", mark]);
     let (lines, _) = split(&said);
@@ -111,10 +131,12 @@ fn a_pause_that_waits_for_an_item_is_said_with_its_reason_and_wait_says_that_the
     );
 
     engine.says(&["resume", "1"]);
-    engine.says(&["wait"]);
+    engine.until(&["show", "1"], |line| {
+        line.starts_with("Now: waits at plan for the owner")
+    });
     engine.says(&["let-go", "1", "--call", "2"]);
-    let line = engine.until(&["wait", "--since", "0", "--for", "0"], |line| {
-        line.starts_with("Item #2 ")
+    let line = engine.until(&["wait", "--for", "0"], |line| {
+        line.starts_with("Item #2 ") && line.contains("its pause waited for")
     });
     assert!(
         line.starts_with(
@@ -136,18 +158,23 @@ fn a_pause_that_waits_for_an_item_is_said_with_its_reason_and_wait_says_that_the
     );
 
     engine.says(&["resume", "2"]);
-    let said = engine.says(&["wait", "--since", "0", "--for", "0"]);
+    let said = engine.says(&["wait", "--for", "0"]);
     assert!(!said.contains("its pause waited for"), "{said}");
 }
 
 #[test]
-fn wait_refuses_a_mark_that_is_none_and_one_of_other_records() {
+fn wait_refuses_a_mark_that_is_none_and_one_later_than_the_engines_clock() {
     let place = Place::new(SCRIPT);
     let engine = Engine::start(&place);
     assert_eq!(
         engine.refuses(&["wait", "--since", "soon"]),
-        "\"soon\" is not a mark: a mark is a number, then each work with its place, such as 12,3.41,7.118.\n"
+        "\"soon\" is not a mark: a mark is three or five numbers joined by dots, such as \
+         1800000000000.1800000300000.0.\n"
     );
-    let refused = engine.refuses(&["wait", "--since", "4", "--for", "0"]);
-    assert!(refused.starts_with("The mark is not of these records"), "{refused}");
+    let later = "99999999999999.99999999999999.0";
+    let refused = engine.refuses(&["wait", "--since", later, "--for", "0"]);
+    assert!(
+        refused.starts_with("The mark is later than the engine's clock"),
+        "{refused}"
+    );
 }

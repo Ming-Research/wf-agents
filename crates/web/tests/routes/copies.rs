@@ -50,7 +50,7 @@ fn serving_kept(kept: Option<(bool, usize)>) -> (axum::Router, Backups, tempfile
         keep,
         off_machine,
     });
-    let router = web::with_works_and_copies(flows, handle.clone(), levels(), projects(), copies);
+    let router = web::with_works_and_copies(flows, handle.clone(), levels(), projects(), crate::times(), copies);
     (router, Backups::open(&path).unwrap(), dir, handle)
 }
 

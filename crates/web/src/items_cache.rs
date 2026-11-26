@@ -369,6 +369,12 @@ impl ItemsCache {
         ))
     }
 
+    /// Every item as the pages are given it, as the last check against the driver left it ([`ItemsCache::check`]), with
+    /// no wait for a look at a repository: what the pages count from.
+    pub(crate) fn items(&self) -> Vec<Item> {
+        self.lock().entries.values().map(shown).collect()
+    }
+
     /// Every item, as the pages are given them whole.
     pub(crate) async fn all(self: &Arc<Self>) -> Result<Items, Failure> {
         self.fresh().await?;

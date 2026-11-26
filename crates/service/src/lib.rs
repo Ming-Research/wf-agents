@@ -565,7 +565,8 @@ impl Service {
                 // nothing of the work's records did, so that what reads a work's records is not told to read them.
                 let going = matches!(along, Some(Along::Going(_)));
                 // What a work does now may have changed, though no record of it grew.
-                if self.driver.along(work, under, along) {
+                let now = self.now()?;
+                if self.driver.along(now, work, under, along) {
                     let _ = self.changed.send(Changed {
                         works: if going { Vec::new() } else { vec![work] },
                         items: false,
