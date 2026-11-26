@@ -1,8 +1,9 @@
-//! The looks at the runs of the project's workflows, which every wait for a run of a workflow shares: one look at a
-//! workflow's runs at a time, each sent with the entity tag of the last answer, so that GitHub answers 304, which costs
-//! nothing against its limit on requests, where nothing changed since; and an answer younger than a wait asks for is
-//! given to it as it is. What waiting costs GitHub's limit grows with how often the runs of the workflows waited on
-//! change, and not with how many waits there are or how long they last.
+//! The looks at the runs of the project's workflows and at the jobs of a run, which every wait for a run of a workflow
+//! shares: one look at a workflow's runs, or at a run's jobs, at a time, each sent with the entity tag of the last
+//! answer, so that GitHub answers 304, which costs nothing against its limit on requests, where nothing changed since;
+//! and an answer younger than a wait asks for is given to it as it is. What waiting costs GitHub's limit grows with how
+//! often the runs of the workflows waited on, and their jobs, change, and not with how many waits there are or how long
+//! they last.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -10,13 +11,14 @@ use std::time::Duration;
 
 use tokio::time::Instant;
 
-use super::api::{Api, Listed, Run};
+use super::api::{Api, Check, Jobs, Listed, Run};
 use crate::host::Failed;
 
 /// The last answer to a look at the runs of each workflow on each branch.
 #[derive(Default)]
 pub(super) struct Looks {
     of: Mutex<HashMap<(String, String), Shared>>,
+    jobs: Mutex<HashMap<u64, SharedJobs>>,
 }
 
 /// What the last look at the runs of a workflow on a branch found, locked while a wait looks at them, so that one look
@@ -28,6 +30,19 @@ type Shared = Arc<tokio::sync::Mutex<Seen>>;
 struct Seen {
     runs: Vec<Run>,
     /// The entity tag of the answer that gave the runs, which the next look sends.
+    tag: Option<String>,
+    /// When the last look was sent; none before the first.
+    at: Option<Instant>,
+}
+
+/// What the last look at the jobs of a run found, locked while a wait looks at them.
+type SharedJobs = Arc<tokio::sync::Mutex<SeenJobs>>;
+
+/// What the last look at the jobs of a run found.
+#[derive(Default)]
+struct SeenJobs {
+    jobs: Vec<Check>,
+    /// The entity tag of the answer that gave the jobs, which the next look sends.
     tag: Option<String>,
     /// When the last look was sent; none before the first.
     at: Option<Instant>,
@@ -78,5 +93,35 @@ impl Looks {
             runs: seen.runs.clone(),
             at: sent,
         })
+    }
+
+    /// The jobs of the run: as the last look found them, where it was sent less than `within` ago, so that a zero
+    /// `within` asks for a look sent now; or else as a look sent now finds them.
+    pub(super) async fn jobs(&self, api: &impl Api, run: u64, within: Duration) -> Result<Vec<Check>, Failed> {
+        let seen = {
+            let mut of = self.jobs.lock().unwrap_or_else(PoisonError::into_inner);
+            of.entry(run).or_default().clone()
+        };
+        let mut seen = seen.lock().await;
+        if let Some(at) = seen.at
+            && at.elapsed() < within
+        {
+            return Ok(seen.jobs.clone());
+        }
+        let sent = Instant::now();
+        match api.jobs(run, seen.tag.as_deref()).await? {
+            Jobs::Listed { jobs, tag } => {
+                seen.jobs = jobs;
+                seen.tag = tag;
+            }
+            Jobs::Unchanged => {}
+        }
+        seen.at = Some(sent);
+        Ok(seen.jobs.clone())
+    }
+
+    /// Lets the look at the jobs of the run go, once nothing waits for it any more.
+    pub(super) fn forget(&self, run: u64) {
+        self.jobs.lock().unwrap_or_else(PoisonError::into_inner).remove(&run);
     }
 }

@@ -7,11 +7,13 @@
 //!   asked for.
 //! - `red`: a check whose full workflows failed tests alone, which are run again on the commit and on main's head.
 //! - `looks`: what the waits for runs of a workflow cost GitHub's limit on requests.
+//! - `queued`: a run that waits for a runner, which waits on while one is online and is cancelled where none is.
 
 mod again;
 mod continued;
 mod ends;
 mod looks;
+mod queued;
 mod red;
 
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -688,14 +690,14 @@ fn cancelled(hub: &Hub) -> Vec<u64> {
         .collect()
 }
 
-// A full run no runner took is left queued and fails the round in passing: what stops it is no work's, and asked for
-// again after a wait the same run is found, and it may start. A project that declares no workflows has no check, which
-// only its owner mends.
+// A full run no runner took is the engine's own to cancel, and fails the round in passing: what stops it is no work's,
+// and asked for again after a wait it may start. A project that declares no workflows has no check, which only its
+// owner mends.
 #[tokio::test]
-async fn a_full_run_no_runner_took_is_left_queued_and_fails_in_passing_and_a_project_with_no_workflows_has_no_check() {
-    let hub = Hub::new();
+async fn a_full_run_no_runner_took_is_cancelled_and_fails_in_passing_and_a_project_with_no_workflows_has_no_check() {
+    let hub = queued::on_14900k(Hub::new());
     let head = hub.committed().await;
-    hub.github().no_runner();
+    hub.github().queue_runs();
     let failed = hub.failing(&head).await.expect_err("the round fails");
     assert!(
         failed.why.starts_with(&format!(
@@ -703,8 +705,14 @@ async fn a_full_run_no_runner_took_is_left_queued_and_fails_in_passing_and_a_pro
         )),
         "{failed}"
     );
+    assert!(
+        failed
+            .why
+            .ends_with("none of 14900k is online, and the engine cancelled the run"),
+        "{failed}"
+    );
     assert_eq!(failed.kind, Some(Failure::Passing));
-    assert!(cancelled(&hub).is_empty(), "the run asked for is left queued");
+    assert_eq!(cancelled(&hub), [1000], "the run asked for is cancelled");
     let hub = Hub::new().with(|config| config.ci = None);
     let head = hub.committed().await;
     let failed = hub.failing(&head).await.expect_err("the round fails");
@@ -806,7 +814,7 @@ async fn the_open_pull_requests_are_the_open_ones_and_a_list_github_refuses_is_s
 async fn a_stopped_wait_gives_nothing() {
     let hub = Hub::new();
     let head = hub.committed().await;
-    hub.github().no_runner();
+    hub.github().queue_runs();
     let held: Held<u8, ()> = Held::new();
     let mut stop = held.hold(1, ()).expect("held");
     let place = hub.place();

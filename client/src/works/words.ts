@@ -497,11 +497,13 @@ function whoGives(w: Waited): string | null {
 export type Tone = 'running' | 'calling' | 'owner' | 'failed' | 'quiet' | 'done';
 
 /// A call of a tool a work waits for the result of, which the engine carries out: the tool, by its name, none for the
-/// act of an engine cell, which no tool makes; the link of the CI run it runs as, where the engine gives one; and when
-/// it was made, none where the engine does not say.
+/// act of an engine cell, which no tool makes; the link of the CI run it runs as, where the engine gives one; the runner
+/// its run, or the jobs of it, wait for, none where they wait for none; and when it was made, none where the engine does
+/// not say.
 export interface CallWaited {
   tool: string | null;
   ci: string | null;
+  queued: string | null;
   made: number | null;
 }
 
@@ -513,11 +515,13 @@ export function callsWaited(s: Pick<Summary, 'now' | 'cells'>): CallWaited[] {
   const now = s.now;
   if (now.kind === 'round') {
     const act = s.cells.some((c) => c.cell === now.cell && c.state === 'calling');
-    return act ? [{ tool: null, ci: now.at ?? null, made: now.since }] : [];
+    return act ? [{ tool: null, ci: now.at ?? null, queued: now.queuedFor ?? null, made: now.since }] : [];
   }
   if (now.kind !== 'waits') return [];
   return now.on.flatMap((w) =>
-    engineToolCall(w) ? [{ tool: w.what.name, ci: w.at ?? null, made: w.made ? w.made : null }] : [],
+    engineToolCall(w)
+      ? [{ tool: w.what.name, ci: w.at ?? null, queued: w.queuedFor ?? null, made: w.made ? w.made : null }]
+      : [],
   );
 }
 
@@ -527,7 +531,8 @@ const engineToolCall = (w: Waited): w is Extract<Waited, { kind: 'call' }> & { w
 
 /// What a work that waits for calls of tools waits for, the word of its state, in pieces: each tool by its name, and
 /// where it runs: in CI, a link to its run, where the engine gives the run's link, else by the engine. `Waiting for
-/// run_tests in CI`. An act, which no tool makes, is said by where it runs alone: `Waiting for CI`.
+/// run_tests in CI`. An act, which no tool makes, is said by where it runs alone: `Waiting for CI`. Where its run, or
+/// the jobs of it, wait for a runner, it says which: `Waiting for run_tests in CI (queued for 14900k)`.
 export function callWaitParts(calls: CallWaited[]): Part[] {
   return [
     'Waiting for ',
@@ -536,6 +541,7 @@ export function callWaitParts(calls: CallWaited[]): Part[] {
       ...(c.tool === null
         ? [c.ci !== null ? { link: 'CI', href: c.ci } : 'the engine']
         : [{ name: c.tool }, ...(c.ci !== null ? [' in ', { link: 'CI', href: c.ci }] : [' by the engine'])]),
+      ...(c.queued === null ? [] : [` (queued for ${c.queued})`]),
     ]),
   ];
 }

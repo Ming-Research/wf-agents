@@ -67,6 +67,7 @@ async fn the_figures_of_a_round_are_said_changed_alone_and_where_it_runs_the_wor
 
     trial.take(says(Along::Runs {
         at: "https://example.com/run/1".to_string(),
+        queued_for: None,
     }));
     assert_eq!(
         told(&mut changes),

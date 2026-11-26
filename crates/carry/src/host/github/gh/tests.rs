@@ -23,6 +23,14 @@ fn a_job_is_read_by_its_conclusion_and_one_that_did_not_run_is_skipped() {
         Some(Outcome::Broken("cancelled".to_string()))
     );
     assert_eq!(job("in_progress", None).map(|j| j.outcome), Some(Outcome::Pending));
+    // A job no runner has taken is told from one under way, whichever word GitHub has for waiting.
+    for waiting in ["queued", "waiting", "pending", "requested"] {
+        assert_eq!(
+            job(waiting, None).map(|j| j.outcome),
+            Some(Outcome::Queued),
+            "{waiting}"
+        );
+    }
     assert_eq!(
         job("completed", Some("skipped")).map(|j| j.outcome),
         Some(Outcome::Skipped),
@@ -690,4 +698,176 @@ async fn a_304_to_a_look_that_sent_no_tag_is_refused() {
     let gh = Gh::new(&script.display().to_string(), "o/r", "the-token", dir.path());
     let refused = gh.runs("fast.yml", "main", None).await.expect_err("no runs");
     assert!(refused.why.contains("though it was sent no entity tag"), "{refused}");
+}
+
+/// A `gh` in this directory that answers a look at the jobs of a run as GitHub does: with a job queued and a job under
+/// way and the entity tag `W/"3"`, or, to a look that sends that tag, with 304 and no body, exiting with 1 as `gh` does.
+/// Each look's arguments are written to the file `asked`, one to a line, after a line `--`.
+fn gh_with_jobs(dir: &std::path::Path) -> Gh {
+    let jobs = json!({ "total_count": 2, "jobs": [
+        { "id": 5, "name": "test", "status": "queued", "conclusion": null, "html_url": "https://github.com/o/r/runs/5" },
+        { "id": 6, "name": "lint", "status": "in_progress", "conclusion": null, "html_url": "https://github.com/o/r/runs/6" },
+    ] });
+    std::fs::write(dir.join("jobs.json"), jobs.to_string()).unwrap();
+    let text = r#"#!/bin/sh
+echo '--' >> '{dir}/asked'
+printf '%s\n' "$@" >> '{dir}/asked'
+case "$*" in
+*'If-None-Match: W/"3"'*)
+  printf 'HTTP/2.0 304 Not Modified\nEtag: "3"\r\n\r\n'
+  echo 'gh: HTTP 304' >&2
+  exit 1 ;;
+*) printf 'HTTP/2.0 200 OK\nContent-Type: application/json; charset=utf-8\r\nEtag: W/"3"\r\n\r\n'
+  cat '{dir}/jobs.json' ;;
+esac
+"#
+    .replace("{dir}", &dir.display().to_string());
+    let script = dir.join("gh");
+    std::fs::write(&script, text).unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    Gh::new(&script.display().to_string(), "o/r", "the-token", dir)
+}
+
+// A look at a run's jobs sends the entity tag it is given, as a look at a workflow's runs does, and GitHub's 304 to it is
+// read as the jobs unchanged, which costs nothing against GitHub's limit; and a job no runner has taken is read as
+// queued, one under way as pending. A script stands in for `gh`; it runs in milliseconds, and no other test holds what
+// is sent to GitHub.
+#[tokio::test]
+async fn a_look_at_the_jobs_sends_the_tag_it_is_given_and_reads_githubs_304_as_unchanged() {
+    let dir = tempfile::tempdir().unwrap();
+    let gh = gh_with_jobs(dir.path());
+    let listed = gh.jobs(9, None).await.expect("the jobs");
+    let job = |id: u64, name: &str, outcome: Outcome| Check {
+        id,
+        name: name.to_string(),
+        outcome,
+        url: Some(format!("https://github.com/o/r/runs/{id}")),
+        took: None,
+    };
+    assert_eq!(
+        listed,
+        Jobs::Listed {
+            jobs: vec![job(5, "test", Outcome::Queued), job(6, "lint", Outcome::Pending)],
+            tag: Some("W/\"3\"".to_string()),
+        }
+    );
+    let unchanged = gh.jobs(9, Some("W/\"3\"")).await.expect("an answer");
+    assert_eq!(unchanged, Jobs::Unchanged);
+    let older = gh.jobs(9, Some("W/\"2\"")).await.expect("the jobs");
+    assert_eq!(older, listed, "the tag of another answer is given the jobs");
+    let asked = looks_asked(dir.path());
+    assert_eq!(asked.len(), 3);
+    let path = "repos/o/r/actions/runs/9/jobs?per_page=100";
+    assert!(asked.iter().all(|look| look.iter().any(|a| a == path)), "{asked:?}");
+    assert!(
+        !asked[0].iter().any(|a| a.starts_with("If-None-Match")),
+        "{:?}",
+        asked[0]
+    );
+    assert!(asked[1].iter().any(|a| a == "If-None-Match: W/\"3\""), "{:?}", asked[1]);
+}
+
+/// What GitHub answers with this body and status line.
+fn answer(status: &str, body: &str) -> String {
+    format!("HTTP/2.0 {status}\r\n\r\n{body}")
+}
+
+/// A `gh` in this directory that answers the questions of the runners as GitHub does: what `owner` says of the
+/// repository's owner, and these whole answers, status line and body, for the repository's runners and the
+/// organisation's. Each question's arguments are written to the file `asked`, one to a line.
+fn gh_with_runners(dir: &std::path::Path, owner: &str, repository: &str, organisation: &str) -> Gh {
+    let owned = answer("200 OK", &json!({ "owner": { "type": owner } }).to_string());
+    for (name, text) in [
+        ("owner.out", owned.as_str()),
+        ("repo.out", repository),
+        ("org.out", organisation),
+    ] {
+        std::fs::write(dir.join(name), text).unwrap();
+    }
+    let text = r#"#!/bin/sh
+echo "$*" >> '{dir}/asked'
+case "$*" in
+*orgs/o/actions/runners*) cat '{dir}/org.out' ;;
+*repos/o/r/actions/runners*) cat '{dir}/repo.out' ;;
+*repos/o/r) cat '{dir}/owner.out' ;;
+esac
+"#
+    .replace("{dir}", &dir.display().to_string());
+    let script = dir.join("gh");
+    std::fs::write(&script, text).unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    Gh::new(&script.display().to_string(), "o/r", "the-token", dir)
+}
+
+/// The runners as GitHub lists them: one online and busy, one offline.
+fn listed_runners() -> String {
+    let runners = json!({ "total_count": 2, "runners": [
+        { "id": 1, "name": "a", "status": "online", "busy": true, "labels": [{ "name": "self-hosted" }, { "name": "14900k" }] },
+        { "id": 2, "name": "b", "status": "offline", "busy": false, "labels": [{ "name": "14900k" }] },
+    ] });
+    answer("200 OK", &runners.to_string())
+}
+
+fn none_listed() -> String {
+    answer("200 OK", r#"{"total_count":0,"runners":[]}"#)
+}
+
+// An organisation's runners are listed beside the repository's, each by what it says of itself: its status, busy or
+// not, and its labels. The repository here has none and its organisation has two, as this project's do.
+#[tokio::test]
+async fn the_runners_of_an_organisation_are_listed_beside_the_repositorys_each_with_its_status_and_labels() {
+    let dir = tempfile::tempdir().unwrap();
+    let gh = gh_with_runners(dir.path(), "Organization", &none_listed(), &listed_runners());
+    let runners = gh.runners().await;
+    assert_eq!(runners.repository, Ok(Vec::new()));
+    let busy = Runner {
+        online: true,
+        labels: vec!["self-hosted".to_string(), "14900k".to_string()],
+    };
+    let offline = Runner {
+        online: false,
+        labels: vec!["14900k".to_string()],
+    };
+    assert_eq!(runners.organisation, Some(Ok(vec![busy, offline])));
+}
+
+// A repository owned by a person has the one layer, and the organisation's is not asked for: GitHub has none to answer.
+#[tokio::test]
+async fn a_repository_of_a_person_has_no_organisation_layer_and_none_is_asked_for() {
+    let dir = tempfile::tempdir().unwrap();
+    let gh = gh_with_runners(dir.path(), "User", &listed_runners(), &answer("404 Not Found", "{}"));
+    let runners = gh.runners().await;
+    assert_eq!(runners.organisation, None);
+    assert_eq!(runners.repository.map(|list| list.len()), Ok(2));
+    let asked = std::fs::read_to_string(dir.path().join("asked")).unwrap();
+    assert!(!asked.contains("orgs/"), "{asked}");
+}
+
+// A layer the token may not read is that layer unread, in GitHub's words, and does not hide what the other layer lists.
+#[tokio::test]
+async fn a_layer_that_is_refused_is_unread_in_githubs_words_and_the_other_is_still_read() {
+    let refusal = answer(
+        "403 Forbidden",
+        r#"{"message":"Resource not accessible by personal access token"}"#,
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let gh = gh_with_runners(dir.path(), "Organization", &refusal, &listed_runners());
+    let runners = gh.runners().await;
+    assert_eq!(
+        runners.repository,
+        Err("HTTP 403: Resource not accessible by personal access token".to_string())
+    );
+    assert_eq!(runners.organisation.expect("asked").map(|list| list.len()), Ok(2));
+    let dir = tempfile::tempdir().unwrap();
+    let gh = gh_with_runners(dir.path(), "Organization", &none_listed(), &refusal);
+    let runners = gh.runners().await;
+    assert_eq!(runners.repository, Ok(Vec::new()));
+    assert_eq!(
+        runners.organisation,
+        Some(Err(
+            "HTTP 403: Resource not accessible by personal access token".to_string()
+        ))
+    );
 }

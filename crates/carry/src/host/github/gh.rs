@@ -13,7 +13,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use tokio::io::AsyncWriteExt;
 
-use super::api::{Api, Check, File, Listed, OPEN_PULLS, Outcome, Pull, Run, State};
+use super::api::{Api, Check, File, Jobs, Layer, Listed, OPEN_PULLS, Outcome, Pull, Run, Runner, Runners, State};
 use crate::host::Failed;
 use decide::{Obstacle, Retry};
 
@@ -177,6 +177,34 @@ impl Gh {
         ))
     }
 
+    /// Whether the repository's owner is an organisation, which has runners of its own to list.
+    async fn owner_is_an_organisation(&self) -> Result<bool, String> {
+        let path = format!("repos/{}", self.repository);
+        let repository = self
+            .json("GET", &path, None, &[200])
+            .await
+            .map_err(|failed| failed.why)?;
+        Ok(repository["owner"]["type"].as_str() == Some("Organization"))
+    }
+
+    /// The runners one layer lists, each page of GitHub's list read; or GitHub's words for why it could not be read.
+    async fn layer(&self, path: &str) -> Layer {
+        let mut runners = Vec::new();
+        for page in 1.. {
+            let paged = format!("{path}?per_page=100&page={page}");
+            let listed = self
+                .json("GET", &paged, None, &[200])
+                .await
+                .map_err(|failed| failed.why)?;
+            let listed = listed["runners"].as_array().cloned().unwrap_or_default();
+            runners.extend(listed.iter().map(runner));
+            if listed.len() < 100 {
+                break;
+            }
+        }
+        Ok(runners)
+    }
+
     /// Asks GitHub, and gives the body of an answer whose status is one of `ok`; or GitHub's words for why not.
     async fn want(&self, method: &str, path: &str, body: Option<Value>, ok: &[u16]) -> Result<String, Failed> {
         let answer = self.ask(method, path, body).await?;
@@ -297,11 +325,43 @@ impl Api for Gh {
         self.want("POST", &path, None, &[202, 409]).await.map(|_| ())
     }
 
-    async fn jobs(&self, run: u64) -> Result<Vec<Check>, Failed> {
+    async fn jobs(&self, run: u64, tag: Option<&str>) -> Result<Jobs, Failed> {
         let path = format!("repos/{}/actions/runs/{run}/jobs?per_page=100", self.repository);
-        let listed = self.json("GET", &path, None, &[200]).await?;
-        let jobs = listed["jobs"].as_array().cloned().unwrap_or_default();
-        Ok(jobs.iter().filter_map(job).collect())
+        // As the look at the runs of a workflow does, it names the entity tag of the answer it would give again.
+        let condition = tag.map(|tag| format!("If-None-Match: {tag}"));
+        let flags: Vec<&str> = condition.iter().flat_map(|header| ["-H", header.as_str()]).collect();
+        let answer = self.ask_with("GET", &path, None, &flags).await?;
+        match answer.status {
+            200 => {
+                let listed: Value = serde_json::from_str(&answer.body)
+                    .map_err(|e| format!("GitHub's answer to GET {path} is not JSON: {e}"))?;
+                let jobs = listed["jobs"].as_array().cloned().unwrap_or_default();
+                Ok(Jobs::Listed {
+                    jobs: jobs.iter().filter_map(job).collect(),
+                    tag: answer.tag,
+                })
+            }
+            304 if tag.is_some() => Ok(Jobs::Unchanged),
+            304 => {
+                Err(format!("GitHub answered GET {path} with 304, unchanged, though it was sent no entity tag").into())
+            }
+            _ => Err(refused(&answer)),
+        }
+    }
+
+    async fn runners(&self) -> Runners {
+        let repository = self.layer(&format!("repos/{}/actions/runners", self.repository)).await;
+        let owner = self.repository.split('/').next().unwrap_or_default();
+        // Only an organisation has runners of its own beside the repository's; a person's repository has the one layer.
+        let organisation = match self.owner_is_an_organisation().await {
+            Ok(false) => None,
+            Ok(true) => Some(self.layer(&format!("orgs/{owner}/actions/runners")).await),
+            Err(why) => Some(Err(why)),
+        };
+        Runners {
+            repository,
+            organisation,
+        }
     }
 
     async fn artifact(&self, run: u64, name: &str) -> Result<Option<Vec<File>>, Failed> {
@@ -579,8 +639,18 @@ fn run(run: &Value) -> Option<Run> {
     })
 }
 
+/// A self-hosted runner as GitHub's REST API lists it.
+fn runner(runner: &Value) -> Runner {
+    Runner {
+        online: runner["status"].as_str() == Some("online"),
+        labels: (runner["labels"].as_array().into_iter().flatten())
+            .filter_map(|label| label["name"].as_str().map(str::to_string))
+            .collect(),
+    }
+}
+
 /// A job of a run as a check; none for a job that has no id or no name. A job that did not run is a check that was
-/// skipped.
+/// skipped; one that no runner has taken is queued.
 fn job(job: &Value) -> Option<Check> {
     let outcome = match (job["status"].as_str(), job["conclusion"].as_str()) {
         (Some("completed"), Some("skipped")) => Outcome::Skipped,
@@ -588,7 +658,8 @@ fn job(job: &Value) -> Option<Check> {
         (Some("completed"), Some(how @ ("failure" | "timed_out"))) => Outcome::Failed(how.to_string()),
         (Some("completed"), Some(how)) => Outcome::Broken(how.to_string()),
         (Some("completed"), None) => Outcome::Broken("no conclusion".to_string()),
-        _ => Outcome::Pending,
+        (Some("in_progress"), _) => Outcome::Pending,
+        _ => Outcome::Queued,
     };
     // Only a job that ran to a conclusion has a time to give; one cancelled or not complete did not finish.
     let took = match outcome {

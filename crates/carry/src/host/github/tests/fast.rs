@@ -108,7 +108,7 @@ error: could not compile `driver` (lib) due to 1 previous error
 ##[error]Process completed with exit code 101.";
 
 impl Hub {
-    async fn named_check(&self, named: &Named) -> Result<Option<String>, String> {
+    pub(super) async fn named_check(&self, named: &Named) -> Result<Option<String>, String> {
         self.named_failed(named).await.map_err(|failed| failed.why)
     }
 
@@ -580,13 +580,13 @@ async fn the_workflow_is_run_by_mains_file_with_the_commit_given_and_nothing_sta
     );
 }
 
-// With no runner online, the run is listed at once, queued: once the start is waited for, what asked is held, not failed,
-// and the run is left queued, where it keeps its place; the timeout of a run is not waited for.
+// With no runner of its kind online, the run is listed at once, queued: once the start is waited for it is cancelled, and
+// what asked is held, not failed, the timeout of a run not being waited for.
 #[tokio::test]
-async fn a_run_no_runner_took_holds_what_asked_and_is_left_queued() {
-    let hub = Hub::new();
+async fn a_run_no_runner_took_is_cancelled_and_holds_what_asked() {
+    let hub = super::queued::on_14900k(Hub::new());
     let head = hub.committed().await;
-    hub.github().no_runner();
+    hub.github().queue_runs();
     let began = std::time::Instant::now();
     let failed = hub.named_failed(&named(&["a"], &[])).await.expect_err("not run");
     assert!(
@@ -596,7 +596,9 @@ async fn a_run_no_runner_took_holds_what_asked_and_is_left_queued() {
         "{failed}"
     );
     assert!(
-        failed.why.ends_with("(https://github.example/actions/runs/1000)"),
+        failed.why.ends_with(
+            "(https://github.example/actions/runs/1000), none of 14900k is online, and the engine cancelled the run"
+        ),
         "{failed}"
     );
     assert_eq!(
@@ -606,30 +608,13 @@ async fn a_run_no_runner_took_holds_what_asked_and_is_left_queued() {
             retry: None
         })
     );
+    assert_eq!(failed.kind, Some(Failure::Passing));
     assert!(
         began.elapsed() < Duration::from_secs(2),
         "the timeout was not waited for"
     );
-    assert!(
-        !hub.github().asked().contains(&Asked::Cancel(1000)),
-        "the run is left queued"
-    );
-}
-
-// What asked, asked again, finds the run it asked for already, and asks for no second one: a run that is held does not
-// run twice.
-#[tokio::test]
-async fn what_was_held_for_a_run_no_runner_took_finds_the_same_run_again_and_asks_for_no_second() {
-    let hub = Hub::new();
-    let head = hub.committed().await;
-    hub.github().no_runner();
-    let place = hub.place();
-    let (at, request, call) = (branch(&place), named(&["a"], &[]), hub.call());
-    let first = hub.host.run_tests(&at, &request, call, &mut Stop::never()).await;
-    assert!(first.expect_err("held").held.is_some());
-    let second = hub.host.run_tests(&at, &request, call, &mut Stop::never()).await;
-    assert!(second.expect_err("held again").held.is_some());
-    assert_eq!(hub.dispatched().len(), 1, "asked for one run on {head}");
+    assert_eq!(hub.github().runners_asked(), 1, "the runners were asked after once");
+    assert_eq!(cancelled(&hub), [1000]);
 }
 
 // GitHub's own faults and its limit on the requests it takes keep a request from being run for now, at each place the

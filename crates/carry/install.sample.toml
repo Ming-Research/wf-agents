@@ -51,9 +51,15 @@ main = "main"
 # remote = "origin"
 # # The variable of the engine's environment that holds its token. No agent is given it.
 # token_env = "WF_GITHUB_TOKEN"
-# # A run of a workflow that is not listed, or never leaves the queue, after this many minutes: the CI never started.
-# # The engine cancels the run it asked for, and the check fails its round in passing and is tried again after a wait,
-# # or the agents' tool says so.
+# # A run of a workflow that is not listed after this many minutes: the CI never started. A run that waits for a runner
+# # (not taken, or the jobs of a started run not taken) this many minutes makes the engine ask whether a runner of the
+# # workflow's kind is online, and ask again after each further such time while one is, busy or not. Where none is
+# # online, or it cannot be told, the engine cancels the run it asked for where no job of it has started, and the check
+# # fails its round in passing and is tried again after a wait, or the agents' tool says so; a run a job of which has
+# # started is not cancelled, and its wait counts in the time it may take (`too_long`) until a runner is online again.
+# # GitHub's own machines count as online. To ask, the token
+# # needs to read the runners where they are registered: Administration read on the repository, or Self-hosted runners
+# # read on the organisation that owns it; one of them is enough.
 # start_minutes = 10
 # # The gh command line, or a path to it.
 # gh = "gh"

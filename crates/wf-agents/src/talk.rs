@@ -2232,6 +2232,13 @@ fn now(now: &Now) -> String {
         Now::Fault { words } => format!("it cannot go on, for its records are not those of a work: {words}"),
         Now::Merged => "merged".to_string(),
         Now::Cancelled => "cancelled".to_string(),
+        Now::Round {
+            cell,
+            run,
+            round,
+            queued_for: Some(runner),
+            ..
+        } => format!("a round of {cell} is under way, queued for {runner}, round {round} of run {run}"),
         Now::Round { cell, run, round, .. } => format!("a round of {cell} is under way, round {round} of run {run}"),
         Now::Paused {
             at,
@@ -2310,10 +2317,12 @@ fn waited(waited: &Waited) -> String {
             who: None,
             what,
             at,
+            queued_for,
             ..
-        } => match at {
-            Some(at) => format!("call {call}, {}, running at {at}", called(what)),
-            None => format!("call {call}, {}", called(what)),
+        } => match (at, queued_for) {
+            (Some(at), Some(runner)) => format!("call {call}, {}, queued for {runner} at {at}", called(what)),
+            (Some(at), None) => format!("call {call}, {}, running at {at}", called(what)),
+            (None, _) => format!("call {call}, {}", called(what)),
         },
         Waited::Precondition { words, by, .. } => {
             let by: Vec<String> = by.iter().map(maker).collect();
