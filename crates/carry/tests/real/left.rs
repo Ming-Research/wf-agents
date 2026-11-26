@@ -160,9 +160,12 @@ async fn a_left_try_whose_round_now_fails_for_its_item_s_level_is_counted() {
     let kept = real.work(work);
     let measures = work::measured::of_round(&kept.measured, plan, 1).expect("the try is measured");
     assert!(measures.received, "its program took its message in");
-    // Opus 5.5: 100 × 4 + 1,000 × 0.2 + 10 × 20 millionths of a dollar, its one call at its price.
-    let spent = kept.spent.get(&(plan, 1)).map(|spent| spent.usd_micros);
-    assert_eq!(spent, Some(400 + 200 + 200), "what the try took");
+    // No earlier report of the work prices its one call's model: what the try took is not known, and said so.
+    let spent = kept
+        .spent
+        .get(&(plan, 1))
+        .map(|spent| (spent.usd_micros, spent.unpriced));
+    assert_eq!(spent, Some((0, true)), "what the try took");
 }
 
 // A return the program printed before its engine ended is the round's even where a new program could not run now, as
@@ -227,6 +230,10 @@ async fn a_left_try_whose_fill_its_engine_did_not_record_has_it_told_from_what_t
     let kept = real.work(work);
     let fills = (kept.filled.iter()).filter(|f| f.run == plan && f.round == 1).count();
     assert_eq!(fills, 1, "the try's fill is told once");
+    // What the left try's call cost is not known, no earlier report of the work pricing its model: the work waits for
+    // the owner, who lets it on.
+    assert!(decide::paused(&kept.records), "the work waits for the owner");
+    real.act(work, Act::Resume);
     let (first, next) = told_next(&mut real, work, plan).await;
     assert!(!first.contains(TASK_HELD), "{first}");
     assert!(

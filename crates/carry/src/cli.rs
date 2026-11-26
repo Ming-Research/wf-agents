@@ -1801,7 +1801,10 @@ mod tests {
                 "cache_read_input_tokens": 1000, "output_tokens": output } } })
             .to_string()
         };
-        let mut stream = Stream::default();
+        let mut stream = Stream {
+            learned: learned("claude-opus-5-5", 4.0, 0.2),
+            ..Stream::default()
+        };
         assert!(!stream.answered());
         for line in [
             call("msg_1", Value::Null, 10),
@@ -1822,7 +1825,7 @@ mod tests {
             ),
             (200, Some(0), 2000, 70)
         );
-        // Opus 5.5: 200 × 4 + 2000 × 0.2 + 70 × 20 millionths.
+        // At the prices the work's reports tell of the model: 200 × 4 + 2000 × 0.2 + 70 × 20 millionths.
         assert_eq!(spent.usd_micros, 800 + 400 + 1400);
         // An error the service gave is no answer.
         let mut refused = Stream::default();
@@ -1906,7 +1909,8 @@ mod tests {
         let cut = read(calls(2).as_bytes(), &program()).expect_err("a stream with no result is not taken");
         assert_eq!(cut.spent, None);
         let begun = read(calls(5).as_bytes(), &program()).expect_err("a stream with no result is not taken");
-        assert_eq!(begun.spent.map(|s| s.usd_micros), Some(2071));
+        // Read with no earlier report of the work, what its calls cost is not known, and said so.
+        assert_eq!(begun.spent.map(|s| (s.usd_micros, s.unpriced)), Some((0, true)));
         let bare = r#"{"type":"result","is_error":false,"result":"hello","total_cost_usd":0.1}"#;
         assert!(
             read(bare.as_bytes(), &program()).is_err(),

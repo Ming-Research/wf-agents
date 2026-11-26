@@ -166,6 +166,20 @@ pub(crate) fn before_held_calls(work: &mut Work) {
     work.records.held.clear();
 }
 
+/// A work as a file made before version 35 of the schema holds it: the cost of every round, keep-warm ping and fork is
+/// known, no table saying where it was not.
+pub(crate) fn before_unpriced(work: &mut Work) {
+    for spent in work.spent.values_mut() {
+        spent.unpriced = false;
+    }
+    for ping in &mut work.pinged {
+        ping.spent.unpriced = false;
+    }
+    for fork in &mut work.forked {
+        fork.unpriced = false;
+    }
+}
+
 /// The work as a file made with this earlier version of the schema holds it, and a file of this version that holds
 /// it: the rows a store of this version keeps, each copied into the earlier file in the columns its table has there.
 pub(crate) fn kept_in(version: u32, work: &Work) -> (Db, Db) {
@@ -273,6 +287,7 @@ fn a_file_of_version_9_is_migrated_and_its_runs_read_as_dealing_with_everything_
     work.pulls.clear();
     before_pauses_waited_for_items(&mut work);
     before_held_calls(&mut work);
+    before_unpriced(&mut work);
     // Nor how long the tests and jobs of a run of the CI took, which version 30 keeps.
     work.timed.clear();
     // Its tries recorded the directory of the program's settings as their account, which version 21 keeps apart.
@@ -636,6 +651,7 @@ fn a_file_of_version_20_is_migrated_keeping_every_row_it_holds_its_tries_directo
     let mut work = d.work;
     before_pauses_waited_for_items(&mut work);
     before_held_calls(&mut work);
+    before_unpriced(&mut work);
     // A file of version 20 kept no times of the runs of the CI, which version 30 keeps.
     work.timed.clear();
     for ran in &mut work.ran {
