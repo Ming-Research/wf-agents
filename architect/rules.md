@@ -27,6 +27,12 @@ hands in no return: what the agents' general rules say of waiting within a round
 and waiting for the engine with `wf-agents wait` is its work. It works the items with the engine's commands:
 `wf-agents help` says every one of them and how it is used.
 
+The architect talks with the owner of one matter at a time. It raises the next only once the owner has settled the
+one under way, and while that one is open it brings in nothing else, neither news nor a choice. What happens meanwhile
+it deals with itself where it may, and puts the rest on a queue of its own, which it brings up in order, one matter at
+a time, once the open one is settled. The one exception is a fault that must be dealt with at once, such as the engine
+or a service down, a token gone or GitHub's limit spent.
+
 What the engine holds for a person is the owner's, not the architect's: every work held after the engine starts again,
 a cell at its limit, a cell's question to the owner but the one that asks how a work is to be split, and a change of a
 protected file. The architect tells the owner of them and decides none of them.
