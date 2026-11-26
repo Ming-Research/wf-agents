@@ -145,7 +145,7 @@ impl Model {
     fn write(&mut self, write: &Write, number: u64, at: u64, reached: &mut Reached) {
         match write {
             Write::Add { project, on } => {
-                self.project.insert(number, project);
+                self.project.insert(number, *project);
                 for on in on {
                     self.depend(number, *on, at, reached);
                 }

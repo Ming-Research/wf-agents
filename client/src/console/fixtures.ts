@@ -743,6 +743,7 @@ function pageOf(item: Item, summary: Summary, questions: Record<number, Question
     level: item.level,
     project: item.project,
     history: item.history,
+    dependencies: { on: [], by: [] },
     outline: outlineOf(FLOW),
     flow: FLOW,
     cells,

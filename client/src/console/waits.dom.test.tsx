@@ -213,6 +213,7 @@ function draw(
     level: item.level,
     project: item.project,
     history: item.history,
+    dependencies: { on: [], by: [] },
     outline: outlineOf(read.flow),
     flow: read.flow,
     cells: [],
