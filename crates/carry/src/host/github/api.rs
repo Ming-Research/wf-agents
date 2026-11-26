@@ -1,7 +1,7 @@
 //! What the GitHub host asks of GitHub, apart from what `git` pushes and fetches: the pull requests of a branch and
 //! their text, the merge and the closing of a pull request, and a workflow run by
-//! hand with its runs, their jobs, what they uploaded and the log of a job. [`Gh`](super::gh::Gh) asks GitHub with the
-//! `gh` command line; the tests ask a fake.
+//! hand with its runs, their jobs, what they uploaded and the log of a job, and the runners the repository's workflows
+//! may run on. [`Gh`](super::gh::Gh) asks GitHub with the `gh` command line; the tests ask a fake.
 
 use std::future::Future;
 
@@ -63,8 +63,10 @@ pub struct Check {
 /// What came of a check.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Outcome {
-    /// It is not complete.
+    /// It is under way: a runner has taken it, and it is not complete.
     Pending,
+    /// It has not started: no runner has taken it yet.
+    Queued,
     /// It did not run: its condition was false, or a job it needs did not succeed.
     Skipped,
     /// It passed.
@@ -75,6 +77,14 @@ pub enum Outcome {
     Broken(String),
 }
 
+impl Outcome {
+    /// Whether a runner took the check: it is under way, or it ran to a verdict. One skipped never ran, and one that
+    /// ended without judging, as one cancelled, may have ended before any runner took it.
+    pub fn started(&self) -> bool {
+        matches!(self, Outcome::Pending | Outcome::Passed | Outcome::Failed(_))
+    }
+}
+
 /// A run of a workflow, as far as the host reads it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Run {
@@ -82,7 +92,9 @@ pub struct Run {
     pub id: u64,
     /// Its name, as the workflow's `run-name` made it.
     pub title: String,
-    /// Whether a runner took it: one queued, waiting or pending has not started.
+    /// Whether GitHub says it is under way or complete. One it says is queued may still have started: once a job has
+    /// run and the next waits for a runner, GitHub says the run is queued again, and only its jobs tell the two apart
+    /// ([`Outcome::started`]). A run that has started may have jobs that wait for a runner still (`Outcome::Queued`).
     pub started: bool,
     /// Whether it has completed.
     pub completed: bool,
@@ -100,6 +112,37 @@ pub enum Listed {
     /// The runs are as the answer whose entity tag the look sent gave them: GitHub answered 304, which costs nothing
     /// against its limit on requests.
     Unchanged,
+}
+
+/// What GitHub answered to a look at the jobs of a run.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Jobs {
+    /// The jobs, and the entity tag GitHub gave this answer, which a later look sends back; none where it gave none.
+    Listed { jobs: Vec<Check>, tag: Option<String> },
+    /// The jobs are as the answer whose entity tag the look sent gave them: GitHub answered 304.
+    Unchanged,
+}
+
+/// A self-hosted runner, as far as the host reads it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Runner {
+    /// Whether it is connected to GitHub, busy or not.
+    pub online: bool,
+    /// The labels a workflow's `runs-on` names it by.
+    pub labels: Vec<String>,
+}
+
+/// The runners one layer lists, the repository's or its organisation's, or GitHub's words for why it could not be read:
+/// a token that may not read them is refused.
+pub type Layer = Result<Vec<Runner>, String>;
+
+/// The runners a repository's workflows may run on, as each layer they are registered at lists them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Runners {
+    /// The runners registered for the repository itself.
+    pub repository: Layer,
+    /// The runners registered for the organisation that owns the repository; none where its owner is no organisation.
+    pub organisation: Option<Layer>,
 }
 
 /// A file a run uploaded: its path in the artifact, with `/` between its parts, and its bytes.
@@ -161,8 +204,13 @@ pub trait Api: Send + Sync + 'static {
     /// Cancels the run, where it is not complete; one complete already is left as it is.
     fn cancel(&self, run: u64) -> impl Future<Output = Result<(), Failed>> + Send;
 
-    /// The jobs of the run, each as a check.
-    fn jobs(&self, run: u64) -> impl Future<Output = Result<Vec<Check>, Failed>> + Send;
+    /// The jobs of the run, each as a check. Given the entity tag of an earlier answer, it is [`Jobs::Unchanged`] where
+    /// they are as that answer gave them; given none, it is never that.
+    fn jobs(&self, run: u64, tag: Option<&str>) -> impl Future<Output = Result<Jobs, Failed>> + Send;
+
+    /// The runners the repository's workflows may run on, as the repository and, where an organisation owns it, the
+    /// organisation list them; a layer that cannot be read says why, and does not fail the other.
+    fn runners(&self) -> impl Future<Output = Runners> + Send;
 
     /// The files of the artifact of this name that the run uploaded; none where it uploaded none so named.
     fn artifact(&self, run: u64, name: &str) -> impl Future<Output = Result<Option<Vec<File>>, Failed>> + Send;

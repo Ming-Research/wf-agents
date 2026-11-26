@@ -122,9 +122,17 @@ export type Maker = { kind: 'owner' } | { kind: 'outside'; source: string } | { 
 /// What a work waits for.
 export type Waited =
   /// The result of a call a run rests at: from this person, or from the engine where there is none; made at this time,
-  /// and, for a tool that runs as a CI run, the run's link, as the tool says as it goes. Absent from an engine that does
-  /// not give them yet.
-  | { kind: 'call'; call: number; who: Person | null; what: Call; made?: number; at?: string | null }
+  /// and, for a tool that runs as a CI run, the run's link, as the tool says as it goes, and the runner its run, or the
+  /// jobs of it, wait for where they wait for one. Absent from an engine that does not give them yet.
+  | {
+      kind: 'call';
+      call: number;
+      who: Person | null;
+      what: Call;
+      made?: number;
+      at?: string | null;
+      queuedFor?: string | null;
+    }
   /// A precondition of the cell does not hold: the named test, the words shown for it, and each who can make it hold,
   /// by writing a block that keeps it from holding.
   | { kind: 'precondition'; test: string; words: string; by: Maker[] }
@@ -161,8 +169,17 @@ export type Now =
   | { kind: 'merged' }
   | { kind: 'cancelled' }
   /// A round of this run of this cell is under way, since this time; where it is an engine cell's act that runs as a
-  /// CI run, the run's link. The link is absent from an engine that does not give it yet.
-  | { kind: 'round'; cell: string; run: number; round: number; since: number; at?: string | null }
+  /// CI run, the run's link, and the runner its run, or the jobs of it, wait for where they wait for one. Both are absent
+  /// from an engine that does not give them yet.
+  | {
+      kind: 'round';
+      cell: string;
+      run: number;
+      round: number;
+      since: number;
+      at?: string | null;
+      queuedFor?: string | null;
+    }
   /// It is paused, and what it would do next is begin a round: by the owner, who gives no reason, or by the engine
   /// for this one.
   | { kind: 'paused'; at: string; by: Pauser; why: string | null }

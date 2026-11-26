@@ -47,9 +47,10 @@ struct Inputs {
     moments: usize,
     /// How many changes were made to its item.
     item_changes: usize,
-    /// Each round or call of the work under way that stands as a CI run, with its link. What the rest of a round under
-    /// way has come to changes with every call and is no part of a summary.
-    runs: Vec<(Under, String)>,
+    /// Each round or call of the work under way that stands as a CI run, with its link and the runner it waits for
+    /// where it waits for one. What the rest of a round under way has come to changes with every call and is no part of
+    /// a summary.
+    runs: Vec<(Under, String, Option<String>)>,
     /// What the engine leaves the work room for, which says what holds its next round back.
     room: Room,
     /// The items it waits for, those its pause waits for and whose turn to check and merge it is.
@@ -69,7 +70,7 @@ impl Inputs {
             item_changes,
             runs: (driver.along_of(number).into_iter())
                 .filter_map(|(under, along)| match along {
-                    Along::Runs { at } => Some((under, at.clone())),
+                    Along::Runs { at, queued_for } => Some((under, at.clone(), queued_for.clone())),
                     Along::Going(_) => None,
                 })
                 .collect(),

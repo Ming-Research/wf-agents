@@ -171,7 +171,7 @@ describe('what a work does now, in words', () => {
     // The act of an engine cell under way, its cell marked as calling, is waited for as a call, by where it runs.
     const act = { ...calling, now: { kind: 'round', cell: 'M1', run: 3, round: 1, since: 5, at: 'https://ci/9' } as Now };
     expect(stateOf(act)).toEqual({ tone: 'calling', word: 'Waiting for CI', cell: 'M1' });
-    expect(callsWaited(act)).toEqual([{ tool: null, ci: 'https://ci/9', made: 5 }]);
+    expect(callsWaited(act)).toEqual([{ tool: null, ci: 'https://ci/9', queued: null, made: 5 }]);
     expect(stateOf({ ...act, now: { kind: 'round', cell: 'M1', run: 3, round: 1, since: 5 } })).toEqual({
       tone: 'calling',
       word: 'Waiting for the engine',
@@ -185,6 +185,34 @@ describe('what a work does now, in words', () => {
       word: STATE.owner,
       cell: 'merge',
     });
+  });
+
+  it('says the runner a call or an act waits for while its CI run, or the jobs of it, wait for one', () => {
+    const calling = (now: Now) => ({
+      now,
+      cells: [{ cell: 'M1', state: 'calling' as const, finished: 0, record: null, open: 1 }],
+      waits: [],
+    });
+    const tool: Waited = {
+      kind: 'call',
+      call: 2,
+      who: null,
+      what: { kind: 'tool', name: 'run_tests', input: 'a' },
+      at: 'https://ci/9',
+      queuedFor: '14900k',
+    };
+    expect(stateOf(calling({ kind: 'waits', at: 'M1', on: [tool] })).word).toBe(
+      'Waiting for run_tests in CI (queued for 14900k)',
+    );
+    // Once a runner took it, or where the engine says none, the words are the plain ones.
+    expect(stateOf(calling({ kind: 'waits', at: 'M1', on: [{ ...tool, queuedFor: null }] })).word).toBe(
+      'Waiting for run_tests in CI',
+    );
+    expect(stateOf(calling({ kind: 'waits', at: 'M1', on: [{ ...tool, queuedFor: undefined }] })).word).toBe(
+      'Waiting for run_tests in CI',
+    );
+    const act: Now = { kind: 'round', cell: 'M1', run: 3, round: 1, since: 5, at: 'https://ci/9', queuedFor: '14900k' };
+    expect(stateOf(calling(act)).word).toBe('Waiting for CI (queued for 14900k)');
   });
 
   it('says each kind of thing a work waits for, each work by its number as W12', () => {

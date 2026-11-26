@@ -10,8 +10,9 @@ use crate::judged::Against;
 /// Where a round or a call stands as it goes.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Along {
-    /// It runs as the CI run at this link.
-    Runs { at: String },
+    /// It runs as the CI run at this link; where the run, or the jobs of it, wait for a runner, the runner they wait
+    /// for.
+    Runs { at: String, queued_for: Option<String> },
     /// An agent's round: what its calls to the model have come to so far.
     Going(Going),
 }

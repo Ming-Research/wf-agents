@@ -133,7 +133,10 @@ impl Rounds for Scripted {
         tokio::spawn(async move {
             // Where it stands as it goes: the CI run, where its entry says.
             if let Some(at) = &planned.at {
-                saying.say(Some(Along::Runs { at: at.clone() }));
+                saying.say(Some(Along::Runs {
+                    at: at.clone(),
+                    queued_for: None,
+                }));
             }
             tokio::time::sleep(Duration::from_millis(planned.ms)).await;
             let reply = inner.held().rounds.get_mut(&key).and_then(Option::take);
@@ -206,7 +209,7 @@ impl Tools for Scripted {
         let inner = self.inner.clone();
         tokio::spawn(async move {
             if let Some(at) = at {
-                saying.say(Some(Along::Runs { at }));
+                saying.say(Some(Along::Runs { at, queued_for: None }));
             }
             tokio::time::sleep(Duration::from_millis(ms)).await;
             let reply = inner.held().calls.get_mut(&key).and_then(Option::take);

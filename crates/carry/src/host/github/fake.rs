@@ -1,13 +1,14 @@
 //! GitHub for the tests of the GitHub host: a bare repository on disk that the host pushes to and fetches from, and
 //! in memory the pull requests, the jobs and results each commit's runs by hand are given, the logs of the jobs, the
-//! merges and the closings. It keeps what it was asked, and each look at the runs of a workflow with whether GitHub
-//! would count it against its limit on requests: an answer of the runs counts, one that they are unchanged does not.
+//! merges and the closings, and the runners each layer lists. It keeps what it was asked, and each look at the runs of a
+//! workflow, and at the jobs of a run, with whether GitHub would count it against its limit on requests: an answer of
+//! the runs or the jobs counts, one that they are unchanged does not.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use super::api::{Api, Check, File, Listed, Pull, Run, State};
+use super::api::{Api, Check, File, Jobs, Layer, Listed, Pull, Run, Runners, State};
 use crate::host::Failed;
 
 /// GitHub, as far as the host reaches it.
@@ -42,6 +43,11 @@ struct Kept {
     another_call: bool,
     /// Whether the runs by hand stay queued, as with no runner online.
     queued: bool,
+    /// Whether the runs by hand asked for from now on have had a job run and are queued again, the next waiting for a
+    /// runner.
+    requeued: bool,
+    /// The runners each layer lists; none listed by the repository and no organisation, where nothing was given.
+    runners: Option<Runners>,
     /// Whether the runs by hand start and go on until they are finished or cancelled, as a run that takes minutes.
     going: bool,
     /// The log of each job given one, by the job's id; GitHub has no log of any other.
@@ -49,6 +55,8 @@ struct Kept {
     asked: Vec<Asked>,
     /// The looks at the runs of a workflow, in order.
     looked: Vec<Looked>,
+    /// The looks at the jobs of a run, in order.
+    jobs_looked: Vec<Looked>,
 }
 
 /// A look at the runs of a workflow: whether it was answered with the runs, which GitHub counts against its limit on
@@ -77,6 +85,9 @@ struct Dispatched {
     commit: String,
     another: bool,
     run: Run,
+    /// Whether a runner has taken a job of it: its jobs are what its commit is given where one has, and each queued
+    /// where none has, as GitHub lists the jobs of a run no runner took.
+    taken: bool,
 }
 
 /// What the jobs of a run another request asked for come to, here: its tests cancelled.
@@ -117,6 +128,7 @@ pub(crate) enum Asked {
     },
     Reopen(u64),
     Cancel(u64),
+    Runners,
     Log(u64),
     Pull(u64),
 }
@@ -174,9 +186,51 @@ impl Fake {
         self.kept().refuses_dispatch = Some(why.to_string());
     }
 
-    /// Keeps every run by hand queued, never started, as with no runner online.
-    pub(crate) fn no_runner(&self) {
+    /// Keeps every run by hand asked for from now on queued, never started, as with every runner busy or offline.
+    pub(crate) fn queue_runs(&self) {
         self.kept().queued = true;
+    }
+
+    /// Has a runner take the runs by hand that are queued, and every one asked for from now on: each starts, and goes
+    /// on where `runs_go_on` says, else completes.
+    pub(crate) fn start_runs(&self) {
+        let mut kept = self.kept();
+        kept.queued = false;
+        let going = kept.going;
+        kept.requeued = false;
+        for asked in &mut kept.runs {
+            asked.run.started = true;
+            asked.run.completed = !going;
+            asked.taken = true;
+        }
+    }
+
+    /// Has the runs by hand that are not complete, and every one asked for from now on, queued again after a job of
+    /// each has run, as GitHub says a run is once a job has ended and the next waits for a runner: each is not started
+    /// by its status, and its jobs are what its commit is given.
+    pub(crate) fn requeue_runs(&self) {
+        let mut kept = self.kept();
+        kept.requeued = true;
+        for asked in (kept.runs.iter_mut()).filter(|d| !d.run.completed) {
+            asked.run.started = false;
+            asked.taken = true;
+        }
+    }
+
+    /// Lists these runners at the repository and, where one is given, at its organisation; a layer is read, or refused
+    /// in GitHub's words.
+    pub(crate) fn lists_runners(&self, repository: Layer, organisation: Option<Layer>) {
+        self.kept().runners = Some(Runners {
+            repository,
+            organisation,
+        });
+    }
+
+    /// How many times the runners were asked for.
+    pub(crate) fn runners_asked(&self) -> usize {
+        (self.kept().asked.iter())
+            .filter(|asked| matches!(asked, Asked::Runners))
+            .count()
     }
 
     /// Has every run by hand asked for from now on start and go on until it is finished or cancelled.
@@ -187,7 +241,9 @@ impl Fake {
     /// Completes every run by hand that is under way, as it ends with the jobs and results its commit is given.
     pub(crate) fn finish_runs(&self) {
         for asked in &mut self.kept().runs {
+            asked.run.started = true;
             asked.run.completed = true;
+            asked.taken = true;
         }
     }
 
@@ -298,6 +354,11 @@ impl Fake {
     /// The looks at the runs of a workflow, in order.
     pub(crate) fn looked(&self) -> Vec<Looked> {
         self.kept().looked.clone()
+    }
+
+    /// The looks at the jobs of a run, in order.
+    pub(crate) fn jobs_looked(&self) -> Vec<Looked> {
+        self.kept().jobs_looked.clone()
     }
 
     /// The commit the branch is at in the bare repository, where it is there.
@@ -523,7 +584,7 @@ impl Api for Fake {
         if kept.another_call {
             made.push(("another".to_string(), true));
         }
-        let (ran, going) = (!kept.queued, kept.going);
+        let (ran, going, requeued) = (!kept.queued && !kept.requeued, kept.going, kept.requeued);
         for (call, another) in made {
             let id = 1000 + kept.runs.len() as u64;
             kept.runs.push(Dispatched {
@@ -539,6 +600,7 @@ impl Api for Fake {
                     cancelled: false,
                     url: format!("https://github.example/actions/runs/{id}"),
                 },
+                taken: ran || requeued,
             });
         }
         Ok(())
@@ -554,22 +616,52 @@ impl Api for Fake {
         Ok(())
     }
 
-    async fn jobs(&self, run: u64) -> Result<Vec<Check>, Failed> {
-        let kept = self.kept();
-        let Some(asked) = kept.runs.iter().find(|d| d.run.id == run) else {
-            return Ok(Vec::new());
+    async fn jobs(&self, run: u64, tag: Option<&str>) -> Result<Jobs, Failed> {
+        let mut kept = self.kept();
+        let jobs = match kept.runs.iter().find(|d| d.run.id == run) {
+            None => Vec::new(),
+            Some(asked) if asked.another || asked.run.cancelled => {
+                let how = if asked.another { ANOTHER_CALLS } else { "cancelled" };
+                vec![Check {
+                    id: 0,
+                    name: "test".to_string(),
+                    outcome: super::api::Outcome::Broken(how.to_string()),
+                    url: None,
+                    took: None,
+                }]
+            }
+            Some(asked) => {
+                let given = (kept.given(asked)).map_or_else(Vec::new, |(jobs, _)| jobs.clone());
+                (given.into_iter())
+                    .map(|job| match asked.taken {
+                        true => job,
+                        false => Check {
+                            outcome: super::api::Outcome::Queued,
+                            ..job
+                        },
+                    })
+                    .collect()
+            }
         };
-        if asked.another || asked.run.cancelled {
-            let how = if asked.another { ANOTHER_CALLS } else { "cancelled" };
-            return Ok(vec![Check {
-                id: 0,
-                name: "test".to_string(),
-                outcome: super::api::Outcome::Broken(how.to_string()),
-                url: None,
-                took: None,
-            }]);
-        }
-        Ok((kept.given(asked)).map_or_else(Vec::new, |(jobs, _)| jobs.clone()))
+        // As GitHub's, the entity tag is the same for the same answer, and differs for any other.
+        let mut hasher = std::hash::DefaultHasher::new();
+        std::hash::Hash::hash(&format!("{jobs:?}"), &mut hasher);
+        let now = format!("W/\"{:016x}\"", std::hash::Hasher::finish(&hasher));
+        let counted = tag != Some(now.as_str());
+        kept.jobs_looked.push(Looked { counted });
+        Ok(match counted {
+            true => Jobs::Listed { jobs, tag: Some(now) },
+            false => Jobs::Unchanged,
+        })
+    }
+
+    async fn runners(&self) -> Runners {
+        let mut kept = self.kept();
+        kept.asked.push(Asked::Runners);
+        kept.runners.clone().unwrap_or(Runners {
+            repository: Ok(Vec::new()),
+            organisation: None,
+        })
     }
 
     async fn artifact(&self, run: u64, name: &str) -> Result<Option<Vec<File>>, Failed> {
