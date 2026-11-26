@@ -607,6 +607,7 @@ export function WaitedPart({ s }: { s: System }) {
           </ViewTable>
         </>
       )}
+      <p className="small muted">{WAITED_WORDS.beforeFirstRound}</p>
       {waited.unseparated.totalMs > 0 && (
         <p className="small muted">
           {took(waited.unseparated.totalMs)} {WAITED_WORDS.unseparated}

@@ -2871,7 +2871,8 @@ fn dollars(micros: u64) -> String {
 
 /// What the works waited for over the span, in at most ten lines whatever there is: for each cause how many stops ended
 /// and how long they took, with the median and the longest; how long the calls and rounds that waited for CI took and
-/// how long its jobs waited for a runner; how many works held a slot and ran; and what is not known. Nothing is judged:
+/// how long its jobs waited for a runner; how many works held a slot and ran; and what is not known, among it that the
+/// waits before a work's first round are in none of the counts, which the first line says. Nothing is judged:
 /// the lines of each history are the judgments' to say.
 fn waited_said(waited: &WaitedFor) -> Vec<String> {
     if waited.by.is_empty() {
@@ -2882,8 +2883,11 @@ fn waited_said(waited: &WaitedFor) -> Vec<String> {
         (Some(median), Some(longest)) => format!("median {}, longest {}", duration(median), duration(longest)),
         _ => "none ended".to_string(),
     };
-    let mut lines =
-        vec!["Waited (stops that ended, the time they took, and the median and longest of them):".to_string()];
+    let mut lines = vec![
+        "Waited (stops that ended, the time they took, and the median and longest of them; waits before a work's \
+         first round are in none of these):"
+            .to_string(),
+    ];
     for by in &waited.by {
         let cause = match by.reason {
             WaitReason::Owner => "the owner",
@@ -3954,7 +3958,8 @@ mod tests {
         assert_eq!(
             waited,
             [
-                "Waited (stops that ended, the time they took, and the median and longest of them):",
+                "Waited (stops that ended, the time they took, and the median and longest of them; waits before a work's \
+                 first round are in none of these):",
                 "  for the owner: 3 stops, 1h 30m in all; median 30m 00s, longest 1h 00m",
                 "  for the items its item depends on: 0 stops, 0s in all; none ended",
                 "  for a slot: 1 stop, 1m 30s in all; none ended",

@@ -46,6 +46,8 @@ export const WAITED_WORDS = {
   unseparated:
     'Waits of works that ended before a wait for a slot was told apart are in none of these: they are kept as anything else.',
   uncounted: 'works are not counted: their flow was not kept.',
+  beforeFirstRound:
+    "Waits before a work's first round, for you to let it go on or for the items it depends on, are in none of these: the engine keeps a work's time from its first round.",
 };
 
 /// How long a stretch took, or that it took none.

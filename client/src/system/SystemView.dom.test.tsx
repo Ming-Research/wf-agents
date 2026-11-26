@@ -646,9 +646,10 @@ describe('the System view', () => {
       { label: 'Works running', value: '2.9', more: '4 at most' },
     ]);
     // What the engine does not know is said, never shown as nothing: the works whose waits are not known, and the waits
-    // that were kept before a wait for a slot was told apart.
+    // that were kept before a wait for a slot was told apart, after the one thing that holds of every span: waits before a first round are not counted.
     const notes = texts(waited, 'p.small');
     expect(notes).toEqual([
+      "Waits before a work's first round, for you to let it go on or for the items it depends on, are in none of these: the engine keeps a work's time from its first round.",
       '20m 0s Waits of works that ended before a wait for a slot was told apart are in none of these: they are kept as anything else.',
       '1 works are not counted: their flow was not kept.',
     ]);
@@ -704,7 +705,10 @@ describe('the System view', () => {
     expect(tile('Job in the queue').querySelector('.tile-value')?.textContent?.trim()).toBe('not kept');
     expect(tile('Slots taken').querySelector('.tile-more')?.textContent?.trim()).toBe('3 at most, of not kept');
     expect(tile('Slots taken').getAttribute('title')).toContain('only from the time it began to');
-    expect(texts(waited, 'p.small')).toEqual([]);
+    // Only what holds for every span is said: the waits before a work's first round are not counted.
+    expect(texts(waited, 'p.small')).toEqual([
+      "Waits before a work's first round, for you to let it go on or for the items it depends on, are in none of these: the engine keeps a work's time from its first round.",
+    ]);
   });
 
   it("shows what each project spent before the cells and the models, the costliest first as given, each project's share of the totals, which count every project", async () => {
