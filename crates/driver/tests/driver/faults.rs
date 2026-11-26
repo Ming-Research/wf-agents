@@ -41,6 +41,7 @@ fn has() -> Has {
             "start",
             "head",
             "test_times",
+            "test_runs",
             "tree",
         ]),
         acts: names(&["start", "check", "merge", "deliver"]),
@@ -86,6 +87,19 @@ fn a_test_time_report_the_flow_gives_no_words_for_is_a_fault_on_the_file_that_ho
     assert!(faults[0].contains("data/test_times.toml"), "{}", faults[0]);
     assert!(faults[0].contains("the block test_times "), "{}", faults[0]);
     assert!(faults[0].ends_with("its writes must give covers"), "{}", faults[0]);
+}
+
+// The datum of the calls of `run_tests` gives the words the engine writes it with: where its file gives none, it is a
+// fault on that file.
+#[test]
+fn a_call_report_the_flow_gives_no_words_for_is_a_fault_on_the_file_that_holds_them() {
+    let dir = copied();
+    without(dir.path(), "data/test_runs.toml", "call = ");
+    let faults = driver::faults(&engineer(dir.path()));
+    assert_eq!(faults.len(), 1, "{faults:?}");
+    assert!(faults[0].contains("data/test_runs.toml"), "{}", faults[0]);
+    assert!(faults[0].contains("the block test_runs "), "{}", faults[0]);
+    assert!(faults[0].ends_with("its writes must give call"), "{}", faults[0]);
 }
 
 #[test]
