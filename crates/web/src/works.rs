@@ -2919,6 +2919,20 @@ impl Beside {
     pub(crate) fn all(&self) -> Spent {
         self.pinged.with(self.forked)
     }
+
+    /// These and one more call of this kind, which took this.
+    pub(crate) fn with(self, kind: work::BesideKind, one: Spent) -> Beside {
+        match kind {
+            work::BesideKind::Ping => Beside {
+                pinged: self.pinged.with(one),
+                ..self
+            },
+            work::BesideKind::Fork => Beside {
+                forked: self.forked.with(one),
+                ..self
+            },
+        }
+    }
 }
 
 /// What each call of the work beside its rounds that ended at a time `within` took, each counted as a round, with the
@@ -2940,16 +2954,7 @@ pub(crate) fn beside_rounds(
 pub(crate) fn spent_beside_rounds(work: &work::Work, within: &dyn Fn(u64) -> bool) -> Result<Beside, Broken> {
     Ok(beside_rounds(work, within)?
         .into_iter()
-        .fold(Beside::default(), |sum, (_, kind, one)| match kind {
-            work::BesideKind::Ping => Beside {
-                pinged: sum.pinged.with(one),
-                ..sum
-            },
-            work::BesideKind::Fork => Beside {
-                forked: sum.forked.with(one),
-                ..sum
-            },
-        }))
+        .fold(Beside::default(), |sum, (_, kind, one)| sum.with(kind, one)))
 }
 
 impl WorkPage {

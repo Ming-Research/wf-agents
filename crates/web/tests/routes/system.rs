@@ -862,3 +862,80 @@ fn what_a_program_left_running_is_kept_and_given_in_the_system_view() {
         ])
     );
 }
+
+// What each work adds to the System view is kept between reads: a read works out the part of a work again only once the
+// work changed, and gives what a read that works out every work's part from the records gives, over all time and over
+// a span, as works are added, run, call a tool, fork and are cancelled, and as time passes with rounds under way. Fails
+// where a read works out every work's part again, as each read did with every work in the store, or where the part
+// kept of a work that changed is read. Milliseconds.
+#[test]
+fn a_read_of_the_system_works_out_again_only_the_works_that_changed_and_gives_what_their_records_give() {
+    const S: u64 = 1000;
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path().join("store.sqlite")).unwrap();
+    let flow = flow::compile(
+        &flow::read(&crate::trial_dir().join("flow")).unwrap(),
+        &crate::trial_has(&flow::Source::default()),
+    )
+    .unwrap();
+    let policy = driver::Policy {
+        samples: 2,
+        model: Box::new(|_, _| Some(opus().model)),
+        changed: None,
+        warm: None,
+    };
+    let (mut driver, _) =
+        driver::Driver::open(Box::new(store), vec![flow], 10, Some(policy), work::Time(START)).unwrap();
+    let mut parts = web::system::Parts::default();
+    // Reads at this time with the parts kept, over all time and over the span after the first minute, each as a read
+    // from the records gives it: how many works' parts the first of them worked out again.
+    let mut read = |driver: &driver::Driver, at: u64| -> usize {
+        let now = work::Time(at);
+        let spans: [Vec<u64>; 2] = [Vec::new(), vec![START + 60 * S]];
+        let mut worked_out = Vec::new();
+        for span in &spans {
+            let kept = web::system::System::kept(driver, now, span, &mut parts).unwrap();
+            worked_out.push(parts.worked_out());
+            let direct = web::system::System::of(driver, now, span).unwrap();
+            assert_eq!(
+                serde_json::to_value(&kept).unwrap(),
+                serde_json::to_value(&direct).unwrap(),
+                "over {span:?} at {at}"
+            );
+        }
+        assert_eq!(worked_out[1], 0, "a read just after another works out nothing again");
+        worked_out[0]
+    };
+    let first = planned_in(&mut driver, "trial", START, 10 * S, 1_000);
+    planned_in(&mut driver, "other", START + 60 * S, 20 * S, 2_000);
+    let (asked, ..) = answered(&mut driver, START + 120 * S, 40);
+    assert_eq!(
+        read(&driver, START + 200 * S),
+        3,
+        "every work's part is worked out at the first read"
+    );
+    assert_eq!(
+        read(&driver, START + 300 * S),
+        0,
+        "no work changed, the rounds under way only went on"
+    );
+    let run = driver.work(first).unwrap().work.records.rounds[0].run;
+    let spent = engine::Spent {
+        usd_micros: 7_000,
+        ..engine::Spent::default()
+    };
+    happened(
+        &mut driver,
+        START + 400 * S,
+        first,
+        engine::Event::Forked { run, round: 1, spent },
+    );
+    assert_eq!(read(&driver, START + 500 * S), 1, "the work that forked alone");
+    let item = driver.work(asked).unwrap().item.number;
+    let cancel = vec![(item, driver::Asked::Cancel)];
+    (driver.change(work::Time(START + 600 * S), Some("Not needed."), cancel)).unwrap();
+    assert_eq!(read(&driver, START + 700 * S), 1, "the work cancelled alone");
+    let system =
+        serde_json::to_value(web::system::System::of(&driver, work::Time(START + 700 * S), &[]).unwrap()).unwrap();
+    assert_eq!(system["cancelled"].as_array().map(Vec::len), Some(1), "{system}");
+}
