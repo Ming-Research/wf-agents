@@ -1452,6 +1452,8 @@ impl Driver {
             _ => None,
         };
         let outages = self.outages();
+        // A cancel or a reopen may move a main dependency, which the store keeps as it saves the work.
+        let moves_mains = matches!(&event, Event::Cancelled { .. } | Event::Reopened { .. });
         if let Event::Pinged { line, .. } = &event {
             self.pinging.remove(&(work, line.clone()));
         }
@@ -1472,6 +1474,12 @@ impl Driver {
             Ok((effects, _)) => todos.extend(effects.into_iter().map(|effect| held.todo(effect))),
             Err(Halt::Refused(refused)) => return Err(Failed::Refused(refused)),
             Err(Halt::Store(fault)) => return Err(self.stop(Fault::Store(fault), false)),
+        }
+        if moves_mains {
+            match self.store.mains() {
+                Ok(mains) => self.mains = mains,
+                Err(fault) => return Err(self.stop(Fault::Store(fault), true)),
+            }
         }
         // A wait every work shares began, ended or moved with it: every work is looked at again. What happened is
         // kept by now, whatever becomes of what follows from it.

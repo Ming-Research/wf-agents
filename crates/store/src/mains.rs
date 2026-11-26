@@ -50,7 +50,7 @@ pub(crate) fn settled(items: &[Item], cancelled: &BTreeSet<ItemNumber>, kept: &M
         .filter_map(|(of, by)| {
             let every_one_cancelled = by.iter().all(|(dependent, _)| is_cancelled(dependent));
             let stays = (kept.get(&of)).filter(|main| {
-                by.iter().any(|(dependent, _)| dependent == *main) && (every_one_cancelled || !is_cancelled(*main))
+                by.iter().any(|(dependent, _)| dependent == *main) && (every_one_cancelled || !is_cancelled(main))
             });
             let chosen = || {
                 (by.iter())
