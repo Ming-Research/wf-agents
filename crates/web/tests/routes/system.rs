@@ -277,7 +277,7 @@ fn what_went_past_the_lines_of_its_history_and_what_is_under_way_are_given_again
         warm: None,
     };
     let (mut driver, _) =
-        driver::Driver::open(Box::new(store), vec![flow], 10, Some(policy), work::Time(START)).unwrap();
+        driver::Driver::open(Box::new(store), vec![flow], 10, Some(policy), None, work::Time(START)).unwrap();
     planned(&mut driver, START, 10 * S, 1_000);
     planned(&mut driver, START + 60 * S, 20 * S, 2_000);
     let third = planned(&mut driver, START + 120 * S, 100 * S, 50_000);
@@ -385,7 +385,7 @@ fn what_a_work_spent_on_a_fork_is_counted_in_the_system_view_in_its_total_its_we
         warm: None,
     };
     let (mut driver, _) =
-        driver::Driver::open(Box::new(store), vec![flow], 10, Some(policy), work::Time(START)).unwrap();
+        driver::Driver::open(Box::new(store), vec![flow], 10, Some(policy), None, work::Time(START)).unwrap();
     let work = planned(&mut driver, START, 10 * S, 1_000);
     let run = driver.work(work).unwrap().work.records.rounds[0].run;
     let spent = engine::Spent {
@@ -462,7 +462,7 @@ fn what_the_span_spent_is_given_by_the_project_of_each_work_and_adds_up_to_the_s
         warm: None,
     };
     let (mut driver, _) =
-        driver::Driver::open(Box::new(store), vec![flow], 10, Some(policy), work::Time(START)).unwrap();
+        driver::Driver::open(Box::new(store), vec![flow], 10, Some(policy), None, work::Time(START)).unwrap();
     let first = planned_in(&mut driver, "trial", START, 10 * S, 1_000);
     planned_in(&mut driver, "trial", START + 60 * S, 10 * S, 2_000);
     planned_in(&mut driver, "other", START + 120 * S, 10 * S, 50_000);
@@ -599,7 +599,7 @@ fn a_call_past_its_line_by_the_size_of_its_result_alone_is_given_with_its_size_a
         warm: None,
     };
     let (mut driver, _) =
-        driver::Driver::open(Box::new(store), vec![flow], 10, Some(policy), work::Time(START)).unwrap();
+        driver::Driver::open(Box::new(store), vec![flow], 10, Some(policy), None, work::Time(START)).unwrap();
     answered(&mut driver, START, 5_000);
     answered(&mut driver, START + 60 * S, 10_000);
     let (third, call, done) = answered(&mut driver, START + 120 * S, 60_000);
@@ -671,7 +671,7 @@ fn a_stop_is_given_with_the_rests_of_what_is_under_way_and_holds_a_work_that_wou
         warm: None,
     };
     let (mut driver, _) =
-        driver::Driver::open(Box::new(store), vec![flow], 10, Some(policy), work::Time(START)).unwrap();
+        driver::Driver::open(Box::new(store), vec![flow], 10, Some(policy), None, work::Time(START)).unwrap();
     let first = planned(&mut driver, START, 10 * S, 1_000);
     let second = planned(&mut driver, START + 20 * S, 30 * S, 1_000);
     let now = work::Time(START + 60 * S);
@@ -761,7 +761,7 @@ fn what_a_program_left_running_is_kept_and_given_in_the_system_view() {
         )
         .unwrap();
         let store = Store::open(&path).unwrap();
-        driver::Driver::open(Box::new(store), vec![flow], 10, None, work::Time(at))
+        driver::Driver::open(Box::new(store), vec![flow], 10, None, None, work::Time(at))
             .unwrap()
             .0
     };
@@ -885,7 +885,7 @@ fn a_read_of_the_system_works_out_again_only_the_works_that_changed_and_gives_wh
         warm: None,
     };
     let (mut driver, _) =
-        driver::Driver::open(Box::new(store), vec![flow], 10, Some(policy), work::Time(START)).unwrap();
+        driver::Driver::open(Box::new(store), vec![flow], 10, Some(policy), None, work::Time(START)).unwrap();
     let mut parts = web::system::Parts::default();
     // Reads at this time with the parts kept, over all time and over the span after the first minute, each as a read
     // from the records gives it: how many works' parts the first of them worked out again.

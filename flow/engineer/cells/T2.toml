@@ -11,8 +11,10 @@ Review the tests and the evidence of the change in `code`, in a session of your 
 diff from main to `head`. Judge only by what the implementation was asked to do (`plan_agent`, `acceptance`) and by the
 repository's rules. Do not review the code or the design tree.
 
-1. Does `evidence` show each condition of `acceptance` on the change?
-2. Was each new or extended test red on the code before the change, where its kind needs that, as a run shows?
+1. Does `evidence` show each condition of `acceptance` on the change? Check each run it names in `test_runs`; a work
+   with no `test_runs` made no call of `run_tests`.
+2. Was each new or extended test red on the code before the change, where its kind needs that, as a run in `test_runs`
+   shows?
 3. For each test the change removes, skips, narrows or weakens: is what it checked still checked, or is a technical
    reason given?
 4. Is the time of the change's tests worth a question? Judge it from `test_times`: it says what the CI measured of the
@@ -31,7 +33,7 @@ return. Once you have said yes to `needs_testing`, keep it while the part of the
 there.
 '''
 watches = ["change", "test_review"]
-reads = ["plan", "background", "tree", "tree_entries", "test_times"]
+reads = ["plan", "background", "tree", "tree_entries", "test_times", "test_runs"]
 outputs = ["test_review", "test_ok", "needs_testing"]
 must_write = ["test_ok", "needs_testing"]
 
@@ -61,3 +63,5 @@ tests = "last_and_latest"
 head = "last_and_latest"
 background = "latest"
 test_times = "latest"
+# One version for each call of `run_tests`, so that each is given once.
+test_runs = "all"

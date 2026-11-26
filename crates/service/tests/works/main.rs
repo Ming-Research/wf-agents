@@ -606,6 +606,7 @@ fn open(
         slots: SLOTS,
         tokens: Arc::new(service::KeptTokens::new()),
         calls: calls.clone(),
+        tests_given: None,
     };
     let clock: Arc<dyn service::Clock> = clock.clone();
     Service::open(Box::new(store), vec![trial_flow()], carriers, clock).expect("the loop opens")
