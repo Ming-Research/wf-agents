@@ -1,6 +1,5 @@
-//! A work whose summary cannot be read keeps no other work from being given: `GET /api/v1/items`, `/api/v1/pulls` and
-//! `/api/v1/attention` answer as they do where no work is broken, and the broken work says its state is broken, with
-//! what is certain of it (decision `a-work-whose-state-cannot-be-worked-out-fails-alone`).
+//! A work whose summary cannot be read keeps no other work from being given: `GET /api/v1/items` and `/api/v1/pulls`
+//! answer as they do where no work is broken, and the broken work is given as unread, with what is certain of it.
 
 use std::future::Future;
 use std::path::Path;
