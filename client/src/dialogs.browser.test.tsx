@@ -1,8 +1,9 @@
 // The look of the page's two dialogs in a real browser (Chromium), where the styles apply: the question before a command
-// (`Confirm`) and the window a diagram opens larger in (`DiagramWindow`). Both are drawn in the page's own sizes
-// (principle few-sizes-two-weights), with square panels and 3 px buttons (decision the-look-stays-square-and-cool) and
-// the shadow of the window that floats over a view, in the light and the dark theme. Each is read against the named
-// value it is to take, so that a size written out in their styles again, which no other test sees, fails here.
+// (`Confirm`) and the window a diagram opens larger in (`DiagramWindow`). They keep a look of their own, the exception
+// to the page's sizes, heights and corners (decision the-dialogs-keep-a-look-of-their-own): 14 px type, buttons 32 px
+// high with 6 px corners, panels with 12 px corners and a shadow of their own, in the light and the dark theme. Each is
+// read against the named value it is to take (`--dialog-*` in tokens.css), and the named values against what they were,
+// so that a size written out in their styles again, or a token that drifts, which no other test sees, fails here.
 
 import './styles/tokens.css';
 import './styles/parts.css';
@@ -46,8 +47,20 @@ describe.each(['light', 'dark'] as const)('the page’s dialogs in the %s theme'
     return host.querySelector(selector) as HTMLDialogElement;
   }
 
+  // The values the look had before it was given names, which the tokens must still hold.
+  it('names the dialogs’ own look in the values it had', () => {
+    const root = getComputedStyle(document.documentElement);
+    const token = (name: string) => root.getPropertyValue(name).trim();
+    expect.soft(token('--dialog-size')).toBe('14px');
+    expect.soft(token('--dialog-line-height')).toBe('1.5');
+    expect.soft(token('--dialog-button')).toBe('32px');
+    expect.soft(token('--dialog-button-corner')).toBe('6px');
+    expect.soft(token('--dialog-corner')).toBe('12px');
+    expect.soft(token('--dialog-shadow')).toMatch(/^0 0 0 1px .+, 0 8px 16px .+, 0 24px 48px .+$/);
+  });
+
   // The parts of a look are asserted softly, so that a run says every part that is wrong and not only the first.
-  it('draws the question before a command in the body size, with square corners, the window shadow and buttons of the control height and corner', async () => {
+  it('draws the question before a command in its own size, with its own corners and shadow and buttons of its own height and corner', async () => {
     const dialog = draw(
       <Confirm title="Cancel this work?" verb="Cancel work" onAnswer={() => undefined}>
         It stops, and its branch is let go.
@@ -55,23 +68,23 @@ describe.each(['light', 'dark'] as const)('the page’s dialogs in the %s theme'
       'dialog.confirm',
     );
     await expect.poll(() => dialog.open).toBe(true);
-    const body = named('font-size', 'var(--size-body)');
+    const size = named('font-size', 'var(--dialog-size)');
     const look = getComputedStyle(dialog);
-    expect.soft(look.fontSize).toBe(body);
-    expect.soft(look.borderRadius).toBe('0px');
-    expect.soft(look.boxShadow).toBe(named('box-shadow', 'var(--window-shadow)'));
-    expect.soft(getComputedStyle(dialog.querySelector('.confirm-body') as HTMLElement).fontSize).toBe(body);
+    expect.soft(look.fontSize).toBe(named('font-size', 'var(--size-body)'));
+    expect.soft(look.borderRadius).toBe(named('border-radius', 'var(--dialog-corner)'));
+    expect.soft(look.boxShadow).toBe(named('box-shadow', 'var(--dialog-shadow)'));
+    expect.soft(getComputedStyle(dialog.querySelector('.confirm-body') as HTMLElement).fontSize).toBe(size);
     const buttons = [...dialog.querySelectorAll<HTMLButtonElement>('.confirm-buttons .button')];
     expect(buttons).toHaveLength(2);
     for (const button of buttons) {
       const ours = getComputedStyle(button);
-      expect.soft(ours.fontSize).toBe(body);
-      expect.soft(ours.height).toBe(named('height', 'var(--control)'));
-      expect.soft(ours.borderRadius).toBe(named('border-radius', 'var(--corner)'));
+      expect.soft(ours.fontSize).toBe(size);
+      expect.soft(ours.height).toBe(named('height', 'var(--dialog-button)'));
+      expect.soft(ours.borderRadius).toBe(named('border-radius', 'var(--dialog-button-corner)'));
     }
   });
 
-  it('draws the window a diagram opens larger in, in the body size, with square corners and the window shadow', async () => {
+  it('draws the window a diagram opens larger in, in the body size, with the dialogs’ own corners and shadow', async () => {
     const dialog = draw(
       <DiagramWindow drawn={DRAWN} id="wf-diagram-test" onClose={() => undefined} />,
       'dialog.diagram-window',
@@ -79,7 +92,7 @@ describe.each(['light', 'dark'] as const)('the page’s dialogs in the %s theme'
     await expect.poll(() => dialog.open).toBe(true);
     const look = getComputedStyle(dialog);
     expect.soft(look.fontSize).toBe(named('font-size', 'var(--size-body)'));
-    expect.soft(look.borderRadius).toBe('0px');
-    expect.soft(look.boxShadow).toBe(named('box-shadow', 'var(--window-shadow)'));
+    expect.soft(look.borderRadius).toBe(named('border-radius', 'var(--dialog-corner)'));
+    expect.soft(look.boxShadow).toBe(named('box-shadow', 'var(--dialog-shadow)'));
   });
 });
