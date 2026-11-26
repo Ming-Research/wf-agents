@@ -6,7 +6,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AGAIN_MS, firstOpening, heldByWork, newlyHeld, openingOf, useNotifications } from './notify';
-import type { Item, Items, Now, Wait } from './works-api';
+import type { InstallationWait, Item, Items, Now, Wait } from './works-api';
 import { fixtureItems } from './works/fixtures';
 import { waitCount } from './works/words';
 
@@ -192,6 +192,47 @@ describe("the browser's notifications", () => {
     Told.permission = 'denied';
     draw(withWaits(142, [question(9), question(10)]));
     expect(Told.made).toEqual([]);
+  });
+
+  it("tell once of the engine's pause of every work each time it begins, which no work waits on the owner for, and open the console", () => {
+    const engineStopped = (since: number): InstallationWait => ({
+      key: 'everything',
+      why: 'The engine paused every work when it started, and waits for you to let them go on.',
+      ends: { kind: 'resume' },
+      since,
+    });
+    const draw = drawn({ items: [], outage: null });
+    // What is there at the first reading is old, and the same pause read again is no new one.
+    draw({ items: [], outage: null, waits: [engineStopped(5000)] });
+    expect(Told.made.map((n) => [n.title, n.options.tag, n.options.renotify])).toEqual([
+      [
+        'Waiting for you: The engine paused every work when it started, and waits for you to let them go on.',
+        'wf-agents-everything',
+        true,
+      ],
+    ]);
+    draw({ items: [], outage: null, waits: [engineStopped(5000)] });
+    expect(Told.made).toHaveLength(1);
+    act(() => Told.made[0].onclick?.());
+    expect(window.location.hash).toBe('#/console');
+    expect(Told.made[0].closed).toBe(true);
+    // The owner lifted it, and the engine paused everything again: a new pause, told again.
+    draw({ items: [], outage: null, waits: [] });
+    draw({ items: [], outage: null, waits: [engineStopped(9000)] });
+    expect(Told.made).toHaveLength(2);
+  });
+
+  it("count the engine's pause of every work among what is left in the reminder each hour, and tell nothing of one the page found at its first reading", () => {
+    vi.useFakeTimers();
+    const waits: InstallationWait[] = [{ key: 'everything', why: 'The engine paused every work.', ends: { kind: 'resume' }, since: 5000 }];
+    drawn({ items: [], outage: null, waits });
+    expect(Told.made).toEqual([]);
+    act(() => {
+      vi.advanceTimersByTime(AGAIN_MS);
+    });
+    expect(Told.made.map((n) => [n.title, n.options.tag])).toEqual([[waitCount(1), 'wf-agents-waits']]);
+    act(() => Told.made[0].onclick?.());
+    expect(window.location.hash).toBe('#/console');
   });
 
   it('tell again each hour how many things are left, while any is', () => {

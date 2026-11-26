@@ -120,6 +120,7 @@ fn a_work_saved_after_each_thing_that_happens_loads_back_as_it_was_with_an_entry
     // A run is abandoned only as its cell is skipped, a round is stopped, or the work is cancelled: here once.
     assert!(!r.abandoned.is_empty(), "no run abandoned: {:?}", r.abandoned);
     assert_eq!(r.let_go.len(), 1);
+    assert_eq!(r.owner_reads.len(), 1, "the owner's read of the text");
     // The last pause is the reopen's: a work reopened is paused until it is let on.
     assert_eq!(
         r.pauses.iter().map(|p| p.paused).collect::<Vec<_>>(),
@@ -359,6 +360,36 @@ fn a_reason_a_return_was_sent_back_for_that_was_kept_under_its_earlier_name_load
     assert_eq!(changed, 1);
     let loaded = db.open().load(number).expect("the work loads");
     assert_eq!(loaded.given.get(&(run, round)), Some(&now));
+}
+
+// A reason a return was sent back for was kept before it named the blocks it is about: a work kept before reads it
+// as it was, naming none, and one kept with them reads back as written (records are only added to, so those of before
+// are read all the same).
+#[test]
+fn a_reason_kept_before_it_named_its_blocks_reads_back_naming_none_and_one_kept_with_them_as_written() {
+    use decide::run::Unmet;
+    let entry: Unmet = serde_json::from_str(r#"{"NotAnEntry":{"line":"principle x"}}"#).expect("a reason kept before");
+    assert_eq!(
+        entry,
+        Unmet::NotAnEntry {
+            block: None,
+            line: "principle x".to_string(),
+        }
+    );
+    let tree: Unmet = serde_json::from_str(r#"{"TreeUnchanged":{"name":"which"}}"#).expect("a reason kept before");
+    assert_eq!(
+        tree,
+        Unmet::TreeUnchanged {
+            name: "which".to_string(),
+            blocks: Vec::new(),
+        }
+    );
+    let named = Unmet::NotAnEntry {
+        block: Some("tree_entries".into()),
+        line: "principle x".to_string(),
+    };
+    let kept = serde_json::to_string(&named).expect("it is JSON");
+    assert_eq!(serde_json::from_str::<Unmet>(&kept).expect("it reads"), named);
 }
 
 // A cause recorded before the version the cell last worked from was recorded in it has none and reads back as it was

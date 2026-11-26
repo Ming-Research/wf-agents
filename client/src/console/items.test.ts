@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
 import type { CellNow, Item, Items, Now, Summary, Wait } from '../works-api';
-import { asksOf, findItems, NO_PROJECT, projectsIn, STANDINGS, shownTree, type Shown } from './items';
+import {
+  asksOf,
+  findItems,
+  NO_PROJECT,
+  projectsIn,
+  shownTree,
+  somethingUnread,
+  STANDINGS,
+  type Shown,
+  walkOrder,
+} from './items';
 import { indexTree } from './tree';
 
 const CELLS = ['plan', 'implement', 'merge'];
@@ -431,5 +441,47 @@ describe('what a card shows of an item', () => {
     const ran = shownTree({ items: [{ ...paused, work: { ...paused.work, from: 1 } }, item(4, 'open')] });
     expect(ran[0].begun).toBe(true);
     expect([ran[0].work?.now.kind, ran[0].work?.from]).toEqual(['paused', 1]);
+  });
+});
+
+describe('what the owner has not read of an item', () => {
+  /// An open item whose work the engine says this of.
+  const unread = (number: number, fresh: 'none' | 'new' | 'changed', repliesUnread: number): Item => ({
+    ...item(number, 'open'),
+    work: { ...work(number, NOW.open), fresh, repliesUnread },
+  });
+  const items = [unread(1, 'none', 0), unread(2, 'new', 0), unread(3, 'changed', 2), unread(4, 'none', 3), item(5, 'open')];
+
+  it("is the engine's word, as the card shows it: new or changed, and how many replies are not read, none where it says nothing", () => {
+    const shown = shownTree({ items });
+    expect(shown.map((s) => [s.id, s.fresh, s.repliesUnread])).toEqual([
+      [1, 'none', 0],
+      [2, 'new', 0],
+      [3, 'changed', 2],
+      [4, 'none', 3],
+      [5, 'none', 0],
+    ]);
+  });
+
+  it('has something unread where the item is new or changed, or any reply is not read, and not where both are read', () => {
+    expect(shownTree({ items }).map((s) => [s.id, somethingUnread(s)])).toEqual([
+      [1, false],
+      [2, true],
+      [3, true],
+      [4, true],
+      [5, false],
+    ]);
+  });
+
+  it('walks the items by how many replies each has not read, in the order of the tree, as it walks the stops', () => {
+    const tree = shownTree({ items });
+    expect(walkOrder(tree).map((o) => [o.id, o.stops])).toEqual([[1, 0], [2, 0], [3, 0], [4, 0], [5, 0]]);
+    expect(walkOrder(tree, (s) => s.repliesUnread).map((o) => [o.id, o.stops])).toEqual([
+      [1, 0],
+      [2, 0],
+      [3, 2],
+      [4, 3],
+      [5, 0],
+    ]);
   });
 });

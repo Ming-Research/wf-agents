@@ -81,7 +81,7 @@ pub use agents::{Agents, Of, ROUNDS};
 pub use branch::compared;
 pub use host::github::{GhOffsite, UPLOAD_RATE};
 pub use process::{STOP_WAIT, TAIL};
-pub use settings::Settings;
+pub use settings::{Settings, Wait};
 pub use tools::{QUERY, Querying, RUN_TESTS};
 
 /// The carriers of these settings, keeping what they keep in the data directory: the installation's id, the works'
@@ -174,6 +174,8 @@ fn carry_keeping(
     let mut declarations = projects::Declarations::new();
     // The network reaches a project's host on GitHub, one look for every such project, and no network a local one.
     let mut host_look: Option<Arc<dyn service::Network>> = None;
+    // The machines the projects' measurements run on, whose turns every project's host on GitHub shares.
+    let machines = Arc::new(host::github::Machines::new(Arc::new(service::SystemClock)));
     let (declared, faults) = projects::declared(&settings, &beside, flows);
     if !faults.is_empty() {
         return Err(faults.join("; "));
@@ -227,9 +229,11 @@ fn carry_keeping(
                 let merging = (declaration.pull_request.as_ref())
                     .ok_or_else(|| format!("projects.{name}: {} has no [pull_request]", flow::agents::DECLARATION))?;
                 let hosting = (tool.clone(), Some(words.check.clone()), beside.pull_request.clone());
-                let host =
-                    host::GitHub::from_settings(github, &project, &data, installation, env, (ci, merging), hosting)
-                        .map_err(|why| format!("projects.{name}: {why}"))?;
+                let ids = (installation, machines.clone());
+                let host = host::GitHub::from_settings(github, &project, &data, ids, env, (ci, merging), hosting)
+                    .map_err(|why| format!("projects.{name}: {why}"))?;
+                let host = Arc::new(host);
+                host::GitHub::share_machines(&host);
                 let look = (host_look.get_or_insert_with(|| Arc::new(failure::LookAt(host::github::LOOK.to_string()))))
                     .clone();
                 on(

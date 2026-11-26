@@ -229,7 +229,7 @@ async fn the_open_pull_request_of_the_continued_branch_is_closed_naming_the_work
 #[tokio::test]
 async fn the_comment_the_continued_pull_request_is_closed_with_is_the_words_of_its_file_and_nothing_else() {
     let mut hub = Hub::new();
-    hub.host.config.words.superseded = "SUPERSEDED BY {url}.".to_string();
+    hub.config_mut().words.superseded = "SUPERSEDED BY {url}.".to_string();
     github_branch(&hub, "old", "old.txt");
     let old = hub.github().pull_of("old", "main", State::Open, false);
     let head = hub.committed().await;

@@ -34,7 +34,9 @@ pub enum Event {
         block: BlockId,
         content: String,
     },
-    /// The owner let the cell go on at its limit.
+    /// The owner let the cell go on at its limit: the work waits at the cell for the owner, its last runs in a row
+    /// having reached the cell's limit of ways round or of runs that only ask. Anywhere else it is refused
+    /// ([`Refused::NotAtItsLimit`]).
     LetGo { cell: CellId },
     /// The work was paused: by the owner, who may say why and the items it waits for, or by the engine itself, for this
     /// reason, as when it spent more than it may. A round that fails pauses its work by [`Event::Failed`] instead.
@@ -44,6 +46,10 @@ pub enum Event {
         /// The items, by their numbers, that the pause waits for ([`decide::Pause::waits_for`]).
         waits_for: Vec<u64>,
     },
+    /// The owner read these versions of the work's blocks, each named by its block and its number among the block's
+    /// versions, as the owner and the agents name a version. Anywhere a version is not one of the work's it is refused
+    /// ([`Refused::NoSuchBlockVersion`]), and nothing of it is kept. A work that has ended takes it too.
+    Read { versions: Vec<(BlockId, u64)> },
     /// The work was let on again.
     Resumed,
     /// The work's item was cancelled, for this reason where whoever cancelled it gave one.
@@ -343,6 +349,9 @@ pub enum Refused {
     NotAChoice { block: BlockId },
     /// The flow has no such cell.
     NoSuchCell(CellId),
+    /// The work does not wait at this cell for the owner past the cell's limit, which is the only place a cell is let
+    /// go on: a let-go anywhere else would change nothing now and start the count of the cell's limit anew.
+    NotAtItsLimit(CellId),
     /// No round of the run is under way.
     NoRoundUnderWay(RunId),
     /// The work has no such run, or the run has no such round that began.
@@ -362,6 +371,8 @@ pub enum Refused {
     NoSuchVersion { question: String, version: u64 },
     /// The version of the question has no option of this number.
     NotAnOption { question: String, option: u64 },
+    /// The block has no version of this number, among the versions the work has of it.
+    NoSuchBlockVersion { block: BlockId, version: u64 },
     /// The work's item is not cancelled: there is no cancel to reopen.
     NotCancelled,
     /// No cell can take the owner's words, for this reason: they go to no other.

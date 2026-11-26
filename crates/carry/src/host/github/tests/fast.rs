@@ -4,9 +4,11 @@
 
 use driver::red_main::RedTest;
 
+use std::collections::BTreeMap;
+
 use super::super::api::{Check, Outcome};
 use super::*;
-use crate::host::Named;
+use crate::host::{Measure, Named};
 use decide::Obstacle;
 
 pub(super) fn named(tests: &[&str], checks: &[&str]) -> Named {
@@ -905,41 +907,57 @@ async fn what_a_failed_test_said_is_kept_whole() {
     assert!(!told.contains("left out"), "{told}");
 }
 
-/// The measure workflow, as the tests' project declares it where it measures: `measure.yml`, reporting in `test-results`.
+/// The measurement `compare`, as the tests' project declares it where it measures: `measure.yml` on the machine
+/// `14900k`, which the installation has, given the commit, the commit the change began from, the call and both
+/// commits in one input, letting an agent set `passes`, and reporting the requests a second and the 99th percentile of
+/// each line in `bench.csv` of the artifact `measurement`.
 pub(super) fn measuring(config: &mut Config) {
-    config.ci.as_mut().expect("a declaration").measure = Some(flow::agents::CiMeasure {
+    let pairs = |pairs: &[(&str, &str)]| -> BTreeMap<String, String> {
+        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    };
+    let compare = flow::agents::Measurement {
+        about: "the commit against where its change began".to_string(),
         workflow: "measure.yml".to_string(),
-        runner: "github".to_string(),
+        runner: "14900k".to_string(),
         too_long: "1m".to_string(),
-        commit_input: "commit".to_string(),
-        base_input: "base".to_string(),
-        call_input: "call".to_string(),
-        measure_input: "measure".to_string(),
-        results: "test-results".to_string(),
-    });
+        inputs: pairs(&[
+            ("commit", "{commit}"),
+            ("base", "{base}"),
+            ("call", "{call}"),
+            ("revisions", "base={base} head={commit}"),
+        ]),
+        open: vec!["passes".to_string()],
+        artifact: "measurement".to_string(),
+        file: "bench.csv".to_string(),
+        metrics: pairs(&[("rps", "requests/s"), ("p99_ms", "ms")]),
+    };
+    let ci = config.ci.as_mut().expect("a declaration");
+    ci.measure.insert("compare".to_string(), compare);
+    config.runners.push("14900k".to_string());
 }
 
-/// A request that names these measurements.
+/// A request that names these measurements, setting none of their inputs.
 pub(super) fn measured(names: &[&str]) -> Named {
     Named {
-        measure: names.iter().map(|n| n.to_string()).collect(),
+        measure: (names.iter())
+            .map(|name| Measure {
+                name: name.to_string(),
+                inputs: BTreeMap::new(),
+            })
+            .collect(),
         ..Named::default()
     }
 }
 
-/// What the measure workflow uploads for the measurement `design-lint`: two timings of what the work began from, of its
-/// twin and of the work's commit, each in a suite named for what was timed, and the workflow's own median of each side in
-/// a suite of its own, in the file of the job `measure`.
+/// What `bench.csv` holds of a run of the measurement `compare`: each line's requests a second and 99th percentile.
+pub(super) const BENCH: &str = "line,test,rps,p99_ms\nbase,set,150000,0.31\nhead,set,161000.5,0.29\n";
+
+/// What the run of `compare` uploads: the host's description beside `bench.csv`.
 pub(super) fn timings() -> Vec<(String, Vec<u8>)> {
-    let xml = r#"<testsuites>
-  <testsuite name="base"><testcase name="design-lint" time="0.50"/><testcase name="design-lint" time="0.52"/></testsuite>
-  <testsuite name="twin"><testcase name="design-lint" time="0.51"/><testcase name="design-lint" time="0.49"/></testsuite>
-  <testsuite name="candidate"><testcase name="design-lint" time="0.40"/><testcase name="design-lint" time="0.41"/></testsuite>
-  <testsuite name="median base"><testcase name="design-lint" time="0.51"/></testsuite>
-  <testsuite name="median twin"><testcase name="design-lint" time="0.50"/></testsuite>
-  <testsuite name="median candidate"><testcase name="design-lint" time="0.405"/></testsuite>
-</testsuites>"#;
-    vec![("measure.xml".to_string(), xml.as_bytes().to_vec())]
+    vec![
+        ("host.txt".to_string(), b"cpus: 32".to_vec()),
+        ("bench.csv".to_string(), BENCH.as_bytes().to_vec()),
+    ]
 }
 
 /// Main moves on GitHub, as other works merge, and the host fetches it: its head now.
@@ -957,13 +975,13 @@ async fn main_moves(hub: &Hub) -> String {
     moved
 }
 
-// A request that names measurements has the measure workflow run once, on the work's commit and with, as the commit to
-// time it against, the one the work's change began from, which is not main's head once main has moved on; the names go
-// one to a line. What it said is each timing of each name asked for, with what was timed, in seconds, as the workflow
-// reported it, and a name no timing has is said. Milliseconds alone, a repository on disk and GitHub in memory; the one
-// test of the measure workflow's inputs and of how its result is said.
+// A measurement named runs its workflow once, on main's file, with the inputs its declaration gives, the commit, the
+// commit the work's change began from (not main's head once main has moved on) and the run's own value filled in,
+// and the inputs the request sets beside them. What it said is its run, each job, and what it measured as the file
+// holds it, with each metric's unit. Milliseconds alone, a repository on disk and GitHub in memory; the one test of a
+// measurement's inputs and of how its result is said.
 #[tokio::test]
-async fn a_measurement_named_is_timed_on_the_commit_and_where_the_change_began_and_every_timing_is_said() {
+async fn a_measurement_named_runs_its_workflow_with_the_inputs_declared_and_set_and_what_it_measured_is_said() {
     let hub = Hub::new().with(measuring);
     let head = hub.committed().await;
     let began = run(&hub.place().dir, &["rev-parse", "HEAD~1"]);
@@ -972,255 +990,378 @@ async fn a_measurement_named_is_timed_on_the_commit_and_where_the_change_began_a
     hub.github().of_workflow(
         "measure.yml",
         &head,
-        vec![passed("measure")],
-        Some(("test-results", timings())),
+        vec![passed("bench")],
+        Some(("measurement", timings())),
     );
-    let said = hub
-        .named_check(&measured(&["design-lint", "no-such-measurement"]))
-        .await
-        .unwrap()
-        .expect("nothing stopped it");
-    assert!(
-        said.starts_with(&format!(
-            "The measure workflow ran on the commit {head} (https://github.example/actions/runs/1000): 1 of the 2 \
-             measurements ran."
-        )),
-        "{said}"
+    let mut asked = measured(&["compare"]);
+    asked.measure[0].inputs.insert("passes".to_string(), "6".to_string());
+    let said = hub.named_check(&asked).await.unwrap().expect("nothing stopped it");
+    assert_eq!(
+        said,
+        format!(
+            "The measurement compare ran measure.yml on the commit {head}, whose change began from {began} \
+             (https://github.example/actions/runs/1000): every job of it passed.\n\n\
+             The jobs:\n- bench: passed in 60 s https://github.example/checks/bench\n\n\
+             It wrote 2 rows to bench.csv, whose metrics are `p99_ms` in ms, `rps` in requests/s:\n```\n{}\n```",
+            BENCH.trim_end()
+        )
     );
-    for line in [
-        "The timings of the measurements that ran:\n- design-lint [base]: passed in 0.50 s\n- design-lint [base]: passed in 0.52 s\n\
-         - design-lint [twin]: passed in 0.51 s\n- design-lint [twin]: passed in 0.49 s\n\
-         - design-lint [candidate]: passed in 0.40 s\n- design-lint [candidate]: passed in 0.41 s\n\
-         - design-lint [median base]: passed in 0.51 s\n- design-lint [median twin]: passed in 0.50 s\n\
-         - design-lint [median candidate]: passed in 0.405 s",
-        "The tests that did not pass:\n- no-such-measurement: not run: no test in the run has this name",
-        "- measure: passed in 60 s",
-    ] {
-        assert!(said.contains(line), "{line}\n\n{said}");
-    }
     assert_eq!(
         hub.dispatched_as_said(),
         [Asked::Dispatch {
             workflow: "measure.yml".to_string(),
             branch: "main".to_string(),
             inputs: vec![
-                ("commit".to_string(), head.clone()),
-                ("base".to_string(), began),
+                ("base".to_string(), began.clone()),
                 ("call".to_string(), "<call>".to_string()),
-                ("measure".to_string(), "design-lint\nno-such-measurement\n".to_string()),
+                ("commit".to_string(), head.clone()),
+                ("revisions".to_string(), format!("base={began} head={head}")),
+                ("passes".to_string(), "6".to_string()),
             ],
         }]
     );
     assert_eq!(hub.opened(), 0, "no pull request is opened for a run");
+    assert!(hub.trials().is_empty(), "nothing stays pushed: {:?}", hub.trials());
 }
 
-// A request that names tests and measurements has the fast workflow run, then the measure workflow, each with a value of
-// its own, and says both in one result, the fast workflow's first. Milliseconds alone; the one test that a request of
-// both runs both.
+// A request that names tests and two measurements has the fast workflow run, then each measurement in the order named,
+// each with a value of its own, though both are of one workflow on one commit, and says all in one result, the fast
+// workflow's first. Milliseconds alone; the one test of a request of several.
 #[tokio::test]
-async fn tests_and_measurements_named_together_run_the_fast_workflow_and_then_the_measure_workflow() {
+async fn tests_and_measurements_named_together_run_the_fast_workflow_and_then_each_measurement() {
     let hub = Hub::new().with(measuring);
     let head = hub.committed().await;
     hub.github().fast(&head, vec![], Some(("test-results", junit())));
     hub.github().of_workflow(
         "measure.yml",
         &head,
-        vec![passed("measure")],
-        Some(("test-results", timings())),
+        vec![passed("bench")],
+        Some(("measurement", timings())),
     );
     let asked = Named {
         tests: vec!["tools::tests::a".to_string()],
-        ..measured(&["design-lint"])
+        ..measured(&["compare", "compare"])
     };
     let said = hub.named_check(&asked).await.unwrap().expect("nothing stopped it");
     let fast = said
         .find("The fast workflow ran on the commit")
         .expect("the fast workflow is said");
     let measure = said
-        .find("The measure workflow ran on the commit")
-        .expect("the measure workflow is said");
+        .find("The measurement compare ran")
+        .expect("the measurement is said");
     assert!(fast < measure, "{said}");
+    assert_eq!(said.matches("The measurement compare ran").count(), 2, "{said}");
     assert!(said.contains("tools::tests::a: passed in 0.12 s"), "{said}");
-    assert!(said.contains("- design-lint [candidate]: passed in 0.40 s"), "{said}");
     let workflows: Vec<String> = (hub.dispatched_as_said().into_iter())
         .map(|asked| match asked {
             Asked::Dispatch { workflow, .. } => workflow,
             other => panic!("{other:?}"),
         })
         .collect();
-    assert_eq!(workflows, ["fast.yml", "measure.yml"]);
+    assert_eq!(workflows, ["fast.yml", "measure.yml", "measure.yml"]);
+    let calls: Vec<String> = (hub.dispatched().into_iter())
+        .filter_map(|asked| match asked {
+            Asked::Dispatch { inputs, .. } => inputs.into_iter().find(|(name, _)| name == "call"),
+            _ => None,
+        })
+        .map(|(_, value)| value)
+        .collect();
+    assert_eq!(calls.len(), 3);
+    assert!(calls[0] != calls[1] && calls[1] != calls[2], "{calls:?}");
+    assert!(hub.trials().is_empty(), "nothing stays pushed: {:?}", hub.trials());
 }
 
-// A measurement named where the project has no measure workflow, or where it runs on a machine the installation lacks, is
-// refused before anything is pushed or asked for, and the tests named beside it are not run either. Milliseconds alone;
-// the one test that the refusal comes before the fast workflow's run.
+// A measurement the project cannot run is refused before anything is pushed or asked for, and the tests named beside
+// it are not run either: where the project declares none; and, every reason at once, a measurement it does not
+// declare, an input the measurement does not let an agent set, and a machine the installation lacks. Milliseconds
+// alone; the one test of what refuses a measurement named.
 #[tokio::test]
 async fn a_measurement_the_project_cannot_run_is_refused_before_anything_is_pushed_and_runs_no_test_either() {
-    let asked = Named {
+    let with_tests = |named: Named| Named {
         tests: vec!["tools::tests::a".to_string()],
-        ..measured(&["design-lint"])
+        ..named
     };
     let hub = Hub::new();
     hub.committed().await;
+    let said = hub
+        .named_check(&with_tests(measured(&["compare"])))
+        .await
+        .unwrap()
+        .expect("said");
+    assert_eq!(
+        said,
+        "Nothing was run: the project declares no measurement, so none can be named. Nothing was pushed."
+    );
+    assert!(hub.github().asked().is_empty(), "nothing was pushed or asked");
+    let hub = Hub::new().with(measuring);
+    hub.committed().await;
+    let mut asked = with_tests(measured(&["startup", "compare"]));
+    asked.measure[1].inputs.insert("mode".to_string(), "scale".to_string());
     let said = hub.named_check(&asked).await.unwrap().expect("said");
     assert_eq!(
         said,
-        "Nothing was run: the project declares no workflow that times measurements, so none can be named. Nothing was \
+        "Nothing was run: the project declares no measurement startup; it declares `compare`. Nothing was pushed.\n\
+         Nothing was run: the measurement compare does not let you set `mode`; it lets you set `passes`. Nothing was \
          pushed."
     );
     assert!(hub.github().asked().is_empty(), "nothing was pushed or asked");
-    assert!(hub.trials().is_empty());
-    let hub = Hub::new().with(measuring).with(|config| {
-        config
-            .ci
-            .as_mut()
-            .expect("a declaration")
-            .measure
-            .as_mut()
-            .expect("measures")
-            .runner = "14900K".to_string();
-    });
+    let hub = Hub::new()
+        .with(measuring)
+        .with(|config| config.runners = vec!["github".to_string()]);
     hub.committed().await;
-    let said = hub.named_check(&asked).await.unwrap().expect("said");
+    let said = hub
+        .named_check(&with_tests(measured(&["compare"])))
+        .await
+        .unwrap()
+        .expect("said");
     assert_eq!(
         said,
-        "Nothing was run: the workflow runs on 14900K, and this installation has only github."
+        "Nothing was run: the workflow runs on 14900k, and this installation has only github."
     );
     assert!(hub.github().asked().is_empty(), "nothing was pushed or asked");
     assert!(hub.trials().is_empty());
 }
 
-// A measure run is waited for as long as the declaration of the measure workflow says (`too_long` of `[ci.measure]`),
-// which counts the wait for the machine's lock, and not as long as the declaration lets a fast run take (`too_long` of
-// `[ci.fast]`): one that goes on past it is cancelled and said so with the time the declaration gave. About a second
-// alone, which is the wait itself; the one test of which limit a measure run is given, that no other test of the
-// measure workflow holds.
+// A measurement's run is waited for as long as its own declaration says, not as long as the fast workflow's: one that
+// goes on past it is cancelled, and said so, with no metric given, and so is one a person cancels. About a second
+// alone, which is the wait itself; the one test of the limit of a measurement's run and of one cancelled.
 #[tokio::test]
-async fn a_measure_run_is_cancelled_when_the_time_its_own_declaration_gives_has_passed() {
+async fn a_measurement_cancelled_by_its_limit_or_by_a_person_is_said_so_and_gives_no_metric() {
     let hub = Hub::new().with(measuring).with(|config| {
         let ci = config.ci.as_mut().expect("a declaration");
         ci.fast.too_long = "1m".to_string();
-        let measure = ci.measure.as_mut().expect("measures");
-        measure.too_long = "1s".to_string();
+        ci.measure.get_mut("compare").expect("declared").too_long = "1s".to_string();
     });
     let head = hub.committed().await;
     hub.github().runs_go_on();
     hub.github().of_workflow(
         "measure.yml",
         &head,
-        vec![check("measure", Outcome::Pending)],
-        Some(("test-results", timings())),
+        vec![check("bench", Outcome::Pending)],
+        Some(("measurement", timings())),
     );
     let said = hub
-        .named_check(&measured(&["design-lint"]))
+        .named_check(&measured(&["compare"]))
         .await
         .expect("said")
         .expect("run");
+    assert!(said.contains("not every job of it passed"), "{said}");
     assert!(
-        said.contains("the run did not complete within 1 second, the time it may take, and the engine cancelled it"),
+        said.contains(
+            "What it measured is not known, and the engine reads no log to guess it: the run did not complete within \
+             1 second, the time it may take, and the engine cancelled it."
+        ),
         "{said}"
     );
+    assert!(!said.contains("It wrote"), "{said}");
     assert!(
         hub.github().asked().contains(&Asked::Cancel(1000)),
         "the run is cancelled"
     );
-}
-
-// The names a declaration gives the measure workflow's inputs and its artifact are the ones used: a run asked for with
-// the input names `since` and `names` and read from the artifact `timings`, as the declaration says, while the fast
-// workflow's declaration keeps the defaults, which a measure run that read the fast workflow's own would use instead.
-// (`commit` and `call` are not renamed: the fake of GitHub's API reads a run by those two names.) Milliseconds alone;
-// the one test that each of these three is the measure workflow's own.
-#[tokio::test]
-async fn a_measure_run_is_asked_with_the_input_names_and_read_from_the_artifact_its_declaration_gives() {
-    let hub = Hub::new().with(measuring).with(|config| {
-        let measure = config
-            .ci
-            .as_mut()
-            .expect("a declaration")
-            .measure
-            .as_mut()
-            .expect("measures");
-        measure.base_input = "since".to_string();
-        measure.measure_input = "names".to_string();
-        measure.results = "timings".to_string();
+    // A person cancels the run of the next request while it goes on.
+    let asked = measured(&["compare"]);
+    let (said, ()) = tokio::join!(hub.named_check(&asked), async {
+        while hub.dispatched().len() < 2 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        hub.github().cancel_runs();
     });
-    let head = hub.committed().await;
-    hub.github().of_workflow(
-        "measure.yml",
-        &head,
-        vec![passed("measure")],
-        Some(("timings", timings())),
-    );
-    let said = hub
-        .named_check(&measured(&["design-lint"]))
-        .await
-        .unwrap()
-        .expect("nothing stopped it");
-    assert!(said.contains("- design-lint [candidate]: passed in 0.40 s"), "{said}");
-    let asked = hub.dispatched();
-    let [Asked::Dispatch { inputs, .. }] = &asked[..] else {
-        panic!("one run is asked for: {asked:?}");
-    };
-    let names: Vec<&str> = inputs.iter().map(|(name, _)| name.as_str()).collect();
-    assert_eq!(names, ["commit", "since", "call", "names"]);
-}
-
-// A timing a workflow reports as failed, as any other project's measure workflow may report one, is said with what it
-// wrote and is no measurement that ran; and once the run is read the branch the commit was pushed to for it is gone.
-// Milliseconds alone; the one test of a failed timing, and of the branch kept for a measure run until it is read.
-#[tokio::test]
-async fn a_timing_reported_as_failed_is_said_with_what_it_wrote_and_the_branch_of_the_run_is_gone_once_it_is_read() {
-    let xml = r#"<testsuites><testsuite name="candidate">
-  <testcase name="design-lint" time="0.30"><failure message="exit 1">the lint failed</failure></testcase>
-</testsuite></testsuites>"#;
-    let hub = Hub::new().with(measuring);
-    let head = hub.committed().await;
-    hub.github().of_workflow(
-        "measure.yml",
-        &head,
-        vec![passed("measure")],
-        Some((
-            "test-results",
-            vec![("measure.xml".to_string(), xml.as_bytes().to_vec())],
-        )),
-    );
-    let said = hub
-        .named_check(&measured(&["design-lint"]))
-        .await
-        .unwrap()
-        .expect("nothing stopped it");
-    assert!(said.contains(": 0 of the 1 measurements ran."), "{said}");
+    let said = said.expect("said").expect("run");
     assert!(
-        said.contains("The tests that did not pass:\n- design-lint [candidate]: failed in 0.30 s"),
+        said.contains("- test: ended without judging the code (cancelled)"),
         "{said}"
     );
-    assert!(said.contains("the lint failed"), "{said}");
-    assert!(!said.contains("The timings of the measurements that ran"), "{said}");
-    assert!(hub.trials().is_empty(), "nothing stays pushed: {:?}", hub.trials());
+    assert!(
+        said.contains(
+            "What it measured is not known, and the engine reads no log to guess it: the run uploaded no \
+                       artifact measurement."
+        ),
+        "{said}"
+    );
 }
 
-// Tests and a measurement named together are run on the one branch the commit is pushed to for the call, and it is gone
-// once both are read, whichever workflow ran last. Milliseconds alone; the one test that a request of both leaves no
-// branch of its call pushed.
+// A measurement whose job failed is said so, with the end of what its failed step printed, and what it measured all
+// the same where its file can be read; one whose file is not as its declaration says is said with why, and none of it
+// is given. Milliseconds alone; the one test of a failed measurement and of a file refused.
 #[tokio::test]
-async fn a_request_of_tests_and_a_measurement_leaves_no_branch_of_its_call_pushed() {
+async fn a_failed_measurement_is_said_with_its_step_and_a_file_not_as_declared_is_said_with_why() {
     let hub = Hub::new().with(measuring);
     let head = hub.committed().await;
-    hub.github().fast(&head, vec![], Some(("test-results", junit())));
     hub.github().of_workflow(
         "measure.yml",
         &head,
-        vec![passed("measure")],
-        Some(("test-results", timings())),
+        vec![job("bench", Outcome::Failed("failure".to_string()), 7)],
+        Some(("measurement", timings())),
     );
-    let asked = Named {
-        tests: vec!["tools::tests::a".to_string()],
-        ..measured(&["design-lint"])
+    hub.github().logged(7, &clippy_log());
+    let said = hub.named_check(&measured(&["compare"])).await.unwrap().expect("run");
+    assert!(
+        said.contains("not every job of it passed, as its jobs below say"),
+        "{said}"
+    );
+    assert!(said.contains("- bench: failed (failure)"), "{said}");
+    assert!(said.contains("The end of what its failed step printed:"), "{said}");
+    assert!(said.contains("It wrote 2 rows to bench.csv"), "{said}");
+    let hub = Hub::new().with(measuring);
+    let head = hub.committed().await;
+    let wrong = vec![("bench.csv".to_string(), b"line,rps\nbase,fast\n".to_vec())];
+    hub.github().of_workflow(
+        "measure.yml",
+        &head,
+        vec![passed("bench")],
+        Some(("measurement", wrong)),
+    );
+    let said = hub.named_check(&measured(&["compare"])).await.unwrap().expect("run");
+    assert!(
+        said.contains(
+            "What it measured is not known, and the engine reads no log to guess it: the artifact measurement: \
+             bench.csv has no column p99_ms, which the measurement's declaration names as a metric."
+        ),
+        "{said}"
+    );
+    assert!(!said.contains("base,fast"), "{said}");
+}
+
+// Two projects that measure on one machine take turns: while one's run goes on there, the other's request asks GitHub
+// for no run and says that it waits for the machine; once that run has ended and been read, the other's run is asked
+// for. A run on GitHub's own machines waits for none. About a fifth of a second alone, which is the wait the test gives
+// the second request to ask for a run it must not ask for; the one test of the turns across projects.
+#[tokio::test]
+async fn a_measurement_waits_while_another_project_measures_on_the_same_machine_and_runs_once_that_ends() {
+    let machines = super::machines();
+    let shared = |config: &mut Config| config.machines = machines.clone();
+    let firn = Hub::new().with(measuring).with(shared).sharing();
+    let whitefoot = Hub::new().with(measuring).with(shared).sharing();
+    let firn_head = firn.committed().await;
+    let whitefoot_head = whitefoot.committed().await;
+    for (hub, head) in [(&firn, &firn_head), (&whitefoot, &whitefoot_head)] {
+        hub.github().of_workflow(
+            "measure.yml",
+            head,
+            vec![passed("bench")],
+            Some(("measurement", timings())),
+        );
+    }
+    firn.github().runs_go_on();
+    let asked = measured(&["compare"]);
+    let (to, mut came) = tokio::sync::mpsc::unbounded_channel();
+    let reply = service::CallReply::new(WORK, CallId(77), to);
+    let saying = reply.saying();
+    let held: Held<u8, service::CallReply> = Held::new();
+    let mut stop = held.hold(1, reply).expect("held").saying(saying);
+    let place = whitefoot.place();
+    let on = branch(&place);
+    let whitefoot_asks = whitefoot.host.run_tests(&on, &asked, whitefoot.call(), &mut stop);
+    let (firn_said, whitefoot_said) = tokio::join!(firn.named_check(&asked), async {
+        while firn.dispatched().is_empty() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        tokio::pin!(whitefoot_asks);
+        tokio::select! {
+            _ = &mut whitefoot_asks => panic!("whitefoot measured beside firn"),
+            () = tokio::time::sleep(Duration::from_millis(200)) => {}
+        }
+        assert!(
+            whitefoot.dispatched().is_empty(),
+            "no run of whitefoot's is asked for while firn's goes on"
+        );
+        firn.github().finish_runs();
+        whitefoot_asks.await
+    });
+    assert!(firn_said.unwrap().expect("read").contains("every job of it passed"));
+    assert!(
+        whitefoot_said
+            .unwrap()
+            .expect("read")
+            .contains("It wrote 2 rows to bench.csv")
+    );
+    assert_eq!(whitefoot.dispatched().len(), 1);
+    let mut said = Vec::new();
+    while let Ok(message) = came.try_recv() {
+        if let service::Message::Along { along, .. } = message {
+            said.push(along);
+        }
+    }
+    assert!(
+        matches!(said.first(), Some(Some(service::Along::WaitsForMachine { machine, .. })) if machine == "14900k"),
+        "{said:?}"
+    );
+    assert!(
+        matches!(said.last(), Some(Some(service::Along::Runs { .. }))),
+        "it runs once its turn came: {said:?}"
+    );
+    // On GitHub's own machines a measurement waits for no other.
+    let on_github = |config: &mut Config| {
+        measuring(config);
+        let ci = config.ci.as_mut().expect("a declaration");
+        ci.measure.get_mut("compare").expect("declared").runner = "github".to_string();
     };
-    hub.named_check(&asked).await.unwrap().expect("nothing stopped it");
-    assert_eq!(hub.dispatched().len(), 2, "one run of each workflow");
-    assert!(hub.trials().is_empty(), "nothing stays pushed: {:?}", hub.trials());
+    let one = Hub::new().with(on_github).with(shared).sharing();
+    let other = Hub::new().with(on_github).with(shared).sharing();
+    let (one_head, other_head) = (one.committed().await, other.committed().await);
+    for (hub, head) in [(&one, &one_head), (&other, &other_head)] {
+        hub.github().of_workflow(
+            "measure.yml",
+            head,
+            vec![passed("bench")],
+            Some(("measurement", timings())),
+        );
+    }
+    one.github().runs_go_on();
+    let (_, other_said) = tokio::join!(
+        async {
+            tokio::select! {
+                _ = one.named_check(&asked) => panic!("its run goes on"),
+                () = tokio::time::sleep(Duration::from_millis(300)) => {}
+            }
+        },
+        async {
+            while one.dispatched().is_empty() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+            other.named_check(&asked).await
+        }
+    );
+    assert!(other_said.unwrap().expect("read").contains("every job of it passed"));
+}
+
+// A fast run on a machine a measurement holds may wait in the machine's gate, and that wait is the measurement's: it is
+// not timed against the run's limit, as a wait for a runner is not, and the run is cancelled for its limit only once the
+// measurement has let the machine go. About two seconds alone, the waits themselves; the one test of a run's time while
+// a measurement holds its machine.
+#[tokio::test]
+async fn a_run_is_not_timed_while_a_measurement_holds_its_machine() {
+    let hub = Hub::new().with(measuring).with(|config| {
+        let fast = &mut config.ci.as_mut().expect("a declaration").fast;
+        fast.runner = "14900k".to_string();
+        fast.too_long = "1s".to_string();
+    });
+    let head = hub.committed().await;
+    hub.github().runs_go_on();
+    hub.github().fast(
+        &head,
+        vec![check("test", Outcome::Pending)],
+        Some(("test-results", junit())),
+    );
+    let machines = hub.host.config.machines.clone();
+    let poll = Duration::from_millis(10);
+    let turn = (machines.turn("14900k", WorkNumber(7), poll, &mut Stop::never()).await)
+        .unwrap()
+        .expect("a turn");
+    let asked = named(&["tools::tests::a"], &[]);
+    let (said, ()) = tokio::join!(hub.named_check(&asked), async {
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        let asked = hub.github().asked();
+        assert_eq!(hub.dispatched().len(), 1, "{asked:?}");
+        assert!(
+            !asked.contains(&Asked::Cancel(1000)),
+            "the run was cancelled while the machine was held"
+        );
+        drop(turn);
+    });
+    let said = said.unwrap().expect("run");
+    assert!(said.contains("did not complete within 1 second"), "{said}");
+    assert!(hub.github().asked().contains(&Asked::Cancel(1000)));
 }
 
 /// What a request that publishes the commit says first, as the words of `run_tests` say it.

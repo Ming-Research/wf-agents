@@ -22,9 +22,18 @@ import { NO_PROJECT, workName } from './works/words';
 export function Bar({ name, views, current, end }: {
   name: string;
   /// A view's `count` is how many things wait for the owner there, in red; its `ahead`, how many questions the owner
-  /// may answer ahead, in orange, left of it, as a card's tags stand. Each is drawn beside the name while it is above
-  /// nought.
-  views: { name: string; href: string; count?: number; countTitle?: string; ahead?: number; aheadTitle?: string }[];
+  /// may answer ahead, in orange, left of it, and its `unread`, how many replies the owner has not read, in the accent,
+  /// left of that, as a card's tags stand. Each is drawn beside the name while it is above nought.
+  views: {
+    name: string;
+    href: string;
+    count?: number;
+    countTitle?: string;
+    ahead?: number;
+    aheadTitle?: string;
+    unread?: number;
+    unreadTitle?: string;
+  }[];
   current: string;
   end?: ReactNode;
 }) {
@@ -35,6 +44,11 @@ export function Bar({ name, views, current, end }: {
         {views.map((v) => (
           <a key={v.href} className="bar-tab" href={v.href} aria-current={v.href === current ? 'page' : undefined}>
             {v.name}
+            {v.unread !== undefined && v.unread > 0 && (
+              <span className="bar-count unread" title={v.unreadTitle}>
+                {v.unread}
+              </span>
+            )}
             {v.ahead !== undefined && v.ahead > 0 && (
               <span className="bar-count ahead" title={v.aheadTitle}>
                 {v.ahead}

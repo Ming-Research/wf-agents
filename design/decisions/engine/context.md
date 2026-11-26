@@ -83,6 +83,11 @@ A datum a cell is given that has no version yet is left out of the message: no l
 - rejected: an agent proposed running several seeded searches side by side and merging them in a fixed order; the owner rejected it, because it is another mechanism that holds several cores for 30 s, and what more it would find was not measured.
 - rejected: an agent proposed one more try at the search itself; the owner rejected it, because such changes moved the count by tens of lines, as a seed does, and nothing free of cell names points at the 22-step chain (data: research/situations-search-measured.md).
 
+### decision the-small-flows-search-test-has-bounds-of-its-own
+The small flow's search test runs the search with no end by plateau and an archive of 4000, which finds every line its histories stand in; the tool's own bounds stay as they are.
+- rejected: an agent proposed those bounds for the tool too; the owner rejected it, because an archive four times as large costs the tool, on the engineer's flow, time and memory not measured, and the search's time grows faster than its rounds (data: research/situations-search-measured.md).
+- rejected: an agent proposed that the small flow's test only prints the lines the search misses, as the engineer's flow's test does; the owner rejected it, because the test would no longer hold that the search finds every line its histories stand in, and a worse search would go unseen.
+
 ### decision a-try-keeps-what-it-was-given
 Before its program starts, a try keeps what it runs on and what its message fills in a file beside it, and a later start records from there what the records lack.
 - rejected: an agent proposed having each try wait, before its program starts, until the store has kept what it fills; the owner rejected it, because every start would then wait on the engine, and with the agents on another machine every try would wait across machines.

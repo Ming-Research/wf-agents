@@ -7,7 +7,7 @@
 use std::collections::BTreeSet;
 
 use decide::run::Failure;
-use decide::{CallId, Cause, CellId, Decision, Finished, Outsider, Pauser, Records, RunId, Started, decide};
+use decide::{CallId, Cause, CellId, Decision, Finished, Outsider, Pauser, Records, RunId, Started, Waited, decide};
 use engine::{Ask, Back, Call, Came, Effect, Event, Spent, Time, Work, handle, pending};
 use flow::Compiled;
 
@@ -74,6 +74,21 @@ pub struct Seen {
     pub released: usize,
     /// Words told to a round under way.
     pub told: usize,
+    /// Cells let go on, each where the work waited at it past its limit.
+    pub let_go: usize,
+    /// Let-gos refused, each of a cell the work did not wait at past its limit.
+    pub let_go_refused: usize,
+}
+
+/// Whether the work waits at the cell for the owner past the cell's limit, as the deciding code reads the records: the
+/// one place a cell is let go on.
+pub fn waits_at_its_limit(flow: &Compiled, records: &Records, cell: &CellId) -> bool {
+    match decide(&flow.flow, records) {
+        Decision::Wait { at, on } => {
+            at == *cell && (on.iter()).any(|w| matches!(w, Waited::Limit { .. } | Waited::Calls { .. }))
+        }
+        _ => false,
+    }
 }
 
 /// The first finished run of the records that lacks a write of a block its cell must write, read from the records of
@@ -300,6 +315,11 @@ impl Driver {
         self.note(format!("event: {event:?}"));
         let before = self.work.clone();
         let failed = matches!(event, Event::Failed { .. });
+        // A cell is let go on exactly where the work waits at it past its limit; anywhere else the let-go is refused.
+        let at_its_limit = match &event {
+            Event::LetGo { cell } => Some(waits_at_its_limit(&self.flow, &self.work.records, cell)),
+            _ => None,
+        };
         // The driver's clock: a second for each thing it hands the engine, so that a history with stops keeps the same
         // times as one without.
         self.clock += 1000;
@@ -307,6 +327,13 @@ impl Driver {
         match handle(&self.flow, &mut self.work, now, event) {
             Ok(effects) => {
                 self.note(format!("effects: {effects:?}"));
+                if let Some(at_its_limit) = at_its_limit {
+                    assert!(
+                        at_its_limit,
+                        "a cell the work did not wait at past its limit was let go on"
+                    );
+                    self.seen.let_go += 1;
+                }
                 if failed && decide::pause(&self.work.records).is_some_and(|p| p.by == Pauser::Engine) {
                     self.seen.failed += 1;
                 }
@@ -385,6 +412,13 @@ impl Driver {
             Err(why) => {
                 self.note(format!("refused: {why:?}"));
                 assert_eq!(self.work, before, "a refused event changed the work");
+                if let Some(at_its_limit) = at_its_limit {
+                    assert!(
+                        !at_its_limit,
+                        "a cell the work waited at past its limit was not let go on: {why:?}"
+                    );
+                    self.seen.let_go_refused += 1;
+                }
                 self.seen.refused += 1;
                 false
             }
