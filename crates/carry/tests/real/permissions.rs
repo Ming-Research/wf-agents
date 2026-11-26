@@ -36,7 +36,7 @@ async fn a_line_that_writes_and_one_that_only_reads_are_each_given_what_they_may
     assert!(plan.of("Plan") && review.of("Review"));
 
     // Every round is given what the flows' words say agents may do, turned into the program's own flags, with the
-    // engine's own temporary directory written without a trailing slash, and the arguments that isolate the program
+    // work's worktree and the engine's own temporary directory written as absolute paths without a trailing slash, and the arguments that isolate the program
     // from the owner's tools and settings: the settings hold no argument. Each is what the installation's arguments gave
     // before they were the engine's. Every round is refused the agents' program the installation names, which here is
     // the fake program's path and no other name. Reference: the installation's former arguments.
@@ -45,6 +45,17 @@ async fn a_line_that_writes_and_one_that_only_reads_are_each_given_what_they_may
     let temp = temp.trim_end_matches('/');
     let program = format!("Bash({} *)", real.settings.agents.command);
     for call in &calls {
+        // The worktree is the directory the round ran in, named absolutely so that the agents' `cd` does not move it.
+        let directories = after(call, "--add-dir");
+        let [worktree, temp_dir] = directories[..] else {
+            panic!("the worktree and the temporary directory: {:?}", call.args)
+        };
+        assert_eq!(temp_dir, temp);
+        assert!(worktree.starts_with('/') && !worktree.ends_with('/'), "{worktree}");
+        assert_eq!(
+            std::fs::canonicalize(worktree).expect("the worktree"),
+            std::fs::canonicalize(&call.dir).expect("where the round ran"),
+        );
         assert_eq!(
             after(call, "--tools"),
             ["Bash,Read,Grep,Glob,Edit,Write,WebSearch,WebFetch,Agent"],
@@ -57,13 +68,12 @@ async fn a_line_that_writes_and_one_that_only_reads_are_each_given_what_they_may
                 "Bash".to_string(),
                 "Grep".to_string(),
                 "Glob".to_string(),
-                "Edit(./**)".to_string(),
+                format!("Edit(/{worktree}/**)"),
                 format!("Edit(/{temp}/**)"),
                 "WebSearch".to_string(),
                 "WebFetch".to_string(),
             ]
         );
-        assert_eq!(after(call, "--add-dir"), [temp]);
         assert_eq!(after(call, "--setting-sources"), ["user"]);
         assert_eq!(call.args.iter().filter(|a| *a == "--setting-sources").count(), 1);
         for flag in ["--strict-mcp-config", "--disable-slash-commands"] {
