@@ -158,7 +158,7 @@ impl Host for Local {
         named: &Named,
         asking: Asking,
         stop: &mut Stop,
-    ) -> Result<Option<String>, String> {
+    ) -> Result<Option<String>, Failed> {
         let words = self.words()?;
         // There is no host to leave a commit on.
         if named.publish {

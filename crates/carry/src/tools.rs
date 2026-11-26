@@ -3,11 +3,13 @@
 //! names, as the host runs them ([`Host::run_tests`]): the project's check command in the work's worktree where the
 //! local repository is the host, the fast workflow of the project's CI, on the commit the request names or else the
 //! last commit of the work's branch, where GitHub is; a request that names neither a test nor a check runs nothing on
-//! GitHub. A tool's result is all an agent learns of it, so what goes wrong in running it is said in its result,
-//! once: it is not tried again here, and the agent may ask again. Withdrawn, what runs it is stopped. A `run_tests` of
+//! GitHub. A tool's result is all an agent learns of it, so what goes wrong in running it is said in its result, once:
+//! it is not tried again here, and the agent may ask again. What only keeps the host from running it for now, GitHub's
+//! limit or fault, a run no machine takes or a fault of the network ([`Failed::held`]), is no result: the call is said
+//! to be held, the engine waits, and the same call is given again. Withdrawn, what runs it is stopped. A `run_tests` of
 //! a branch that does not merge into main's head is answered at once with the files in conflict (the module
-//! `conflict`). The result is kept whole in the records, and a result too long for a message in a file of the
-//! temporary directory ([`keep_wholes`], removed by [`sweep`]); what a message gives of it is cut as the tool's words say
+//! `conflict`). The result is kept whole in the records, and a result too long for a message in a file of the temporary
+//! directory ([`keep_wholes`], removed by [`sweep`]); what a message gives of it is cut as the tool's words say
 //! ([`given`]).
 
 mod conflict;
@@ -25,7 +27,7 @@ use store::WorkNumber;
 
 use crate::git;
 use crate::held::{Held, Stop};
-use crate::host::{Asking, Branch, Host, Named};
+use crate::host::{Asking, Branch, Failed, Host, Named};
 use crate::settings::Project;
 
 pub use query::{Limits, QUERY, Querying};
@@ -46,7 +48,9 @@ struct Inner<H> {
     tag: String,
     /// What the tools say in the words beside the flows.
     said: Said,
-    held: Held<(WorkNumber, CallId), CallReply>,
+    /// The calls given, by the work, the call and how many times the call was held in the records it was given with: a
+    /// call given again after its wait is another to carry out.
+    held: Held<(WorkNumber, CallId, usize), CallReply>,
     /// The tool `query`, closed until the settings open it.
     query: Querying,
 }
@@ -55,6 +59,8 @@ struct Inner<H> {
 enum Answer {
     Result(String),
     Withdrawn,
+    /// The host could not carry it out for now: it is held, and asked again after a wait.
+    Held(crate::host::Held),
 }
 
 /// What the tools say in the words beside the flows, beside what each tool's own file says.
@@ -113,7 +119,7 @@ impl<H: Host> Tools<H> {
 impl<H: Host> ToolsTrait for Tools<H> {
     fn call(&self, call: ToolCall, reply: CallReply) {
         self.prune(&call);
-        let key = (call.work, call.call);
+        let key = (call.work, call.call, call.kept.records.holds(call.call));
         let saying = reply.saying();
         let hosting = reply.hosting();
         let Some(stop) = self.inner.held.hold(key, reply) else {
@@ -165,6 +171,13 @@ impl<H: Host> ToolsTrait for Tools<H> {
             let result = match answered {
                 Answer::Result(result) => result,
                 Answer::Withdrawn => inner.said.withdrawn.clone(),
+                // Held, the call has no result: the engine waits and asks again.
+                Answer::Held(held) => {
+                    if let Some(reply) = inner.held.take(key) {
+                        reply.held(held.obstacle, held.retry);
+                    }
+                    return;
+                }
             };
             if let Some(reply) = inner.held.take(key) {
                 reply.done(result);
@@ -174,7 +187,8 @@ impl<H: Host> ToolsTrait for Tools<H> {
 
     fn withdraw(&self, call: ToolCall, reply: CallReply) {
         self.prune(&call);
-        if let Some(reply) = self.inner.held.stop((call.work, call.call), reply) {
+        let key = (call.work, call.call, call.kept.records.holds(call.call));
+        if let Some(reply) = self.inner.held.stop(key, reply) {
             reply.done(self.inner.said.withdrawn.clone());
         }
     }
@@ -183,8 +197,8 @@ impl<H: Host> ToolsTrait for Tools<H> {
 impl<H> Tools<H> {
     /// Forgets the calls of the work whose result the loop has taken, as its records show them.
     fn prune(&self, call: &ToolCall) {
-        let done = &call.kept.records.done;
-        (self.inner.held).prune(|(work, id)| *work == call.work && done.iter().any(|d| d.call == *id));
+        let records = &call.kept.records;
+        (self.inner.held).prune(|(work, id, _)| *work == call.work && records.done.iter().any(|d| d.call == *id));
     }
 }
 
@@ -339,10 +353,11 @@ async fn answer(
                 .as_deref()
                 .map_or(why.clone(), |words| fill(words, &[("error", &why)])),
         )),
-        Ok(named) => {
-            let could_not = &told.said.could_not;
-            run_tests(host, project, branch, &named, Asking::Call(call.id), stop, could_not).await
-        }
+        Ok(named) => match run_tests(host, project, branch, &named, Asking::Call(call.id), stop).await {
+            Err(Failed { held: Some(held), .. }) => return Answer::Held(held),
+            Err(failed) => Err(fill(&told.said.could_not, &[("why", &failed.why)])),
+            Ok(found) => Ok(found),
+        },
     };
     match checked {
         Ok(Some(said)) | Err(said) => Answer::Result(said),
@@ -351,7 +366,8 @@ async fn answer(
 }
 
 /// Runs the tests and checks as the host does, unless the work's branch does not merge into main's head as the host
-/// last gave it, which is said at once; an `Err` says why it could not.
+/// last gave it, which is said at once; an `Err` says why it could not, and where the host only could not for now, that
+/// it holds the call ([`Failed::held`]).
 async fn run_tests(
     host: &impl Host,
     project: &Project,
@@ -359,14 +375,12 @@ async fn run_tests(
     named: &Named,
     asking: Asking,
     stop: &mut Stop,
-    could_not: &str,
-) -> Result<Option<String>, String> {
-    let could_not = |why: String| fill(could_not, &[("why", &why)]);
+) -> Result<Option<String>, Failed> {
     let found = conflict::found(project, branch.place, &host.kept_main()).await;
-    if let Some(said) = found.map_err(could_not)? {
+    if let Some(said) = found? {
         return Ok(Some(said));
     }
-    host.run_tests(branch, named, asking, stop).await.map_err(could_not)
+    host.run_tests(branch, named, asking, stop).await
 }
 
 /// A request of `run_tests`: the tests, the checks and the measurements it names, each list left out where it names none,
@@ -480,6 +494,7 @@ mod tests {
         match answer(host, &repo.project, &branch, &told, &call, &mut Stop::never()).await {
             Answer::Result(result) => result,
             Answer::Withdrawn => panic!("nothing withdrew it"),
+            Answer::Held(_) => panic!("nothing held it"),
         }
     }
 
@@ -829,6 +844,76 @@ mod tests {
         said.recv().await.expect("the call is answered");
         assert_eq!(tools.inner.host.titles(), ["Work W1"]);
         assert_eq!(tools.inner.host.askings(), [Asking::Call(CallId(2))]);
+    }
+
+    // A call the host could not carry out for now is not answered with the failure: it is said to be held, with why and
+    // when it may be asked again. Given again once the records hold it, it is carried out again, as another call, and
+    // answered.
+    #[tokio::test]
+    async fn a_call_the_host_could_not_carry_out_for_now_is_held_and_carried_out_again_when_given_again() {
+        use decide::{Held, Obstacle, Retry};
+        let repo = Repo::new("true");
+        git::start(&repo.project, &repo.place(WORK), "main", "main")
+            .await
+            .unwrap();
+        let limit = Failed::held(
+            "HTTP 403: API rate limit exceeded",
+            Obstacle::Limit,
+            Some(Retry::In(60)),
+        );
+        let host = Fake::new("unused").runs("The tests passed.").fails(limit);
+        let tools = Tools::new(
+            host,
+            repo.project.clone(),
+            repo.data.clone(),
+            TAG.to_string(),
+            Querying::new(Limits::FIXED, None, &repo.data, ""),
+            said(),
+        );
+        let (to, mut came) = tokio::sync::mpsc::unbounded_channel();
+        tools.call(run_tests_call(), CallReply::new(WORK, CallId(2), to.clone()));
+        let Some(service::Message::Happened { event, .. }) = came.recv().await else {
+            panic!("the call is said to be held");
+        };
+        assert_eq!(
+            event,
+            engine::Event::Held {
+                call: CallId(2),
+                obstacle: Obstacle::Limit,
+                retry: Some(Retry::In(60)),
+            }
+        );
+        // The records now hold the call as held, until a wait of the engine's.
+        let mut records = work::Work::default();
+        let called = |call, at| decide::Called {
+            call: CallId(call),
+            run: decide::RunId(1),
+            on: None,
+            at: decide::Seq(at),
+        };
+        records.records.called = vec![called(2, 1), called(3, 3)];
+        records.records.held = vec![Held {
+            call: CallId(2),
+            wait: CallId(3),
+            at: decide::Seq(4),
+            obstacle: Obstacle::Limit,
+        }];
+        let mut again = run_tests_call();
+        again.kept = Arc::new(records);
+        tools.call(again, CallReply::new(WORK, CallId(2), to));
+        let carried_out = tokio::time::timeout(std::time::Duration::from_secs(10), came.recv()).await;
+        let Ok(Some(service::Message::Happened { event, .. })) = carried_out else {
+            panic!("the call is carried out again and answered");
+        };
+        let engine::Event::Done { call, result } = event else {
+            panic!("the call has its result: {event:?}");
+        };
+        assert_eq!(call, CallId(2));
+        assert!(result.contains("The tests passed."), "{result}");
+        assert_eq!(
+            tools.inner.host.askings(),
+            [Asking::Call(CallId(2)), Asking::Call(CallId(2))]
+        );
     }
 
     // The local host runs the project's check command and reads no JUnit: a call that runs it says the host gives no

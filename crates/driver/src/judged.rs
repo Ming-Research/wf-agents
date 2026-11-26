@@ -258,13 +258,19 @@ struct Judging {
     at: Seq,
     /// When it ended, where it has and the records tell when; none while it is under way.
     ended: Option<u64>,
+    /// The waits a call was held over, as the host could not carry it out for now, each from when it began until when
+    /// it was over, none while it is under way; none for a round.
+    held: Vec<(u64, Option<u64>)>,
     what: What,
 }
 
 impl Judging {
-    /// How long it took, or has taken until `now` while it is under way.
+    /// How long it took, or has taken until `now` while it is under way, the time it was held left out: that is no time
+    /// of its own.
     fn time(&self, now: Time) -> f64 {
-        self.ended.unwrap_or(now.0).saturating_sub(self.began) as f64
+        let end = self.ended.unwrap_or(now.0);
+        end.saturating_sub(self.began)
+            .saturating_sub(held_time(&self.held, end)) as f64
     }
 }
 
@@ -345,6 +351,26 @@ fn tool(work: &Work, call: CallId) -> Option<&str> {
     }
 }
 
+/// The waits a call was held over, each from when it began until when it was over, none while it is under way: what the
+/// call took beside, as the host could not carry it out for now, is no time of the call's own.
+fn held_waits(work: &Work, call: CallId) -> Vec<(u64, Option<u64>)> {
+    (work.records.held.iter())
+        .filter(|held| held.call == call)
+        .filter_map(|held| {
+            let wait = work.records.called.iter().find(|c| c.call == held.wait)?;
+            let done = (work.records.done.iter().find(|d| d.call == held.wait)).and_then(|d| work.time_of(d.at));
+            Some((work.time_of(wait.at)?.0, done.map(|done| done.0)))
+        })
+        .collect()
+}
+
+/// How long of the time up to `end` the waits `waits` took.
+fn held_time(waits: &[(u64, Option<u64>)], end: u64) -> u64 {
+    (waits.iter())
+        .map(|(from, to)| to.unwrap_or(end).min(end).saturating_sub(*from))
+        .sum()
+}
+
 /// The work's values of the history: its agents' rounds that are history, the rounds of its acts that handed something
 /// in, and its calls of tools that had their results, each where the records tell when.
 fn values(number: WorkNumber, work: &Work, samples: &[Sample], cells: &BTreeMap<RunId, (CellId, bool)>) -> Vec<Value> {
@@ -392,6 +418,7 @@ fn values(number: WorkNumber, work: &Work, samples: &[Sample], cells: &BTreeMap<
             continue;
         }
         if let (Some(took), Some(at)) = (ms(called.at, done.at), work.time_of(done.at)) {
+            let took = took - held_time(&held_waits(work, called.call), at.0) as f64;
             out.push(Value {
                 ended: at.0,
                 work: number,
@@ -424,6 +451,7 @@ fn judging(number: WorkNumber, work: &Work, cells: &BTreeMap<RunId, (CellId, boo
             work: number,
             at: began_at,
             ended: ended.map(|ended| ended.0),
+            held: Vec::new(),
             what: What::Round {
                 run,
                 number: number_in_run,
@@ -451,6 +479,7 @@ fn judging(number: WorkNumber, work: &Work, cells: &BTreeMap<RunId, (CellId, boo
             work: number,
             at: called.at,
             ended: ended.map(|ended| ended.0),
+            held: held_waits(work, called.call),
             what: What::Call {
                 call: called.call,
                 tool: name.to_string(),
@@ -869,6 +898,7 @@ mod tests {
                             work,
                             at: Seq(at),
                             ended: pick(seed, &[Some(began + took), None]),
+                            held: Vec::new(),
                             what,
                         }
                     })

@@ -27,9 +27,10 @@ impl Hub {
 
     async fn agents_named(&self, named: &Named) -> Result<Option<String>, String> {
         let place = self.place();
-        self.host
+        (self.host)
             .run_tests(&branch(&place), named, self.call(), &mut Stop::never())
             .await
+            .map_err(|failed| failed.why)
     }
 
     /// The commit each run GitHub was asked for was given, in order.

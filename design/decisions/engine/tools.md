@@ -94,3 +94,7 @@ What `query` tells agents about the store is made from the comments in `db/schem
 A tool's result is kept whole in the work's records; when a round is given it cut at the tool's limit, the cut names a file in the temporary directory that holds the whole result.
 - replaced: Keeping a result that was too large only in a file on the engine's machine, and giving its path, was on main; the owner changed it, because an agent on another machine cannot read the engine's file, and he asked that the agent be told the result was too large.
 - rejected: an agent proposed that an agent read the rest of a cut result from the records in parts by queries; the owner rejected it, because the results are hidden from agents and the store reads no value past 64 KB, while a file has no such limit.
+
+### decision a-call-the-host-cannot-carry-out-for-now-is-held-and-asked-again
+A `run_tests` call that GitHub's limit or fault, a run no machine takes or a network fault keeps from running stays open: the records hold it until a wait of the engine's ends, then it is asked again.
+- replaced: Giving the agent such a failure as the call's result, in the words for a check that could not run, was on main; the owner changed it, because none of these is the work's fault, and a cell given one could only stop and ask him.

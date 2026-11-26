@@ -26,7 +26,7 @@ use std::future::Future;
 use std::sync::Arc;
 
 use decide::run::Failure;
-use decide::{CallId, RunId};
+use decide::{CallId, Obstacle, Retry, RunId};
 use service::OpenPull;
 use store::{Continues, ItemNumber, WorkNumber};
 use tokio::sync::Mutex;
@@ -96,6 +96,17 @@ impl Asking {
 pub struct Failed {
     pub why: String,
     pub kind: Option<Failure>,
+    /// Where the failure only keeps the host from doing what it was asked for now, what keeps it and when it may be
+    /// asked again where the host says: a call that asks for it is held, and asked again, instead of being answered
+    /// with the failure.
+    pub held: Option<Held>,
+}
+
+/// What keeps the host from carrying out what it was asked for now, and when it may be asked again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Held {
+    pub obstacle: Obstacle,
+    pub retry: Option<Retry>,
 }
 
 impl Failed {
@@ -104,6 +115,17 @@ impl Failed {
         Failed {
             why: why.into(),
             kind: Some(Failure::Passing),
+            held: None,
+        }
+    }
+
+    /// A failure that passes by itself and only keeps the host from doing what it was asked for now: what asked for it
+    /// is held, not failed, and asked again after a wait.
+    pub fn held(why: impl Into<String>, obstacle: Obstacle, retry: Option<Retry>) -> Failed {
+        Failed {
+            why: why.into(),
+            kind: Some(Failure::Passing),
+            held: Some(Held { obstacle, retry }),
         }
     }
 
@@ -113,6 +135,7 @@ impl Failed {
         Failed {
             why: why.into(),
             kind: Some(Failure::Other),
+            held: None,
         }
     }
 
@@ -121,13 +144,18 @@ impl Failed {
         Failed {
             why: words(self.why),
             kind: self.kind,
+            held: self.held,
         }
     }
 }
 
 impl From<String> for Failed {
     fn from(why: String) -> Self {
-        Failed { why, kind: None }
+        Failed {
+            why,
+            kind: None,
+            held: None,
+        }
     }
 }
 
@@ -248,14 +276,16 @@ pub trait Host: Send + Sync + 'static {
     /// was told to stop. Where the agent asks to publish the commit, the host leaves it where a workflow the agent
     /// starts can be given it, until the work ends ([`Host::end`]), and says where. A request that names none of them
     /// and asks for no publishing is run as nothing, and said so. An `Err` is why it could not run them, for the agent
-    /// too. What failed is said as [`Host::verdict`] says it.
+    /// too, except where it is [held](Failed::held): GitHub's limit, a fault of GitHub's, no machine taking the run and
+    /// a fault of the network keep it from running them for now, and the call is asked again after a wait. What failed
+    /// is said as [`Host::verdict`] says it.
     fn run_tests(
         &self,
         branch: &Branch<'_>,
         named: &Named,
         asking: Asking,
         stop: &mut Stop,
-    ) -> impl Future<Output = Result<Option<String>, String>> + Send;
+    ) -> impl Future<Output = Result<Option<String>, Failed>> + Send;
 
     /// Lets go of what the host holds for the work, which has ended with nothing of it under way: its pull request
     /// where it did not merge, closed with a word that its work ended, as the words beside the flows say it
@@ -348,7 +378,7 @@ impl<H: Host> Host for Arc<H> {
         named: &Named,
         asking: Asking,
         stop: &mut Stop,
-    ) -> Result<Option<String>, String> {
+    ) -> Result<Option<String>, Failed> {
         (**self).run_tests(branch, named, asking, stop).await
     }
 
