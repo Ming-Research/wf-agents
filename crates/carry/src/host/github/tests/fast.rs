@@ -1222,3 +1222,76 @@ async fn a_request_of_tests_and_a_measurement_leaves_no_branch_of_its_call_pushe
     assert_eq!(hub.dispatched().len(), 2, "one run of each workflow");
     assert!(hub.trials().is_empty(), "nothing stays pushed: {:?}", hub.trials());
 }
+
+/// What a request that publishes the commit says first, as the words of `run_tests` say it.
+fn published(commit: &str, hub: &Hub) -> String {
+    format!(
+        "The commit {commit} is on GitHub as the branch {} until the work ends; start a workflow on it with that branch \
+         as its ref.",
+        kept(commit, hub)
+    )
+}
+
+/// The branch on GitHub that the commit is published on, for the work of the hub.
+fn kept(commit: &str, hub: &Hub) -> String {
+    format!("wf-try/{}/commit/{commit}", hub.place().branch)
+}
+
+// A request that asks only to publish the commit puts it on a branch of the work's own and runs nothing: no workflow is
+// asked for, no branch for the call is pushed, and the result names the branch. With a commit named, that commit is the
+// one left there; and with tests named as well they run, and the branch stays when the call returns while the call's own
+// is gone. Milliseconds alone, a repository on disk and GitHub in memory; the one test of what `publish` leaves on GitHub
+// and of what it says.
+#[tokio::test]
+async fn a_commit_published_is_left_on_a_branch_of_the_works_own_and_nothing_is_run_for_it() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    let parent = run(&hub.place().dir, &["rev-parse", "HEAD~1"]);
+    let alone = Named {
+        publish: true,
+        ..Named::default()
+    };
+    let said = hub.named_check(&alone).await.unwrap().expect("said");
+    assert_eq!(said, published(&head, &hub));
+    assert_eq!(
+        hub.trials(),
+        [kept(&head, &hub)],
+        "it is the only branch the work has there"
+    );
+    assert!(hub.dispatched().is_empty(), "no workflow was run");
+    assert!(hub.deleted().is_empty(), "nothing was deleted");
+    // A commit named is the one published, beside the one before it, and asking again for one published is no change.
+    let older = Named {
+        commit: Some(parent.clone()),
+        ..alone.clone()
+    };
+    for _ in 0..2 {
+        let said = hub.named_check(&older).await.unwrap().expect("said");
+        assert_eq!(said, published(&parent, &hub));
+    }
+    let mut left = vec![kept(&head, &hub), kept(&parent, &hub)];
+    left.sort();
+    assert_eq!(hub.trials(), left);
+    // With tests named too, they run on the commit, and only the branch of the call goes once the result is read.
+    hub.github().fast(&head, vec![], Some(("test-results", junit())));
+    let with_tests = Named {
+        publish: true,
+        ..named(&["tools::tests::a"], &[])
+    };
+    let said = hub.named_check(&with_tests).await.unwrap().expect("run");
+    assert!(
+        said.starts_with(&format!(
+            "{}\n\nThe fast workflow ran on the commit {head}",
+            published(&head, &hub)
+        )),
+        "{said}"
+    );
+    assert_eq!(hub.dispatched().len(), 1);
+    assert_eq!(hub.trials(), left, "only the published branches stay");
+    let calls: Vec<String> = hub
+        .deleted()
+        .into_iter()
+        .filter(|name| name.contains("/call/"))
+        .collect();
+    assert_eq!(calls.len(), 1, "the call's own branch was deleted: {calls:?}");
+}

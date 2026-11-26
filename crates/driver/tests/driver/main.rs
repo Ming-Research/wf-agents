@@ -29,6 +29,7 @@ mod starting;
 mod stopped;
 mod stopping;
 mod stops;
+mod test_runs;
 mod test_times;
 mod turn;
 mod versions;

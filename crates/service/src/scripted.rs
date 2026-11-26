@@ -64,6 +64,7 @@ impl Scripted {
             host: Some(Arc::new(self.clone())),
             tokens: Arc::new(KeptTokens::new()),
             calls: Scripted::calls(),
+            tests_given: None,
         }
     }
 

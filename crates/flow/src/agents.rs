@@ -1444,6 +1444,8 @@ pub struct GithubWords {
     pub runner_missing: String,
     /// Measurements are named and the project declares no measure workflow.
     pub no_measure: String,
+    /// The commit is left on GitHub: `{commit}`, and `{branch}` the branch it is on. Said before what the request ran.
+    pub published: String,
 }
 
 /// What `run_tests` says where the host is the local repository.
@@ -1463,6 +1465,8 @@ pub struct LocalWords {
     pub no_commit: String,
     /// Measurements are named, and the command runs the tests alone: nothing was run.
     pub no_measure: String,
+    /// A commit is to be published, and there is no host to leave it on: nothing was run.
+    pub no_publish: String,
 }
 
 /// How much of a tool's result a round is given: the result is kept whole, and given cut where it is longer.
@@ -1474,6 +1478,23 @@ pub struct ResultGiven {
     /// What follows a result cut: `{given}` the bytes of it given, `{size}` the bytes it is whole, `{file}` the file
     /// that holds it whole.
     pub cut: String,
+}
+
+impl ResultGiven {
+    /// A result as it is given: its end of whitespace left off, and cut at the most bytes `bound` allows, at a whole
+    /// character, with what `note` says after it, given the bytes of the result kept and the bytes it is whole; as it
+    /// is where it is no longer than the bound. Whoever gives a result, a round or a datum, gives it this way.
+    pub fn cut_with(&self, result: &str, note: impl FnOnce(&str, &str) -> String) -> String {
+        if result.len() <= self.bound {
+            return result.trim_end().to_string();
+        }
+        let mut at = self.bound;
+        while !result.is_char_boundary(at) {
+            at -= 1;
+        }
+        let (kept, size) = (at.to_string(), result.len().to_string());
+        format!("{}\n\n{}", &result[..at], note(&kept, &size))
+    }
 }
 
 /// `agents/message/message.toml`: what the engine sends a cell's agent as it enters the cell, its parts in order.

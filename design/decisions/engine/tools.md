@@ -20,15 +20,28 @@ The engine's tools are `query` and `run_tests`; an agent does everything else wi
 A request of `run_tests` may name measurements: the project's measure workflow times them in one run, on the commit the work began from and on the work's commit, and the result gives each timing.
 - rejected: an agent proposed no new capability, with performance measured by the project's own tests, which `run_tests` runs once on main's commit and once on the work's; the owner rejected it, because before and after would be two separate runs, not compared fairly on one machine in one run.
 
+### decision a-commit-is-published-by-a-request-of-run-tests
+A request of `run_tests` may ask to publish a commit: the engine pushes it to a branch of the work's own on GitHub, one for each commit, which stays until the work ends.
+- rejected: an agent proposed leaving the branch of every call of `run_tests` until the work ends, with no new field; the owner rejected it, because each call would leave a branch, an agent would make a useless call to get one, and their number would follow the calls, not the commits published.
+- rejected: an agent proposed a tool `publish` that only pushes; the owner rejected it, because every round of every session would carry one more tool's words and one more shape of request and result.
+- rejected: an agent proposed letting an agent push to the branches under a prefix of its work's own, swept when the work ends; the owner rejected it, because pushing is the engine's alone, and an agent allowed a prefix could push more than a commit.
+
 ### decision the-flow-names-its-tools
 The tools a cell may ask for are those its flow names in `flow.toml`, the same for every cell of the flow.
 - replaced: Giving tools cell by cell, in each cell's file, was on main; the owner changed it, because then the part of what a session is sent that every cell shares no longer varies with the cell.
 - rejected: an agent proposed one set of tools for every flow alike; the owner rejected it, because another flow beside the engineer's, such as a researcher's, would not have these tools.
 
 ### decision a-tools-result-is-no-datum
-A tool's result is not a datum: the run that asked for it goes on with it, and it runs no cell.
+A tool's result is not a datum for the cell that asked for it: the run that asked goes on with it, and it runs no cell.
 - rejected: an agent proposed treating a tool's result as a new datum for the cell that asked for it; the owner rejected it, because what the cell asked for comes back within the same run, which is not a new run and wakes no other cell.
 - rejected: an agent proposed a sentence in the design of data saying that a run's own results and send-backs continue that run; the owner rejected it, because that sentence was itself a new mechanism.
+- replaced: A tool's result being no datum for any cell was on main; the owner changed it, because the test review must judge the evidence against what each call of `run_tests` gave, which no other record gives it whole, so the engine also writes it as a datum of its own.
+
+### decision the-test-review-is-given-each-call-of-run-tests-as-a-datum
+The engine writes each call of `run_tests`, with its request and its result cut at the tool's bound, as a version of the datum `test_runs`, which only the test review reads and no cell watches.
+- rejected: an agent proposed a digest of each call made from structured records; the owner rejected it, because it needs new records and a migration, tells a second time what the engineer was given and drifts from it, and earlier works have none of them.
+- rejected: an agent proposed no datum, with the review reading `timed` and `timed_tests` through `query`; the owner rejected it, because they hold no measurement, no named check's result, no failure output and no named test that did not run, and the review would spend a round on SQL.
+- rejected: a reviewer agent proposed hiding the datum's text from `query`; the owner rejected it, because `query` hides by column, `contents.content` holds every block, and hiding by block needs views; so paths of the machine that ran the tests may be read there.
 
 ### decision tests-run-where-the-host-checks
 `run_tests` runs the tests an agent names: on GitHub by the fast workflow, on the commit named or else the branch's last, pushed to a branch of its own; on a local host by the check command.

@@ -45,7 +45,7 @@ impl Hub {
     }
 
     /// The branches GitHub was asked to delete.
-    fn deleted(&self) -> Vec<String> {
+    pub(super) fn deleted(&self) -> Vec<String> {
         (self.github().asked().into_iter())
             .filter_map(|asked| match asked {
                 Asked::Delete(name) => Some(name),

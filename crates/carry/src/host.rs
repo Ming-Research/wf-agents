@@ -273,10 +273,12 @@ pub trait Host: Send + Sync + 'static {
 
     /// What the agents' tool `run_tests` finds of the work, with the tests, checks and measurements the agent named, on
     /// the commit it named or else the work's last commit, in words for the agent whose call asks, whole; none where it
-    /// was told to stop. A request that names none of them is run as nothing, and said so. An `Err` is why it could not
-    /// run them, for the agent too, except where it is [held](Failed::held): GitHub's limit, a fault of GitHub's, no
-    /// machine taking the run and a fault of the network keep it from running them for now, and the call is asked
-    /// again after a wait. What failed is said as [`Host::verdict`] says it.
+    /// was told to stop. Where the agent asks to publish the commit, the host leaves it where a workflow the agent
+    /// starts can be given it, until the work ends ([`Host::end`]), and says where. A request that names none of them
+    /// and asks for no publishing is run as nothing, and said so. An `Err` is why it could not run them, for the agent
+    /// too, except where it is [held](Failed::held): GitHub's limit, a fault of GitHub's, no machine taking the run and
+    /// a fault of the network keep it from running them for now, and the call is asked again after a wait. What failed
+    /// is said as [`Host::verdict`] says it.
     fn run_tests(
         &self,
         branch: &Branch<'_>,
@@ -288,8 +290,9 @@ pub trait Host: Send + Sync + 'static {
     /// Lets go of what the host holds for the work, which has ended with nothing of it under way: its pull request
     /// where it did not merge, closed with a word that its work ended, as the words beside the flows say it
     /// (`agents/pull_request.toml`), and, merged or not, the branches that calls of [`Host::run_tests`] left
-    /// (`wf-try/<the work's branch>/…`), deleted after the pull request is closed, whether or not that went well. What
-    /// is gone, closed or merged already is left as it is, and the work's own branch stays.
+    /// (`wf-try/<the work's branch>/…`) and the commits it published there, deleted after the pull request is closed,
+    /// whether or not that went well. What is gone, closed or merged already is left as it is, and the work's own branch
+    /// stays.
     fn end(&self, branch: &Branch<'_>, merged: bool) -> impl Future<Output = Result<(), String>> + Send;
 
     /// Takes up again what the host held for a work that was cancelled and reopened, as the work makes its place
@@ -306,8 +309,8 @@ pub trait Host: Send + Sync + 'static {
     fn open_pulls(&self) -> impl Future<Output = Result<Option<Vec<OpenPull>>, String>> + Send;
 }
 
-/// The tests, the checks and the measurements an agent names to `run_tests`, each as it wrote it, and the commit it names
-/// to run them on.
+/// The tests, the checks and the measurements an agent names to `run_tests`, each as it wrote it, the commit it names
+/// to run them on, and whether it asks for the commit to be left on the host.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Named {
     pub tests: Vec<String>,
@@ -316,13 +319,16 @@ pub struct Named {
     pub measure: Vec<String>,
     /// The commit to run on, as git names one in the agent's worktree; none for the last commit of the work's branch.
     pub commit: Option<String>,
+    /// Whether the commit is to be left on the host, on a reference of the work's own, for as long as the work lasts, so
+    /// that a workflow the agent starts itself can be given it.
+    pub publish: bool,
 }
 
 impl Named {
-    /// Whether neither a test, a check nor a measurement is named, which a commit alone does not make a request to run
-    /// anything.
+    /// Whether neither a test, a check, a measurement nor the publishing of the commit is asked for, which a commit alone
+    /// does not make a request to run anything.
     pub fn is_empty(&self) -> bool {
-        self.tests.is_empty() && self.checks.is_empty() && self.measure.is_empty()
+        self.tests.is_empty() && self.checks.is_empty() && self.measure.is_empty() && !self.publish
     }
 }
 

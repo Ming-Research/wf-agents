@@ -750,6 +750,9 @@ pub struct Carriers {
     /// The result a call has where the engine ends it itself, in the words beside the flows: the loop gives it to a
     /// run at its limit and to the engine's wait, and the tools give it to a tool's call they stop.
     pub calls: flow::agents::Calls,
+    /// How much of a result of the tool `run_tests` a round is given, in the words beside the flows: the datum of the
+    /// calls of that tool gives a result cut there too. With none, a result is given whole.
+    pub tests_given: Option<flow::agents::ResultGiven>,
 }
 
 impl Carriers {
@@ -1279,6 +1282,7 @@ mod tests {
             host: None,
             tokens: Arc::new(KeptTokens::new()),
             calls: crate::Scripted::calls(),
+            tests_given: None,
         }
     }
 

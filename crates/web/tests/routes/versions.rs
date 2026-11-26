@@ -20,7 +20,7 @@ fn kept(path: &Path) {
     let at = |ms: u64| work::Time(START - 10_000 + ms);
     let flow = flow::compile(&trial_flow(), &trial_has(&flow::Source::default())).unwrap();
     let store = Store::open(path).unwrap();
-    let (mut driver, _) = driver::Driver::open(Box::new(store), vec![flow], 2, None, at(0)).unwrap();
+    let (mut driver, _) = driver::Driver::open(Box::new(store), vec![flow], 2, None, None, at(0)).unwrap();
     for title in ["First", "Second"] {
         let new = driver::NewItem {
             title: title.to_string(),

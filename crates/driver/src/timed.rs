@@ -14,16 +14,18 @@
 //!   no step, they would be by chance less than one time in a thousand.
 //! - What the work's own runs say of the tests it added, for the work's reviewers: the facts of the datum `test_times`
 //!   ([`facts`], [`render`]). The engine judges no new test's time; the reviewer does, with these.
+//! - What each call of `run_tests` asked for and gave, for the work's test review: the datum `test_runs`, one version to
+//!   a call ([`runs`]). The engine reads nothing of a result.
 //!
 //! Nothing is judged where the history has fewer values than [`crate::history::HISTORY_SAMPLES`].
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use flow::Texts;
-use flow::agents::fill;
+use flow::agents::{ResultGiven, fill};
 use store::WorkNumber;
 use work::timed::Source;
-use work::{Time, Work};
+use work::{Ask, Call, Time, Work};
 
 use crate::history::{line, median};
 
@@ -32,6 +34,12 @@ pub const RUN_TESTS: &str = "run_tests";
 
 /// The source of the datum that says what the work's runs took.
 pub const TEST_TIMES: &str = "test_times";
+
+/// The source of the datum that gives each call of `run_tests` of the work, with what it asked for and what it gave.
+pub const TEST_RUNS: &str = "test_runs";
+
+/// The words the datum `test_runs`' definition gives in its `writes`, each a text the engine fills.
+pub const RUNS_WORDS: [&str; 2] = ["call", "cut"];
 
 /// The words the datum's definition gives in its `writes`, each a text the engine fills.
 pub const WORDS: [&str; 15] = [
@@ -585,6 +593,39 @@ pub fn render(facts: &Facts, texts: &Texts) -> String {
     }
 }
 
+/// The versions of the datum `test_runs` as the work's records now say them: one for each call of `run_tests` that has
+/// a result, in the order the results were recorded, in the words of the datum's definition (`texts`), each filled with
+/// the call's number among them, what it asked for as the agent wrote it, and its result as a round of the engineer is
+/// given it: its end of whitespace left off, and cut where the tool's words (`given`) say, with the datum's own `cut`
+/// words, which name no file. Nothing of the result is read here.
+pub fn runs(work: &Work, texts: &Texts, given: Option<&ResultGiven>) -> Vec<String> {
+    let says = |name: &str| texts.get(name).unwrap_or_default();
+    let asked = work
+        .records
+        .done
+        .iter()
+        .filter_map(|done| match work.calls.get(&done.call) {
+            Some(Call::Asked(Ask::Tool { name, input })) if name == RUN_TESTS => Some((done.call, input)),
+            _ => None,
+        });
+    asked
+        .enumerate()
+        .map(|(i, (call, input))| {
+            let result = work.results.get(&call).map(String::as_str).unwrap_or_default();
+            let result = match given {
+                Some(given) => given.cut_with(result, |kept, size| {
+                    fill(says("cut"), &[("given", kept), ("size", size)])
+                }),
+                None => result.trim_end().to_string(),
+            };
+            fill(
+                says("call"),
+                &[("n", &(i + 1).to_string()), ("request", input), ("result", &result)],
+            )
+        })
+        .collect()
+}
+
 /// The slots a listed test fills its line with.
 fn test_slots(t: &Listed) -> Vec<(&'static str, String)> {
     let (before, line) = t.before.unzip();
@@ -884,5 +925,62 @@ mod tests {
         let said = render(&short, &words());
         assert!(said.contains("<not_compared:"), "it says no comparison is made: {said}");
         assert!(!said.contains("<sum:"), "no share of the suite is told: {said}");
+    }
+
+    // The calls of `run_tests` are written in the order their results were recorded, not the order they were asked in,
+    // each result as the tool's bound gives it (cut at a whole character, with the datum's own words, and whole where
+    // there is no bound) and with no place in it filled again; a call of another tool, and a call with no result yet,
+    // are none of them.
+    #[test]
+    fn the_calls_of_the_tests_are_given_in_the_order_they_ended_cut_at_the_bound_and_no_other_call_is() {
+        use decide::{CallId, Done};
+        let tool = |name: &str, input: &str| {
+            Call::Asked(Ask::Tool {
+                name: name.to_string(),
+                input: input.to_string(),
+            })
+        };
+        let mut work = Work::default();
+        work.calls.insert(CallId(4), tool(RUN_TESTS, "first asked"));
+        work.calls.insert(CallId(5), tool(RUN_TESTS, "second asked"));
+        work.calls.insert(CallId(6), tool("query", "other"));
+        work.calls.insert(CallId(7), tool(RUN_TESTS, "not ended"));
+        // Nine bytes, then characters of two bytes each: the bound of sixteen bytes falls inside the fourth of them.
+        let long = format!("{}{}", "x".repeat(9), "é".repeat(5));
+        for (n, (call, result)) in [(5, "ended first {n}\n"), (6, "q"), (4, long.as_str())]
+            .into_iter()
+            .enumerate()
+        {
+            work.records.done.push(Done {
+                call: CallId(call),
+                at: Seq(n as u64 + 1),
+            });
+            work.results.insert(CallId(call), result.to_string());
+        }
+        let texts = Texts(vec![
+            ("call".to_string(), "#{n} {request}: {result}".to_string()),
+            ("cut".to_string(), "(cut: {given} of {size})".to_string()),
+        ]);
+        let given = ResultGiven {
+            bound: 16,
+            cut: "(cut: {given} of {size}, in {file})".to_string(),
+        };
+        assert_eq!(
+            runs(&work, &texts, Some(&given)),
+            [
+                "#1 second asked: ended first {n}".to_string(),
+                "#2 first asked: xxxxxxxxxééé\n\n(cut: 15 of 19)".to_string(),
+            ],
+            "a result longer than the bound is cut before the character the bound falls in, with no file named, and a \
+             shorter one is whole"
+        );
+        assert_eq!(
+            runs(&work, &texts, None),
+            [
+                "#1 second asked: ended first {n}".to_string(),
+                format!("#2 first asked: {long}"),
+            ],
+            "with no bound a result is given whole"
+        );
     }
 }
