@@ -516,6 +516,9 @@ struct Held {
     /// The work's rounds as the waits every work shares read them, on the version it is on ([`outage::Rounds`]). Worked
     /// out again each time the work grows.
     rounds: outage::Rounds,
+    /// Each line's session the work keeps warm as its records, its item and the policy say ([`warm::of_records`]), which
+    /// a wake takes its next ping from. Worked out again each time the work grows or its item changes.
+    warm: Vec<warm::Kept>,
     /// What the work adds to the judgments of the rounds and calls of its flow ([`judged::Part`]). Worked out again each
     /// time the work grows.
     part: judged::Part,
@@ -893,7 +896,15 @@ impl Driver {
                 driver.store.save(head.number, &work).map_err(Fault::Store)?;
             }
             let passed = versions::passed(&work, &outlines);
-            let held = Held::new(head, item, installed.flow.clone(), on, passed, work);
+            let held = Held::new(
+                head,
+                item,
+                installed.flow.clone(),
+                on,
+                passed,
+                work,
+                driver.policy.as_ref(),
+            );
             driver.works.insert(held.head.number, held);
         }
         driver.keep_times(now)?;
@@ -1036,6 +1047,7 @@ impl Driver {
             installed.on(),
             Vec::new(),
             work,
+            self.policy.as_ref(),
         );
         let todos = effects.into_iter().map(|effect| held.todo(effect)).collect();
         self.works.insert(number, held);
@@ -1126,7 +1138,7 @@ impl Driver {
             };
             let done =
                 handle_then(&held.flow, &mut held.work, now, event, room, gate, &then).map_err(Failed::Refused)?;
-            held.update();
+            held.update(policy);
             effects.extend(done.into_iter().map(|effect| held.todo(effect)));
         }
         if items.is_empty() && works.is_empty() {
@@ -1159,6 +1171,8 @@ impl Driver {
                     what: change,
                     why,
                 });
+                // A level can give the line's rounds another model, which its session is not kept warm for.
+                held.warm_again(self.policy.as_ref());
                 held.revision = next_revision();
             }
         }
@@ -2096,32 +2110,24 @@ impl Driver {
 
     /// The keep-warm pings due at `now` and not under way, each given once: of every work that has not ended, whoever
     /// holds it, and none while the wait every work shares holds the agents' rounds, whose pings would fail as their
-    /// rounds do ([`warm`]).
+    /// rounds do ([`warm`]). They are taken from the sessions each work keeps warm ([`Held::warm`]), which are as the
+    /// work stands: the look at every work just before ([`Driver::tick`]) records each new session a line is to begin.
     fn pings(&mut self, now: Time) -> Vec<Todo> {
-        let Some(policy) = (self.policy.as_ref()).filter(|_| !self.gate().holds_agents()) else {
+        if self.policy.is_none() || self.gate().holds_agents() {
             return Vec::new();
-        };
+        }
         let mut todos = Vec::new();
         for (number, held) in &self.works {
             if held.standing != Standing::Going {
                 continue;
             }
-            for due in warm::due(
-                &held.flow,
-                *number,
-                &held.work,
-                &held.item,
-                policy,
-                self.keep_warm,
-                &self.accounts,
-                now,
-            ) {
-                if self.pinging.contains(&(*number, due.line.clone())) {
+            for kept in warm::as_of(&held.warm, self.keep_warm, &self.accounts, now).filter(|kept| kept.at <= now) {
+                if self.pinging.contains(&(*number, kept.due.line.clone())) {
                     continue;
                 }
                 todos.push(held.todo(Effect::Ping {
-                    line: due.line,
-                    session: due.session,
+                    line: kept.due.line.clone(),
+                    session: kept.due.session,
                 }));
             }
         }
@@ -2136,30 +2142,20 @@ impl Driver {
     /// When the next keep-warm ping not under way is due, of every work that has not ended, as of the time the driver
     /// was last told: a ping due then and not given waits for no later time than the next moment, and one whose
     /// session's cache will have let it go by then is due at no time, so that the driver is never woken for a ping it
-    /// will not give.
+    /// will not give. It is taken from the sessions each work keeps warm as its records say ([`Held::warm`]), and goes
+    /// through no work's sessions again.
     fn next_ping(&self) -> Option<Time> {
-        let policy = self.policy.as_ref()?;
+        self.policy.as_ref()?;
         let now = self.ticked.unwrap_or(Time(0));
         let soonest = Time(now.0.saturating_add(1));
         (self.works.iter())
             .filter(|(_, held)| held.standing == Standing::Going)
             .flat_map(|(number, held)| {
-                (warm::kept(
-                    &held.flow,
-                    *number,
-                    &held.work,
-                    &held.item,
-                    policy,
-                    self.keep_warm,
-                    &self.accounts,
-                    now,
-                )
-                .into_iter())
-                .filter(|kept| !self.pinging.contains(&(*number, kept.due.line.clone())))
-                .map(|kept| (kept.at.max(soonest), kept.life))
-                .filter(|(at, life)| at < life)
-                .map(|(at, _)| at)
-                .collect::<Vec<_>>()
+                (warm::as_of(&held.warm, self.keep_warm, &self.accounts, now))
+                    .filter(|kept| !self.pinging.contains(&(*number, kept.due.line.clone())))
+                    .map(|kept| (kept.at.max(soonest), kept.life))
+                    .filter(|(at, life)| at < life)
+                    .map(|(at, _)| at)
             })
             .min()
     }
@@ -2642,7 +2638,7 @@ impl Driver {
 
     /// The room the engine leaves a work ([`Driver::room`], a slot given where one is free), as what holds every work
     /// at once says.
-    fn room_at(&self, work: WorkNumber, at_once: &AtOnce) -> Room {
+    pub fn room_at(&self, work: WorkNumber, at_once: &AtOnce) -> Room {
         let project = self.works.get(&work).and_then(|held| held.item.project.as_deref());
         Room {
             paused: at_once.everything.is_some(),
@@ -2828,6 +2824,7 @@ impl Held {
         on: On,
         passed: Vec<Arc<flow::Outline>>,
         work: Work,
+        policy: Option<&Policy>,
     ) -> Held {
         let mut held = Held {
             head,
@@ -2840,10 +2837,11 @@ impl Held {
             samples: Vec::new(),
             turned: Turned::default(),
             rounds: outage::Rounds::default(),
+            warm: Vec::new(),
             part: judged::Part::default(),
             revision: 0,
         };
-        held.update();
+        held.update(policy);
         held
     }
 
@@ -2855,6 +2853,7 @@ impl Held {
         self.standing = Standing::AtFault;
         self.turned.clear();
         self.rounds = outage::Rounds::of(self.head.number, self.on.outline(), &self.work);
+        self.warm.clear();
         self.part = self.part_of();
         self.revision = next_revision();
     }
@@ -2865,10 +2864,10 @@ impl Held {
         judged::Part::of(self.head.number, compiled, self.on.reading(), &self.work, &self.samples)
     }
 
-    /// Works out again how the work stands, its rounds that are history, its rounds as the waits every work shares read
-    /// them and what it adds to the judgments of its flow, as it grew, and gives it a new revision: how it stands by its
-    /// end alone where no flow decides it now.
-    fn update(&mut self) {
+    /// Works out again how the work stands, its rounds that are history, its rounds as the waits every work shares
+    /// read them, the sessions it keeps warm and what it adds to the judgments of its flow, as it grew, and gives it a
+    /// new revision: how it stands by its end alone where no flow decides it now.
+    fn update(&mut self, policy: Option<&Policy>) {
         self.standing = match self.on.end() {
             Some(end) => Standing::Ended(end),
             None => standing_of(&self.flow, &self.work),
@@ -2881,8 +2880,20 @@ impl Held {
         } else {
             self.turned.clear();
         }
+        self.warm_again(policy);
         self.part = self.part_of();
         self.revision = next_revision();
+    }
+
+    /// Works out again the sessions the work keeps warm as its records, its item and the policy say: none of a work
+    /// that is not going, or where no policy keeps sessions warm.
+    fn warm_again(&mut self, policy: Option<&Policy>) {
+        self.warm = match policy {
+            Some(policy) if self.standing == Standing::Going => {
+                warm::of_records(&self.flow, self.head.number, &self.work, &self.item, policy)
+            }
+            _ => Vec::new(),
+        };
     }
 
     /// Whether what the work holds outside is being let go ([`engine::letting_go`]).
@@ -2978,7 +2989,7 @@ fn step(
         let grew = held.work.tick() != before;
         if grew {
             store.save(held.head.number, &held.work).map_err(Halt::Store)?;
-            held.update();
+            held.update(policy);
         }
         return Ok((effects, grew));
     }
@@ -3003,7 +3014,7 @@ fn step(
     let grew = held.work.tick() != before;
     if grew {
         store.save(held.head.number, &held.work).map_err(Halt::Store)?;
-        held.update();
+        held.update(policy);
     }
     Ok((effects, grew))
 }

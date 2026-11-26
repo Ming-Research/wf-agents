@@ -465,8 +465,7 @@ impl<H: Host> Inner<H> {
     async fn seen(&self, of: OfWork) -> Result<Seen, String> {
         let (repo, main) = (&self.project.repo, self.host.kept_main());
         let place = git::place(&self.data, &self.tag, of.work);
-        let at = (of.place, of.under_way);
-        let changed = self.known.stat(repo, &main, (of.work, &place), at).await?;
+        let changed = self.known.stat(repo, &main, (of.work, &place)).await?;
         let merged = (of.merged.as_deref()).and_then(|said| changed::merged_commit(said, &self.words.merge.text));
         let named = match merged {
             Some(commit) => self.known.pull_named(repo, &commit).await?,

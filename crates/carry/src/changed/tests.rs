@@ -111,11 +111,6 @@ async fn once_its_worktree_and_branch_are_gone_a_merged_work_changed_what_its_ke
     );
 }
 
-/// How many times the work's changes were worked out with git.
-fn looked(known: &Known) -> usize {
-    known.looked.load(std::sync::atomic::Ordering::Relaxed)
-}
-
 /// The repository's own directory stands aside, a file no git can read in its place, so that every git command there
 /// and in its worktrees fails whatever directory holds the repository; and comes back.
 struct Hidden<'a>(&'a Path);
@@ -135,70 +130,49 @@ impl Drop for Hidden<'_> {
     }
 }
 
-// Nothing but a round of the work or a tool run for it changes what its branch and worktree hold, and each is recorded:
-// so with nothing under way its numbers are worked out once for its records as they stand, no git running for the
-// reads after, and again once its records move on, the head a round moved read with them, or once its worktree goes.
+// What a work changed is what its head holds beside main and what its worktree holds beside the head, and a look that
+// cannot be made says so; each look is made as it is asked for, since when a look is made again is the cache of the
+// items' to say.
 #[tokio::test]
-async fn the_numbers_of_a_work_with_nothing_under_way_are_kept_until_its_records_move_on() {
+async fn the_numbers_of_a_work_are_what_its_head_and_its_worktree_hold_and_a_look_that_fails_says_so() {
     let (repo, place) = started().await;
     let r = &repo.project.repo;
     let known = Known::default();
-    let at_rest = |at| (Seq(at), false);
     commit(&place.dir, "farewell.txt", "Bye.\n");
     std::fs::write(place.dir.join("notes.txt"), "One\n").unwrap();
     let hidden = Hidden::of(r);
-    let failed = known.stat(r, MAIN, (WORK, &place), at_rest(5)).await;
+    let failed = known.stat(r, MAIN, (WORK, &place)).await;
     drop(hidden);
     assert!(failed.is_err(), "{failed:?}");
-    let first = known.stat(r, MAIN, (WORK, &place), at_rest(5)).await;
-    let stat = |files, added| -> Result<Option<Diffstat>, String> {
-        Ok(Some(Diffstat {
-            files,
-            added,
-            removed: 0,
-        }))
-    };
-    assert_eq!(first, stat(2, 2), "a look that failed is taken again");
-    assert_eq!(looked(&known), 2);
-    std::fs::write(place.dir.join("later.txt"), "Later.\n").unwrap();
-    let hidden = Hidden::of(r);
-    let again = known.stat(r, MAIN, (WORK, &place), at_rest(5)).await;
-    drop(hidden);
-    assert_eq!(again, first, "no git ran");
-    assert_eq!(looked(&known), 2);
-    commit(&place.dir, "more.txt", "More.\nAnd more.\n");
-    let moved = known.stat(r, MAIN, (WORK, &place), at_rest(9)).await;
-    assert_eq!(moved, stat(4, 5), "the head moved, and what the worktree holds beside");
-    assert_eq!(looked(&known), 3);
-    git::remove(&repo.project, &place).await.unwrap();
-    let gone = known.stat(r, MAIN, (WORK, &place), at_rest(9)).await;
-    assert_eq!(gone, stat(2, 3), "only what the head holds, once the worktree is gone");
-    assert_eq!(looked(&known), 4);
-}
-
-// What a worktree under way holds changes at any moment: each read works it out again, but a read that asks of the work
-// as it stands while a look at it runs is given that look's answer.
-#[tokio::test]
-async fn the_numbers_of_a_work_under_way_are_worked_out_for_each_read_and_shared_while_a_look_runs() {
-    let (repo, place) = started().await;
-    let r = &repo.project.repo;
-    let known = Known::default();
-    let look = || known.stat(r, MAIN, (WORK, &place), (Seq(5), true));
-    let (one, two) = tokio::join!(look(), look());
-    let none: Result<Option<Diffstat>, String> = Ok(Some(Diffstat::default()));
-    assert_eq!((&one, &two), (&none, &none));
-    assert_eq!(looked(&known), 1, "the second read was given the first's look");
-    std::fs::write(place.dir.join("notes.txt"), "One\n").unwrap();
-    let three = look().await;
+    let stat =
+        |files, added, removed| -> Result<Option<Diffstat>, String> { Ok(Some(Diffstat { files, added, removed })) };
+    let first = known.stat(r, MAIN, (WORK, &place)).await;
     assert_eq!(
-        three,
-        Ok(Some(Diffstat {
-            files: 1,
-            added: 1,
-            removed: 0
-        }))
+        first,
+        stat(2, 2, 0),
+        "a look that failed is made again when it is asked for"
     );
-    assert_eq!(looked(&known), 2);
+    std::fs::write(place.dir.join("later.txt"), "Later.\n").unwrap();
+    let later = known.stat(r, MAIN, (WORK, &place)).await;
+    assert_eq!(
+        later,
+        stat(3, 3, 0),
+        "what the worktree holds now, not what a look found before"
+    );
+    commit(&place.dir, "more.txt", "More.\nAnd more.\n");
+    let moved = known.stat(r, MAIN, (WORK, &place)).await;
+    assert_eq!(
+        moved,
+        stat(4, 5, 0),
+        "the head moved, and what the worktree holds beside"
+    );
+    git::remove(&repo.project, &place).await.unwrap();
+    let gone = known.stat(r, MAIN, (WORK, &place)).await;
+    assert_eq!(
+        gone,
+        stat(2, 3, 0),
+        "only what the head holds, once the worktree is gone"
+    );
 }
 
 #[tokio::test]

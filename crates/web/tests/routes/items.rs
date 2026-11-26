@@ -17,8 +17,16 @@ async fn the_items_are_given_each_with_its_work_in_brief() {
     greeted(&running.router).await;
     let summary = get_json(&running.router, "/api/v1/works/1").await["summary"].clone();
     assert_eq!(summary["now"]["kind"], "waits");
+    let read = get_json(&running.router, "/api/v1/items").await;
+    // Read with no cursor, it gives every item, says so, and says when the page is to read again.
+    assert_eq!(read["full"], json!(true));
+    assert_eq!(read["againAfterMs"], json!(web::items_cache::BOUND_MS));
+    assert!(
+        read["cursor"].as_str().is_some_and(|cursor| cursor.contains('.')),
+        "{read}"
+    );
     assert_eq!(
-        get_json(&running.router, "/api/v1/items").await,
+        json!({ "items": read["items"], "outage": read["outage"] }),
         json!({
             "items": [{
                 "number": 1,
@@ -262,8 +270,9 @@ async fn an_item_is_refused_continuing_what_no_branch_is_called_or_on_a_flow_tha
             .contains("has no cell that starts a work"),
         "{body}"
     );
+    let read = get_json(router, "/api/v1/items").await;
     assert_eq!(
-        get_json(router, "/api/v1/items").await,
+        json!({ "items": read["items"], "outage": read["outage"] }),
         json!({ "items": [], "outage": null })
     );
     // Continuing nothing, said so, is an item as any other.
@@ -311,8 +320,9 @@ async fn an_item_that_cannot_be_added_is_refused_with_why() {
             "{json}"
         );
     }
+    let read = get_json(router, "/api/v1/items").await;
     assert_eq!(
-        get_json(router, "/api/v1/items").await,
+        json!({ "items": read["items"], "outage": read["outage"] }),
         json!({ "items": [], "outage": null })
     );
 }
