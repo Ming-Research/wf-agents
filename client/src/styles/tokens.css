@@ -108,8 +108,8 @@
   /* The console: the box of the search (how wide, and the two lights round it: the near one's blur and spread, the far
      one's), the glow round the tree of the project that was chosen in the overview (blur and spread), the height of the
      map at the top left, which the canvas reads too (snap.ts, MAP_HIGH), the column of a line's number in a diff and the
-     room after it, the height of a question folded, and a key of the keyboard drawn as a cap: its size, and the thicker
-     edge at its foot. */
+     room after it, the height of a question folded, and a key of the keyboard drawn as a cap: its size, the thicker
+     edge at its foot, its corner and its line (as high as its letters, so that they sit in the middle of the cap). */
   --find-width: 600px;
   --find-glow-near: 12px;
   --find-glow-near-spread: 4px;
@@ -123,6 +123,8 @@
   --folded-height: calc(3 * var(--line-height) * 1em);
   --key: 18px;
   --key-edge: 2px;
+  --key-corner: 4px;
+  --key-line: 1;
 
   /* Colour, light. The ground the page is laid on, and the white of what is read on it, as the console's paper. */
   --ground: #f6f7f9;

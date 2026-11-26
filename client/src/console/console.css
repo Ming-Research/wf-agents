@@ -1007,12 +1007,12 @@
   padding: 0 var(--space-4);
   border: var(--hairline) solid var(--line);
   border-bottom-width: var(--key-edge);
-  border-radius: var(--corner);
+  border-radius: var(--key-corner);
   background: var(--card);
   color: var(--muted);
   font-family: var(--mono);
   font-size: var(--size-small);
-  line-height: var(--line-height);
+  line-height: var(--key-line);
 }
 
 .key-none {

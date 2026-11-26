@@ -9,7 +9,8 @@
 //   - a colour written out: `#hex`, a colour function (`rgb(`, `hsl(`, `oklch(`, ...) or a colour's name;
 //   - a length: any number but zero with a unit that is not on the allowed list (`%`, `fr`, viewport, time and angle
 //     units), so that a unit not thought of is reported;
-//   - a unitless number in a property that holds a size or a weight (`stroke-width`, `line-height`, ...).
+//   - a unitless number in a property that holds a size or a weight (`stroke-width`, `line-height`, `font`, ...);
+//   - a keyword that names a size or a weight (`bold`, `small`, `thick`), which is a raw value as `700` and `13px` are.
 // What a `var()` names is not read, and what it holds as a fallback is.
 
 import { describe, expect, it } from 'vitest';
@@ -50,14 +51,41 @@ const ALLOWED_UNITS = new Set([
   'grad',
 ]);
 
-// The properties whose value is a size or a weight when it is a number with no unit.
+// The properties whose value is a size or a weight when it is a number with no unit (`font` sets a weight, and a line
+// height after its size).
 const UNITLESS_SIZES = new Set([
   'stroke-width',
   'stroke-dasharray',
   'stroke-dashoffset',
   'line-height',
   'font-weight',
+  'font',
 ]);
+
+// The keywords that name a size or a weight (CSS Fonts Level 4, 2.2 and 2.5; CSS Backgrounds Level 3, the width of a
+// border), by the properties they stand in: written out, each is a raw value as `700` and `13px` are.
+const WEIGHT_WORDS = ['bold', 'bolder', 'lighter'];
+const FONT_SIZE_WORDS = [
+  'xx-small',
+  'x-small',
+  'small',
+  'medium',
+  'large',
+  'x-large',
+  'xx-large',
+  'xxx-large',
+  'larger',
+  'smaller',
+];
+const LINE_WIDTH_WORDS = ['thin', 'medium', 'thick'];
+
+function keywordsOf(prop: string): Set<string> | undefined {
+  if (prop === 'font-weight') return new Set(WEIGHT_WORDS);
+  if (prop === 'font-size') return new Set(FONT_SIZE_WORDS);
+  if (prop === 'font') return new Set([...WEIGHT_WORDS, ...FONT_SIZE_WORDS]);
+  if (/^(?:border|outline|column-rule)(?:-[a-z]+)*$/.test(prop)) return new Set(LINE_WIDTH_WORDS);
+  return undefined;
+}
 
 // Blanks what is not style (comments, strings, the insides of `url()`), keeping every length and every line break, so
 // that an offset in the result is an offset in the text.
@@ -84,6 +112,12 @@ function scan(css: string): Finding[] {
       if (Number.parseFloat(m[1]) === 0) continue;
       if (unit === '' ? UNITLESS_SIZES.has(prop) : !ALLOWED_UNITS.has(unit)) report(m.index, m[0]);
     }
+    const words = keywordsOf(prop);
+    if (words !== undefined) {
+      for (const m of value.matchAll(/(?<![\w.#-])[a-z]+(?:-[a-z]+)*(?![\w(-])/gi)) {
+        if (words.has(m[0].toLowerCase())) report(m.index, m[0]);
+      }
+    }
   };
 
   let start = 0;
@@ -91,10 +125,12 @@ function scan(css: string): Finding[] {
     const c = text[i];
     if (c !== '{' && c !== ';' && c !== '}') continue;
     const statement = text.slice(start, i);
-    if (c === '{') {
-      // A rule's head: a selector says no style; the condition of a media or container query holds sizes.
-      if (/^\s*@(media|container)\b/i.test(statement)) look(statement, start, '', statement.trim().replace(/\s+/g, ' '));
-    } else {
+    // A media or container condition holds sizes, in the head of a rule (`@media`, `@container`) or in an at-rule that
+    // ends with a semicolon (`@custom-media`, `@import`); a selector says no style.
+    const condition = /^\s*@(?:media|container|custom-media|import)\b/i.test(statement);
+    if (condition) {
+      look(statement, start, '', statement.trim().replace(/\s+/g, ' '));
+    } else if (c !== '{') {
       const colon = statement.indexOf(':');
       const prop = statement.slice(0, colon).trim().toLowerCase();
       if (colon > 0 && /^-{0,2}[a-z][\w-]*$/.test(prop)) {
@@ -266,6 +302,11 @@ describe('the scanner of raw values', () => {
     expect(found('a { background: url("x.png#12px"); }')).toEqual([]);
     expect(found('.a-5px, #fff-box, red:hover { display: block; }')).toEqual([]);
     expect(found('a { font-family: "SF Pro Text", system-ui, sans-serif; }')).toEqual([]);
+  });
+
+  it('does not read a quoted url that holds a closing parenthesis, and reads what follows it', () => {
+    expect(found('a { background: url("data:image/svg+xml,(5px)"); width: 6px; }')).toEqual(['6px']);
+    expect(found("a { background: url('x(5px).png') no-repeat; margin: 7px; }")).toEqual(['7px']);
   });
 
   it('gives the line of the value that was found, also in a declaration on several lines', () => {
