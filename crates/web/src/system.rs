@@ -130,7 +130,7 @@ pub struct System {
     pub red_main: Vec<RedMain>,
     /// What the works waited for over the span, how long CI took them, and how many slots they held.
     #[serde(default)]
-    pub waited: Waited,
+    pub waited: WaitedFor,
 }
 
 /// The main branch of a project is red: its tests that fail on its head, since when, and the works that wait for it.
@@ -380,7 +380,7 @@ impl WaitReason {
 /// What the works waited for over the span ([`System::waited`]).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Waited {
+pub struct WaitedFor {
     /// By each cause, in the order of [`WaitReason`]: how many stops of the works ended in the span, and how long they
     /// took, those still going on counted up to now.
     pub by: Vec<WaitedBy>,
@@ -1246,7 +1246,7 @@ impl System {
             short_of_time: Vec::new(),
             stopping: None,
             red_main: driver.red_main().iter().map(RedMain::of).collect(),
-            waited: Waited::default(),
+            waited: WaitedFor::default(),
         };
         let judged = driver.judged(None, now);
         let mut short_days: BTreeMap<(u64, Option<String>), ShortDay> = BTreeMap::new();
@@ -1469,7 +1469,7 @@ impl System {
         // the latest to now.
         let held = || parts.kept.values().map(|(_, _, part)| part);
         let slots = driver.slots_history();
-        system.waited = Waited::of(held(), from, now.0, slots);
+        system.waited = WaitedFor::of(held(), from, now.0, slots);
         let starts: Vec<u64> = weeks.to_vec();
         for week in &mut system.weeks {
             let next = starts.iter().find(|start| **start > week.start).copied();
@@ -1636,7 +1636,7 @@ impl Occupancy {
     }
 }
 
-impl Waited {
+impl WaitedFor {
     /// What the works waited for from the span's first week, or from the earliest of what they did where it has none,
     /// up to now.
     fn of<'p>(
@@ -1644,7 +1644,7 @@ impl Waited {
         from: Option<u64>,
         now: u64,
         history: &[store::SlotsRecord],
-    ) -> Waited {
+    ) -> WaitedFor {
         let begins = (parts.clone())
             .flat_map(|part| part.stops.iter().flatten().map(|stop| stop.from))
             .chain(
@@ -1661,7 +1661,7 @@ impl Waited {
             .filter(|(at, _)| *at >= window.0 && *at < window.1.saturating_add(1))
             .map(|(_, millis)| *millis)
             .collect();
-        Waited {
+        WaitedFor {
             by: WaitReason::ALL
                 .iter()
                 .map(|reason| WaitedBy {
@@ -2044,7 +2044,7 @@ mod tests {
             longest_ms,
         };
         let none = stopped(0, 0, None, None);
-        let waited = Waited::of(parts.iter(), Some(0), 100_000, &history);
+        let waited = WaitedFor::of(parts.iter(), Some(0), 100_000, &history);
         assert_eq!(
             waited.by,
             [
@@ -2085,7 +2085,7 @@ mod tests {
             }
         );
         // The span with no first week begins where the earliest of what the works did does.
-        assert_eq!(Waited::of(parts.iter(), None, 100_000, &history), waited);
+        assert_eq!(WaitedFor::of(parts.iter(), None, 100_000, &history), waited);
         // Slots held: one from 0 to 20 s, two to 40 s, one to 60 s; ran: two to 50 s, then one, the round under way
         // counted to now.
         assert_eq!(

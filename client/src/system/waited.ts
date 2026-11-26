@@ -75,7 +75,7 @@ export function works(thousandths: number): string {
 /// How many works held a slot, or ran: on average, and at most at once; and, for a slot, of how many there were: said
 /// `not kept` where the engine kept none in the stretch.
 export function crowdWords(average: number, peak: number, slots?: number | null): string {
-  const of = slots === undefined ? '' : slots === null ? ` of ${WAITED_WORDS.notKept}` : ` of ${slots}`;
+  const of = slots === undefined ? '' : slots === null ? `, of ${WAITED_WORDS.notKept}` : `, of ${slots}`;
   return `${works(average)} avg, ${peak} at most${of}`;
 }
 

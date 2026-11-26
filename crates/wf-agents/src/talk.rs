@@ -20,7 +20,7 @@ use web::observations::{
 };
 use web::plan::{Candidates, Field, Graph, Hits, Node, PlanChange, PlanChanges, Row, Standing, Tags};
 use web::pulls::{OpenPull, Pulls};
-use web::system::{Figure, Going, LeftOf, Past, RedTest, Rest, System, UnderWay, WaitReason, Waited};
+use web::system::{Figure, Going, LeftOf, Past, RedTest, Rest, System, UnderWay, WaitReason, WaitedFor};
 use web::works::{
     Act, Added, Against, Back, Call, CellState, ChangeAsked, Checked, Continues, Engine, EngineAct, Failure, ForkAsked,
     ForkInstead, ForkPage, Found, ItemChanged, ItemChanges, ItemHistory, Items, ItemsChanged, Limit, Maker, NewItem,
@@ -2872,7 +2872,7 @@ fn dollars(micros: u64) -> String {
 /// and how long they took, with the median and the longest; how long the calls and rounds that waited for CI took and
 /// how long its jobs waited for a runner; how many works held a slot and ran; and what is not known. Nothing is judged:
 /// the lines of each history are the judgments' to say.
-fn waited_said(waited: &Waited) -> Vec<String> {
+fn waited_said(waited: &WaitedFor) -> Vec<String> {
     if waited.by.is_empty() {
         return Vec::new();
     }
@@ -3866,7 +3866,7 @@ mod tests {
             short_of_time: vec![day(2 * 86_400_000, 1), day(86_400_000, 4), day(0, 2)],
             stopping: None,
             red_main: Vec::new(),
-            waited: Waited::default(),
+            waited: WaitedFor::default(),
         };
         let said = system_said(&system, &[], 7, 2);
         assert!(
@@ -3914,7 +3914,7 @@ mod tests {
             short_of_time: Vec::new(),
             stopping: None,
             red_main: Vec::new(),
-            waited: Waited {
+            waited: WaitedFor {
                 by: vec![
                     by(
                         WaitReason::Owner,
@@ -4051,7 +4051,7 @@ mod tests {
             short_of_time: Vec::new(),
             stopping: None,
             red_main: Vec::new(),
-            waited: Waited::default(),
+            waited: WaitedFor::default(),
         };
         let said = system_said(&system, &[], 7, 10);
         assert!(
@@ -5222,7 +5222,7 @@ mod tests {
             short_of_time: Vec::new(),
             stopping: None,
             red_main: Vec::new(),
-            waited: Waited::default(),
+            waited: WaitedFor::default(),
         };
         let said = system_said(&system, &[], 7, 10);
         let lines: Vec<&str> = said.lines().collect();
@@ -5362,7 +5362,7 @@ mod tests {
             short_of_time: Vec::new(),
             stopping: None,
             red_main: Vec::new(),
-            waited: Waited::default(),
+            waited: WaitedFor::default(),
         };
         let going = [Going {
             work: 3,
@@ -5433,7 +5433,7 @@ mod tests {
             short_of_time: Vec::new(),
             stopping: None,
             red_main: Vec::new(),
-            waited: Waited::default(),
+            waited: WaitedFor::default(),
         };
         let listed =
             "  W1 of #11 at I1: 10m 00s so far, about 2m 00s more\n  W2 of #12 at I1: 1m 00s so far, about 5m 00s more";
@@ -5536,7 +5536,7 @@ mod tests {
             short_of_time: Vec::new(),
             stopping: None,
             red_main: Vec::new(),
-            waited: Waited::default(),
+            waited: WaitedFor::default(),
         };
         let said = system_said(&system, &[], 7, 10);
         let lines: Vec<&str> = said.lines().collect();
