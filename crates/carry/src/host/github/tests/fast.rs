@@ -1363,7 +1363,7 @@ fn a_request_is_refused_where_one_median_or_their_sum_is_over_the_budget_and_an_
     let median = |test: &str| medians.get(test).copied();
     let refused = |tests: &[&str]| {
         let tests: Vec<String> = tests.iter().map(|t| t.to_string()).collect();
-        super::super::fast::over_budget(&tests, 60, &median).map(|refused| {
+        super::super::fast::over_budget(&tests, 60, median).map(|refused| {
             (refused.iter())
                 .map(|t| (t.name.to_string(), t.median))
                 .collect::<Vec<_>>()
