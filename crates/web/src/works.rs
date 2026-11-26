@@ -294,6 +294,11 @@ pub struct Summary {
     pub paused: Option<Pauser>,
     /// What the work does now.
     pub now: Now,
+    /// The engine could not read the records the rest of this summary is made from, so `cells`, `spent`, `pinged`,
+    /// `forked`, `from`, `bar`, `sent_back`, `waits` and `ahead` are not worked out and hold nothing; false of every
+    /// other summary, whose `now` may still be [`Now::Broken`].
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unread: bool,
     /// Each cell of its flow as it stands for this work, in the order of the walk.
     pub cells: Vec<CellNow>,
     /// What all its rounds that ended took, and its keep-warm pings and its forks, which count in what it spent as its
@@ -486,6 +491,9 @@ const BAR_CELLS: u64 = 96;
 pub enum Now {
     /// Its records cannot be those of a work, and nothing is decided on them; in words.
     Fault { words: String },
+    /// The engine could not work out what the work does now, and says why in the words of what it could not read; the
+    /// engine goes on with the work, and the rest of the summary is as worked out.
+    Broken { words: String },
     /// It has ended: its last cell, the merge, has a record.
     Merged,
     /// It has ended: its item was cancelled.
@@ -2087,16 +2095,14 @@ pub struct Broken(pub String);
 
 impl Item {
     /// The item of this kept work with its work in brief, as the driver holds them and what holds every work at once
-    /// says, its rounds at these levels, at this time; what git says of the work is not in it ([`Summary::saw`]).
-    pub(crate) fn of(
-        kept: Kept<'_>,
-        driver: &Driver,
-        every: &EveryWork,
-        levels: &Levels,
-        now: Time,
-    ) -> Result<Item, Broken> {
-        let view = viewed_at(driver, kept.head.number, &every.at_once)?;
-        Ok(Item {
+    /// says, its rounds at these levels, at this time; what git says of the work is not in it ([`Summary::saw`]). A work
+    /// whose summary cannot be worked out is given with what is certain of it ([`Summary::broken`]), so that it keeps
+    /// no other item from being given.
+    pub(crate) fn of(kept: Kept<'_>, driver: &Driver, every: &EveryWork, levels: &Levels, now: Time) -> Item {
+        let work = viewed_at(driver, kept.head.number, &every.at_once)
+            .and_then(|view| Summary::of(kept, &view, driver, every, levels, now))
+            .unwrap_or_else(|broken| Summary::broken(kept, broken, levels));
+        Item {
             number: kept.item.number.0,
             title: kept.item.title.clone(),
             level: kept.item.level.clone(),
@@ -2106,8 +2112,8 @@ impl Item {
             tags: kept.item.tags.clone(),
             continues: kept.item.continues.as_ref().map(Continues::of),
             history: ItemHistory::of(kept.item),
-            work: Summary::of(kept, &view, driver, every, levels, now)?,
-        })
+            work,
+        }
     }
 }
 
@@ -2170,14 +2176,15 @@ impl Summary {
         let along = &driver.along_of(number);
         let runs = runs(kept)?;
         let engine = |cell: &CellId| kept.cell(cell).is_some_and(|cell| !cell.agent);
-        let now = Now::of(
+        // A state that cannot be worked out is said as such, and the rest of the summary is worked out as it is.
+        let now = Now::or_broken(Now::of(
             kept,
             &view.decision,
             held,
             &every.outages,
             along,
             &Others::of(driver, number, &every.at_once),
-        )?;
+        ));
         // The cell the work waits at for a tool's call the engine runs.
         let calling = match &now {
             Now::Waits { at, on } => (on.iter())
@@ -2277,7 +2284,46 @@ impl Summary {
             pull,
             // What git says of it is worked out off the loop, after this ([`Summary::saw`]).
             changed: None,
+            unread: false,
         })
+    }
+
+    /// The work as far as it is certain, where the records the rest of its summary is made from cannot be read, and
+    /// why: what its head, its item, its pause, its moments and its pull request say, and the levels its rounds run
+    /// at, with its state [`Now::Broken`] and [`Summary::unread`] set.
+    pub(crate) fn broken(kept: Kept<'_>, why: Broken, levels: &Levels) -> Summary {
+        let work = kept.work;
+        let now = Now::Broken { words: why.0 };
+        let (level, cell_level, raise, capped) = levels_of(levels, kept.item.level.as_deref(), kept.flow, &now);
+        Summary {
+            number: kept.head.number.0,
+            item: kept.head.item.0,
+            flow: kept.head.flow.clone(),
+            delivers: delivers(kept),
+            added: kept.head.added.0,
+            paused: decide::pause(&work.records).map(|pause| Pauser::of(pause.by)),
+            now,
+            unread: true,
+            cells: Vec::new(),
+            spent: Spent::default(),
+            pinged: Spent::default(),
+            forked: Spent::default(),
+            last: work.moments.last().map(|moment| moment.at.0),
+            from: None,
+            bar: String::new(),
+            sent_back: 0,
+            waits: Vec::new(),
+            ahead: 0,
+            level,
+            cell_level,
+            raise,
+            held: capped,
+            pull: (work.pulls.last()).map(|pulled| Pull {
+                number: pulled.number,
+                url: pulled.url.clone(),
+            }),
+            changed: None,
+        }
     }
 
     /// The summary with what the repository of its work's project says of the work beside its records: what it
@@ -2536,8 +2582,14 @@ impl Now {
             Now::Paused { at, .. } | Now::Everything { at, .. } | Now::Waits { at, .. } | Now::Stalled { at, .. } => {
                 Some(at.as_str())
             }
-            Now::Fault { .. } | Now::Merged | Now::Cancelled => None,
+            Now::Fault { .. } | Now::Broken { .. } | Now::Merged | Now::Cancelled => None,
         }
+    }
+
+    /// What the work does now where it could be worked out, else [`Now::Broken`] with what it could not be worked out
+    /// by, so that one work whose state cannot be read does not keep the others from being shown.
+    pub(crate) fn or_broken(worked: Result<Now, Broken>) -> Now {
+        worked.unwrap_or_else(|Broken(words)| Now::Broken { words })
     }
 
     /// What the work does now. Of what holds it back, its own pause is said first, then the owner's pause of
@@ -4930,6 +4982,82 @@ pub(crate) mod tests {
         assert_eq!(now(&at_rest, Some(Holder::Turn), Some(900), turn), Ok(stopped));
         // A work the driver gives no turn that is another's waits for none.
         assert!(matches!(now(&waits, None, None, None), Err(Broken(_))));
+    }
+
+    // A state the driver gives no turn for, which `Now::of` refuses, is said to be broken with the words it refused by,
+    // and the work in brief keeps every other part as worked out; a summary that cannot be read at all is given with only
+    // what its head, item, moments and pull request say, set unread, so that it is not read as a work that did nothing.
+    // Fails where either is given as the state of a work that ended, or as no work.
+    #[test]
+    fn a_state_that_cannot_be_worked_out_is_said_broken_and_a_summary_that_cannot_be_read_holds_only_what_is_certain() {
+        let flow = flow_with("takes_turn = true\n");
+        let mut work = Work::default();
+        work.records.written.push(Written {
+            block: "request".into(),
+            by: Outsider::Person,
+            matters: true,
+            value: None,
+            empty: false,
+            said_to: None,
+            at: Seq(1),
+        });
+        work.moments.push(work::Moment {
+            from: Seq(1),
+            at: Time(1500),
+        });
+        work.pulls.push(work::Pulled {
+            at: Seq(1),
+            number: 12,
+            url: "https://example.test/pull/12".to_string(),
+        });
+        let stored = Stored::new(&flow.name);
+        let on = driver::On::installed_flow(&flow);
+        let room = decide::Room {
+            turn: false,
+            ..decide::Room::FREE
+        };
+        let waits = decide::decide_in(&flow.flow, &work.records, room);
+        let outages = Outages {
+            agents: None,
+            host: None,
+            everything: None,
+            stopping: None,
+        };
+        let others = Others {
+            waited_for: Vec::new(),
+            paused_for: Vec::new(),
+            turn: None,
+        };
+        let kept = stored.kept(&flow, &on, &work);
+        let worked = Now::of(kept, &waits, None, &outages, &[], &others);
+        let Err(Broken(words)) = worked.clone() else {
+            panic!("a work the driver gives no turn for was worked out: {worked:?}");
+        };
+        assert_eq!(Now::or_broken(worked), Now::Broken { words: words.clone() });
+        assert_eq!(Now::or_broken(Ok(Now::Merged)), Now::Merged);
+        assert_eq!(Now::Broken { words: words.clone() }.cell(), None);
+        let levels = Levels::new(
+            [service::Level {
+                name: "1".to_string(),
+                desc: "Easy work".to_string(),
+            }],
+            "1",
+            None,
+            None,
+        )
+        .expect("the levels are made");
+        let summary = Summary::broken(kept, Broken(words.clone()), &levels);
+        assert_eq!(summary.now, Now::Broken { words });
+        assert!(summary.unread);
+        assert_eq!((summary.number, summary.item, summary.flow.as_str()), (1, 1, "small"));
+        assert_eq!(summary.last, Some(1500));
+        assert_eq!(summary.pull.as_ref().map(|pull| pull.number), Some(12));
+        assert!(summary.cells.is_empty() && summary.waits.is_empty() && summary.bar.is_empty());
+        assert_eq!(summary.spent, Spent::default());
+        // Said as it stands, it leaves `unread` out of every summary that was read.
+        let json = serde_json::to_value(&summary).expect("it is JSON");
+        assert_eq!(json["unread"], serde_json::json!(true));
+        assert_eq!(json["now"]["kind"], serde_json::json!("broken"));
     }
 
     // A new session begun because what a new one would begin with changed is given to the page with the tokens of

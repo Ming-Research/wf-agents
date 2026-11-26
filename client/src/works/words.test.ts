@@ -76,6 +76,14 @@ describe('what a work does now, in words', () => {
     expect(nowWords(doing({ kind: 'fault', words: 'Two entries at place 3' }))).toBe('Halted · Two entries at place 3');
     expect(nowWords(doing({ kind: 'merged' }))).toBe('Merged');
     expect(nowWords(doing({ kind: 'cancelled' }))).toBe('Cancelled');
+    // A state the engine could not work out is said as broken, with the engine's words, not as a halt.
+    expect(nowWords(doing({ kind: 'broken', words: 'the driver names no turn' }))).toBe(
+      'Broken · the driver names no turn',
+    );
+    // What waits on the owner is still said first, and the broken state is not hidden by it.
+    expect(nowWords(doing({ kind: 'broken', words: 'the driver names no turn' }, [limit]))).toBe(
+      'Waiting for you · The cell ran 3 times in a row for what a cell after it wrote, which is its limit. the driver names no turn',
+    );
     expect(nowWords(doing({ kind: 'round', cell: 'implement', run: 5, round: 2, since }))).toBe('Running · implement');
     // A paused or held work names the cell it would go on at, as the engine names it.
     expect(nowWords(doing({ kind: 'paused', at: 'plan', by: 'owner', why: null }))).toBe('Paused · plan');
@@ -153,6 +161,8 @@ describe('what a work does now, in words', () => {
       cell: 'plan',
     });
     expect(stateOf(doing({ kind: 'fault', words: 'x' }))).toEqual({ tone: 'failed', word: STATE.halted, cell: null });
+    expect(stateOf(doing({ kind: 'broken', words: 'x' }))).toEqual({ tone: 'failed', word: STATE.broken, cell: null });
+    expect(STATE.broken).not.toBe(STATE.halted);
     // A work that waits for the calls of tools the engine carries out is neither running nor done: it waits for each
     // tool by its name, where it runs, in the yellow of a call (decision a-call-waited-for-is-no-run).
     const tool: Waited = { kind: 'call', call: 2, who: null, what: { kind: 'tool', name: 'ci', input: 'all' } };
@@ -215,6 +225,7 @@ describe('what a work does now, in words', () => {
       'owner',
     );
     expect(nowTone(doing({ kind: 'fault', words: 'Two entries at place 3' }))).toBe('failed');
+    expect(nowTone(doing({ kind: 'broken', words: 'x' }))).toBe('failed');
     expect(nowTone(doing({ kind: 'stalled', at: 'M2', on: [], by: [], why: 'x' }))).toBe('failed');
     expect(nowTone(doing({ kind: 'paused', at: 'plan', by: 'owner', why: null }))).toBe('quiet');
     expect(nowTone(doing({ kind: 'everything', at: 'plan', by: 'owner' }))).toBe('quiet');

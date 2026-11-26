@@ -2230,6 +2230,7 @@ fn run_or_none(run: Option<u64>) -> String {
 fn now(now: &Now) -> String {
     match now {
         Now::Fault { words } => format!("it cannot go on, for its records are not those of a work: {words}"),
+        Now::Broken { words } => format!("its state cannot be worked out: {words}"),
         Now::Merged => "merged".to_string(),
         Now::Cancelled => "cancelled".to_string(),
         Now::Round { cell, run, round, .. } => format!("a round of {cell} is under way, round {round} of run {run}"),
@@ -3013,6 +3014,7 @@ mod tests {
                 held: None,
                 pull: None,
                 changed: None,
+                unread: false,
             },
         }
     }

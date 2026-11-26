@@ -32,12 +32,17 @@ describe('where a work stands', () => {
     expect(STANDING_WORDS.owner.name).toBe('Waiting for you');
     expect(STANDING_WORDS.others.name).toBe('Waiting for others');
     expect(STANDING_WORDS.halted.name).toBe('Halted');
+    // A work whose state the engine could not work out has a tile of its own, named as its state is, and the halted
+    // tile's words do not cover it.
+    expect(STANDING_WORDS.broken.name).toBe('Broken');
+    expect(STANDING_WORDS.halted.title).not.toContain('worked out');
   });
 
   it('is in one place, what needs the owner first, and nowhere once it has ended', () => {
     expect(standingOf(work({ kind: 'merged' }))).toBeNull();
     expect(standingOf(work({ kind: 'cancelled' }))).toBeNull();
     expect(standingOf(work({ kind: 'fault', words: 'broken' }))).toBe('halted');
+    expect(standingOf(work({ kind: 'broken', words: 'the driver names no turn' }))).toBe('broken');
     // What the engine's list holds waits for the owner, the engine's pause and its pause of everything among it.
     expect(standingOf(work({ kind: 'paused', at: 'plan', by: 'engine', why: 'failed' }, [wait('pause')]))).toBe(
       'owner',

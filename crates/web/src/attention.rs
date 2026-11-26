@@ -141,14 +141,14 @@ impl Attention {
                 item: kept.item.number.0,
                 title: kept.item.title.clone(),
             };
-            let now = Now::of(
+            let now = Now::or_broken(Now::of(
                 kept,
                 &view.decision,
                 held,
                 &outages,
                 &driver.along_of(work),
                 &Others::of(driver, work, &at_once),
-            )?;
+            ));
             Ok((of, now, view, held))
         };
         let lines = (attention.lines.iter())
