@@ -98,7 +98,8 @@ pub fn handle_then(
         let nothing_but = nothing_but(flow);
         let answers = answers(flow, work, run);
         let log = log(flow, work, run, &told);
-        let stuck = stuck_in(flow, work, &choices, run);
+        let stuck =
+            |dealt_with: &[BlockId], writes: &[Write]| stuck_blocks(flow, work, &choices, run, dealt_with, writes);
         if let Some(requires) = requires(
             flow,
             &choices,
@@ -870,7 +871,7 @@ fn step(flow: &Compiled, work: &mut Work, run: RunId, at: At<'_>, effects: &mut 
     let Some(told) = told(&flow.flow, &work.records, run) else {
         return false;
     };
-    let stuck = stuck_in(flow, work, &choices, run);
+    let stuck = |dealt_with: &[BlockId], writes: &[Write]| stuck_blocks(flow, work, &choices, run, dealt_with, writes);
     let Some(requires) = requires(
         flow,
         &choices,
@@ -1130,21 +1131,21 @@ pub(crate) fn requires<'a>(
 /// What a return of the run's cell that meets everything else would leave the work unable to do ([`run::Stuck`]): the
 /// blocks of an agent's cell that would let the work go on, as the walk reads the records with the return taken
 /// ([`decide::stuck_blocks`]). An act of the engine's has none.
-pub(crate) fn stuck_in<'a>(
-    flow: &'a Compiled,
-    work: &'a Work,
-    choices: &'a BTreeMap<BlockId, Vec<String>>,
+pub(crate) fn stuck_blocks(
+    flow: &Compiled,
+    work: &Work,
+    choices: &BTreeMap<BlockId, Vec<String>>,
     run: RunId,
-) -> impl Fn(&[BlockId], &[Write]) -> Vec<BlockId> + 'a {
-    move |dealt_with, writes| {
-        let agent = (work.records.started.iter().find(|s| s.run == run))
-            .and_then(|s| flow.flow.place(&s.cell))
-            .and_then(|place| flow.cells.get(place))
-            .is_some_and(|spec| spec.kind == Kind::Agent);
-        match agent {
-            true => decide::stuck_blocks(&flow.flow, &work.records, run, dealt_with, writes, choices),
-            false => Vec::new(),
-        }
+    dealt_with: &[BlockId],
+    writes: &[Write],
+) -> Vec<BlockId> {
+    let agent = (work.records.started.iter().find(|s| s.run == run))
+        .and_then(|s| flow.flow.place(&s.cell))
+        .and_then(|place| flow.cells.get(place))
+        .is_some_and(|spec| spec.kind == Kind::Agent);
+    match agent {
+        true => decide::stuck_blocks(&flow.flow, &work.records, run, dealt_with, writes, choices),
+        false => Vec::new(),
     }
 }
 

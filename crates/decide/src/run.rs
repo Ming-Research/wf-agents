@@ -301,7 +301,11 @@ pub struct Requires<'a> {
 /// What a return that would otherwise be taken leaves the work unable to do: the blocks of its cell that would let the
 /// work go on, given what the run would finish dealing with and writing. A function of the flow and the records alone.
 #[derive(Clone, Copy)]
-pub struct Stuck<'a>(pub &'a dyn Fn(&[BlockId], &[Write]) -> Vec<BlockId>);
+pub struct Stuck<'a>(pub &'a StuckBy<'a>);
+
+/// The function a [`Stuck`] holds: given what a run would finish having dealt with and the blocks it would write, the
+/// blocks of its cell that would let the work go on.
+pub type StuckBy<'a> = dyn Fn(&[BlockId], &[Write]) -> Vec<BlockId> + 'a;
 
 impl std::fmt::Debug for Stuck<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
