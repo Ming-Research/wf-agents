@@ -143,3 +143,7 @@ While Space shows every tree, the page draws each in turn, a few milliseconds a 
 ### decision what-stands-over-the-tree-stands-still
 The map, the list of the projects and the boxes stand still while the trees move, go at once as Space shows every tree, and come back at once as it closes.
 - rejected: an agent proposed the map moving with its tree, and then fading back in once the tree stood; the owner rejected it, because the map moved or faded while the list and the boxes did not, which looked strange.
+
+### decision a-works-age-is-coloured-at-the-owners-fixed-times
+A card colours how long its work has run grey under half an hour, amber to an hour and red past an hour: times the owner fixed, a hint for the eye and not a check of what is out of the ordinary.
+- rejected: an agent proposed colouring a work's age by the history of works like it (principle judged-by-own-history); the owner rejected it, because the colour only gives a rough sense of age and judges nothing, so his fixed times are enough.

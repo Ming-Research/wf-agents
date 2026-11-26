@@ -151,6 +151,7 @@ fn call(item: Item) -> ToolCall {
         kept: Arc::new(Work::default()),
         test_time: None,
         fast_medians: Arc::default(),
+        red_on_main: Vec::new(),
     }
 }
 

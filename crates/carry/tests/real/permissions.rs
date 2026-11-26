@@ -196,6 +196,25 @@ async fn every_round_is_given_the_variables_the_projects_declaration_names_with_
     }
 }
 
+// Every round's command line is given the variable the flows give every agent's program, on the line that writes and on
+// the line that only reads: the stand-in keeps what it was given. A few rounds of the stand-in, with git: about a
+// second; the one test that the variable reaches the command line a round runs, on the real launch of a round, which
+// the unit test of the environment's order cannot show.
+#[tokio::test]
+async fn every_round_is_given_the_variables_the_flows_give_every_agents_program() {
+    let mut real = Real::trial(Fake::default());
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| ended(&real.decision(work))).await;
+    let calls = real.calls();
+    assert!(calls.iter().any(|call| call.of("Plan")) && calls.iter().any(|call| call.of("Review")));
+    for n in 1..=calls.len() {
+        let given =
+            std::fs::read_to_string(real.calls_dir().join(format!("{n}.protocol"))).expect("the stand-in kept it");
+        assert_eq!(given, "none", "call {n}");
+    }
+}
+
 // A declared value that holds a NUL is refused as the engine starts: a NUL ends a string of a process's environment, and
 // a program is not started with one (here shown with the operating system's own: `Command` fails to start `true` given
 // it), so every round of the project would fail to start the agents' program, with the declaration read and accepted. A
@@ -210,7 +229,7 @@ fn a_declared_value_that_holds_a_nul_is_refused_as_one_no_program_can_be_started
     );
     let faults = |value: &str| {
         let declared = BTreeMap::from([("SOME_VARIABLE".to_string(), value.to_string())]);
-        carry::cli::environment_faults(&declared, &[])
+        carry::cli::environment_faults(&declared, &[], &BTreeMap::new())
     };
     assert_eq!(faults("a b\nc"), Vec::<String>::new());
     assert_eq!(faults(""), Vec::<String>::new());

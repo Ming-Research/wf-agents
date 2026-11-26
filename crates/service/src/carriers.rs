@@ -880,6 +880,9 @@ pub struct ToolCall {
     /// fast runs, in milliseconds, by the name a request asks for it by (crate `driver`, module `timed`); empty for
     /// any other call.
     pub fast_medians: Arc<BTreeMap<String, f64>>,
+    /// For a call of the tool that runs the project's tests: the tests that are red on the main of the work's project,
+    /// which a failed test of the result is said to be among (crate `driver`, module `red_main`).
+    pub red_on_main: Vec<driver::red_main::RedTest>,
 }
 
 /// The way to say once that a round ended, or that it failed.

@@ -186,7 +186,7 @@ pub struct Agents {
     /// What the texts take from the installation: `agents/installation.toml`.
     pub installation: Installation,
     /// What every agent is refused whatever its project: [`REFUSED_FILE`].
-    pub refused: Commands,
+    pub refused: Refused,
     /// What every agent may do, in words that name no program: [`ALLOWED_FILE`].
     pub allowed: Allowed,
     /// The sets of rules for the agents, by name, as `agents/rules/rules.toml` names them, each with its text.
@@ -727,12 +727,17 @@ pub struct Protected {
     pub paths: Vec<String>,
 }
 
-/// Commands, each a command with the start of its arguments: what every agent is refused whatever its project
-/// ([`REFUSED_FILE`]). An entry may be [`PROGRAM_SLOT`], the agents' program the installation names.
+/// What every agent is refused whatever its project ([`REFUSED_FILE`]).
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Commands {
+pub struct Refused {
+    /// Each a command with the start of its arguments. An entry may be [`PROGRAM_SLOT`], the agents' program the
+    /// installation names.
     pub commands: Vec<String>,
+    /// The variables every start of the agents' program has in its environment, whatever its project, each by its
+    /// name, for what a command's spelling cannot refuse: they are the engine's own and no declaration or setting may
+    /// name one.
+    pub environment: BTreeMap<String, String>,
 }
 
 /// [`ALLOWED_FILE`]: what every agent may do, whatever its project, in words that name no program, tool or path; the
@@ -1426,6 +1431,9 @@ pub struct ResultWords {
     pub not_built: String,
     /// What a test that failed said, as the results hold it: `{said}`.
     pub output: String,
+    /// Said beneath the line of a test that failed and is red on the main of the project as well, as the engine knows
+    /// it from the checks it ran on main's head: `{main}` the main branch's name, `{head}` the head it failed on.
+    pub also_on_main: String,
     /// A job of the workflow: `{name}`, `{how}` one of the following, `{time}` as `time` says it for a job that ran to a
     /// conclusion, or as `job_untimed` says where GitHub gives no time for it, and `{link}` as `link` says it.
     pub job: String,
@@ -2195,9 +2203,23 @@ fn calls(path: &Path) -> Result<Calls, String> {
 }
 
 /// What every agent is refused, read from its file, whose entries hold no slot but [`PROGRAM_SLOT`]: any other `{...}`
-/// would be given to the program as it is.
-fn refused(path: &Path) -> Result<Commands, String> {
-    let refused: Commands = file(path)?;
+/// would be given to the program as it is; and whose variables are each named as a shell names a variable and hold no
+/// NUL, which ends a string of a process's environment.
+fn refused(path: &Path) -> Result<Refused, String> {
+    let refused: Refused = file(path)?;
+    for (name, value) in &refused.environment {
+        let shell = name.starts_with(|c: char| c == '_' || c.is_ascii_alphabetic())
+            && name.chars().all(|c| c == '_' || c.is_ascii_alphanumeric());
+        if !shell {
+            return Err(format!("{}: {name:?} is no name of a variable", path.display()));
+        }
+        if value.contains('\0') {
+            return Err(format!(
+                "{}: {name} holds a NUL in its value, with which no program can be started",
+                path.display()
+            ));
+        }
+    }
     for entry in &refused.commands {
         let rest = entry.replace(PROGRAM_SLOT, "");
         if rest.contains(['{', '}']) {

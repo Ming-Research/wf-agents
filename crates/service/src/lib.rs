@@ -1077,6 +1077,11 @@ impl Service {
                         true => self.driver.fast_medians(work),
                         false => BTreeMap::new(),
                     }),
+                    red_on_main: if name == driver::timed::RUN_TESTS {
+                        self.driver.red_tests(work)
+                    } else {
+                        Vec::new()
+                    },
                 };
                 self.carriers
                     .tools
@@ -1111,6 +1116,7 @@ impl Service {
                         kept: Arc::new(kept.work.clone()),
                         test_time: None,
                         fast_medians: Arc::default(),
+                        red_on_main: Vec::new(),
                     };
                     self.carriers
                         .tools

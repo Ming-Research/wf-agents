@@ -109,6 +109,7 @@ pub fn declared(
         why.extend(crate::cli::environment_faults(
             &declaration.environment,
             &settings.agents.env,
+            &beside.refused.environment,
         ));
         for flow in flows {
             let texts = crate::system::faults(settings, &beside, &declaration, flow);

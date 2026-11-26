@@ -10,7 +10,10 @@
 //! is over. One line is about no work: the wait every work shares, while no agent's round begins; a work whose round it
 //! holds is going on. So is the pause of everything, the owner's or the engine's as it started with works going on,
 //! its own line about no work, under which every work is read as if it did not hold: a work held by it alone goes on,
-//! and is no reason for another to be idle. A wait for a slot is going on.
+//! and is no reason for another to be idle. A wait for a slot is going on. Another line is about no work either: the
+//! main branch of a project is red on a test ([`crate::red_main`]), which is given once for each time it came to be so,
+//! whether a work waits for main or none does; a red that comes back after main moved on, with no test having passed on
+//! it between, is the same red.
 //!
 //! Everything here is read from the records (principle state-from-records). How a work stands is what the deciding
 //! code decides on its records; since when it stands so is the first of the moments after which it has stood so
@@ -25,6 +28,7 @@ use std::fmt;
 use decide::{CellId, Decision, End, Maker, Pauser, RecordFault, Records, Seq, Waited, decide};
 
 use crate::owner::{self, Shared};
+use crate::red_main::RedTest;
 use store::{ItemNumber, WorkNumber};
 use work::{Moment, Time};
 
@@ -60,6 +64,13 @@ pub enum Heed {
     Everything { by: Pauser },
     /// No agent's round of any work begins: a round failed for a cause every work shares. It is about no work.
     Agents { outage: Outage },
+    /// The main branch of the project is red on these tests, which the check before a merge found failing on its head;
+    /// these works wait for it to pass. It is about no work.
+    MainRed {
+        project: String,
+        tests: Vec<RedTest>,
+        works: Vec<WorkNumber>,
+    },
     /// The work's records cannot be those of a work: nothing is decided on them.
     Fault { work: WorkNumber },
     /// The work waits on the owner, for what the one definition of that names ([`crate::owner`]).
@@ -100,13 +111,17 @@ pub enum Stuck {
 /// A place in the records of every work: the highest work there was, and for each that had not ended, the place up to
 /// which its records were read. A work up to the highest that is not named had ended, and its records were read whole;
 /// a work after it is unread from its start. Where the pause of everything held and was read, the time it began, which
-/// tells that pause from any later one. Written as the highest work, then each work named with its place,
-/// then `e.` and the time of the pause read, such as `12,3.41,7.118,e.1800000000000`.
+/// tells that pause from any later one; and for each project whose main was red and was read so, the time its red
+/// began, which tells that red from any later one, and which is kept while main is not known to be red after it moved
+/// on. Written as the highest work, then each work named with its place,
+/// then `e.` and the time of the pause read, then `r.`, the time and the name of each project, `%` and `,` in the name
+/// as `%25` and `%2C`, such as `12,3.41,7.118,e.1800000000000,r.1700000000000.Firn-wf`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Mark {
     highest: u64,
     read: BTreeMap<WorkNumber, Seq>,
     everything: Option<Time>,
+    red: BTreeMap<String, Time>,
 }
 
 /// Why a text is no mark, in words.
@@ -141,10 +156,19 @@ impl Mark {
         let highest = number(parts.next().unwrap_or_default())?;
         let mut read = BTreeMap::new();
         let mut everything = None;
+        let mut red = BTreeMap::new();
         for part in parts {
             let (work, place) = part.split_once('.').ok_or_else(unreadable)?;
             if work == "e" {
                 if everything.replace(Time(number(place)?)).is_some() {
+                    return Err(unreadable());
+                }
+                continue;
+            }
+            if work == "r" {
+                let (began, project) = place.split_once('.').ok_or_else(unreadable)?;
+                let project = unescaped(project).filter(|p| !p.is_empty()).ok_or_else(unreadable)?;
+                if red.insert(project, Time(number(began)?)).is_some() {
                     return Err(unreadable());
                 }
                 continue;
@@ -158,8 +182,32 @@ impl Mark {
             highest,
             read,
             everything,
+            red,
         })
     }
+}
+
+/// A project's name as a mark writes it: `%` and `,` as `%25` and `%2C`, so that no name holds a comma.
+fn escaped(name: &str) -> String {
+    name.replace('%', "%25").replace(',', "%2C")
+}
+
+/// The name a mark's text holds, as [`escaped`] wrote it; none where a `%` is followed by anything else.
+fn unescaped(text: &str) -> Option<String> {
+    let mut name = String::new();
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        if c != '%' {
+            name.push(c);
+            continue;
+        }
+        match (chars.next(), chars.next()) {
+            (Some('2'), Some('5')) => name.push('%'),
+            (Some('2'), Some('C')) => name.push(','),
+            _ => return None,
+        }
+    }
+    Some(name)
 }
 
 impl fmt::Display for Mark {
@@ -170,6 +218,9 @@ impl fmt::Display for Mark {
         }
         if let Some(began) = self.everything {
             write!(f, ",e.{}", began.0)?;
+        }
+        for (project, began) in &self.red {
+            write!(f, ",r.{}.{}", began.0, escaped(project))?;
         }
         Ok(())
     }
@@ -217,7 +268,28 @@ impl Driver {
                     },
                 )
             });
-        let mut lines: Vec<(u8, Line)> = everything.into_iter().chain(reader.shared(self.outage())).collect();
+        // A project's red main is given by when its red began: once for each time it came to be so, and a later one again.
+        let mains = self.mains_red();
+        let reds = mains.red;
+        let red_lines = (reds.iter())
+            .filter(|red| since.is_none_or(|mark| mark.red.get(&red.project).is_none_or(|read| *read < red.since)))
+            .map(|red| {
+                (
+                    0,
+                    Line {
+                        heed: Heed::MainRed {
+                            project: red.project.clone(),
+                            tests: red.tests.clone(),
+                            works: red.waiting.clone(),
+                        },
+                        since: red.since,
+                    },
+                )
+            });
+        let mut lines: Vec<(u8, Line)> = (everything.into_iter())
+            .chain(red_lines)
+            .chain(reader.shared(self.outage()))
+            .collect();
         for number in &numbers {
             if let Some(line) = reader.line(*number) {
                 lines.push(line);
@@ -228,6 +300,25 @@ impl Driver {
             .filter_map(|(_, line)| work_of(&line.heed))
             .collect();
         let everything_left = (lines.iter().skip(LINES)).any(|(_, line)| matches!(line.heed, Heed::Everything { .. }));
+        let red_left: Vec<String> = (lines.iter().skip(LINES))
+            .filter_map(|(_, line)| match &line.heed {
+                Heed::MainRed { project, .. } => Some(project.clone()),
+                _ => None,
+            })
+            .collect();
+        // A project's red whose line is left out is written unread, so that it comes again.
+        let mut red: BTreeMap<String, Time> = (reds.iter())
+            .filter(|red| !red_left.contains(&red.project))
+            .map(|red| (red.project.clone(), red.since))
+            .collect();
+        // A project whose main is not known to be red, since it moved on and no run on it has said, or since no work of
+        // it has not ended, keeps what it was read as: a red that comes back with the span it had is the one that was
+        // given.
+        for project in &mains.unknown {
+            if let Some(read) = since.and_then(|mark| mark.red.get(project)) {
+                red.entry(project.clone()).or_insert(*read);
+            }
+        }
         let lines: Vec<Line> = lines.into_iter().take(LINES).map(|(_, line)| line).collect();
         // A work whose line is left out is written unread from its start, so that whatever it stands in comes again;
         // a work that ended is left out of the mark once it is read; every other work is read up to its last entry.
@@ -245,9 +336,10 @@ impl Driver {
             everything: (self.everything_paused())
                 .map(|paused| paused.since)
                 .filter(|_| !everything_left),
+            red,
         };
         Ok(Attention {
-            left_out: left.len() + usize::from(everything_left),
+            left_out: left.len() + usize::from(everything_left) + red_left.len(),
             lines,
             mark,
         })
@@ -340,7 +432,7 @@ pub fn on_items(waited: &Waited) -> bool {
 /// mark says whether it is given again; none for the pause of everything.
 fn work_of(heed: &Heed) -> Option<WorkNumber> {
     match heed {
-        Heed::Everything { .. } => None,
+        Heed::Everything { .. } | Heed::MainRed { .. } => None,
         Heed::Agents { outage } => Some(outage.work),
         Heed::Fault { work }
         | Heed::ForAPerson { work }

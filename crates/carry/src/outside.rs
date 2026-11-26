@@ -41,6 +41,8 @@ pub struct Check {
     profile: PathBuf,
     /// The engine's own environment, of which the command line is given what a round is.
     engine: Vec<(String, String)>,
+    /// The variables every agent's program has, beside the flows (`agents/refused.toml`).
+    refused: BTreeMap<String, String>,
     /// What keeps the tokens of the accounts.
     tokens: Arc<dyn Tokens>,
     /// The model of the cheapest level.
@@ -61,10 +63,11 @@ impl Check {
     /// The check the settings say: with the agents' command, the program's directory, `profile`, and environment, the
     /// token of the account it is taken under as what keeps the tokens gives it, the short request on the cheapest
     /// level's model, and the network looked at on the service's host ([`failure::Look`]); what it finds down is said
-    /// in the words beside the flows of a program's end and of the check's own.
+    /// in the words beside the flows of a program's end and of the check's own, and with the variables every agent's
+    /// program has beside the flows.
     pub fn of(
         settings: &Settings,
-        cost: &flow::agents::Cost,
+        beside: &flow::agents::Agents,
         tokens: Arc<dyn Tokens>,
         profile: &Path,
     ) -> Result<Check, String> {
@@ -79,13 +82,14 @@ impl Check {
             agents: settings.agents.clone(),
             profile: profile.to_path_buf(),
             engine: crate::programs::engine().to_vec(),
+            refused: beside.refused.environment.clone(),
             tokens,
             model,
             dir: std::env::temp_dir(),
             network: Arc::new(failure::Look),
             clock: Arc::new(SystemClock),
-            words: cost.program.clone(),
-            said: cost.check.clone(),
+            words: beside.cost.program.clone(),
+            said: beside.cost.check.clone(),
         })
     }
 
@@ -101,6 +105,7 @@ impl Check {
                 self.engine.iter().cloned(),
                 // The program is run for no project's command, so no project's variables are given it.
                 &BTreeMap::new(),
+                &self.refused,
                 token,
             ))
             .current_dir(&self.dir);
@@ -283,9 +288,11 @@ mod tests {
     fn check(dir: &std::path::Path, script: &str, reached: bool) -> Check {
         let command = dir.join("claude");
         let body = format!(
-            "#!/bin/sh\necho \"$*\" >> '{}'\necho \"$CLAUDE_CODE_OAUTH_TOKEN $CLAUDE_CONFIG_DIR\" >> '{}'\n{script}\n",
+            "#!/bin/sh\necho \"$*\" >> '{}'\necho \"$CLAUDE_CODE_OAUTH_TOKEN $CLAUDE_CONFIG_DIR\" >> '{}'\n\
+             echo \"$GIT_ALLOW_PROTOCOL\" >> '{}'\n{script}\n",
             dir.join("calls").display(),
-            dir.join("given").display()
+            dir.join("given").display(),
+            dir.join("protocol").display()
         );
         std::fs::write(&command, body).unwrap();
         std::fs::set_permissions(&command, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -298,6 +305,7 @@ mod tests {
             agents: settings.agents,
             profile: dir.join("profile"),
             engine: vec![("PATH".to_string(), std::env::var("PATH").unwrap_or_default())],
+            refused: beside().refused.environment,
             tokens: Arc::new(kept),
             model: "claude-haiku-5-5".to_string(),
             dir: dir.to_path_buf(),
@@ -308,12 +316,15 @@ mod tests {
         }
     }
 
+    /// What is written beside the repository's flows.
+    fn beside() -> flow::agents::Agents {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+        flow::agents::read(&root).expect("what is beside the flows is read")
+    }
+
     /// What is written beside the repository's flows of the agents' program and of the check.
     fn words() -> flow::agents::Cost {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
-        flow::agents::read(&root)
-            .expect("the words beside the flows are read")
-            .cost
+        beside().cost
     }
 
     /// The lines a file the script wrote holds, a line each call.
@@ -390,6 +401,9 @@ mod tests {
         // Under the account's token, in the engine's directory.
         let profile = dir.path().join("profile").display().to_string();
         assert_eq!(lines(dir.path(), "given"), [format!("sk-ant-oat01-secret {profile}")]);
+        // With the variable every agent's program has, which stops its git's transports: the short request is one more
+        // start of the program, under the same rule.
+        assert_eq!(lines(dir.path(), "protocol"), ["none"]);
     }
 
     // A few milliseconds: a shell script run three times. The order the check asks in, which keeps a request from

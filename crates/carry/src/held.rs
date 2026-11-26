@@ -14,6 +14,7 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use driver::red_main::RedTest;
 use service::{Along, Hosting, Saying};
 use tokio::sync::oneshot;
 use work::Left;
@@ -59,6 +60,9 @@ pub(crate) struct Stop {
     /// The median of each test's times in the project's earlier fast runs, in milliseconds, by its name; empty where
     /// none was given.
     fast_medians: Arc<BTreeMap<String, f64>>,
+    /// The tests that are red on the main of the work's project, which a failed test of a result of the tests an agent
+    /// asked for is said to be among.
+    red_on_main: Vec<RedTest>,
 }
 
 impl Stop {
@@ -75,6 +79,7 @@ impl Stop {
             hosting: None,
             test_time: None,
             fast_medians: Arc::default(),
+            red_on_main: Vec::new(),
         }
     }
 
@@ -106,6 +111,17 @@ impl Stop {
     /// it.
     pub(crate) fn fast_median(&self, test: &str) -> Option<f64> {
         self.fast_medians.get(test).copied()
+    }
+
+    /// The stop, which gives the host the tests that are red on the main of the work's project.
+    pub(crate) fn red_on_main(mut self, red: Vec<RedTest>) -> Stop {
+        self.red_on_main = red;
+        self
+    }
+
+    /// The tests that are red on the main of the work's project.
+    pub(crate) fn red_tests(&self) -> &[RedTest] {
+        &self.red_on_main
     }
 
     /// How long one test may run before it is stopped, in whole seconds rounded up, at least one; none where the

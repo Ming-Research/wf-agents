@@ -125,11 +125,10 @@ impl<H: Host> ToolsTrait for Tools<H> {
         let Some(stop) = self.inner.held.hold(key, reply) else {
             return;
         };
-        let mut stop = stop
-            .saying(saying)
-            .hosting(hosting)
+        let mut stop = (stop.saying(saying).hosting(hosting))
             .test_time(call.test_time)
-            .fast_medians(call.fast_medians.clone());
+            .fast_medians(call.fast_medians.clone())
+            .red_on_main(call.red_on_main.clone());
         let inner = self.inner.clone();
         tokio::spawn(async move {
             let answered = if call.name == QUERY {
@@ -818,6 +817,7 @@ mod tests {
             kept: Arc::new(work::Work::default()),
             test_time: None,
             fast_medians: Arc::default(),
+            red_on_main: Vec::new(),
         }
     }
 

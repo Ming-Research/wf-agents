@@ -116,6 +116,52 @@ pub struct System {
     /// The stop the engine was asked for, while it stands, with how long it is expected to take to end.
     #[serde(default)]
     pub stopping: Option<Stop>,
+    /// Each project whose main is red on a test, as the checks the engine ran on main's head say, the projects in the
+    /// order of their names.
+    #[serde(default)]
+    pub red_main: Vec<RedMain>,
+}
+
+/// The main branch of a project is red: its tests that fail on its head, since when, and the works that wait for it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedMain {
+    pub project: String,
+    /// When the earliest failure of the tests that are red now began, in milliseconds since the start of 1970.
+    pub since: u64,
+    pub tests: Vec<RedTest>,
+    /// The works of the project that have not ended and wait for main to pass, by number.
+    pub waiting: Vec<u64>,
+}
+
+/// A test that fails on the head of main: its unit and name, and the head it failed on.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedTest {
+    pub unit: String,
+    pub name: String,
+    pub head: String,
+}
+
+impl RedTest {
+    pub(crate) fn of(test: &driver::red_main::RedTest) -> RedTest {
+        RedTest {
+            unit: test.unit.clone(),
+            name: test.name.clone(),
+            head: test.head.clone(),
+        }
+    }
+}
+
+impl RedMain {
+    fn of(red: &driver::red_main::Red) -> RedMain {
+        RedMain {
+            project: red.project.clone(),
+            since: red.since.0,
+            tests: red.tests.iter().map(RedTest::of).collect(),
+            waiting: red.waiting.iter().map(|work| work.0).collect(),
+        }
+    }
 }
 
 /// A stop of the engine that stands: since when it was asked for, whether at once, and how much longer the engine is
@@ -886,6 +932,7 @@ impl System {
             left_behind: Vec::new(),
             short_of_time: Vec::new(),
             stopping: None,
+            red_main: driver.red_main().iter().map(RedMain::of).collect(),
         };
         let judged = driver.judged(None, now);
         let mut short_days: BTreeMap<(u64, Option<String>), ShortDay> = BTreeMap::new();
@@ -1231,6 +1278,34 @@ mod tests {
 
     use super::*;
     use crate::works::tests::{Stored, earlier, flow};
+
+    // A project whose main is red is said to the page and the command line with its tests, the head each failed on, when
+    // it began and the works that wait, in the names the page reads. Milliseconds; the one test of this wire shape.
+    #[test]
+    fn a_red_main_is_said_as_the_page_and_the_command_line_read_it() {
+        let red = driver::red_main::Red {
+            project: "Firn-wf".to_string(),
+            since: work::Time(1_700_000_000_000),
+            tests: vec![driver::red_main::RedTest {
+                unit: "carry".to_string(),
+                name: "tools::tests::b".to_string(),
+                head: "9f8e7d6c".to_string(),
+            }],
+            waiting: vec![store::WorkNumber(184)],
+        };
+        let said = serde_json::to_value(RedMain::of(&red)).expect("it is said");
+        assert_eq!(
+            said,
+            serde_json::json!({
+                "project": "Firn-wf",
+                "since": 1_700_000_000_000u64,
+                "tests": [{ "unit": "carry", "name": "tools::tests::b", "head": "9f8e7d6c" }],
+                "waiting": [184],
+            })
+        );
+        let back: RedMain = serde_json::from_value(said).expect("it is read");
+        assert_eq!(back, RedMain::of(&red));
+    }
 
     // A round with no model recorded is an act's where the version its work is on has its cell as an engine's, and is
     // not recorded otherwise. The flow installed has the merge as an act and no cell `check`; the earlier version has
