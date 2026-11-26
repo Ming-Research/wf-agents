@@ -37,3 +37,7 @@ As a work ends, the engine keeps what its time went to as its version reads it, 
 ### decision a-live-bar-asks-at-its-cells-middles
 The bar of a work going on asks what the work waited for only at the middle of each cell less than half of which ran, by the one decision its kept stretches are made by.
 - rejected: an agent proposed drawing it at each request from the work's exact stretches; the owner rejected it, because each wait is then decided over the records before it, and at 200 waits it took ten times main's time (data: `research/flow-versions/bar-cost.md`).
+
+### decision a-wait-for-a-slot-is-read-from-the-walk
+Where the walk, asked in a room with every slot free, would begin a round of an agent's cell and none began, and no cause every work shares held the rounds, that time is a wait for a slot.
+- replaced: Every stretch no round ran in and no cause held, a wait for a slot among them, kept as anything else was on main; the owner changed it, because the System view could not say how much of the works' time went to waiting for a slot.

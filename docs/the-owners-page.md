@@ -62,8 +62,9 @@ and those of its look.
 
 ## The system
 
-12. The view of the system shows how the whole system stands, in parts: what goes on now, what was produced, what was
-    spent, what was wasted, and how well it runs. The owner wants every side of it, not the spending alone.
+12. The view of the system shows how the whole system stands, in parts: what goes on now, what was produced, what the
+    works waited for, what was spent, what was wasted, and how well it runs. The owner wants every side of it, not the
+    spending alone.
 
 13. The view is all of the measures, each line of one watched by a monitor of its own, the simplest the mean and the
     spread of seven days, and a spike raises a warning. There is no part for what is out of the ordinary: the watching

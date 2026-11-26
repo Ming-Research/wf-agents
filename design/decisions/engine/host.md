@@ -79,3 +79,7 @@ A measurement on a self-hosted machine takes the machine's gate and waits for th
 ### decision a-run-is-timed-only-while-it-is-not-waiting-for-a-runner
 A workflow's `too_long` counts the time its run is not waiting for a runner, as its jobs say, or for a measurement that holds its machine, and the time it waits while none of its label is online.
 - replaced: Counting a run's time from the moment it was asked for, the queue included, was on main; the owner changed it, because a run whose jobs queued behind a busy machine was cut as too long for the time it waited, not the time it ran.
+
+### decision a-jobs-wait-for-a-runner-is-kept-with-its-time
+How long each job of a run of the project's CI waited for a runner before it started is kept with the job's time, as GitHub's stamps of its creation and its start say; none where they do not.
+- replaced: Keeping only each job's time from its start to its end was on main; the owner changed it, because how long a job waited for a runner could not be told from how long it ran, and a queue of 29 runs showed nothing.
