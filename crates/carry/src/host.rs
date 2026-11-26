@@ -276,8 +276,8 @@ pub trait Host: Send + Sync + 'static {
     fn open_pulls(&self) -> impl Future<Output = Result<Option<Vec<OpenPull>>, String>> + Send;
 }
 
-/// The tests, the checks and the measurements an agent names to `run_tests`, each as it wrote it, and the commit it names
-/// to run them on.
+/// The tests, the checks and the measurements an agent names to `run_tests`, each as it wrote it, the commit it names
+/// to run them on, and whether it asks for the commit to be left on the host.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Named {
     pub tests: Vec<String>,
@@ -286,13 +286,16 @@ pub struct Named {
     pub measure: Vec<String>,
     /// The commit to run on, as git names one in the agent's worktree; none for the last commit of the work's branch.
     pub commit: Option<String>,
+    /// Whether the commit is to be left on the host, on a reference of the work's own, for as long as the work lasts, so
+    /// that a workflow the agent starts itself can be given it.
+    pub publish: bool,
 }
 
 impl Named {
-    /// Whether neither a test, a check nor a measurement is named, which a commit alone does not make a request to run
-    /// anything.
+    /// Whether neither a test, a check, a measurement nor the publishing of the commit is asked for, which a commit alone
+    /// does not make a request to run anything.
     pub fn is_empty(&self) -> bool {
-        self.tests.is_empty() && self.checks.is_empty() && self.measure.is_empty()
+        self.tests.is_empty() && self.checks.is_empty() && self.measure.is_empty() && !self.publish
     }
 }
 

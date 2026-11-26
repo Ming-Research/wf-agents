@@ -4,6 +4,7 @@
 
 use super::super::api::{Check, Outcome};
 use super::*;
+use crate::host::Named;
 
 /// A check of a GitHub Actions job of this id, at its own link.
 fn job(name: &str, id: u64, outcome: Outcome) -> Check {
@@ -422,10 +423,11 @@ async fn two_rounds_of_the_check_at_once_go_through_one_pull_request() {
     assert_eq!(hub.opened(), 1);
 }
 
-// A call of `run_tests` that the engine stopped before it read the result left a branch of its own on GitHub: it is the
-// work's, and goes when the work ends, merged or not, whatever other works have left.
+// The work's branches on GitHub under `wf-try/` go when the work ends, merged or not, whatever other works have left: the
+// branch a call of `run_tests` that the engine stopped before it read the result left, and the commit the work published
+// there on purpose, which stays until then.
 #[tokio::test]
-async fn a_work_that_ended_has_the_branches_its_calls_of_run_tests_left_deleted_merged_or_not() {
+async fn a_work_that_ended_has_the_branches_it_left_on_github_deleted_merged_or_not() {
     for merged in [true, false] {
         let hub = Hub::new();
         let head = hub.committed().await;
@@ -438,11 +440,28 @@ async fn a_work_that_ended_has_the_branches_its_calls_of_run_tests_left_deleted_
                 &["push", "-q", &bare, &format!("{head}:refs/heads/{name}")],
             );
         }
+        let published = format!("wf-try/{}/commit/{head}", place.branch);
+        let asked = Named {
+            publish: true,
+            ..Named::default()
+        };
+        hub.named_check(&asked).await.unwrap().expect("it publishes");
+        assert!(
+            hub.trials().contains(&published),
+            "merged: {merged}: {:?}",
+            hub.trials()
+        );
         hub.host.end(&branch(&place), merged).await.expect("it ends");
-        let deleted: Vec<Asked> = (hub.github().asked().into_iter())
+        let mut deleted: Vec<Asked> = (hub.github().asked().into_iter())
             .filter(|a| matches!(a, Asked::Delete(_)))
             .collect();
-        assert_eq!(deleted, [Asked::Delete(left)], "merged: {merged}");
+        deleted.sort_by_key(|a| format!("{a:?}"));
+        assert_eq!(
+            deleted,
+            [Asked::Delete(left), Asked::Delete(published)],
+            "merged: {merged}"
+        );
+        assert_eq!(hub.trials(), ["wf-try/another-work/call/1"], "merged: {merged}");
     }
 }
 
