@@ -998,7 +998,7 @@ mod tests {
         );
         with_project(&mut settings, dir.path(), "unprotected", Some(&unprotected), false);
         // A GitHub project that declares no workflows is carried.
-        let no_ci = without(&good, &["[ci.fast]", "[ci.full]"]);
+        let no_ci = without(&good, &["[ci.fast]", "[ci.full]", "[ci.measure.scripts]"]);
         assert!(!no_ci.contains("[ci."), "{no_ci}");
         with_project(&mut settings, dir.path(), "noci", Some(&no_ci), true);
         // A fast workflow given less time than the CI is given to start (the settings' `github.start_minutes`, 10 for a
