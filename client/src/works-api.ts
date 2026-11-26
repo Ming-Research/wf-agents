@@ -254,6 +254,9 @@ export interface CellNow {
 export interface Spent {
   /// Millionths of a dollar.
   usdMicros: number;
+  /// How many of the rounds, pings and forks it counts cost more than `usdMicros` says, by an amount not known: calls
+  /// the program reported no cost of, of a model no earlier report prices. Left out by an engine before it.
+  unpriced?: number;
   /// Sent fresh, neither read from the cache nor written to it.
   inputTokens: number;
   /// Written to the cache.

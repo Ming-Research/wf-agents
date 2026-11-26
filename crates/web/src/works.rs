@@ -787,6 +787,11 @@ fn settled(applies: bool, ran: bool, changed: bool) -> CellState {
 pub struct Spent {
     /// The cost, in millionths of a dollar.
     pub usd_micros: u64,
+    /// How many of the rounds, keep-warm pings and forks it counts have a cost that is not all known: calls the agents'
+    /// program reported no cost of, of a model no earlier report prices, of which `usd_micros` holds nothing. Where any
+    /// does, what was spent is more than `usd_micros`, by how much is not known. Left out where none does.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub unpriced: usize,
     /// The tokens sent fresh, neither read from the cache nor written to it.
     pub input_tokens: u64,
     /// The tokens written to the cache.
@@ -803,6 +808,11 @@ pub struct Spent {
     pub working_ms: u64,
     /// How many rounds ended.
     pub rounds: usize,
+}
+
+/// Whether the count is none, so that what has none leaves it out.
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 /// One work: as it is now, and step by step from its start.
@@ -2991,6 +3001,7 @@ impl Spent {
         };
         Ok(Spent {
             usd_micros: took.usd_micros,
+            unpriced: usize::from(took.unpriced),
             input_tokens,
             cache_written_tokens,
             unsplit_tokens,
@@ -3004,6 +3015,7 @@ impl Spent {
     pub(crate) fn with(self, other: Spent) -> Spent {
         Spent {
             usd_micros: self.usd_micros + other.usd_micros,
+            unpriced: self.unpriced + other.unpriced,
             input_tokens: self.input_tokens + other.input_tokens,
             cache_written_tokens: self.cache_written_tokens + other.cache_written_tokens,
             unsplit_tokens: self.unsplit_tokens + other.unsplit_tokens,
@@ -4856,6 +4868,7 @@ pub(crate) mod tests {
             run: decide::RunId(1),
             round: 1,
             usd_micros: 300_000,
+            unpriced: false,
             uncached_tokens: 120,
             cache_written_tokens: Some(100),
             cached_tokens: 18_100,
@@ -4864,6 +4877,7 @@ pub(crate) mod tests {
         let each =
             |usd_micros, (input_tokens, cache_written_tokens, unsplit_tokens), cached_tokens, output_tokens| Spent {
                 usd_micros,
+                unpriced: 0,
                 input_tokens,
                 cache_written_tokens,
                 unsplit_tokens,

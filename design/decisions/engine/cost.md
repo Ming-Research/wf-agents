@@ -38,3 +38,8 @@ What went past the line of its history (a round's cost or time, a call's time or
 ### decision a-calls-kind-is-its-tool
 A call of a tool is judged, for its time and for the size of its result, against the earlier calls of the same tool, whatever it was asked for.
 - rejected: an agent proposed judging a call against the earlier calls of its tool whose requests fill the same fields; the owner rejected it, because it is a new rule that also changes how time is judged, thins each kind's history, and still misses a full result as large as the other full ones.
+
+### decision a-cost-not-reported-is-priced-from-reports-or-not-known
+A call the program reports no cost of is priced from its earlier reports of the work's calls on the model; with none, its cost is kept and shown as not known, and the work waits for the owner.
+- replaced: Pricing such a call from a table of each model's list prices, by the model's name, and a model the table did not name at the dearest on it, was on main; the owner changed it, because models are upgraded and a table falls behind.
+- rejected: an agent proposed adding the new models to the table; the owner rejected it, because the table would fall behind again.
