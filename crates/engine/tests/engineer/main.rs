@@ -95,8 +95,9 @@
 //! own refusal stands. The content continuation is then tried from where the work must go back.
 //!
 //! Unless the work was cancelled or merged, the content continuation follows (`Content`): every round of an agent or
-//! act hands in what its cell must write to go forward and says nothing more, an agent's round on a line that may
-//! change the work committing besides where it fixes what it was told, as a return to what an act wrote must. Each
+//! act hands in what its cell must write to go forward, and the blocks a send-back for a stall names, and says nothing
+//! more, an agent's round on a line that may change the work committing besides where it fixes what it was told, as a
+//! return to what an act wrote must. Each
 //! verdict is written as a value other than its refusal; each choice a precondition of kind `all` reads, as the value
 //! it looks for (the check says yes); every other choice as it last was, or as the last of its declared values (no)
 //! where it was never written. No opinion for a cell before it is written, unless the cell must write it each time, and
@@ -176,8 +177,9 @@ const RANDOM: usize = 200;
 
 /// The most steps the content continuation takes for one run, besides what the driver held as it began: the owner
 /// letting the run's cell go on at its limit, the owner letting the run go on at a limit of its own, the up to three
-/// calls its last round asked for, and its round, which hands in what finishes it.
-const PER_RUN: u64 = 6;
+/// calls its last round asked for, and its round, which hands in what finishes it, once more where the first round was
+/// sent back for a return that would have left the work stuck, which the second hands in the blocks of.
+const PER_RUN: u64 = 7;
 
 const MERGE_OVER_A_NO: &str = "1: no merge over a judge's standing no";
 const MERGE_ON_AN_OLD_CHECK: &str = "2: no merge on a failed check or on a record that is not current";
@@ -1498,6 +1500,12 @@ impl Content {
             .collect();
         // A maker woken by a point answers it in the dialogue (design document `data-and-context`, 41).
         for b in points(d, run) {
+            if !handed_in.iter().any(|h| h.block == b) {
+                handed_in.push(handed(&b, cell, true, None));
+            }
+        }
+        // A round told that its return would leave the work stuck hands in the blocks named, as its task says.
+        for b in stuck_for(d, run) {
             if !handed_in.iter().any(|h| h.block == b) {
                 handed_in.push(handed(&b, cell, true, None));
             }
