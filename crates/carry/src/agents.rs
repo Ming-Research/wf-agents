@@ -946,7 +946,9 @@ impl Inner {
                 came.read = committed;
                 // What the returns of the run sent back before this one, which it completes, said and was not told was
                 // wrong, which the look at the protected paths and the tree check hold what it says to as well as what
-                // it says itself (`decide::run::carried`). A return that asks for calls completes nothing.
+                // it says itself (`decide::run::carried`). A return that asks for calls completes nothing and is held to
+                // none of it: what stood before it is kept by the deciding code, without what the faults name
+                // (`decide::run::together`).
                 let carried = if came.asks.is_empty() {
                     engine::carried(flow, work, round.run)
                 } else {
@@ -968,16 +970,23 @@ impl Inner {
                 // round, as the look at the tests does, rather than take the change as holding them.
                 let tree_block =
                     |block: &decide::BlockId| flow.blocks.get(block).is_some_and(|b| b.answers_in_the_tree);
-                let with_the_tree = (came.writes.iter()).any(|h| tree_block(&h.block))
-                    || (carried.writes.iter()).any(|w| tree_block(&w.block));
-                if with_the_tree {
+                let mut tree_blocks: Vec<decide::BlockId> = Vec::new();
+                for block in (came.writes.iter().map(|h| &h.block)).chain(carried.writes.iter().map(|w| &w.block)) {
+                    if tree_block(block) && !tree_blocks.contains(block) {
+                        tree_blocks.push(block.clone());
+                    }
+                }
+                if !tree_blocks.is_empty() {
                     let (project, tree) = (&of.project, of.project.tree.as_str());
                     let rewritten: Vec<String> = (came.said.questions.iter())
                         .map(|q| q.name().to_string())
                         .chain(carried.questions.iter().map(|q| q.name.clone()))
                         .collect();
                     match crate::tree::unwritten(project, &place, &of.main, tree, &round.kept, &rewritten).await {
-                        Ok(names) => (came.found).extend(names.into_iter().map(|name| Unmet::TreeUnchanged { name })),
+                        Ok(names) => (came.found).extend(names.into_iter().map(|name| Unmet::TreeUnchanged {
+                            name,
+                            blocks: tree_blocks.clone(),
+                        })),
                         Err(why) => {
                             return Ok(Carried::Failed(
                                 why,
@@ -991,16 +1000,19 @@ impl Inner {
                 // A return that writes a block whose lines name entries of the design tree is held to lines that each
                 // name an entry the tree holds at the head of the work's branch, as the tree's format finds it. A look
                 // that cannot be made fails the round.
-                let naming: Vec<String> = (came.writes.iter())
+                let naming: Vec<(decide::BlockId, String)> = (came.writes.iter())
                     .filter(|h| (flow.blocks.get(&h.block)).is_some_and(|b| b.names_tree_entries))
-                    .map(|h| h.content.clone())
+                    .map(|h| (h.block.clone(), h.content.clone()))
                     .collect();
-                for names in &naming {
+                for (block, names) in &naming {
                     let (tree, head) = (of.project.tree.as_str(), place.reference());
                     let looked =
                         crate::tree::unknown(&place.dir, tree, &of.beside.acts.tree.format, &head, names).await;
                     match looked {
-                        Ok(lines) => (came.found).extend(lines.into_iter().map(|line| Unmet::NotAnEntry { line })),
+                        Ok(lines) => (came.found).extend(lines.into_iter().map(|line| Unmet::NotAnEntry {
+                            block: Some(block.clone()),
+                            line,
+                        })),
                         Err(why) => {
                             return Ok(Carried::Failed(
                                 why,

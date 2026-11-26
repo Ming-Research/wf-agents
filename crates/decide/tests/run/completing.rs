@@ -1,6 +1,7 @@
 //! A return sent back is completed by the next return: what the returns before it said, but what the faults they were
 //! sent back for name, stands with what the next return gives, and the next return is judged as the whole. Nothing is
-//! carried into or out of a return that asks for calls.
+//! carried out of a return that asks for calls: what stood before such a return, and was not named, stands through it
+//! and is written as the run ends in the call; what such a return itself says is no work of the next return.
 
 use decide::run::{Together, carried, together};
 
@@ -167,10 +168,8 @@ fn a_return_sent_back_for_holding_questions_beside_a_value_that_allows_none_give
 }
 
 #[test]
-fn nothing_is_carried_into_a_return_that_asks_for_calls_nor_out_of_one() {
-    // Into: what the return before dealt with and wrote is not the call's.
-    assert_eq!(step(vec![wanting(), asks(1)], &spec()), finish_asking());
-    // Out of: a return that asks for calls and names work beside is no work of the next.
+fn nothing_is_carried_out_of_a_return_that_asks_for_calls_beside_work() {
+    // A return that asks for calls and names work beside is no work of the next.
     let beside = Round {
         returned: Some(Return::Came {
             dealt_with: vec!["request".into()],
@@ -187,6 +186,169 @@ fn nothing_is_carried_into_a_return_that_asks_for_calls_nor_out_of_one() {
     assert_eq!(
         step(vec![beside, works(&[], vec![])], &spec()),
         send_back(vec![Unmet::DealtWithNothing])
+    );
+}
+
+/// The cell with a third block it may write, which a line of the design tree is written in.
+fn with_entries() -> Spec {
+    Spec {
+        outputs: vec!["plan".into(), "verdict".into(), "entries".into()],
+        ..spec()
+    }
+}
+
+/// What a run finishes with whose return asked for calls, and that wrote these blocks that stood before it.
+fn finish_asking_with(writes: Vec<Write>) -> Step {
+    Step::Finish {
+        dealt_with: vec![],
+        writes,
+    }
+}
+
+fn no_entry() -> Unmet {
+    Unmet::NotAnEntry {
+        block: Some("entries".into()),
+        line: "x".to_string(),
+    }
+}
+
+// Reference: decision a-sent-back-return-is-completed-by-what-is-missing, and the item's own case: a return was sent
+// back, its next asks for calls, the run ends, and what was not named wrong is written all the same.
+#[test]
+fn a_run_that_ends_in_a_call_after_a_return_was_sent_back_writes_what_the_send_back_did_not_name() {
+    let before = told(vec![no_entry()], handed_in(vec![prose("plan"), prose("entries")]));
+    // The block the fault names is left out; the other stands; the run deals with nothing, so its cell is entered again.
+    assert_eq!(
+        step(vec![before, asks(1)], &with_entries()),
+        finish_asking_with(vec![prose("plan")])
+    );
+    // Sent back for a fault of no block, everything stands.
+    let found = vec![Unmet::NotWatched {
+        name: "on_nothing".to_string(),
+    }];
+    let before = told(
+        found.clone(),
+        came(
+            &["request", "opinions"],
+            vec![prose("plan"), prose("entries")],
+            found,
+            false,
+        ),
+    );
+    assert_eq!(
+        step(vec![before, asks(1)], &with_entries()),
+        finish_asking_with(vec![prose("plan"), prose("entries")])
+    );
+}
+
+#[test]
+fn a_return_that_asks_for_calls_and_writes_beside_them_is_still_sent_back_where_blocks_stand() {
+    let before = told(vec![not_handed_in("verdict")], handed_in(vec![prose("plan")]));
+    let beside = Round {
+        returned: Some(Return::Came {
+            dealt_with: vec![],
+            writes: vec![prose("verdict")],
+            calls: 1,
+            found: vec![],
+            waits: false,
+            questions: Vec::new(),
+            read: Vec::new(),
+            protected: Default::default(),
+        }),
+        sent_back: Vec::new(),
+    };
+    assert_eq!(
+        step(vec![before, beside], &spec()),
+        send_back(vec![Unmet::AsksAndWorks])
+    );
+}
+
+// A block a fault names is written wrong, and nothing is carried of it, with or without a call between.
+#[test]
+fn a_write_a_not_an_entry_fault_names_is_not_taken_though_the_next_return_does_not_write_it_again() {
+    let before = told(vec![no_entry()], handed_in(vec![prose("plan"), prose("entries")]));
+    assert_eq!(
+        step(vec![before, works(&[], vec![])], &with_entries()),
+        finish(vec![prose("plan")])
+    );
+}
+
+// Where a later return completes what stands, it checks it again; a call does not, so what the faults say is wrong of
+// a block that is judged by that check is left out of what stands into a call.
+#[test]
+fn a_verdict_sent_back_for_no_point_or_an_answer_in_the_tree_with_no_tree_change_does_not_stand_into_a_call() {
+    let no_point = Unmet::NoPoint {
+        block: "verdict".into(),
+        value: "no".to_string(),
+        name: "review".into(),
+    };
+    let rounds = || {
+        vec![told(
+            vec![no_point.clone()],
+            handed_in(vec![prose("plan"), valued("verdict", "no")]),
+        )]
+    };
+    // Into a call, the verdict is not written and the plan is.
+    let mut calls = rounds();
+    calls.push(asks(1));
+    assert_eq!(step(calls, &spec()), finish_asking_with(vec![prose("plan")]));
+    // Completed by a return that asks for none, the verdict stands, for the check of the whole finds it again.
+    let mut completed = rounds();
+    completed.push(works(&[], vec![]));
+    assert_eq!(
+        step(completed, &spec()),
+        finish(vec![prose("plan"), valued("verdict", "no")])
+    );
+    let unchanged = Unmet::TreeUnchanged {
+        name: "which".to_string(),
+        blocks: vec!["plan".into()],
+    };
+    let before = told(
+        vec![unchanged],
+        handed_in(vec![prose("plan"), valued("verdict", "yes")]),
+    );
+    assert_eq!(
+        step(vec![before, asks(1)], &spec()),
+        finish_asking_with(vec![valued("verdict", "yes")])
+    );
+}
+
+// Reference: the same decision, for a chain: a return that asks for calls and was itself sent back leaves what stood
+// before it standing for the next.
+#[test]
+fn what_stood_before_a_return_that_asks_for_calls_and_was_sent_back_stands_for_the_return_after_it() {
+    let s = must_write(&["verdict"]);
+    let first = told(vec![not_handed_in("verdict")], handed_in(vec![prose("plan")]));
+    let tool = told(vec![Unmet::NotATool { name: "x".to_string() }], asks(1));
+    // Completed by a return that asks for none: the plan of the first stands.
+    assert_eq!(
+        step(
+            vec![first.clone(), tool.clone(), handed_in(vec![valued("verdict", "yes")])],
+            &s
+        ),
+        finish(vec![prose("plan"), valued("verdict", "yes")])
+    );
+    // Ended by another call: the plan is written all the same.
+    assert_eq!(
+        step(vec![first, tool, asks(1)], &s),
+        finish_asking_with(vec![prose("plan")])
+    );
+}
+
+#[test]
+fn a_block_a_fault_names_is_left_out_at_each_return_it_stands_through_to_a_call() {
+    let no_point = Unmet::NoPoint {
+        block: "verdict".into(),
+        value: "no".to_string(),
+        name: "review".into(),
+    };
+    let first = told(vec![no_point], handed_in(vec![prose("plan"), valued("verdict", "no")]));
+    let tool = told(vec![Unmet::NotATool { name: "x".to_string() }], asks(1));
+    // The verdict was left out as the first call return took what stood, and no fault of the return before the last
+    // says it again.
+    assert_eq!(
+        step(vec![first, tool, asks(1)], &spec()),
+        finish_asking_with(vec![prose("plan")])
     );
 }
 
@@ -223,8 +385,9 @@ fn what_the_next_return_completes_is_what_the_last_was_sent_back_for_not_naming(
     // The last return as it stands, not yet judged, is of the run taken together, with nothing left out.
     let whole = together(&rounds, None).expect("a return came back");
     assert_eq!(whole.writes, [prose("plan"), prose("verdict")]);
-    // A return that asked for calls leaves nothing to complete.
-    assert_eq!(carried(&[asks(2)], None), Together::default());
+    // A return that asked for calls with nothing standing before it leaves nothing to complete.
+    let asked = carried(&[asks(2)], None);
+    assert!((asked.writes.is_empty() && asked.dealt_with.is_empty()) && asked.questions.is_empty());
     // A round that failed after the return leaves it as it was.
     let after = [rounds[0].clone(), failed_as(Failure::Flagged)];
     assert_eq!(carried(&after, None), completes);

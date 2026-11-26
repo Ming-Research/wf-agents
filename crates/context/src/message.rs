@@ -115,8 +115,8 @@ pub struct Run {
     /// Why what the rounds of the run returned was sent back, each with the number of an earlier round, or none for
     /// the round's own, in their order.
     pub sent_back: Vec<(Option<usize>, Vec<Unmet>)>,
-    /// The return the round's own reasons are for stands for nothing of what the round gives: it asked for calls, or it
-    /// could not be read, so the round gives it whole (`sent_back.toml`, `again_whole`).
+    /// What the return the round's own reasons are for holds itself stands for nothing of what the round gives: it
+    /// asked for calls, or it could not be read, so the round gives it whole (`sent_back.toml`, `again_whole`).
     pub whole: bool,
     /// The number of each version a reason for sending back names, by its block and the place it was written at.
     pub numbers: BTreeMap<(BlockId, Seq), u64>,
@@ -877,8 +877,8 @@ impl Build<'_> {
             Unmet::NotATest { path } => vec![("path", path.clone())],
             Unmet::Uncommitted { changes } => vec![("changes", changes.clone())],
             Unmet::Merging { changes } => vec![("changes", changes.clone())],
-            Unmet::TreeUnchanged { name } => vec![("name", name.clone())],
-            Unmet::NotAnEntry { line } => vec![("line", line.clone())],
+            Unmet::TreeUnchanged { name, .. } => vec![("name", name.clone())],
+            Unmet::NotAnEntry { line, .. } => vec![("line", line.clone())],
             Unmet::TreeForm { lines } => vec![("faults", lines.join("\n"))],
             Unmet::Unanswered { block } => vec![("block", block.to_string())],
             Unmet::WordOwed { name, watched } => {
@@ -888,6 +888,10 @@ impl Build<'_> {
             }
             Unmet::NoPoint { block: b, value, name } => {
                 vec![block(b), ("value", value.clone()), ("name", name.to_string())]
+            }
+            Unmet::WouldStall { blocks } => {
+                let ticked: Vec<String> = blocks.iter().map(|b| format!("`{b}`")).collect();
+                vec![("blocks", ticked.join(&words.between))]
             }
         };
         // The sentence is the file's for the key the page shows (`Unmet::key`); every key has one (a test holds it).

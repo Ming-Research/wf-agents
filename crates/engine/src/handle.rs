@@ -98,9 +98,18 @@ pub fn handle_then(
         let nothing_but = nothing_but(flow);
         let answers = answers(flow, work, run);
         let log = log(flow, work, run, &told);
-        if let Some(requires) = requires(flow, &choices, &nothing_but, &answers, &told, work, run)
-            && let Step::Finish { dealt_with, writes } =
-                run::next(&log, requires, hold_in(&flow.flow, &work.records, run, room))
+        let stuck = stuck_in(flow, work, &choices, run);
+        if let Some(requires) = requires(
+            flow,
+            &choices,
+            &nothing_but,
+            &answers,
+            &told,
+            Some(run::Stuck(&stuck)),
+            work,
+            run,
+        ) && let Step::Finish { dealt_with, writes } =
+            run::next(&log, requires, hold_in(&flow.flow, &work.records, run, room))
         {
             finish(flow, work, run, &log, dealt_with, writes, &mut effects);
         }
@@ -861,7 +870,17 @@ fn step(flow: &Compiled, work: &mut Work, run: RunId, at: At<'_>, effects: &mut 
     let Some(told) = told(&flow.flow, &work.records, run) else {
         return false;
     };
-    let Some(requires) = requires(flow, &choices, &nothing_but, &answers, &told, work, run) else {
+    let stuck = stuck_in(flow, work, &choices, run);
+    let Some(requires) = requires(
+        flow,
+        &choices,
+        &nothing_but,
+        &answers,
+        &told,
+        Some(run::Stuck(&stuck)),
+        work,
+        run,
+    ) else {
         return false;
     };
     let Some(started) = work.records.started.iter().find(|s| s.run == run) else {
@@ -1077,12 +1096,14 @@ pub(crate) fn nothing_but(flow: &Compiled) -> BTreeMap<BlockId, BTreeMap<String,
 
 /// What the flow requires of what the run's cell returns, with what its round was told; none where the run's cell is
 /// not in the flow.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn requires<'a>(
     flow: &'a Compiled,
     choices: &'a BTreeMap<BlockId, Vec<String>>,
     nothing_but: &'a BTreeMap<BlockId, BTreeMap<String, Vec<BlockId>>>,
     answered_by: &'a BTreeMap<BlockId, Answer>,
     told: &'a Told,
+    stuck: Option<run::Stuck<'a>>,
     work: &Work,
     run: RunId,
 ) -> Option<Requires<'a>> {
@@ -1102,7 +1123,29 @@ pub(crate) fn requires<'a>(
         nothing_but,
         questions: asked::questions_of(flow, &spec.id),
         words: spoken::words_of(flow, &spec.id),
+        stuck,
     })
+}
+
+/// What a return of the run's cell that meets everything else would leave the work unable to do ([`run::Stuck`]): the
+/// blocks of an agent's cell that would let the work go on, as the walk reads the records with the return taken
+/// ([`decide::stuck_blocks`]). An act of the engine's has none.
+pub(crate) fn stuck_in<'a>(
+    flow: &'a Compiled,
+    work: &'a Work,
+    choices: &'a BTreeMap<BlockId, Vec<String>>,
+    run: RunId,
+) -> impl Fn(&[BlockId], &[Write]) -> Vec<BlockId> + 'a {
+    move |dealt_with, writes| {
+        let agent = (work.records.started.iter().find(|s| s.run == run))
+            .and_then(|s| flow.flow.place(&s.cell))
+            .and_then(|place| flow.cells.get(place))
+            .is_some_and(|spec| spec.kind == Kind::Agent);
+        match agent {
+            true => decide::stuck_blocks(&flow.flow, &work.records, run, dealt_with, writes, choices),
+            false => Vec::new(),
+        }
+    }
 }
 
 /// Of each block that runs the run's cell and that an act of the engine's after the cell writes, what runs that act

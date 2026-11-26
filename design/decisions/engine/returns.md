@@ -49,7 +49,7 @@ A return names a group of blocks the cell watches in `dealt_with` by the group's
 - rejected: an agent proposed letting the cell go on past its limit from the page; the owner rejected it, because the fault was in the engine and was to be fixed there, not worked around.
 
 ### decision a-sent-back-return-is-completed-by-what-is-missing
-A return sent back is completed by the next, which gives only what the send-back lists; one that asked for calls or could not be read is given whole again. Each return is kept as it came.
+A return sent back is completed by the next, which gives only what is listed; where the next asks for calls, what stood is written; one that asked for calls or was unread is given whole again.
 - replaced: Sending a return back to be handed in whole again was on main; the owner changed it, because each send-back made the cell write again what was right, and the cell could write something else wrong in doing so.
 - rejected: an agent proposed keeping the return whole as it was and no completing, only no longer sending back for names that change nothing; the owner rejected it, because a real error still made the cell rewrite the whole return, and it might write another part wrong.
 

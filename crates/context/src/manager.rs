@@ -322,8 +322,8 @@ fn entered(
                 sent_back.push(k);
                 let round = (k < number).then_some(k);
                 values.sent_back.push((round, unmet.clone()));
-                // A return that asked for calls or could not be read is completed by nothing, nor does it complete one:
-                // the next gives it whole.
+                // What a return that asked for calls or could not be read holds itself stands for nothing of what the next
+                // gives: the next gives it whole. What stood before it is carried on ([`decide::run::carried`]).
                 if k == number {
                     values.whole = gives_whole(work, run, number);
                 }
@@ -421,10 +421,10 @@ fn numbered<'b>(records: &Records, datum: impl IntoIterator<Item = &'b BlockId>,
     })
 }
 
-/// Whether the return sent back for the round of this number stands alone, completing none and completed by none: it
-/// asked for calls, or it could not be read. It is the latest round before this one that came back or failed unread,
-/// a round that failed in some other way returning nothing. The run's fold reads such a return so
-/// ([`decide::run::carried`]), and the round is told to give it whole.
+/// Whether the return sent back for the round of this number holds nothing the next completes: it asked for calls, or
+/// it could not be read. It is the latest round before this one that came back or failed unread, a round that failed
+/// in some other way returning nothing. The run's fold reads such a return so ([`decide::run::carried`]), and the round
+/// is told to give it whole.
 fn gives_whole(work: &Work, run: RunId, number: usize) -> bool {
     let returned = (1..number).rev().find_map(|round| match work.back.get(&(run, round)) {
         Some(Back::Failed { failure, .. }) if *failure != decide::run::Failure::Unread => None,

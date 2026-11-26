@@ -566,12 +566,13 @@ reasons! {
     NotATest { path: "x".into() } => "not_a_test",
     Uncommitted { changes: "x".into() } => "uncommitted",
     Merging { changes: "x".into() } => "merging",
-    TreeUnchanged { name: "x".into() } => "tree_unchanged",
-    NotAnEntry { line: "x".into() } => "not_an_entry",
+    TreeUnchanged { name: "x".into(), blocks: vec![] } => "tree_unchanged",
+    NotAnEntry { block: None, line: "x".into() } => "not_an_entry",
     TreeForm { lines: vec![] } => "tree_form",
     Unanswered { block: BlockId::from("b") } => "unanswered",
     WordOwed { name: BlockId::from("b"), watched: vec![] } => "word_owed",
     NoPoint { block: BlockId::from("b"), value: "v".into(), name: BlockId::from("b") } => "no_point",
+    WouldStall { blocks: vec![BlockId::from("b")] } => "would_stall",
 }
 
 // Each reason a return is sent back for has the key its words have in `[faults]` of the file, which the owner's page
@@ -665,6 +666,7 @@ fn a_return_that_hands_in_the_change_without_an_answer_marked_tree_in_the_tree_i
     let mut came = Came::hands_in(Vec::new());
     came.found = vec![Unmet::TreeUnchanged {
         name: "placement".to_string(),
+        blocks: Vec::new(),
     }];
     sim.returns(&round, came, 0);
     let again = sim.round().expect("the build's round after it was sent back");

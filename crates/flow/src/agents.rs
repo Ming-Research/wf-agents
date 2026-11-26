@@ -1286,6 +1286,9 @@ pub struct SentBackFaults {
     pub word_owed: String,
     /// `{block}` a verdict written with `{value}`, which does not pass, and no version of its dialogue, `{name}`.
     pub no_point: String,
+    /// `{blocks}` the blocks the cell may write that have no version yet, each between backticks, joined by `between`,
+    /// where the work could not go on with the return taken.
+    pub would_stall: String,
 }
 
 impl SentBackFaults {
