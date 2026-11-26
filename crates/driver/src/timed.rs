@@ -16,6 +16,9 @@
 //!   ([`facts`], [`render`]). The engine judges no new test's time; the reviewer does, with these.
 //! - What each call of `run_tests` asked for and gave, for the work's test review: the datum `test_runs`, one version to
 //!   a call ([`runs`]). The engine reads nothing of a result.
+//! - What each test takes in a fast run: the median of its times in the project's earlier fast runs, by which a request
+//!   of `run_tests` known to take longer than the budget of the fast workflow is refused before it runs
+//!   ([`fast_medians`]). It is no health check: the budget is a bound, and a test no fast run timed is never refused.
 //!
 //! Nothing is judged where the history has fewer values than [`crate::history::HISTORY_SAMPLES`].
 
@@ -24,7 +27,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use flow::Texts;
 use flow::agents::{ResultGiven, fill};
 use store::WorkNumber;
-use work::timed::Source;
+use work::timed::{Reading, Source};
 use work::{Ask, Call, Time, Work};
 
 use crate::history::{line, median};
@@ -376,6 +379,26 @@ pub fn test_time(history: &[Merge], samples: usize) -> Option<f64> {
         .flat_map(|merge| merge.tests.values().map(|millis| *millis as f64))
         .collect();
     line(&values).filter(|line| *line > 0.0)
+}
+
+/// The median of the times of each test the fast runs read gave a time for, in milliseconds, by its name, which is the
+/// name a request of `run_tests` asks for it by: where a run gave a time for several tests of the name, in units of
+/// their own, their times together are what the name took in that run. A test the budget stopped counts with the time
+/// it ran, which is less than it would have taken; one it did not start has no time, and so no reading.
+pub fn fast_medians<'a>(readings: impl Iterator<Item = &'a Reading>) -> BTreeMap<String, f64> {
+    let mut times: BTreeMap<String, Vec<f64>> = BTreeMap::new();
+    for reading in readings.filter(|r| r.source == Source::Fast) {
+        let mut took: BTreeMap<&str, u64> = BTreeMap::new();
+        for test in &reading.tests {
+            *took.entry(test.name.as_str()).or_default() += test.millis;
+        }
+        for (name, millis) in took {
+            times.entry(name.to_string()).or_default().push(millis as f64);
+        }
+    }
+    (times.into_iter())
+        .filter_map(|(name, values)| median(&values).map(|m| (name, m)))
+        .collect()
 }
 
 /// One test of the work's runs, for the datum.
@@ -981,6 +1004,36 @@ mod tests {
                 format!("#2 first asked: {long}"),
             ],
             "with no bound a result is given whole"
+        );
+    }
+
+    // What a test takes in a fast run is the median of its times in the fast runs alone, the full runs' left out; a
+    // name a run reported in two units took their times together there. Reference: the median of 10, 30 and 50 is 30,
+    // of 10 and 30 is 20.
+    #[test]
+    fn a_tests_median_is_of_its_times_in_the_fast_runs_alone_its_units_in_one_run_summed() {
+        let mut two_units = reading(Source::Fast, &[("both", 4)]);
+        two_units.reading.tests.push(Test {
+            unit: "other".to_string(),
+            name: "both".to_string(),
+            passed: false,
+            millis: 6,
+        });
+        let timed = [
+            reading(Source::Fast, &[("a", 10), ("b", 10)]),
+            reading(Source::Fast, &[("a", 50), ("b", 30)]),
+            reading(Source::Fast, &[("a", 30)]),
+            reading(Source::Full, &[("a", 1_000), ("full_only", 5)]),
+            two_units,
+        ];
+        let medians = fast_medians(timed.iter().map(|t| &t.reading));
+        assert_eq!(
+            medians,
+            BTreeMap::from([
+                ("a".to_string(), 30.0),
+                ("b".to_string(), 20.0),
+                ("both".to_string(), 10.0),
+            ])
         );
     }
 }

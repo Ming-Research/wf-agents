@@ -1876,6 +1876,19 @@ impl Driver {
         timed::test_time(&self.merged_checks(held.item.project.as_deref()), self.samples())
     }
 
+    /// The median of each test's times in the earlier fast runs of the work's project, every work of it counted, by the
+    /// name a request of `run_tests` asks for it by ([`timed::fast_medians`]); empty where the work is not held.
+    pub fn fast_medians(&self, work: WorkNumber) -> BTreeMap<String, f64> {
+        let Some(held) = self.works.get(&work) else {
+            return BTreeMap::new();
+        };
+        let project = held.item.project.as_deref();
+        let readings = (self.works.values())
+            .filter(|other| other.item.project.as_deref() == project)
+            .flat_map(|other| other.work.timed.iter().map(|t| &t.reading));
+        timed::fast_medians(readings)
+    }
+
     /// The wait every work shares for the agents' service, if one stands: worked out from the records of every work
     /// and the rounds the service answered while under way ([`outage`]), with the checks of the outside taken in it.
     pub fn outage(&self) -> Option<Outage> {

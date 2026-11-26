@@ -1,8 +1,8 @@
--- From version 34 of the schema to version 35: what a round, a keep-warm ping and a fork took says whether some of its
+-- From version 35 of the schema to version 36: what a round, a keep-warm ping and a fork took says whether some of its
 -- cost is not known, `unpriced`: calls of it that the agents' program reported no cost of, and that no earlier report
 -- of their model prices, the engine keeping no table of prices. What was kept before was priced, from a table of prices
 -- where the program reported nothing: it is 0. The tables are made anew rather than altered, so that a database
--- brought to version 35 holds the same tables as one made with it. The version's one row is replaced last.
+-- brought to version 36 holds the same tables as one made with it. The version's one row is replaced last.
 CREATE TABLE spent_new (
     work INTEGER NOT NULL,
     run INTEGER NOT NULL,
@@ -69,4 +69,4 @@ SELECT work, at, run, round, usd_micros, 0, uncached_tokens, cache_written_token
 FROM forked;
 DROP TABLE forked;
 ALTER TABLE forked_new RENAME TO forked;
-UPDATE schema_version SET version = 35;
+UPDATE schema_version SET version = 36;

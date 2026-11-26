@@ -106,3 +106,40 @@ fn what_the_stopped_round_of_an_abandoned_run_took_is_kept() {
     w.returns_spending(write, hands_in(&[("text", None)]), spent(5));
     assert_eq!(w.work.spent.get(&(write, 1)), Some(&spent(5)));
 }
+
+// A call of run_tests whose tests the fast workflow's budget kept from their end is kept with the work once, said again
+// after the engine started again or not; and only of a call the work made that has no result yet.
+#[test]
+fn a_call_short_of_time_is_kept_once_and_only_of_a_call_with_no_result_yet() {
+    let (mut w, write, _) = W::requested();
+    let call = calls_of(&w.returns(write, Came::asks(vec![tool("run_tests")])))[0].0;
+    let tests = vec![
+        work::Short {
+            name: "slow".to_string(),
+            how: work::ShortHow::Stopped,
+            millis: Some(59_000),
+        },
+        work::Short {
+            name: "later".to_string(),
+            how: work::ShortHow::NotStarted,
+            millis: None,
+        },
+    ];
+    let short = |call: CallId| Event::ShortOfTime {
+        call,
+        budget: 60,
+        tests: tests.clone(),
+    };
+    assert_eq!(w.refused(short(CallId(99))), Refused::NoSuchCall(CallId(99)));
+    w.on(short(call));
+    w.on(short(call));
+    assert_eq!(w.work.short_of_time.len(), 1, "said twice, kept once");
+    let kept = &w.work.short_of_time[0];
+    assert_eq!((kept.call, kept.budget, &kept.tests), (call, 60, &tests));
+    assert!(w.work.tick() > kept.at, "it has a place of its own");
+    // Another call, once it has its result, is too late to be said short of time.
+    let (mut w, write, _) = W::requested();
+    let call = calls_of(&w.returns(write, Came::asks(vec![tool("run_tests")])))[0].0;
+    w.done(call);
+    assert_eq!(w.refused(short(call)), Refused::AlreadyDone(call));
+}

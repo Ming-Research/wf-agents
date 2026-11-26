@@ -24,7 +24,7 @@ pub use measured::{BesideKind, Forked, Measured, Measures, Pinged, SpentBeside};
 pub use observations::Observed;
 pub use sessions::{Left, LeftBehind, Ran, RanOn, Session, Why};
 pub use time::{KeptTime, Stretch, TurnSpan, Went};
-pub use timed::{Reading, Source, Timed};
+pub use timed::{Reading, Short, ShortHow, ShortOfTime, Source, Timed};
 
 /// Everything kept of one work.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -66,6 +66,9 @@ pub struct Work {
     pub forked: Vec<Forked>,
     /// What each run of the project's CI said of how long its tests and jobs took, in order (module [`timed`]).
     pub timed: Vec<Timed>,
+    /// Each call of `run_tests` whose tests the budget of the fast workflow kept from their end, in order (module
+    /// [`timed`]).
+    pub short_of_time: Vec<ShortOfTime>,
     /// Each pull request the host of the work's repository found the work checked through, in order, where it is
     /// another than the one before: the latest is the work's.
     pub pulls: Vec<Pulled>,
@@ -114,6 +117,7 @@ impl Work {
             .chain(self.pinged.iter().map(|p| p.at))
             .chain(self.forked.iter().map(|f| f.at))
             .chain(self.timed.iter().map(|t| t.at))
+            .chain(self.short_of_time.iter().map(|s| s.at))
             .chain(self.pulls.iter().map(|p| p.at))
             .chain(self.flows.iter().map(|f| f.at))
             .chain(self.kept_time.iter().map(|k| k.at));

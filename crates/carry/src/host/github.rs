@@ -861,6 +861,13 @@ impl<A: Api> GitHub<A> {
                 Err(refused) => return Ok(Some(refused)),
             },
         };
+        // Tests known by the project's earlier fast runs to take longer than the budget refuse the whole request
+        // before anything is pushed or run, measurements and the commit to publish included.
+        if fast.is_some()
+            && let Some(refused) = self.refused_for_time(named, asking, stop)?
+        {
+            return Ok(Some(refused));
+        }
         let repo = &self.project.repo;
         let (commit, untracked) = match &named.commit {
             // The agent says which commit to run, so what the worktree holds besides it is of no concern.

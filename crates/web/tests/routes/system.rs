@@ -944,3 +944,70 @@ fn a_read_of_the_system_works_out_again_only_the_works_that_changed_and_gives_wh
         serde_json::to_value(web::system::System::of(&driver, work::Time(START + 700 * S), &[]).unwrap()).unwrap();
     assert_eq!(system["cancelled"].as_array().map(Vec::len), Some(1), "{system}");
 }
+
+// How often the budget of a project's fast workflow kept the tests of a call of run_tests from their end is given by
+// project and by day, the latest day first: how many such calls, and how many tests were stopped, not started and
+// refused. A day runs 24 hours from the start of its week of the span, or from midnight UTC over all time.
+// Reference: START is midnight UTC (1 794 268 800 000 ms is 20 767 days of 86 400 000 ms).
+#[test]
+fn the_calls_the_fast_budget_kept_short_of_time_are_counted_by_project_and_day() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path().join("store.sqlite")).unwrap();
+    let flow = flow::compile(
+        &flow::read(&crate::trial_dir().join("flow")).unwrap(),
+        &crate::trial_has(&flow::Source::default()),
+    )
+    .unwrap();
+    let (mut driver, _) = driver::Driver::open(Box::new(store), vec![flow], 10, None, None, work::Time(START)).unwrap();
+    let short = |name: &str, how: work::ShortHow| work::Short {
+        name: name.to_string(),
+        how,
+        millis: None,
+    };
+    let kept = |call, tests| engine::Event::ShortOfTime {
+        call,
+        budget: 600,
+        tests,
+    };
+    let (first, call) = asking(&mut driver, START + 1_000);
+    let tests = vec![
+        short("slow", work::ShortHow::Stopped),
+        short("later", work::ShortHow::NotStarted),
+    ];
+    happened(&mut driver, START + 2_000, first, kept(call, tests));
+    let (second, call) = asking(&mut driver, START + DAY + 5_000);
+    let tests = vec![
+        short("long", work::ShortHow::Refused),
+        short("with it", work::ShortHow::Refused),
+    ];
+    happened(&mut driver, START + DAY + 6_000, second, kept(call, tests));
+    let (third, call) = asking(&mut driver, START + DAY + 7_000);
+    let tests = vec![short("long", work::ShortHow::Refused)];
+    happened(&mut driver, START + DAY + 8_000, third, kept(call, tests));
+    let now = work::Time(START + 2 * DAY);
+    let day = |day: u64, calls: usize, [stopped, not_started, refused]: [usize; 3]| {
+        json!({
+            "project": "trial", "day": day, "calls": calls,
+            "stopped": stopped, "notStarted": not_started, "refused": refused
+        })
+    };
+    let system = serde_json::to_value(web::system::System::of(&driver, now, &[]).unwrap()).unwrap();
+    assert_eq!(
+        system["shortOfTime"],
+        json!([day(START + DAY, 2, [0, 0, 3]), day(START, 1, [1, 1, 0])]),
+        "over all time, by the day from midnight UTC"
+    );
+    let week = START - 3 * 60 * 60 * 1000;
+    let system = serde_json::to_value(web::system::System::of(&driver, now, &[week]).unwrap()).unwrap();
+    assert_eq!(
+        system["shortOfTime"],
+        json!([day(week + DAY, 2, [0, 0, 3]), day(week, 1, [1, 1, 0])]),
+        "over a span, by the day from the start of its week"
+    );
+    let system = serde_json::to_value(web::system::System::of(&driver, now, &[START + DAY]).unwrap()).unwrap();
+    assert_eq!(
+        system["shortOfTime"],
+        json!([day(START + DAY, 2, [0, 0, 3])]),
+        "only the days of the span"
+    );
+}
