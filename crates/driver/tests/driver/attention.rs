@@ -3,8 +3,8 @@
 //! have all ended, each once from the mark after it came to stand so, since the time it did; never a work going on; the
 //! same answer for the same mark, a restart between or not; at most a number of lines, the rest coming again.
 
-use driver::Asked;
 use driver::attention::{Attention, Heed, Idle, LINES, Line, Mark, Refused, Stuck};
+use driver::{Asked, NewItem};
 use rusqlite::{Connection, params};
 use store::ItemChange;
 
@@ -817,9 +817,9 @@ fn a_red_main_is_a_line_once_for_each_time_it_came_to_be_and_main_moving_on_ends
     let mut h = H::with(vec![checked()]);
     let (_, w) = h.add(new_item("a", &[], "checked"));
     h.outside("main", "Main is at m1.");
+    comes_to_its_check(&mut h, w);
     let first = since(&h, None);
     assert_eq!(heeds(&first), vec![], "main is not red before a check reads it");
-    comes_to_its_check(&mut h, w);
     let read = finds_main_red(&mut h, w, "run/1/round/1", "own1", "m1");
     let answer = since(&h, Some(&first.mark));
     assert_eq!(
