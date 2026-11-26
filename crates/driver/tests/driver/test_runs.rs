@@ -182,13 +182,13 @@ fn a_result_over_the_tools_bound_is_cut_in_the_version_with_the_datums_words() {
         work,
         driver::timed::RUN_TESTS,
         "{}",
-        &format!("{}\n\n", "c".repeat(20)),
+        &format!("{}\n\n", "c".repeat(10)),
     );
     assert_eq!(
         versions(&h, work),
         [
             format!("Call 1, asked as {{}}. It gave:\n{}\n\n(cut: 19 of 51)", "a".repeat(19)),
-            format!("Call 2, asked as {{}}. It gave:\n{}", "c".repeat(20)),
+            format!("Call 2, asked as {{}}. It gave:\n{}", "c".repeat(10)),
         ],
         "the first result is cut before the character the bound falls in, the second is whole with its trailing blanks left off"
     );

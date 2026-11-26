@@ -945,7 +945,7 @@ mod tests {
         work.calls.insert(CallId(5), tool(RUN_TESTS, "second asked"));
         work.calls.insert(CallId(6), tool("query", "other"));
         work.calls.insert(CallId(7), tool(RUN_TESTS, "not ended"));
-        // Nine bytes, then characters of two bytes each: the bound of ten bytes falls inside the first of them.
+        // Nine bytes, then characters of two bytes each: the bound of sixteen bytes falls inside the fourth of them.
         let long = format!("{}{}", "x".repeat(9), "é".repeat(5));
         for (n, (call, result)) in [(5, "ended first {n}\n"), (6, "q"), (4, long.as_str())]
             .into_iter()
@@ -962,14 +962,14 @@ mod tests {
             ("cut".to_string(), "(cut: {given} of {size})".to_string()),
         ]);
         let given = ResultGiven {
-            bound: 10,
+            bound: 16,
             cut: "(cut: {given} of {size}, in {file})".to_string(),
         };
         assert_eq!(
             runs(&work, &texts, Some(&given)),
             [
                 "#1 second asked: ended first {n}".to_string(),
-                "#2 first asked: xxxxxxxxx\n\n(cut: 9 of 19)".to_string(),
+                "#2 first asked: xxxxxxxxxééé\n\n(cut: 15 of 19)".to_string(),
             ],
             "a result longer than the bound is cut before the character the bound falls in, with no file named, and a \
              shorter one is whole"
