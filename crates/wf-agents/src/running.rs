@@ -600,6 +600,10 @@ fn start(settings: &carry::Settings, beside: &flow::agents::Agents, flows: &[Com
     let words = carry::word_faults(&beside.acts.check).into_iter();
     faults.extend(words.map(|fault| format!("{}/{fault}", beside.root.display())));
     faults.extend(carry::permissions::faults(beside, &settings.agents.command));
+    faults.extend(carry::cli::kept_faults(
+        &settings.agents.env,
+        &beside.refused.environment,
+    ));
     let (declared, wrong) = carry::projects::declared(settings, beside, flows);
     faults.extend(wrong);
     let held = (declared.iter())
