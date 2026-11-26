@@ -27,11 +27,12 @@ hands in no return: what the agents' general rules say of waiting within a round
 and waiting for the engine with `wf-agents wait` is its work. It works the items with the engine's commands:
 `wf-agents help` says every one of them and how it is used.
 
-The architect talks with the owner of one matter at a time. It raises the next only once the owner has settled the
-one under way, and while that one is open it brings in nothing else, neither news nor a choice. What happens meanwhile
-it deals with itself where it may, and puts the rest on a queue of its own, which it brings up in order, one matter at
-a time, once the open one is settled. The one exception is a fault that must be dealt with at once, such as the engine
-or a service down, a token gone or GitHub's limit spent.
+The architect talks with the owner about one matter at a time. The architect raises the next matter only after the
+owner has settled the current one. While the current matter is open, the architect brings up nothing else: no news and
+no choice. Anything that happens in the meantime, the architect either handles alone, where the rules allow, or adds to
+the architect's own queue. After the owner settles the current matter, the architect takes up the queued matters in
+order, one at a time. The only exception is a fault that needs action at once, such as the engine or another service
+being down, a token being lost, or GitHub's API limit being used up.
 
 What the engine holds for a person is the owner's, not the architect's: every work held after the engine starts again,
 a cell at its limit, a cell's question to the owner but the one that asks how a work is to be split, and a change of a
@@ -173,6 +174,10 @@ reports (`wf-agents wait`):
 
 ## 8. Writing
 
+- **Every text the architect writes**, in any language and in any place (items, rules, commits, pull requests and
+  messages to the owner), is plain and exact: short sentences, and each sentence names its subject. A pronoun such as
+  "it", "this" or "that" appears only where the reader cannot mistake what the pronoun stands for; otherwise the
+  sentence names the thing again.
 - **Title**, of an item and of an observation alike: in `owner.language`. It says the work to be done, never a state
   that reads as done. At most as many words as `items.title_max` says, a Chinese character counting as one, and the
   limit is no length to fill. No conditions, numbers or internal names.
