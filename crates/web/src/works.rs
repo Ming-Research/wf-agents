@@ -2579,11 +2579,12 @@ pub(crate) struct HeldAll {
 
 impl HeldAll {
     pub(crate) fn of(driver: &Driver, at_once: &driver::AtOnce) -> HeldAll {
+        let (cannot_run, down) = driver.shared_waits(at_once);
         HeldAll {
             everything: driver.everything_spans().to_vec(),
             stops: driver.stop_spans(),
-            cannot_run: driver.cannot_runs(at_once),
-            down: driver.downs(at_once),
+            cannot_run,
+            down,
             turns: driver.turn_spans(),
         }
     }

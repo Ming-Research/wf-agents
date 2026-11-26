@@ -1391,8 +1391,7 @@ impl Driver {
             return Ok(());
         }
         let at_once = self.at_once();
-        let cannot_run = self.cannot_runs(&at_once);
-        let down = self.downs(&at_once);
+        let (cannot_run, down) = self.shared_waits(&at_once);
         let stops = self.stop_spans();
         for number in numbers {
             let Some(held) = self.works.get(&number) else {
@@ -2603,22 +2602,26 @@ impl Driver {
     /// worked out from the records of every work, and the one that stands now, where one does, from what every work
     /// reads alike ([`AtOnce::cannot_run`]).
     pub fn cannot_runs(&self, at_once: &AtOnce) -> Vec<CannotRun> {
-        let mut waits = outage::cannot_run_spans(self.rounds());
-        waits.extend(at_once.cannot_run().map(|(since, why)| CannotRun {
-            from: since,
-            until: None,
-            why: why.to_string(),
-        }));
-        waits
+        self.shared_waits(at_once).0
     }
 
     /// Each stretch in which a cause every work shares held the rounds of agents, in order, as a bar reads them: those that
     /// are over, worked out from the records of every work, and the one that stands now, where one does, from what every
     /// work reads alike ([`AtOnce::down`]).
     pub fn downs(&self, at_once: &AtOnce) -> Vec<Down> {
-        let mut waits = outage::down_spans(self.rounds());
-        waits.extend(at_once.down().map(|from| Down { from, until: None }));
-        waits
+        self.shared_waits(at_once).1
+    }
+
+    /// [`Driver::cannot_runs`] and [`Driver::downs`], worked out from the records of every work once, for a reader of both.
+    pub fn shared_waits(&self, at_once: &AtOnce) -> (Vec<CannotRun>, Vec<Down>) {
+        let (mut cannot_run, mut down) = outage::shared_spans(self.rounds());
+        cannot_run.extend(at_once.cannot_run().map(|(since, why)| CannotRun {
+            from: since,
+            until: None,
+            why: why.to_string(),
+        }));
+        down.extend(at_once.down().map(|from| Down { from, until: None }));
+        (cannot_run, down)
     }
 
     /// Each stretch another work of the work's project held the turn to check and merge, which what the work waited for

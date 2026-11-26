@@ -1469,11 +1469,12 @@ impl System {
         // the latest to now.
         let held = || parts.kept.values().map(|(_, _, part)| part);
         let slots = driver.slots_history();
-        system.waited = WaitedFor::of(held(), from, now.0, slots);
+        let crowds = Crowds::of(held(), now.0);
+        system.waited = WaitedFor::of(held(), from, now.0, &crowds, slots);
         let starts: Vec<u64> = weeks.to_vec();
         for week in &mut system.weeks {
             let next = starts.iter().find(|start| **start > week.start).copied();
-            week.waited = WeekWaited::of(held(), (week.start, next.unwrap_or(now.0)), now.0, slots);
+            week.waited = WeekWaited::of(held(), (week.start, next.unwrap_or(now.0)), now.0, &crowds, slots);
         }
         system.by_project = (by_project.into_iter())
             .map(|(project, spent)| ProjectSpent { project, spent })
@@ -1588,42 +1589,74 @@ fn slots_in(history: &[store::SlotsRecord], window: (u64, u64)) -> (Option<usize
     (most, history.first().is_some_and(|first| first.at.0 <= window.0))
 }
 
-/// How many of these stretches, each from a time to its end (none while under way, which is `now`), overlapped at a
-/// time, in the window: the average by time, in thousandths of a stretch, and the most at once.
-fn crowd(stretches: impl Iterator<Item = (u64, Option<u64>)>, window: (u64, u64), now: u64) -> (u64, usize) {
-    let mut moves: Vec<(u64, i64)> = Vec::new();
-    for (from, until) in stretches {
-        let (from, until) = (from.max(window.0), until.unwrap_or(now).min(window.1));
-        if until > from {
-            moves.push((from, 1));
-            moves.push((until, -1));
+/// How many stretches there were at each time, from stretches each from a time to its end (none while under way, which is
+/// `now`): the times at which one began, counted up, and one ended, counted down, in order, where one that ends at a time
+/// counts before one that begins at it, so that nothing is counted twice at once. Sorted once, it gives the crowd of
+/// each window in a pass.
+struct Crowd {
+    moves: Vec<(u64, i64)>,
+}
+
+impl Crowd {
+    fn of(stretches: impl Iterator<Item = (u64, Option<u64>)>, now: u64) -> Crowd {
+        let mut moves: Vec<(u64, i64)> = Vec::new();
+        for (from, until) in stretches {
+            let until = until.unwrap_or(now);
+            if until > from {
+                moves.push((from, 1));
+                moves.push((until, -1));
+            }
+        }
+        moves.sort_unstable();
+        Crowd { moves }
+    }
+
+    /// How many of them overlapped at a time in the window: the average by time, in thousandths of a stretch, and the
+    /// most at once.
+    fn within(&self, window: (u64, u64)) -> (u64, usize) {
+        if window.1 <= window.0 {
+            return (0, 0);
+        }
+        let begun = self.moves.partition_point(|(time, _)| *time <= window.0);
+        let mut level: i64 = self.moves[..begun].iter().map(|(_, step)| step).sum();
+        let (mut peak, mut area, mut at) = (level, 0_u128, window.0);
+        for &(time, step) in self.moves[begun..].iter().take_while(|(time, _)| *time < window.1) {
+            area += (level as u128) * u128::from(time - at);
+            (level, at) = (level + step, time);
+            peak = peak.max(level);
+        }
+        area += (level as u128) * u128::from(window.1 - at);
+        let average = (area * 1000) / u128::from(window.1 - window.0);
+        (average as u64, peak as usize)
+    }
+}
+
+/// How many works held a slot, and how many ran, at each time: from the stretches of every work that kept them.
+struct Crowds {
+    taking: Crowd,
+    running: Crowd,
+}
+
+impl Crowds {
+    fn of<'p>(parts: impl Iterator<Item = &'p Part> + Clone, now: u64) -> Crowds {
+        let stretches = |pick: fn(&Part) -> &Spans| {
+            Crowd::of(
+                parts.clone().flat_map(move |part| pick(part).iter().flatten().copied()),
+                now,
+            )
+        };
+        Crowds {
+            taking: stretches(|part| &part.taking),
+            running: stretches(|part| &part.running),
         }
     }
-    // Where one ends and another begins at one time, the end counts first, so that nothing is counted twice at once.
-    moves.sort();
-    let (mut level, mut peak, mut area, mut at) = (0_i64, 0_i64, 0_u128, window.0);
-    for (time, step) in moves {
-        area += (level as u128) * u128::from(time.saturating_sub(at));
-        (level, at) = (level + step, time);
-        peak = peak.max(level);
-    }
-    let length = u128::from(window.1.saturating_sub(window.0));
-    let average = (area * 1000).checked_div(length).map_or(0, |average| average as u64);
-    (average, peak as usize)
 }
 
 impl Occupancy {
-    /// How many works held a slot and how many ran in the window, from the stretches of the works that kept them.
-    fn of<'p>(
-        parts: impl Iterator<Item = &'p Part> + Clone,
-        window: (u64, u64),
-        now: u64,
-        history: &[store::SlotsRecord],
-    ) -> Occupancy {
-        let stretches =
-            |pick: fn(&Part) -> &Spans| parts.clone().flat_map(move |part| pick(part).iter().flatten().copied());
-        let (taking_avg, taking_peak) = crowd(stretches(|part| &part.taking), window, now);
-        let (running_avg, running_peak) = crowd(stretches(|part| &part.running), window, now);
+    /// How many works held a slot and how many ran in the window, against the slots there were.
+    fn of(crowds: &Crowds, window: (u64, u64), history: &[store::SlotsRecord]) -> Occupancy {
+        let (taking_avg, taking_peak) = crowds.taking.within(window);
+        let (running_avg, running_peak) = crowds.running.within(window);
         let (slots, recorded) = slots_in(history, window);
         Occupancy {
             taking_avg,
@@ -1643,6 +1676,7 @@ impl WaitedFor {
         parts: impl Iterator<Item = &'p Part> + Clone,
         from: Option<u64>,
         now: u64,
+        crowds: &Crowds,
         history: &[store::SlotsRecord],
     ) -> WaitedFor {
         let begins = (parts.clone())
@@ -1676,7 +1710,7 @@ impl WaitedFor {
                 queued_longest_ms: queued.iter().max().copied(),
                 queued_median_ms: median_of(queued),
             },
-            occupancy: Occupancy::of(parts.clone(), window, now, history),
+            occupancy: Occupancy::of(crowds, window, history),
             uncounted: parts
                 .filter(|part| part.stops.is_none() || part.taking.is_none())
                 .count(),
@@ -1690,6 +1724,7 @@ impl WeekWaited {
         parts: impl Iterator<Item = &'p Part> + Clone,
         window: (u64, u64),
         now: u64,
+        crowds: &Crowds,
         history: &[store::SlotsRecord],
     ) -> WeekWaited {
         let mut by = tallies(parts.clone(), window, now);
@@ -1700,7 +1735,7 @@ impl WeekWaited {
         WeekWaited {
             total_ms,
             ci_ms: ci_tally(parts.clone(), window).total,
-            occupancy: Occupancy::of(parts, window, now, history),
+            occupancy: Occupancy::of(crowds, window, history),
         }
     }
 }
@@ -2044,7 +2079,8 @@ mod tests {
             longest_ms,
         };
         let none = stopped(0, 0, None, None);
-        let waited = WaitedFor::of(parts.iter(), Some(0), 100_000, &history);
+        let crowds = Crowds::of(parts.iter(), 100_000);
+        let waited = WaitedFor::of(parts.iter(), Some(0), 100_000, &crowds, &history);
         assert_eq!(
             waited.by,
             [
@@ -2085,7 +2121,7 @@ mod tests {
             }
         );
         // The span with no first week begins where the earliest of what the works did does.
-        assert_eq!(WaitedFor::of(parts.iter(), None, 100_000, &history), waited);
+        assert_eq!(WaitedFor::of(parts.iter(), None, 100_000, &crowds, &history), waited);
         // Slots held: one from 0 to 20 s, two to 40 s, one to 60 s; ran: two to 50 s, then one, the round under way
         // counted to now.
         assert_eq!(
@@ -2103,7 +2139,7 @@ mod tests {
         // ended: the owner's 30..60 s stop is none of this week's though most of it is.
         let week = (20_000, 50_000);
         assert_eq!(
-            WeekWaited::of(parts.iter(), week, 100_000, &history),
+            WeekWaited::of(parts.iter(), week, 100_000, &crowds, &history),
             WeekWaited {
                 total_ms: [25_000, 0, 0, 0, 0],
                 ci_ms: 5_000,
@@ -2154,12 +2190,22 @@ mod tests {
             "kept only after the window"
         );
         let touching = [(0, Some(10_000)), (10_000, Some(20_000))];
-        assert_eq!(crowd(touching.into_iter(), (0, 20_000), 20_000), (1_000, 1));
-        assert_eq!(crowd([].into_iter(), (0, 20_000), 20_000), (0, 0));
+        assert_eq!(Crowd::of(touching.into_iter(), 20_000).within((0, 20_000)), (1_000, 1));
+        assert_eq!(Crowd::of([].into_iter(), 20_000).within((0, 20_000)), (0, 0));
         assert_eq!(
-            crowd([(0, None)].into_iter(), (0, 0), 0),
+            Crowd::of([(0, None)].into_iter(), 0).within((0, 0)),
             (0, 0),
             "a window with no length"
+        );
+        // Three stretches, the last going on to now (60): over 20..45 two held from the start of it to 30, one to 40, and
+        // two to its end, for 20, 10 and 10 of its 25 more, the most at once two.
+        let crowd = Crowd::of([(0, Some(30)), (10, Some(50)), (40, None)].into_iter(), 60);
+        assert_eq!(crowd.within((20, 45)), (1_600, 2));
+        assert_eq!(crowd.within((50, 60)), (1_000, 1), "the one going on alone, to now");
+        assert_eq!(
+            crowd.within((60, 90)),
+            (0, 0),
+            "nothing begins at the time the others end"
         );
     }
 
