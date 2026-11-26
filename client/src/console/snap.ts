@@ -2848,7 +2848,7 @@ export class SnapScene {
   /// either end in the middle.
   private buildMap(t: Tree) {
     this.map.removeChildren();
-    this.mapHigh = pixelsOf('--map-high', MAP_HIGH);
+    this.mapHigh = MAP_HIGH;
     let longest = 1;
     for (let d = 0; d < t.columns.length; d += 1) {
       const n = t.columns[d].length;

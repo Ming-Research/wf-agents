@@ -608,6 +608,37 @@ describe('the tree in columns', () => {
     holds(1, 2);
   });
 
+  it("makes the map as high as the page's `--map-high` says, and 72 pixels where the token is not in pixels", () => {
+    const root = document.documentElement;
+    let draws = 0;
+    /// The middle of the frame on the map, and how tall the first item's piece is, as drawn once the map is made again:
+    /// the same thirty roots under new numbers each time, as a tree the scene shows again to the same items makes
+    /// nothing again, and the map is made as the tree is.
+    const drawn = (value: string) => {
+      root.style.setProperty('--map-high', value);
+      draws += 100;
+      scene.show(Array.from({ length: 30 }, (_, k) => card(draws + k + 1)));
+      settle(scene);
+      const { frame, pieces } = scene.drawnMap();
+      if (frame === null) throw new Error('no frame on the map');
+      return { middle: frame.y + frame.height / 2, tall: pieces[0].height };
+    };
+    try {
+      const page = drawn('72px');
+      const high = drawn('90px');
+      expect(high.middle).toBeCloseTo(90 / 2, 6);
+      // A piece is as tall as its rows of the map's height less the 8 pixels of room on each side.
+      expect(high.tall / page.tall).toBeCloseTo((90 - 2 * 8) / (72 - 2 * 8), 6);
+      for (const value of ['3em', 'tall']) {
+        const fallen = drawn(value);
+        expect(fallen.middle, value).toBeCloseTo(72 / 2, 6);
+        expect(fallen.tall, value).toBeCloseTo(page.tall, 6);
+      }
+    } finally {
+      root.style.removeProperty('--map-high');
+    }
+  });
+
   it('draws a card whose work halted before its first round in red, as one that halted after it, with no second row', () => {
     const fault: Now = { kind: 'fault', words: 'No session' };
     const halted = (k: number, from: number | null): Shown => ({ ...card(k), work: { ...running(k), now: fault, from } });
