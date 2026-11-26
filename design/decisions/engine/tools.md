@@ -69,7 +69,7 @@ Every project meets one contract for its tests: JUnit results, one name for a te
 - replaced: A declaration that may leave out the fast or the full workflow was on main; the owner changed it, because `run_tests` runs only the fast workflow and the check before the merge only the full ones, so a project without one cannot have its tests run or its work checked.
 
 ### decision each-workflow-runs-where-the-project-says
-Each of a project's workflows runs on the runner its declaration names, and is not asked for when the installation has no such runner for the repository.
+Each workflow the engine runs for a project runs on the runner its declaration names, and is not asked for when the installation has no such runner for the repository.
 - replaced: The fast workflow running only on the owner's build machine was on main; the owner changed it, because GitHub's machines are now good enough as well.
 
 ### decision agents-read-the-records-by-one-query

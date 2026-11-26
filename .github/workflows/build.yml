@@ -1,0 +1,80 @@
+name: build
+
+# The program the owner installs: `wf-agents` for macOS on arm64, with the owner's page and the flows built into it, made
+# at one commit of `main` and kept as an artifact, so that an install takes it and compiles nothing on the machine it
+# runs on (docs/installing.md says how). It serves whoever installs, and the engine does not read it: it asks for no run
+# of it, judges no merge by it and has no entry for it in `wf-agents.toml`.
+#
+# It runs on each push to `main`, and a run that is still going when the next push comes is cancelled, so that the
+# newest push's run is the one that is never cancelled: the install takes the build of main's head, and no other.
+# Where that run is not there, is still going or is red, there is nothing to install, and the install says so.
+#
+# It is the one job that builds off the owner's own machine: it runs on GitHub's macOS machine on arm64, because the
+# program is for that machine and the runners of the owner's build machine are Linux (decision
+# `wf-agents-ci-runs-on-the-owners-machine`).
+# The repository is public, so such a run costs nothing. It reads the repository and nothing else: it has no token that
+# writes, and the artifact holds only what the repository holds.
+run-name: build ${{ github.sha }}
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-main
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    # A margin over the 8 to 20 minutes a release build is expected to take; GitHub's own limit is six hours.
+    timeout-minutes: 30
+    env:
+      CARGO_TERM_COLOR: always
+      # The commit the program says it was built from (`wf-agents --version`).
+      WF_BUILD_COMMIT: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # No later step pushes, so the token is not left in the checkout.
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      # The page is built into the program (crates/web/build.rs), so it is built before the program is.
+      - name: Build the page
+        working-directory: client
+        run: |
+          npm ci
+          npm run build
+      # The toolchain is the one rust-toolchain.toml names, which rustup installs on the first call of cargo.
+      - name: Build the program
+        run: cargo build --release --locked -p wf-agents
+      # The program says the commit it was built from, as the build was given it: one that says another was built from
+      # another source than the one this run is for.
+      - name: Check the program names the commit
+        run: |
+          said=$(target/release/wf-agents --version)
+          case "$said" in
+            *"($WF_BUILD_COMMIT)") echo "$said" ;;
+            *)
+              echo "wf-agents --version says: $said; the commit built is $WF_BUILD_COMMIT" >&2
+              exit 1
+              ;;
+          esac
+      # A tar keeps the file's executable mark, which the artifact's zip does not.
+      - name: Pack the program
+        run: tar -C target/release -cf wf-agents-macos-arm64.tar wf-agents
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: wf-agents-macos-arm64-${{ github.sha }}
+          path: wf-agents-macos-arm64.tar
+          retention-days: 30
+          compression-level: 0
+          if-no-files-found: error
