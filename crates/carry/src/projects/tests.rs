@@ -150,6 +150,7 @@ fn call(item: Item) -> ToolCall {
         item,
         kept: Arc::new(Work::default()),
         test_time: None,
+        red_on_main: Vec::new(),
     }
 }
 

@@ -109,6 +109,8 @@ pub mod judged;
 
 pub mod owner;
 
+pub mod red_main;
+
 pub mod sessions;
 
 pub mod time;
@@ -166,6 +168,10 @@ pub const MERGED: &str = "merged";
 /// The source of the block the driver writes as the owner starts a work: the work, added paused, is let on with nothing
 /// of it started. The block has no content to speak of; its version is what runs the cell that starts the work.
 pub const START: &str = "start";
+
+/// The source of the blocks the engine writes as the head of a project's main branch changes: each work of the
+/// project's items that has not ended is told the head, and the check before its merge runs again on it.
+pub const MAIN: &str = "main";
 
 /// What is wrong with the flow for what the engine writes, each in words with the file that says what it writes into
 /// the block: a block of [`DEPENDENCIES`], of [`START`], of [`timed::TEST_TIMES`], of [`timed::TEST_RUNS`], of
