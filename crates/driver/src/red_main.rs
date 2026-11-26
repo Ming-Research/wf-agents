@@ -532,8 +532,8 @@ mod tests {
         assert_eq!(red.tests[0].head, "B");
         assert_eq!(
             red.since,
-            Time(1000),
-            "the streak is of the readings up to the one on the current head"
+            Time(1200),
+            "the streak begins with the first reading on main, the one on the head main left, and ends with the one on the current head"
         );
     }
 
