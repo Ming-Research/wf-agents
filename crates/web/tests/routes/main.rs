@@ -17,6 +17,7 @@ mod engine;
 mod failing;
 mod given;
 mod items;
+mod kept;
 mod observations;
 mod other_sites;
 mod page;
@@ -350,6 +351,20 @@ pub fn running_flow_on_levels(
     source: &Source,
     levels: service::Levels,
 ) -> Running {
+    running_kept(store, dir, carriers, source, levels, web::items_cache::BOUND_MS).0
+}
+
+/// [`running_flow_on_levels`], with the items kept for this many milliseconds where something is under way, and with the
+/// cache they are kept in, to see what it has worked out, and the loop's handle, to read the items through a cache of
+/// another's.
+pub fn running_kept(
+    store: Box<dyn store::Storage + Send>,
+    dir: tempfile::TempDir,
+    carriers: service::Carriers,
+    source: &Source,
+    levels: service::Levels,
+    bound: u64,
+) -> (Running, Arc<web::items_cache::ItemsCache>, service::Handle) {
     let flow = flow::compile(source, &trial_has(&Source::default())).unwrap();
     let clock = Arc::new(TokioClock::new(work::Time(START)));
     let (service, inbox) = Service::open(store, vec![flow], carriers, clock).unwrap();
@@ -363,10 +378,16 @@ pub fn running_flow_on_levels(
         levels.clone(),
         projects(),
     );
-    Running {
-        router: web::with_works(flows, handle, levels, projects()).merge(observations),
+    let cache = Arc::new(web::items_cache::ItemsCache::bounded(
+        handle.clone(),
+        levels.clone(),
+        bound,
+    ));
+    let running = Running {
+        router: web::with_works_over(flows, cache.clone(), handle.clone(), levels, projects()).merge(observations),
         _dir: dir,
-    }
+    };
+    (running, cache, handle)
 }
 
 /// The levels an item is added at: `1` and `2`, the default, and `3`, above the highest an item may be at and the

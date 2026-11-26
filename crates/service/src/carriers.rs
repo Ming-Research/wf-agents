@@ -22,7 +22,7 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use decide::run::Failure;
-use decide::{BlockId, CallId, End, Outsider, Pauser, RunId, Seq};
+use decide::{BlockId, CallId, End, Outsider, Pauser, RunId};
 use driver::history::Lines;
 use driver::{Accounts, Along, Found, Going, Instead, Policy, Said, Under};
 use engine::{Came, Event};
@@ -457,19 +457,13 @@ pub struct Doings {
 }
 
 /// A work as the carrier of its project's repository is asked of it, off the loop: its number; its item, whose
-/// project says which repository; where it merged and no pull request of it is kept, what its merge wrote, which
-/// names the commit its merge made; and how far its records had come, with whether a round of it or a tool run for
-/// it was under way, which say how long what git says of it holds.
+/// project says which repository; and, where it merged and no pull request of it is kept, what its merge wrote, which
+/// names the commit its merge made.
 #[derive(Clone, Debug)]
 pub struct OfWork {
     pub work: WorkNumber,
     pub item: Item,
     pub merged: Option<String>,
-    /// The place the work's next record takes ([`work::Work::tick`]).
-    pub place: Seq,
-    /// Whether a round of the work or a tool run for it is under way ([`work::Work::under_way`]): only these change
-    /// what its branch and worktree hold, and each is recorded as it begins and ends.
-    pub under_way: bool,
 }
 
 impl OfWork {
@@ -479,8 +473,6 @@ impl OfWork {
             work: kept.head.number,
             item: kept.item.clone(),
             merged,
-            place: kept.work.tick(),
-            under_way: kept.work.under_way(),
         }
     }
 }

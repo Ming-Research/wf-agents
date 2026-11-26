@@ -175,16 +175,18 @@ async fn a_work_that_merged_keeping_no_pull_request_is_given_the_one_its_merge_n
         post(router, "/api/v1/works/1/acts", &answer).await.0,
         StatusCode::NO_CONTENT
     );
+    // The read that finds the work merged does not wait for the look at its repository, which names the pull request:
+    // the next read gives it.
+    let pull = json!({ "number": 5, "url": "https://github.com/o/r/pull/5" });
     let mut summary = Value::Null;
     for _ in 0..240 {
         summary = get_json(router, "/api/v1/works/1").await["summary"].clone();
-        if summary["now"]["kind"] == "merged" {
+        if summary["now"]["kind"] == "merged" && summary["pull"] == pull {
             break;
         }
         pass(250).await;
     }
     assert_eq!(summary["now"]["kind"], "merged", "{summary}");
-    let pull = json!({ "number": 5, "url": "https://github.com/o/r/pull/5" });
     assert_eq!(summary["pull"], pull);
 }
 
