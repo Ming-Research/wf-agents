@@ -48,7 +48,15 @@ fn deep_is_a_choice() -> BTreeMap<BlockId, Vec<String>> {
 /// The blocks that would let the work go on, where the research, its round ended, finishes dealing with the background
 /// and writing these.
 fn stuck_after(w: &mut World, writes: &[(&str, Says)]) -> Vec<BlockId> {
+    stuck_after_pausing(w, writes, false)
+}
+
+/// The same, where `pausing` has the owner pause the work while the research's round is under way.
+fn stuck_after_pausing(w: &mut World, writes: &[(&str, Says)], pausing: bool) -> Vec<BlockId> {
     let run = w.start("research");
+    if pausing {
+        w.pause();
+    }
     w.returns("research");
     let writes: Vec<Write> = writes
         .iter()
@@ -128,11 +136,12 @@ fn a_precondition_the_owner_may_also_make_hold_is_one_no_cell_will_make_hold_eit
 #[test]
 fn a_paused_work_is_stuck_where_it_would_be_if_it_were_not_and_not_where_a_cell_would_go_on() {
     let mut w = research_to_merge(the_research());
-    w.pause();
-    assert_eq!(stuck_after(&mut w, &[("deep", Value("no"))]), ["plan".into()]);
+    assert_eq!(
+        stuck_after_pausing(&mut w, &[("deep", Value("no"))], true),
+        ["plan".into()]
+    );
     let mut w = research_to_merge(the_research());
-    w.pause();
-    assert!(stuck_after(&mut w, &[("deep", Value("no")), ("plan", Matters)]).is_empty());
+    assert!(stuck_after_pausing(&mut w, &[("deep", Value("no")), ("plan", Matters)], true).is_empty());
 }
 
 // A work that waits at its last cell for what only the owner writes is not waiting for what cells write: it is to be
