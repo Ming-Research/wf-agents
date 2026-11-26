@@ -247,6 +247,65 @@ pub fn plain() -> Compiled {
     compiled(&flow, &[("write", write), ("merge", merge)])
 }
 
+/// A writer, run by the owner's start and a request; a check of the text, which alone writes whether it passed, a choice
+/// that no block of its own would let the work go on beyond; and the merge, which waits for the check's yes. A work on
+/// it whose check hands in nothing is stalled at the merge, and the check's return is taken. It is not among
+/// [`flows`], and a test that needs it opens the driver on it.
+pub fn checked() -> Compiled {
+    let flow = format!(
+        r#"
+        name = "checked"
+        order = ["write", "check", "merge"]
+        [limits]
+        runs = 2
+        returns = 2
+        calls = 3
+        [lines.main]
+        [blocks.request]
+        people = true
+        [blocks.text]
+        [blocks.checked]
+        values = ["yes", "no"]
+        [blocks.merged]
+        shown = true
+        {START_BLOCK}"#
+    );
+    let write = r#"
+        title = "Write"
+        kind = "agent"
+        effort = "high"
+        line = "main"
+        task = "Write the text the request asks for."
+        watches = ["start", "request"]
+        outputs = ["text"]
+
+        [kinds]
+        start = "last_and_latest"
+        request = "last_and_latest"
+    "#;
+    let check = r#"
+        title = "Check"
+        kind = "agent"
+        effort = "high"
+        line = "main"
+        task = "Check the text."
+        watches = ["text"]
+        outputs = ["checked"]
+
+        [kinds]
+        text = "last_and_latest"
+    "#;
+    let merge = r#"
+        title = "Merge"
+        kind = "engine"
+        act = "merge"
+        requires = { checked = "yes" }
+        watches = ["checked"]
+        outputs = ["merged"]
+    "#;
+    compiled(&flow, &[("write", write), ("check", check), ("merge", merge)])
+}
+
 /// A flow whose first cell is the engine's act that starts a work, which makes the work's branch, and then the merge:
 /// the flow of a work whose item may continue a branch or a pull request. It is not among [`flows`], and a test that
 /// needs it opens the driver on it.

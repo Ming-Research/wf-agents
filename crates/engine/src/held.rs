@@ -8,11 +8,11 @@
 //! did with it cannot differ.
 
 use decide::run::{self, Hold, Step};
-use decide::{Decision, Holder, Room, decide_in, hold_in, paused, told};
+use decide::{BlockId, Decision, Holder, Room, Write, decide_in, hold_in, paused, told};
 use flow::Compiled;
 use work::Work;
 
-use crate::handle::{answers, choices, log, nothing_but, requires};
+use crate::handle::{answers, choices, log, nothing_but, requires, stuck_blocks};
 
 /// What holds back the round the work would begin next, in the room the engine leaves it; none where nothing does, or
 /// where the work would begin no round. Of the holders, the work's own pause is given first, for only the owner lifts
@@ -36,7 +36,20 @@ pub fn held(flow: &Compiled, work: &Work, room: Room) -> Option<Holder> {
             let nothing_but = nothing_but(flow);
             let answers = answers(flow, work, run);
             let told = told(&flow.flow, records, run)?;
-            let requires = requires(flow, &choices, &nothing_but, &answers, &told, None, work, run)?;
+            // As the loop asks it: a round the pause holds back is held whether the return before it was sent back for
+            // what it left out of the blocks the work needs, or for any other fault.
+            let stuck =
+                |dealt_with: &[BlockId], writes: &[Write]| stuck_blocks(flow, work, &choices, run, dealt_with, writes);
+            let requires = requires(
+                flow,
+                &choices,
+                &nothing_but,
+                &answers,
+                &told,
+                Some(run::Stuck(&stuck)),
+                work,
+                run,
+            )?;
             let log = log(flow, work, run, &told);
             let held = |hold: Hold| run::next(&log, requires, hold) == Step::Held;
             // The pauses alone, as if the turn were this work's and a slot were free; then the turn; then everything the
