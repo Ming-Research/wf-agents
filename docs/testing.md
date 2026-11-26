@@ -94,6 +94,8 @@ of each part.
    no-tool-opens-a-browser). A browser test of the page waits on a condition with `expect.poll`, never for a fixed time,
    and the bound of that wait and a test's own limit are set once, in the browser project of `client/vite.config.ts`:
    the machine that runs the tests runs other work too, so what a test waits for takes longer at times.
+   One test in Node reads every stylesheet of the page and fails on a raw colour, size or space in any but `tokens.css`
+   (principle no-raw-values-in-styles); a value that cannot be a named one is listed in that test with its reason.
 
 9. A test that fails and then passes on the same commit is a fault of the test or of the code, never noise: it is
    kept as an observation that becomes an item (decision a-red-the-change-did-not-make-is-not-sent-back).

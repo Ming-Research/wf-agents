@@ -1361,6 +1361,7 @@ mod tests {
             run: RunId(1),
             round: 1,
             usd_micros: 300_000,
+            unpriced: false,
             uncached_tokens: 120,
             cache_written_tokens: Some(100),
             cached_tokens: 18_100,

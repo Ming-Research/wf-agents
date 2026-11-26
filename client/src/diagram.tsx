@@ -463,7 +463,7 @@ function Enlarged({ drawn, id }: { drawn: Drawn; id: string }) {
 
 /// The window a diagram opens larger in, over the page and nearly as large as it: its name, a button that closes it,
 /// the drawing in the viewer, and how the viewer is moved and scaled. Escape, or a press beside it, closes it too.
-function DiagramWindow({ drawn, id, onClose }: { drawn: Drawn; id: string; onClose: () => void }) {
+export function DiagramWindow({ drawn, id, onClose }: { drawn: Drawn; id: string; onClose: () => void }) {
   const box = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = box.current;

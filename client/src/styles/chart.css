@@ -70,7 +70,7 @@
    rows are of many kinds, each tagged with its own, and the corner names none of them. */
 .matrix thead th.corner {
   z-index: 3;
-  height: 1px;
+  height: var(--cell-least);
   padding: var(--space-4) var(--space-8);
 }
 
@@ -381,7 +381,7 @@ tr.row.chosen > .block-head {
 .part {
   fill: none;
   stroke: var(--text);
-  stroke-width: 2;
+  stroke-width: var(--glyph-line);
 }
 
 /* The kind a cell is given a datum in, inside the ring of `reads`. */
@@ -389,7 +389,7 @@ tr.row.chosen > .block-head {
   fill: var(--text);
   stroke: none;
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: var(--glyph-text);
   text-anchor: middle;
   dominant-baseline: central;
 }
@@ -401,7 +401,7 @@ tr.row.chosen > .block-head {
 }
 
 .part.precondition {
-  stroke-width: 1.5;
+  stroke-width: var(--glyph-line-thin);
 }
 
 /* The tick of a cell that runs when a test holds or a block is yes, and the cross of one that runs when it is no. */

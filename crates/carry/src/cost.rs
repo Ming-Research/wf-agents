@@ -1,82 +1,10 @@
-//! What a call to the model cost, from its tokens at its model's prices: the command line says what a round cost only
-//! in its result, which a round that crashed never prints, and a round tried again must still be counted against its
-//! work's budget.
+//! What a call to the model cost, from its tokens: the command line says what a round cost only in its result, which a
+//! round that crashed or was stopped never prints, and a round tried again must still be counted against its work's
+//! budget. The engine keeps no table of prices: a call the program reported no cost of is priced at what the program's
+//! earlier reports of the work's calls on its model tell ([`at`], crate `driver`, module `prices`), and where they tell
+//! nothing, its cost is not known, which is said and never taken as nothing (`Stream::unpriced`).
 
 use serde_json::Value;
-
-/// What a million tokens of each kind cost a model, in US dollars: input not read from the cache, a read from the
-/// cache, a write to it kept five minutes or an hour, and output.
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct Prices {
-    input: f64,
-    read: f64,
-    write_5m: f64,
-    write_1h: f64,
-    output: f64,
-}
-
-/// The prices of the models the agents run on, as the command line prices each call: Anthropic's list prices, but for
-/// a read from the cache on Sonnet 5.5, $0.10 where the list says $0.20. A call of Haiku 5.5 whose prompt is over
-/// 100,000 tokens costs five times as much.
-const MODELS: [Model; 4] = [
-    (
-        "claude-fable-5-1",
-        Prices {
-            input: 10.0,
-            read: 0.25,
-            write_5m: 12.5,
-            write_1h: 20.0,
-            output: 50.0,
-        },
-        None,
-    ),
-    (
-        "claude-opus-5-5",
-        Prices {
-            input: 4.0,
-            read: 0.2,
-            write_5m: 5.0,
-            write_1h: 8.0,
-            output: 20.0,
-        },
-        None,
-    ),
-    (
-        "claude-sonnet-5-5",
-        Prices {
-            input: 2.0,
-            read: 0.1,
-            write_5m: 2.5,
-            write_1h: 4.0,
-            output: 10.0,
-        },
-        None,
-    ),
-    (
-        "claude-haiku-5-5",
-        Prices {
-            input: 0.1,
-            read: 0.01,
-            write_5m: 0.125,
-            write_1h: 0.2,
-            output: 0.5,
-        },
-        Some((
-            100_000,
-            Prices {
-                input: 0.5,
-                read: 0.05,
-                write_5m: 0.625,
-                write_1h: 1.0,
-                output: 2.5,
-            },
-        )),
-    ),
-];
-
-/// A model by its name, with its prices, and those of a call whose prompt is over a number of tokens where they are
-/// higher.
-type Model = (&'static str, Prices, Option<(u64, Prices)>);
 
 /// The tokens of one call to the model, as its `usage` gives them.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -114,25 +42,18 @@ impl Tokens {
     }
 }
 
-/// What the call cost, in millionths of a dollar, at the prices of its model, named with or without the context window
-/// it runs with (`[1m]`). A model with no prices here is priced as the dearest here, so that a cost not known errs high
-/// against the budget.
-pub fn of_call(model: &str, tokens: &Tokens) -> u64 {
-    let id = model.split('[').next().unwrap_or(model);
-    let (_, base, above) = (MODELS.iter())
-        .find(|(name, ..)| *name == id)
-        .copied()
-        .unwrap_or(MODELS[0]);
-    let p = match above {
-        Some((over, above)) if tokens.prompt() > over => above,
-        _ => base,
-    };
+/// What the call cost, in millionths of a dollar, at its model's prices as the program's earlier reports of the work's
+/// calls on it tell them ([`driver::prices::learned`]): a token sent fresh and one read from the cache at what they
+/// tell, and a write to the cache and a token that comes back at what every model's prices make of the first.
+pub fn at(learned: &driver::prices::Prices, tokens: &Tokens) -> u64 {
+    use driver::prices::{OUTPUT, WRITE_1H, WRITE_5M};
+    let input = learned.input;
     let fresh = tokens.input - tokens.written_1h - tokens.written_5m;
-    let usd = fresh as f64 * p.input
-        + tokens.read as f64 * p.read
-        + tokens.written_5m as f64 * p.write_5m
-        + tokens.written_1h as f64 * p.write_1h
-        + tokens.output as f64 * p.output;
+    let usd = fresh as f64 * input
+        + tokens.read as f64 * learned.read
+        + tokens.written_5m as f64 * input * WRITE_5M
+        + tokens.written_1h as f64 * input * WRITE_1H
+        + tokens.output as f64 * input * OUTPUT;
     // A million tokens at a dollar a million is a dollar, a million millionths.
     usd.round() as u64
 }
@@ -149,24 +70,9 @@ mod tests {
         let tokens = Tokens::of(&usage);
         assert_eq!(tokens.input, 4000);
         assert_eq!((tokens.written_1h, tokens.written_5m), (2000, 1000));
-        // Opus 5.5: 1000 × 4 + 10,000 × 0.2 + 1000 × 5 + 2000 × 8 + 500 × 20 millionths.
-        assert_eq!(
-            of_call("claude-opus-5-5", &tokens),
-            4000 + 2000 + 5000 + 16_000 + 10_000
-        );
-        assert_eq!(
-            of_call("claude-opus-5-5[1m]", &tokens),
-            of_call("claude-opus-5-5", &tokens)
-        );
-        // A model not here costs as the dearest does.
-        assert_eq!(of_call("claude-other", &tokens), of_call("claude-fable-5-1", &tokens));
-        // A Haiku call whose prompt is past 100,000 tokens costs its dearer prices.
-        let short = Tokens { read: 90_000, ..tokens };
-        assert_eq!(of_call("claude-haiku-5-5", &short), 100 + 900 + 125 + 400 + 250);
-        let long = Tokens {
-            read: 200_000,
-            ..tokens
-        };
-        assert_eq!(of_call("claude-haiku-5-5", &long), 500 + 10_000 + 625 + 2000 + 1250);
+        // At a token sent fresh for four millionths of a dollar and one read for a fifth of one: 1000 × 4 + 10,000 ×
+        // 0.2 + 1000 × 5 + 2000 × 8 + 500 × 20 millionths, whatever the model is named.
+        let learned = driver::prices::Prices { input: 4.0, read: 0.2 };
+        assert_eq!(at(&learned, &tokens), 4000 + 2000 + 5000 + 16_000 + 10_000);
     }
 }
