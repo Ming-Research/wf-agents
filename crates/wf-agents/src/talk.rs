@@ -5064,6 +5064,10 @@ pub fn forked_said(page: &ForkPage) -> String {
             "The session ran under no account: the fork ran under the account in use, {ran}, whose cache holds \
              nothing of the session.\n"
         )),
+        Some(ForkInstead::AtLimit { account }) => out.push_str(&format!(
+            "The session ran under the account {account}, which is at its usage limit: the fork ran under the account \
+             in use, {ran}, whose cache holds nothing of the session.\n"
+        )),
         None => {}
     }
     out.push_str(&format!("The answer is kept in {}.\n", page.kept));
@@ -5176,6 +5180,16 @@ mod fork_tests {
             forked_said(&none)
                 .contains("The session ran under no account: the fork ran under the account in use, work, whose cache")
         );
+        let limited = ForkPage {
+            instead: Some(ForkInstead::AtLimit {
+                account: "home".to_string(),
+            }),
+            ..page()
+        };
+        assert!(forked_said(&limited).contains(
+            "The session ran under the account home, which is at its usage limit: the fork ran under the account in \
+             use, work"
+        ));
         assert!(!forked_said(&page()).contains("the fork ran under the account in use"));
         // What its program left running, stopped as it ended, is said with its cost, and nothing where it left none.
         let left = ForkPage { left: 2, ..page() };
