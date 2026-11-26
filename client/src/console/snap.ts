@@ -430,8 +430,8 @@ export function beatOf(): { ms: number; faint: number } {
 /// A length the page's tokens give, in pixels; `fallback` where the token is none or is not in pixels.
 function pixelsOf(name: string, fallback: number): number {
   const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  const n = Number.parseFloat(v);
-  return Number.isFinite(n) ? n : fallback;
+  const m = /^([+-]?(?:\d+\.?\d*|\.\d+))px$/.exec(v);
+  return m === null ? fallback : Number.parseFloat(m[1]);
 }
 
 /// A time the page's tokens give, in milliseconds, in whichever unit the styles write it: the page's build writes
