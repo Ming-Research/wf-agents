@@ -50,7 +50,7 @@ Where no commit is named, `run_tests` on GitHub runs the last commit and names t
 
 ### decision run-tests-says-only-what-main-is-known-to-fail
 `run_tests` says a failed test also failed on main only where a check before a merge has already found it failing on main's head; it runs nothing on main for the call.
-- rejected: an agent proposed that `run_tests` run a call's failed tests on main's head when main has no record of them, so the first work to meet a red main knows it; the owner rejected it, because it costs a CI run for each call with a failure, mostly for nothing, and fights the owner for the processor.
+- rejected: an agent proposed that `run_tests` run the failed tests on main's head when main has no record of them, so the first work to meet a red main knows it; the owner rejected it, because each call with a failure would cost a CI run, mostly for nothing.
 
 ### decision no-cell-runs-the-tests
 No cell of a flow runs the tests a cell asks for: they stay a call within that cell's run.
