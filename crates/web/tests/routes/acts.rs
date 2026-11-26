@@ -429,3 +429,123 @@ async fn what_the_owner_reads_lowers_what_the_items_say_of_the_work_and_gives_th
     assert_eq!(post(router, ACTS, &plan_read).await, done);
     assert_eq!(items_since(cursor).await.0, Vec::<u64>::new());
 }
+
+// A read of nothing, of a version numbered nought and of a work there is not are the edges of the read act. Reference:
+// the act's own rule, that a read is taken once the work holds each version it names (versions count from one), and
+// that what is read already is no change; the other acts' answer for a work there is not.
+#[tokio::test(start_paused = true)]
+async fn a_read_of_nothing_is_taken_and_changes_nothing_and_version_nought_and_an_unknown_work_are_refused() {
+    let running = running();
+    let router = &running.router;
+    greeted(router).await;
+    let done = (StatusCode::NO_CONTENT, Value::Null);
+    let opinion = json!({ "kind": "write", "block": "opinions", "content": "Keep it short.", "value": null });
+    assert_eq!(post(router, ACTS, &opinion).await, done);
+    let steps = |page: &Value| page["steps"].as_array().unwrap().len();
+    let before = get_json(router, "/api/v1/works/1").await;
+    let nothing = json!({ "kind": "read", "versions": [] });
+    assert_eq!(post(router, ACTS, &nothing).await, done);
+    assert_eq!(steps(&get_json(router, "/api/v1/works/1").await), steps(&before));
+    let nought = json!({ "kind": "read", "versions": [{ "block": "opinions", "version": 0 }] });
+    assert_eq!(post(router, ACTS, &nought).await.0, StatusCode::UNPROCESSABLE_ENTITY);
+    let one = json!({ "kind": "read", "versions": [{ "block": "opinions", "version": 1 }] });
+    let (status, json) = post(router, "/api/v1/works/9/acts", &one).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{json}");
+}
+
+// The page of a work and its item agree on what is a reply and what is read, through a second reply: the owner's own
+// words are no reply, the reply to words said after a read is unread again whatever was read before, and the number of
+// versions the page marks as replies not read is the number the items give. Reference: the one definition of a reply
+// (a cell's run writing the cell's words block with something in it after the owner spoke there), applied by hand to
+// the script's two rounds.
+#[tokio::test(start_paused = true)]
+async fn a_reply_to_later_words_is_not_read_for_what_was_read_before_and_the_page_and_the_item_count_alike() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path().join("store.sqlite")).unwrap();
+    let (flow, _) = trial_with_words();
+    let script = service::Script::read(
+        r#"
+        [[flows.trial.rounds]]
+        cell = "plan"
+        hands_in = [{ block = "plan", content = "The plan." }, { block = "plan_words", content = "Kept it short." }]
+
+        [[flows.trial.rounds]]
+        cell = "plan"
+        hands_in = [{ block = "plan", content = "The plan." }, { block = "plan_words", content = "Made it shorter." }]
+        "#,
+    )
+    .unwrap();
+    let (running, _, _) = running_compiled(
+        Box::new(store),
+        dir,
+        Scripted::new(script).carriers(),
+        flow,
+        crate::levels(),
+        web::items_cache::BOUND_MS,
+    );
+    let router = &running.router;
+    let done = (StatusCode::NO_CONTENT, Value::Null);
+    let item = json!({
+        "title": "Greet the user",
+        "dependsOn": [],
+        "project": "trial",
+        "flow": "trial",
+        "writes": [{ "block": "request", "content": "Greet the user, please.", "value": null }],
+    });
+    assert_eq!(post(router, "/api/v1/items", &item).await.0, StatusCode::OK);
+    pass(1000).await;
+    let say = |words: &str| json!({ "kind": "say", "to": { "kind": "cell", "cell": "plan" }, "words": words });
+    let unread_replies = || async {
+        let work = get_json(router, "/api/v1/items").await["items"][0]["work"].clone();
+        let page = get_json(router, "/api/v1/works/1").await;
+        let marked = (page["blocks"].as_array().unwrap().iter())
+            .filter(|b| b["name"] == "plan_words")
+            .flat_map(|b| b["versions"].as_array().unwrap().iter())
+            .filter(|v| v["reply"] == true && v["read"] == false)
+            .count();
+        (work["repliesUnread"].clone(), json!(marked))
+    };
+    let until = |count: u64| async move {
+        for _ in 0..100 {
+            pass(250).await;
+            if unread_replies().await.0 == count {
+                break;
+            }
+        }
+    };
+    assert_eq!(post(router, ACTS, &say("Keep it short.")).await.0, StatusCode::OK);
+    assert_eq!(post(router, ACTS, &json!({ "kind": "resume" })).await, done);
+    until(1).await;
+    assert_eq!(unread_replies().await, (json!(1), json!(1)));
+    assert_eq!(post(router, ACTS, &json!({ "kind": "pause" })).await, done);
+    pass(20_000).await;
+    // Read the reply, then the owner speaks again and the cell answers again: one reply not read, and the owner's two
+    // versions of words are marked no reply.
+    let page = get_json(router, "/api/v1/works/1").await;
+    let words = (page["blocks"].as_array().unwrap().iter())
+        .find(|b| b["name"] == "plan_words")
+        .unwrap()["versions"]
+        .clone();
+    let reply = (words.as_array().unwrap().iter()).find(|v| v["reply"] == true).unwrap()["number"].clone();
+    let read = json!({ "kind": "read", "versions": [{ "block": "plan_words", "version": reply }] });
+    assert_eq!(post(router, ACTS, &read).await, done);
+    assert_eq!(unread_replies().await, (json!(0), json!(0)));
+    assert_eq!(post(router, ACTS, &say("Shorter.")).await.0, StatusCode::OK);
+    assert_eq!(post(router, ACTS, &json!({ "kind": "resume" })).await, done);
+    until(1).await;
+    assert_eq!(unread_replies().await, (json!(1), json!(1)));
+    let page = get_json(router, "/api/v1/works/1").await;
+    let words = (page["blocks"].as_array().unwrap().iter())
+        .find(|b| b["name"] == "plan_words")
+        .unwrap()["versions"]
+        .clone();
+    let kinds: Vec<(bool, bool)> = (words.as_array().unwrap().iter())
+        .map(|v| (v["reply"] == true, v["read"] == true))
+        .collect();
+    // The owner's words, the first reply (read), the owner's words, the second reply (not read).
+    assert_eq!(
+        kinds,
+        [(false, false), (true, true), (false, false), (true, false)],
+        "{words}"
+    );
+}
