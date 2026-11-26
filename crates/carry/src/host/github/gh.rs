@@ -671,13 +671,21 @@ fn pull(value: &Value) -> Result<Pull, String> {
 fn run(run: &Value) -> Option<Run> {
     let status = run["status"].as_str();
     let completed = status == Some("completed");
+    let cancelled = completed && run["conclusion"].as_str() == Some("cancelled");
+    let took = match completed && !cancelled {
+        true => (run["run_started_at"].as_str())
+            .zip(run["updated_at"].as_str())
+            .and_then(|(from, to)| seconds_between(from, to)),
+        false => None,
+    };
     Some(Run {
         id: run["id"].as_u64()?,
         title: run["display_title"].as_str().unwrap_or_default().to_string(),
         started: matches!(status, Some("in_progress" | "completed")),
         completed,
-        cancelled: completed && run["conclusion"].as_str() == Some("cancelled"),
+        cancelled,
         url: run["html_url"].as_str().unwrap_or_default().to_string(),
+        took,
     })
 }
 

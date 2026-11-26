@@ -105,6 +105,10 @@ pub struct Run {
     pub cancelled: bool,
     /// Where a person sees it.
     pub url: String,
+    /// How long it took, in whole seconds, from its start to its last change as GitHub records them (`run_started_at`
+    /// and `updated_at`): only for a run that completed and was not cancelled, and none where GitHub gives no usable
+    /// times.
+    pub took: Option<u64>,
 }
 
 /// What GitHub answered to a look at the runs of a workflow.

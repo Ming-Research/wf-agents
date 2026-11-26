@@ -301,6 +301,7 @@ fn a_run_is_read_by_its_status_and_one_that_completed_cancelled_is_said_so() {
             completed: false,
             cancelled: false,
             url: "https://github.com/o/r/actions/runs/43658592831".to_string(),
+            took: None,
         }
     );
     let queued = run("queued", None);
@@ -311,6 +312,27 @@ fn a_run_is_read_by_its_status_and_one_that_completed_cancelled_is_said_so() {
         let ended = run("completed", Some(judged));
         assert!(ended.completed && !ended.cancelled, "{judged}");
     }
+}
+
+// A run that completed and was not cancelled took the time from its start to its last change, as GitHub records them;
+// one under way, one cancelled and one whose times are not in GitHub's form took none. Milliseconds.
+#[test]
+fn a_run_that_completed_and_judged_took_from_its_start_to_its_last_change() {
+    let run = |status: &str, conclusion: Option<&str>, updated: &str| {
+        run(&json!({
+            "id": 7, "display_title": "fast 0f3a", "status": status, "conclusion": conclusion,
+            "html_url": "https://github.com/o/r/actions/runs/7",
+            "run_started_at": "2026-11-26T12:00:00Z", "updated_at": updated,
+        }))
+        .expect("a run")
+        .took
+    };
+    assert_eq!(run("completed", Some("success"), "2026-11-26T12:03:20Z"), Some(200));
+    assert_eq!(run("completed", Some("failure"), "2026-11-26T12:00:41Z"), Some(41));
+    assert_eq!(run("in_progress", None, "2026-11-26T12:03:20Z"), None);
+    assert_eq!(run("completed", Some("cancelled"), "2026-11-26T12:03:20Z"), None);
+    assert_eq!(run("completed", Some("success"), "2026-11-26 12:03:20"), None);
+    assert_eq!(run("completed", Some("success"), "2026-11-26T11:59:00Z"), None);
 }
 
 #[test]
@@ -729,6 +751,7 @@ async fn a_look_at_the_runs_sends_the_tag_it_is_given_and_reads_githubs_304_as_u
         completed: false,
         cancelled: false,
         url: "https://github.com/o/r/actions/runs/11".to_string(),
+        took: None,
     };
     let tagged = Listed::Runs {
         runs: vec![run],

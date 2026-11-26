@@ -259,6 +259,31 @@ impl Fake {
         self.kept().going = true;
     }
 
+    /// Lists, as runs by hand of the workflow on the branch that other requests asked for before, one that completed
+    /// for each of these times, in whole seconds.
+    pub(crate) fn ran_before(&self, workflow: &str, branch: &str, took: &[u64]) {
+        let mut kept = self.kept();
+        for took in took {
+            let id = 1000 + kept.runs.len() as u64;
+            kept.runs.push(Dispatched {
+                workflow: workflow.to_string(),
+                branch: branch.to_string(),
+                commit: String::new(),
+                another: true,
+                run: Run {
+                    id,
+                    title: format!("before {id}"),
+                    started: true,
+                    completed: true,
+                    cancelled: false,
+                    url: format!("https://github.example/actions/runs/{id}"),
+                    took: Some(*took),
+                },
+                taken: true,
+            });
+        }
+    }
+
     /// Completes every run by hand that is under way, as it ends with the jobs and results its commit is given.
     pub(crate) fn finish_runs(&self) {
         for asked in &mut self.kept().runs {
@@ -625,6 +650,7 @@ impl Api for Fake {
                     completed: ran && !going,
                     cancelled: false,
                     url: format!("https://github.example/actions/runs/{id}"),
+                    took: None,
                 },
                 taken: ran || requeued,
             });
