@@ -145,6 +145,7 @@ pub fn of_project(project: &str, members: &[Member<'_>], waiting: impl Fn(WorkNu
         members.iter().map(|m| (m.number, on_main(m.work))).collect();
     for (work, readings) in &readings {
         for (time, reading) in readings {
+            let on_head = current(&reading.commit);
             for test in &reading.tests {
                 seen.entry((test.unit.as_str(), test.name.as_str()))
                     .or_default()
@@ -152,7 +153,7 @@ pub fn of_project(project: &str, members: &[Member<'_>], waiting: impl Fn(WorkNu
                         time: *time,
                         work: *work,
                         passed: test.passed,
-                        current: current(&reading.commit),
+                        current: on_head,
                         head: reading.commit.clone(),
                     });
             }

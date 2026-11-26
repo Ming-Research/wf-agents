@@ -988,19 +988,22 @@ fn a_red_main_is_the_projects_own() {
 }
 
 // A red main is a line ahead of every work's, so a work's line is left out before it; the red of a project whose line is
-// left out for the most lines of an answer comes again with the next mark, as a work's does.
+// left out for the most lines of an answer comes again with the next mark, as a work's does. `LINES` projects and one
+// more are the least that leaves a red out; a work in each reads the two runs that make its project's main red, the
+// rest of a check being no part of the fact.
 #[test]
 fn a_red_main_comes_before_the_works_and_one_left_out_for_the_most_lines_comes_again() {
     let mut h = H::with(vec![checked()]);
-    let projects: Vec<String> = (0..LINES + 2).map(|i| format!("p{i:02}")).collect();
+    let projects: Vec<String> = (0..LINES + 1).map(|i| format!("p{i:02}")).collect();
     for (i, project) in projects.iter().enumerate() {
         let (_, w) = h.add(NewItem {
             project: project.clone(),
             ..new_item(&format!("item {i}"), &[], "checked")
         });
         h.outside_of(project, "main", "Main is at m1.");
-        comes_to_its_check(&mut h, w);
-        finds_main_red(&mut h, w, &format!("run/{i}/round/1"), "own", "m1");
+        let asking = format!("run/{i}/round/1");
+        read_test(&mut h, w, &asking, work::Source::Full, "own", false);
+        read_test(&mut h, w, &asking, work::Source::Fast, "m1", false);
     }
     let (_, last) = h.add(new_item("late", &[], "checked"));
     h.let_on(last);
@@ -1016,10 +1019,10 @@ fn a_red_main_comes_before_the_works_and_one_left_out_for_the_most_lines_comes_a
     };
     assert_eq!(first.lines.len(), LINES);
     assert_eq!(reds(&first).len(), LINES, "the works that wait are after the reds");
-    assert_eq!(first.left_out, 3, "two reds and the call for the owner are left out");
+    assert_eq!(first.left_out, 2, "a red and the call for the owner are left out");
     let rest = since(&h, Some(&first.mark));
-    assert_eq!(reds(&rest).len(), 2, "the reds left out come again");
-    assert_eq!(rest.lines.len(), 3);
+    assert_eq!(reds(&rest).len(), 1, "the red left out comes again");
+    assert_eq!(rest.lines.len(), 2);
     let mut given = reds(&first);
     given.extend(reds(&rest));
     assert_eq!(given, projects, "each red once, in the order the reds began");

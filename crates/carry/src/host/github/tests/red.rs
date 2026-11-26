@@ -176,6 +176,44 @@ async fn a_test_that_fails_again_and_on_mains_head_holds_the_commit() {
     assert_eq!(on_main, [main_run], "main's head is run with the test alone");
 }
 
+// The run of the tests on main's head is read as a reading under the head the host gives, whole, in a round of the check
+// and by the fast workflow: the engine tells that run from the others by it, and by whether the block of main holds it,
+// which says the head the host gives (the same `Host::main`).
+#[tokio::test]
+async fn the_run_on_mains_head_is_read_under_the_head_the_host_reads_whole() {
+    let hub = Hub::new();
+    let (head, _) = hub.red_by_b().await;
+    let main = hub.host.main().await.expect("main is read");
+    assert_eq!(main, hub.main_on_github());
+    assert!(
+        main.len() == 40 && main.bytes().all(|b| b.is_ascii_hexdigit()),
+        "{main}"
+    );
+    hub.fast_on(&head, false, Outcome::Passed);
+    hub.fast_on(&main, false, Outcome::Passed);
+    let (to, mut said) = tokio::sync::mpsc::unbounded_channel();
+    let reply = service::RoundReply::new(WORK, RunId(1), to);
+    let mut stop = Stop::never().hosting(reply.hosting());
+    let place = hub.place();
+    hub.host
+        .verdict(&branch(&place), &head, &main, hub.round(), &Mutex::new(()), &mut stop)
+        .await
+        .expect("checked")
+        .expect("judged");
+    let readings = super::ends::timed(&mut said);
+    let on_main: Vec<_> = (readings.iter())
+        .filter(|reading| reading.source == work::Source::Fast && reading.commit == main)
+        .collect();
+    assert_eq!(on_main.len(), 1, "{readings:?}");
+    assert!(on_main[0].asking.starts_with("run/"), "{:?}", on_main[0].asking);
+    let on_commit = (readings.iter()).filter(|reading| reading.commit == head && reading.asking == on_main[0].asking);
+    assert_eq!(
+        on_commit.count(),
+        2,
+        "the full workflows and the fast one on the commit, under one asking"
+    );
+}
+
 // The test fails again on the commit and passes on main's head: the change fails it, and the commit fails, said as
 // the full workflows found it, then as each run again found it.
 #[tokio::test]
