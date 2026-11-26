@@ -36,7 +36,7 @@ use work::{Handed, Question, Said, Spent, Work};
 mod answering;
 #[cfg(test)]
 mod ends;
-mod failing;
+pub(crate) mod failing;
 
 use answering::Answering;
 

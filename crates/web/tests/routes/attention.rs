@@ -25,6 +25,7 @@ fn asked() -> Value {
                 "made": START + 5500,
                 "at": null,
                 "queuedFor": null,
+                "held": null,
             }],
         },
         // What it waits on the owner for, as the engine's one list of it says.

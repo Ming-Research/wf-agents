@@ -36,6 +36,7 @@ use crate::git;
 use crate::held::Stop;
 use crate::host::{Asking, Failed, Named, Verdict};
 use crate::process;
+use decide::Obstacle;
 use service::Along;
 use work::timed::{Job, Reading, Source, Test};
 
@@ -378,7 +379,7 @@ impl<A: Api> GitHub<A> {
         request: Request<'_>,
         named: &Named,
         stop: &mut Stop,
-    ) -> Result<Option<String>, String> {
+    ) -> Result<Option<String>, Failed> {
         let Some(ran) = self.execute_role(&role, request, named, stop).await? else {
             return Ok(None);
         };
@@ -755,11 +756,11 @@ impl<A: Api> GitHub<A> {
     /// runner of the workflow's kind is online ([`GitHub::online`]), and asks again after each further such time.
     /// Where one is, busy or not, the run waits on, said to wait for that runner, and its wait is no time it is judged
     /// by. Where none is, or it cannot be told, a run no job of which has started is cancelled where it is listed, so
-    /// that it does not run later for nothing, and fails in passing: what stops it is no work's (GitHub, or a runner
-    /// offline), and asked for again after a wait it may start. A run under way is never so cancelled, since what its
-    /// jobs did would be lost: it waits on, and the time it waits until a runner of its kind is online again is counted
-    /// as time it ran. A run that is not complete in the time it may take is cancelled, and is what it found: its jobs
-    /// not complete said so, and no test's result known.
+    /// that it does not run later for nothing, and holds what asked ([`Failed::held`]): what stops it is no work's
+    /// (GitHub, or a runner offline), and asked for again after a wait another run is asked for, which may start. A run
+    /// under way is never so cancelled, since what its jobs did would be lost: it waits on, and the time it waits until
+    /// a runner of its kind is online again is counted as time it ran. A run that is not complete in the time it may
+    /// take is cancelled, and is what it found: its jobs not complete said so, and no test's result known.
     ///
     /// The runs are looked at by the look every wait on the workflow shares ([`super::looks`]): the first time by one
     /// sent now, so that a run the request asked for moments before is found; then by the last one, where it is younger
@@ -837,10 +838,14 @@ impl<A: Api> GitHub<A> {
             match mine {
                 Some(run) if run.completed => break run,
                 None if began.elapsed() >= start => {
-                    return Err(Failed::passing(format!(
-                        "the run of {workflow} asked for on {commit} never started: GitHub listed none after {}",
-                        super::span(start)
-                    )));
+                    return Err(Failed::held(
+                        format!(
+                            "the run of {workflow} asked for on {commit} never started: GitHub listed none after {}",
+                            super::span(start)
+                        ),
+                        Obstacle::Fault,
+                        None,
+                    ));
                 }
                 Some(run) if queued && waiting.due(now, start) => {
                     if !under_way {
@@ -871,7 +876,7 @@ impl<A: Api> GitHub<A> {
                     };
                     if let Some(said) = said {
                         self.api.cancel(run.id).await?;
-                        return Err(Failed::passing(said));
+                        return Err(Failed::held(said, Obstacle::NoRunner, None));
                     }
                 }
                 // Its jobs are read before it is cancelled, so that those still under way are said not complete.
@@ -884,7 +889,7 @@ impl<A: Api> GitHub<A> {
                         "the run did not complete within {}, the time it may take, and the engine cancelled it",
                         super::span(plan.limit)
                     ));
-                    let ends = self.step_ends(&jobs, &results).await;
+                    let ends = self.step_ends(&jobs, &results).await?;
                     return Ok(Some(Ran {
                         run,
                         jobs,
@@ -905,9 +910,11 @@ impl<A: Api> GitHub<A> {
         let results = match self.api.artifact(run.id, plan.results).await {
             Ok(Some(files)) => results::read(&files).map_err(|why| format!("the artifact {}: {why}", plan.results)),
             Ok(None) => Err(format!("the run uploaded no artifact {}", plan.results)),
+            // GitHub's limit, or its own fault, keeps the results from being read for now: not a run without results.
+            Err(failed) if failed.held.is_some() => return Err(failed),
             Err(why) => Err(format!("the artifact {} could not be fetched: {why}", plan.results)),
         };
-        let ends = self.step_ends(&jobs, &results).await;
+        let ends = self.step_ends(&jobs, &results).await?;
         Ok(Some(Ran {
             run,
             jobs,
@@ -945,16 +952,21 @@ impl<A: Api> GitHub<A> {
 
     /// What the log of each job of a run that failed with nothing in the results to say why says of the step that
     /// failed it ([`unexplained`]); a log that cannot be read is said so, and fails nothing else.
-    async fn step_ends(&self, jobs: &[Check], read: &Result<results::Run, String>) -> Vec<StepEnd> {
+    async fn step_ends(&self, jobs: &[Check], read: &Result<results::Run, String>) -> Result<Vec<StepEnd>, Failed> {
         let mut ends = Vec::new();
         for job in unexplained(jobs, read) {
             let said = match self.api.log(job.id).await {
                 Ok(text) => Ok(log::failed_step(&text)),
-                Err(failed) => Err(failed.why),
+                // GitHub's limit, its own fault or the network keeps the log from being read for now: the run is read
+                // again.
+                Err(failed) => match crate::acts::failing::told(failed) {
+                    failed if failed.held.is_some() => return Err(failed),
+                    failed => Err(failed.why),
+                },
             };
             ends.push(StepEnd { job: job.id, said });
         }
-        ends
+        Ok(ends)
     }
 
     /// The jobs of the run, as the look every wait on it shares found them, sent less than `within` ago, or else as one

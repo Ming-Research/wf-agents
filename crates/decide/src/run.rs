@@ -35,7 +35,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::flow::{self, BlockId};
-use crate::records::{CallId, Seq, Write};
+use crate::records::{CallId, Retry, Seq, Write};
 
 /// What a run has done so far: its rounds, in order.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -65,6 +65,40 @@ pub const LONGEST_WAIT: u64 = 300_000;
 pub fn wait(failed: u32) -> u64 {
     let doublings = failed.saturating_sub(1).min(16);
     FIRST_WAIT.saturating_mul(1 << doublings).min(LONGEST_WAIT)
+}
+
+/// How long the engine waits before a call the host could not carry out for now, the `held`th time in a row, is asked
+/// for again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HeldWait {
+    /// At least this long from the moment the host said so, in milliseconds.
+    pub ms: u64,
+    /// And not before this time, in milliseconds since 1970, where the host said when its limit resets.
+    pub not_before: Option<u64>,
+}
+
+/// One second more than the host says, so that a request asked for at the very time it names is not refused again.
+const SLACK: u64 = 1_000;
+
+/// The wait before a call is asked for again, as the host's retry and the number of times the call was held in a row
+/// give it: the longer of what the host said and the wait of a round that failed in passing ([`wait`]), and, where the
+/// host named a time, not before it.
+pub fn held_wait(held: u32, retry: Option<Retry>) -> HeldWait {
+    let backoff = wait(held);
+    match retry {
+        None => HeldWait {
+            ms: backoff,
+            not_before: None,
+        },
+        Some(Retry::In(seconds)) => HeldWait {
+            ms: backoff.max(seconds.saturating_mul(1000).saturating_add(SLACK)),
+            not_before: None,
+        },
+        Some(Retry::At(seconds)) => HeldWait {
+            ms: backoff,
+            not_before: Some(seconds.saturating_mul(1000).saturating_add(SLACK)),
+        },
+    }
 }
 
 /// Why a round failed, as whatever carried it out told it apart. Each kind is handled its own way (the module's
