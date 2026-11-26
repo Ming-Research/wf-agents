@@ -102,8 +102,17 @@
   --run-effort: 4em;
   /* The track of where a work's time went, in the console's window. */
   --track-width: 140px;
-  /* The question the page asks before a command: how wide. */
+  /* The two dialogs (the page's question before a command, the window a diagram opens larger in) keep a look of their own,
+     the exception to the page's sizes, heights and corners (decision the-dialogs-keep-a-look-of-their-own): how wide the
+     question is, the size and the line height of what it says, the height and the corner of its buttons, the corner of
+     both panels, and the shadow both lie in. */
   --dialog-width: 480px;
+  --dialog-size: 14px;
+  --dialog-line-height: 1.5;
+  --dialog-button: 32px;
+  --dialog-button-corner: 6px;
+  --dialog-corner: 12px;
+  --dialog-shadow: 0 0 0 var(--hairline) var(--line), 0 8px 16px rgb(0 0 0 / 8%), 0 24px 48px rgb(0 0 0 / 16%);
 
   /* The console: the box of the search (how wide, and the two lights round it: the near one's blur and spread, the far
      one's), the glow round the tree of the project that was chosen in the overview (blur and spread), the height of the
