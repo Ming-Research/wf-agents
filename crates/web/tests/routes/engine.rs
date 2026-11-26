@@ -70,7 +70,7 @@ async fn the_pause_of_everything_holds_back_a_work_added_and_lifted_lets_it_on()
     add_let_on(router, "First", 1).await;
     assert_eq!(
         get_json(router, "/api/v1/works/1").await["summary"]["now"],
-        json!({ "kind": "everything", "at": "plan", "by": "owner" })
+        json!({ "kind": "everything", "at": "plan", "by": "owner", "ran": false })
     );
     // The owner's own pause is the owner's to lift, and no wait of the installation's: it waits on the owner for nothing.
     assert_eq!(get_json(router, "/api/v1/items").await["waits"], json!([]));
@@ -192,9 +192,11 @@ async fn started_on_a_work_going_on_the_engine_says_it_holds_everything_until_th
     let work = &get_json(router, "/api/v1/items").await["items"][0]["work"];
     assert_eq!(
         work["now"],
-        json!({ "kind": "everything", "at": "plan", "by": "engine" }),
+        json!({ "kind": "everything", "at": "plan", "by": "engine", "ran": true }),
         "{work}"
     );
+    // What the pause holds back is the round the engine sent back, which the cell says as one to be given again.
+    assert_eq!(work["cells"][0]["state"], "failed", "{work}");
     assert_eq!(work["waits"], json!([]), "{work}");
     // The installation waits for the owner for it, once however many works it holds, and says so beside the works' own
     // waits, since when, and what ends it.

@@ -41,6 +41,7 @@ const working = (id: number, cells: CellNow[]): Shown => ({
   repliesUnread: 0,
   begun: true,
   shadow: false,
+  stands: null,
   work: {
     number: id,
     now: { kind: 'round', cell: 'c1', run: 1, round: 1, since: Date.now() },

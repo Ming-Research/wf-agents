@@ -44,18 +44,23 @@ describe('where a work stands', () => {
     expect(standingOf(work({ kind: 'fault', words: 'broken' }))).toBe('halted');
     expect(standingOf(work({ kind: 'broken', words: 'the driver names no turn' }))).toBe('broken');
     // What the engine's list holds waits for the owner, the engine's pause and its pause of everything among it.
-    expect(standingOf(work({ kind: 'paused', at: 'plan', by: 'engine', why: 'failed' }, [wait('pause')]))).toBe(
+    expect(standingOf(work({ kind: 'paused', ran: true, at: 'plan', by: 'engine', why: 'failed' }, [wait('pause')]))).toBe(
       'owner',
     );
-    expect(standingOf(work({ kind: 'everything', at: 'plan', by: 'engine' }, [wait('held')]))).toBe('owner');
-    expect(standingOf(work({ kind: 'paused', at: 'plan', by: 'owner', why: null }))).toBe('paused');
+    expect(standingOf(work({ kind: 'everything', ran: true, at: 'plan', by: 'engine' }, [wait('held')]))).toBe('owner');
+    expect(standingOf(work({ kind: 'paused', ran: true, at: 'plan', by: 'owner', why: null }))).toBe('paused');
+    // A pause no round of the work has begun before is not started, in a tile of its own named as the state is.
+    expect(standingOf(work({ kind: 'paused', ran: false, at: 'plan', by: 'owner', why: null }))).toBe('notStarted');
+    expect(standingOf(work({ kind: 'everything', ran: false, at: 'plan', by: 'owner' }))).toBe('notStarted');
+    expect(STANDING_WORDS.notStarted.name).toBe('Not started');
+    expect(STANDING_WORDS.notStarted.name).not.toBe(STANDING_WORDS.paused.name);
     expect(standingOf(work({ kind: 'round', cell: 'plan', run: 1, round: 1, since: 0 }))).toBe('running');
     const atLimit = { kind: 'call', call: 2, who: 'owner', what: { kind: 'atLimit', limit: { of: 'returns', sentBack: 2 } } } as const;
     expect(standingOf(work({ kind: 'waits', at: 'plan', on: [atLimit, { kind: 'slot' }] }, [wait('limit')]))).toBe('owner');
     expect(standingOf(work({ kind: 'waits', at: 'plan', on: [{ kind: 'slot' }] }))).toBe('due');
-    expect(standingOf(work({ kind: 'everything', at: 'plan', by: 'owner' }))).toBe('due');
+    expect(standingOf(work({ kind: 'everything', ran: true, at: 'plan', by: 'owner' }))).toBe('due');
     // What the engine's list does not hold is not the owner's, whatever the work does.
-    expect(standingOf(work({ kind: 'paused', at: 'plan', by: 'engine', why: 'failed' }))).toBe('paused');
+    expect(standingOf(work({ kind: 'paused', ran: true, at: 'plan', by: 'engine', why: 'failed' }))).toBe('paused');
     expect(standingOf(work({ kind: 'next', cell: 'plan' }))).toBe('due');
     const tool = { kind: 'call', call: 3, who: null, what: { kind: 'tool', name: 'ci', input: '' } } as const;
     expect(standingOf(work({ kind: 'waits', at: 'build', on: [tool] }))).toBe('others');

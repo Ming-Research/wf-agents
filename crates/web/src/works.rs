@@ -543,6 +543,12 @@ impl Wait {
     }
 }
 
+/// What a pause of a work that a build before `ran` was said wrote reads as: it has run, so that no work is said to be
+/// not started on a record that did not say.
+fn ran() -> bool {
+    true
+}
+
 /// How many equal cells a work's time bar is cut into.
 const BAR_CELLS: u64 = 96;
 
@@ -576,11 +582,14 @@ pub enum Now {
     /// it would do next is begin a round there, or, where it is stalled and its own pause holds it, it stands there. An
     /// engine of a build before the cell was said gives none, read as empty. The owner's pause may say why, and the
     /// items it waits for to merge or be cancelled, `waits_for`, of which `open` are those that have not yet: with
-    /// `waits_for` and no `open`, what it waited for is over, and only the owner lets the work on.
+    /// `waits_for` and no `open`, what it waited for is over, and only the owner lets the work on. `ran` is whether a
+    /// round of it has begun, which is when the work has begun; a record of a build before it was said reads as run.
     Paused {
         #[serde(default)]
         at: String,
         by: Pauser,
+        #[serde(default = "ran")]
+        ran: bool,
         why: Option<String>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         waits_for: Vec<u64>,
@@ -590,10 +599,13 @@ pub enum Now {
     /// The pause of everything holds it back, and what it would do next is begin a round at this cell; its own pause
     /// does not hold it. `by` is who set it: the owner, or the engine as it started with works going on, which holds
     /// every work until the owner lifts it. An engine of a build before the cell was said gives none, read as empty.
+    /// `ran` is as it is of [`Now::Paused`].
     Everything {
         #[serde(default)]
         at: String,
         by: Pauser,
+        #[serde(default = "ran")]
+        ran: bool,
     },
     /// It waits at this cell, for each of these.
     Waits { at: String, on: Vec<Waited> },
@@ -832,8 +844,9 @@ pub enum CellState {
     /// Its run is at rest: for a call's result, or only for its next round, which may wait for the project's turn to
     /// check and merge.
     Resting,
-    /// Its run's last round failed: the run is at rest, and its next round, once the work is let on, is that round
-    /// again.
+    /// Its run's next round, once the work is let on, is its last round again: that round failed, or what it returned
+    /// the engine sends back. The run is at rest, and whatever holds the round back, a pause among it, does not change
+    /// this.
     Failed,
     /// Its condition is not met, and it never finished a run.
     Skipped,
@@ -2395,7 +2408,9 @@ impl Summary {
                         (Some(open), ..) if open.under_way && engine(&cell.cell) => CellState::Calling,
                         (Some(open), ..) if open.under_way => CellState::Running,
                         _ if calling == Some(cell.cell.as_str()) => CellState::Calling,
-                        (Some(open), ..) if failed(work, open.run) => CellState::Failed,
+                        (Some(open), ..) if failed(work, open.run) || driver.sends_back(number, open.run) => {
+                            CellState::Failed
+                        }
                         (Some(_), ..) => CellState::Resting,
                         (None, applies, record) => settled(applies, record.is_some(), !cell.needs.is_empty()),
                     },
@@ -2799,7 +2814,11 @@ impl Now {
         // Held by the pause of everything, which holds while the driver says it holds the work.
         let everything = |at: &CellId| -> Result<Now, Broken> {
             let by = (outages.everything).ok_or_else(|| Broken("the pause of everything holds no work".to_string()))?;
-            Ok(Now::Everything { at: at.to_string(), by })
+            Ok(Now::Everything {
+                at: at.to_string(),
+                by,
+                ran: ran_a_round(work),
+            })
         };
         // The wait that holds the rounds of a cell now: the agents' for an agent's, the host's for an act's.
         let holding = |cell: &CellId| {
@@ -2980,6 +2999,7 @@ impl Now {
         Ok(Now::Paused {
             at: at.to_string(),
             by: Pauser::of(pause.by),
+            ran: ran_a_round(work),
             why: pause.why.clone(),
             waits_for: pause.waits_for.clone(),
             open: open.iter().map(|item| item.0).collect(),
@@ -3680,6 +3700,11 @@ fn said_to(work: &Work, block: &BlockId, at: Seq) -> Option<String> {
     (work.records.written.iter())
         .find(|w| w.at == at && w.block == *block)
         .and_then(|w| w.said_to.as_ref().map(|c| c.0.clone()))
+}
+
+/// Whether a round of the work has begun: the same fact as the first of its rounds having a time ([`Summary::from`]).
+fn ran_a_round(work: &Work) -> bool {
+    !work.records.rounds.is_empty()
 }
 
 /// Whether the run's last round that ended failed.
@@ -5809,5 +5834,24 @@ pub(crate) mod tests {
             serde_json::json!({ "machine": "14900k", "since": 1_700_000_000_000u64, "behind": 33 }),
             "{said}"
         );
+    }
+
+    // A pause a build before `ran` was said wrote reads as one of a work that has run, so that no stored page says Not
+    // started of a work it never said that of; one that says it reads as it says.
+    #[test]
+    fn a_pause_written_before_ran_was_said_reads_as_one_of_a_work_that_ran() {
+        let read = |said: serde_json::Value| serde_json::from_value::<Now>(said).expect("a state");
+        let ran = |now: Now| match now {
+            Now::Paused { ran, .. } | Now::Everything { ran, .. } => ran,
+            other => panic!("not a pause: {other:?}"),
+        };
+        assert!(ran(read(
+            serde_json::json!({ "kind": "paused", "at": "plan", "by": "owner", "why": null })
+        )));
+        assert!(ran(read(
+            serde_json::json!({ "kind": "everything", "at": "plan", "by": "owner" })
+        )));
+        let said = serde_json::json!({ "kind": "paused", "at": "plan", "by": "owner", "ran": false, "why": null });
+        assert!(!ran(read(said)));
     }
 }

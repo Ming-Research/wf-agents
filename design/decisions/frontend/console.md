@@ -69,6 +69,10 @@ A card writes the lines its work added and removed, `+210 −40`, on its second 
 An item that delivers is not a card: it has no box and no fill, only its number and its title over a line, like a heading.
 - rejected: an agent proposed the card as it was, with a small diamond before the title; the owner rejected it, because the diamond changes the least and so stands out the least, while a heading with no frame reads plainly in light and in dark.
 
+### decision a-pause-and-a-wait-are-one-grey-and-the-card-says-which
+A card of a paused work and a card of a waiting work are the same grey, neither needing the owner; pointing at a card says the engine's state word and its cell, so that the two are told apart there.
+- rejected: an agent proposed a colour of its own for a waiting work; the owner rejected it, because a stopped work that needs no one is one meaning and so one colour (principle colour-only-for-state), and the legend, map, cards and System view would all carry it.
+
 ### decision a-card-stands-still
 No card gets a ring or moves because of its work's state: a work under way, in a round or in a call the engine runs, shows by its cell's pulse and by the lit way to its root.
 - replaced: Red rings breathing round a card that waits for the owner was on main; the owner changed it, because the red background and its glow looked bad.
@@ -89,6 +93,10 @@ The selected item and the item under the pointer stand in a soft light, a blurre
 Three check boxes right of the map, Open, Done and Cancelled, one under another, choose which items every tree shows: only Open at first, and the choice is kept in the browser.
 - replaced: One switch, Open or All, was on main; the owner changed it, because done or cancelled items alone could not be shown with it.
 - replaced: A place under the map was on main; the owner changed it, because the list of the projects took that place.
+
+### decision an-empty-tree-says-why
+Where the tree of the project shown draws no item, the console says beside the boxes that the project has none, or how many items the boxes hide and which boxes to tick to see them.
+- rejected: an agent proposed saying it only where the project has no item, leaving the tree blank where the boxes hide every item; the owner rejected it, because that blank still left the owner guessing whether the page was broken (principle nothing-passes-for-normal).
 
 ### decision an-item-is-brought-just-into-view
 Selecting an item that is off the screen, or half under the window, moves the tree only until the item is wholly in the part of the view the window leaves free.
