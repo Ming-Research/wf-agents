@@ -800,7 +800,7 @@ struct Part {
     /// How it ended, where it has.
     ending: Option<Ended>,
     /// What it stopped for, in order; none where that is not known ([`stops_of`]).
-    stops: Option<Vec<Stop>>,
+    stops: Option<Vec<WaitSpan>>,
     /// Whether `stops` are read from the flow its work is on and what holds every work at once, rather than from what the
     /// work kept as it ended: they are read again as that changes.
     live: bool,
@@ -817,7 +817,7 @@ struct Part {
 
 /// A stretch of time a work stopped for one cause.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Stop {
+struct WaitSpan {
     from: u64,
     /// Where it has not ended, the time it was worked out to.
     until: u64,
@@ -1047,7 +1047,7 @@ impl Part {
 /// one another of the same cause are one. A stretch of what the work ran in is no stop. None where the work ended on a
 /// version no longer installed and kept nothing: what it waited for is not known. Whether it was read from the flow
 /// installed is the second.
-fn stops_of(kept: Kept<'_>, held: &HeldAll, going: bool, now: Time) -> (Option<Vec<Stop>>, bool) {
+fn stops_of(kept: Kept<'_>, held: &HeldAll, going: bool, now: Time) -> (Option<Vec<WaitSpan>>, bool) {
     let work = kept.work;
     let kept_time = (work.kept_time.last()).filter(|k| !work.records.reopens.iter().any(|reopen| *reopen > k.at));
     let (stretches, separated, live) = match kept_time {
@@ -1085,11 +1085,11 @@ fn stops_of(kept: Kept<'_>, held: &HeldAll, going: bool, now: Time) -> (Option<V
         })
         .collect();
     waits.sort();
-    let mut stops: Vec<Stop> = Vec::new();
+    let mut stops: Vec<WaitSpan> = Vec::new();
     for (from, until, cause) in waits {
         match stops.last_mut() {
             Some(last) if last.until == from && last.cause == cause => last.until = until,
-            _ => stops.push(Stop {
+            _ => stops.push(WaitSpan {
                 from,
                 until,
                 cause,
