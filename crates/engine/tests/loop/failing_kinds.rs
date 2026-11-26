@@ -4,6 +4,7 @@
 //! nothing, and holds the agents' rounds only through the gate whatever drives the engine gives it.
 
 use decide::run::{FIRST_WAIT, Failure, PASSING};
+use decide::{Hindrance, Obstacle, Retry};
 use engine::{Back, Gate, handle_with};
 
 use super::*;
@@ -15,6 +16,7 @@ fn failed_as(run: RunId, failure: Failure) -> Event {
         why: format!("it failed: {failure:?}"),
         failure,
         resets: None,
+        hindrance: None,
         spent: spent(1),
     }
 }
@@ -41,6 +43,7 @@ fn a_round_that_failed_in_passing_waits_from_its_end_and_is_then_given_again() {
             why: "it failed: Passing".to_string(),
             failure: Failure::Passing,
             resets: None,
+            hindrance: None,
         })
     );
     // The work waits for the engine's call, which is pending until its time has come.
@@ -130,6 +133,7 @@ fn a_round_that_failed_for_another_cause_pauses_the_work_with_a_sentence_and_the
         why: cause.to_string(),
         failure: Failure::Other,
         resets: None,
+        hindrance: None,
         spent: spent(1),
     });
     let pause = decide::pause(&w.work.records).expect("the work is paused");
@@ -264,4 +268,70 @@ fn a_notes_round_that_failed_in_passing_over_its_budget_waits_and_is_then_held_f
         "the round after it was given though the engine paused the work for it"
     );
     assert_eq!(w.on(Event::Resumed), vec![round_effect(note, "write", 2, Given::Task)]);
+}
+
+/// The round under way of the run fails because the host only kept the engine's act from running for now, for this
+/// reason.
+fn kept_as(run: RunId, hindrance: Hindrance) -> Event {
+    Event::Failed {
+        run,
+        why: format!("the host kept it from running: {hindrance:?}"),
+        failure: Failure::Held,
+        resets: None,
+        hindrance: Some(hindrance),
+        spent: spent(1),
+    }
+}
+
+/// What keeps the host from the round's act: its limit on requests, naming when it may be asked again as given.
+fn limit(retry: Option<Retry>) -> Hindrance {
+    Hindrance {
+        obstacle: Obstacle::Limit,
+        retry,
+    }
+}
+
+#[test]
+fn a_round_the_host_kept_from_running_waits_until_the_host_says_and_no_number_of_them_pauses_the_work() {
+    let (mut w, write, _) = W::requested();
+    let hour = limit(Some(Retry::In(3600)));
+    for n in 1..=PASSING as usize + 12 {
+        let failed_at = w.clock;
+        let (call, until, failed) = wait_of(&w.on(kept_as(write, hour)));
+        assert!(!decide::paused(&w.work.records), "{n} in a row pause nothing");
+        assert_eq!(
+            (until, failed),
+            (Time(failed_at + 3_601_000), n as u32),
+            "{n} in a row wait for the host's hour"
+        );
+        assert_eq!(w.done(call), vec![round_effect(write, "write", n + 1, Given::Task)]);
+    }
+    // What kept the host from running the act is kept with the round, beside its kind.
+    assert!(matches!(
+        w.work.back.get(&(write, 1)),
+        Some(Back::Failed { failure: Failure::Held, hindrance: Some(kept), .. }) if *kept == hour
+    ));
+    // The failures in passing that follow are counted from the first.
+    let failed_at = w.clock;
+    let (_, until, failed) = wait_of(&w.on(failed_as(write, Failure::Passing)));
+    assert_eq!((until, failed), (Time(failed_at + FIRST_WAIT), 1));
+    assert!(!decide::paused(&w.work.records));
+}
+
+#[test]
+fn a_round_the_host_kept_from_running_until_a_time_waits_not_before_it_and_a_past_time_waits_the_backoff() {
+    let (mut w, write, _) = W::requested();
+    let failed_at = w.clock;
+    let reset = (failed_at + 3_600_000) / 1000;
+    let (call, until, _) = wait_of(&w.on(kept_as(write, limit(Some(Retry::At(reset))))));
+    assert_eq!(until, Time(reset * 1000 + 1000));
+    assert_eq!(w.done(call), vec![round_effect(write, "write", 2, Given::Task)]);
+    // A reset that is long past is no wait in the past: the round waits the backoff of the second round so kept in a row.
+    let failed_at = w.clock;
+    let (call, until, _) = wait_of(&w.on(kept_as(write, limit(Some(Retry::At(0))))));
+    assert_eq!(until, Time(failed_at + 2 * FIRST_WAIT));
+    assert_eq!(w.done(call), vec![round_effect(write, "write", 3, Given::Task)]);
+    // A word of forever does not overflow.
+    let (_, until, _) = wait_of(&w.on(kept_as(write, limit(Some(Retry::In(u64::MAX))))));
+    assert_eq!(until, Time(u64::MAX));
 }

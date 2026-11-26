@@ -396,7 +396,7 @@ fn a_refusal_is_of_the_kind_its_status_tells_whatever_its_words() {
         "HTTP/2.0 403 Forbidden\r\nX-RateLimit-Remaining: 0",
         "HTTP/2.0 403 Forbidden\r\nretry-after: 60",
     ] {
-        assert_eq!(kind(passes), Some(Failure::Passing), "{passes}");
+        assert_eq!(kind(passes), Some(Failure::Held), "{passes}");
     }
     for refused in [
         "HTTP/2.0 403 Forbidden\r\nX-RateLimit-Remaining: 4999",
@@ -417,7 +417,7 @@ fn a_limit_says_when_it_may_be_asked_again_as_github_says_it() {
     let held = |head: &str, message: &str| {
         let out = format!("{head}\r\nContent-Type: application/json\r\n\r\n{{\"message\":\"{message}\"}}");
         refused(&included(&out).expect("an answer"))
-            .held
+            .hindrance
             .map(|held| (held.obstacle, held.retry))
     };
     let limit = |retry| Some((Obstacle::Limit, retry));
@@ -910,7 +910,7 @@ async fn a_download_githubs_limit_or_fault_refuses_is_held_as_any_other_request_
         let gh = gh_whose_download_fails(dir.path(), said);
         let failed = gh.artifact(9, "test-results").await.expect_err("refused");
         assert_eq!(
-            failed.held.map(|held| held.obstacle),
+            failed.hindrance.map(|held| held.obstacle),
             Some(obstacle),
             "{said}: {failed:?}"
         );
@@ -919,7 +919,7 @@ async fn a_download_githubs_limit_or_fault_refuses_is_held_as_any_other_request_
         let dir = tempfile::tempdir().unwrap();
         let gh = gh_whose_download_fails(dir.path(), said);
         let failed = gh.artifact(9, "test-results").await.expect_err("refused");
-        assert_eq!(failed.held, None, "{said}: a refusal no wait mends is not held");
+        assert_eq!(failed.hindrance, None, "{said}: a refusal no wait mends is not held");
     }
 }
 
@@ -935,7 +935,7 @@ async fn a_download_the_network_keeps_from_being_done_is_held() {
     );
     let failed = gh.artifact(9, "test-results").await.expect_err("not fetched");
     assert_eq!(
-        failed.held.map(|held| held.obstacle),
+        failed.hindrance.map(|held| held.obstacle),
         Some(Obstacle::Network),
         "{failed:?}"
     );
@@ -956,7 +956,7 @@ fn a_429_that_says_nothing_of_when_is_asked_again_after_at_least_a_minute() {
         ),
     ] {
         let out = format!("{head}\r\nContent-Type: application/json\r\n\r\n{{\"message\":\"{message}\"}}");
-        let held = refused(&included(&out).expect("an answer")).held.expect("held");
+        let held = refused(&included(&out).expect("an answer")).hindrance.expect("held");
         let waits = match held.retry {
             Some(Retry::In(seconds)) => seconds,
             other => panic!("{head}: a wait of at least a minute, not {other:?}"),
@@ -971,6 +971,6 @@ fn a_429_that_says_nothing_of_when_is_asked_again_after_at_least_a_minute() {
 fn a_503_that_says_when_to_ask_again_is_not_asked_again_before_then() {
     use decide::Retry;
     let out = "HTTP/2.0 503 Service Unavailable\r\nretry-after: 120\r\n\r\n{\"message\":\"Service Unavailable\"}";
-    let held = refused(&included(out).expect("an answer")).held.expect("held");
+    let held = refused(&included(out).expect("an answer")).hindrance.expect("held");
     assert_eq!(held.retry, Some(Retry::In(120)));
 }

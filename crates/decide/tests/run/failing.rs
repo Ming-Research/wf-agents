@@ -5,6 +5,7 @@
 //! a round fails is said by `pausing`.
 
 use decide::run::{FIRST_WAIT, LONGEST_WAIT, PASSING, Pausing, pausing, wait};
+use decide::{Hindrance, Obstacle, Retry};
 
 use super::*;
 
@@ -72,7 +73,8 @@ fn a_round_that_failed_in_passing_waits_longer_each_time_before_it_is_tried_agai
         step(vec![failed_as(Failure::Passing)], &s),
         Step::Wait {
             failed: 1,
-            ms: FIRST_WAIT
+            ms: FIRST_WAIT,
+            not_before: None
         }
     );
     let third = [passing(2), vec![failed_as(Failure::Passing)]].concat();
@@ -80,7 +82,8 @@ fn a_round_that_failed_in_passing_waits_longer_each_time_before_it_is_tried_agai
         step(third, &s),
         Step::Wait {
             failed: 3,
-            ms: 4 * FIRST_WAIT
+            ms: 4 * FIRST_WAIT,
+            not_before: None
         }
     );
     assert_eq!(wait(1), 10_000);
@@ -102,7 +105,8 @@ fn a_round_that_failed_in_passing_rests_at_its_wait_and_is_tried_again_once_it_i
         step_paused(vec![failed_as(Failure::Passing)], &s),
         Step::Wait {
             failed: 1,
-            ms: FIRST_WAIT
+            ms: FIRST_WAIT,
+            not_before: None
         }
     );
     assert_eq!(step_paused(vec![over], &s), Step::Held);
@@ -114,6 +118,7 @@ fn a_failure_in_passing_counts_only_those_in_a_row_since_the_work_was_let_on() {
     let first = Step::Wait {
         failed: 1,
         ms: FIRST_WAIT,
+        not_before: None,
     };
     // A round that did not fail ends the row.
     let after_a_return = [passing(3), vec![wanting(), failed_as(Failure::Passing)]].concat();
@@ -128,7 +133,8 @@ fn a_failure_in_passing_counts_only_those_in_a_row_since_the_work_was_let_on() {
         step(other_between, &s),
         Step::Wait {
             failed: 2,
-            ms: 2 * FIRST_WAIT
+            ms: 2 * FIRST_WAIT,
+            not_before: None
         }
     );
     // The work let on after the round tries it again at once, and counts anew from there.
@@ -264,4 +270,123 @@ fn so_many_failures_in_a_row_for_a_cause_outside_every_work_pause_the_work() {
     // A round that came back between starts the row anew.
     let back = [outside(PASSING as usize), vec![wanting()], outside(1)].concat();
     assert_eq!(pausing(&let_on(back, 0)), None);
+}
+
+/// What keeps the host from an act: its limit on requests, naming when it may be asked again as given.
+fn limit(retry: Option<Retry>) -> Hindrance {
+    Hindrance {
+        obstacle: Obstacle::Limit,
+        retry,
+    }
+}
+
+/// So many rounds in a row that the host kept from running for now, each tried again after its wait.
+fn held(n: usize, kept: Hindrance) -> Vec<Round> {
+    (0..n).map(|i| kept_by(kept, &[(i as u64 + 101, true)])).collect()
+}
+
+#[test]
+fn a_round_the_host_kept_from_running_waits_for_the_host_however_many_times_and_never_pauses_the_work() {
+    let s = spec();
+    let hour = limit(Some(Retry::In(3600)));
+    for n in [1, 2, PASSING as usize, PASSING as usize + 1, 20, 50] {
+        let rounds = [held(n - 1, hour), vec![kept_by(hour, &[])]].concat();
+        assert_eq!(pausing(&let_on(rounds.clone(), 0)), None, "{n} in a row");
+        assert_eq!(
+            step(rounds, &s),
+            Step::Wait {
+                failed: n as u32,
+                ms: 3_601_000_u64.max(wait(n as u32)),
+                not_before: None
+            },
+            "{n} in a row: the host's hour, and a second more, is longer than any backoff"
+        );
+    }
+    // A limit that names no time waits as a round that failed in passing does.
+    let silent = limit(None);
+    let third = [held(2, silent), vec![kept_by(silent, &[])]].concat();
+    assert_eq!(
+        step(third, &s),
+        Step::Wait {
+            failed: 3,
+            ms: 4 * FIRST_WAIT,
+            not_before: None
+        }
+    );
+    // A round of the kind whose record names no hindrance waits as a limit that names no time does.
+    assert_eq!(
+        step(vec![failed_with(Failure::Held, None, &[])], &s),
+        Step::Wait {
+            failed: 1,
+            ms: FIRST_WAIT,
+            not_before: None
+        }
+    );
+    // A limit that names the time it resets waits not before it, and a second more.
+    let at = limit(Some(Retry::At(1_764_000_000)));
+    assert_eq!(
+        step(vec![kept_by(at, &[])], &s),
+        Step::Wait {
+            failed: 1,
+            ms: FIRST_WAIT,
+            not_before: Some(1_764_000_001_000)
+        }
+    );
+}
+
+#[test]
+fn a_round_the_host_kept_from_running_rests_at_its_wait_and_is_tried_again_once_it_is_over() {
+    let s = spec();
+    let kept = limit(Some(Retry::In(60)));
+    assert_eq!(
+        step(vec![kept_by(kept, &[(7, false)])], &s),
+        Step::Rest { calls: vec![CallId(7)] }
+    );
+    let over = kept_by(kept, &[(7, true)]);
+    assert_eq!(step(vec![over.clone()], &s), Step::Retry);
+    // The wait is no round: a pause holds back the round after it, and not the wait.
+    assert!(matches!(
+        step_paused(vec![kept_by(kept, &[])], &s),
+        Step::Wait { failed: 1, .. }
+    ));
+    assert_eq!(step_paused(vec![over.clone()], &s), Step::Held);
+    // The work let on after it takes the round again at once.
+    assert_eq!(next(&let_on(vec![over], 1), s.requires(), Hold::Nothing), Step::Retry);
+}
+
+#[test]
+fn a_round_the_host_kept_from_running_is_in_the_row_of_failures_in_passing_and_counts_toward_none() {
+    let s = spec();
+    let kept = limit(Some(Retry::In(60)));
+    let passing_failure = || failed_as(Failure::Passing);
+    // Five failures in passing, three rounds the host kept from running, three failures in passing: eight count, and
+    // the work still waits.
+    let rounds = [passing(5), held(3, kept), passing(2), vec![passing_failure()]].concat();
+    assert_eq!(pausing(&let_on(rounds.clone(), 0)), None);
+    assert_eq!(
+        step(rounds, &s),
+        Step::Wait {
+            failed: 8,
+            ms: LONGEST_WAIT,
+            not_before: None
+        }
+    );
+    // The ninth of them pauses the work, though three more rounds were kept from running between them.
+    let ninth = [passing(5), held(3, kept), passing(3), vec![passing_failure()]].concat();
+    assert_eq!(
+        pausing(&let_on(ninth.clone(), 0)),
+        Some(Pausing::Passing { failed: PASSING + 1 })
+    );
+    assert_eq!(step(ninth, &s), Step::Retry);
+    // The round after those kept from running that fails in passing is only the first.
+    let after = [held(PASSING as usize + 2, kept), vec![passing_failure()]].concat();
+    assert_eq!(pausing(&let_on(after.clone(), 0)), None);
+    assert_eq!(
+        step(after, &s),
+        Step::Wait {
+            failed: 1,
+            ms: FIRST_WAIT,
+            not_before: None
+        }
+    );
 }

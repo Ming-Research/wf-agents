@@ -22,7 +22,7 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use decide::run::Failure;
-use decide::{BlockId, CallId, End, Outsider, Pauser, RunId};
+use decide::{BlockId, CallId, End, Hindrance, Outsider, Pauser, RunId};
 use driver::history::Lines;
 use driver::{Accounts, Along, Found, Going, Instead, Limit, Policy, Said, Under};
 use engine::{Came, Event};
@@ -976,7 +976,7 @@ impl RoundReply {
     /// engine pauses the work with the reason as it takes this; once the owner lets the work on, the run's next round
     /// is given what this one was.
     pub fn failed(self, why: String, spent: Spent) {
-        self.failed_as(Failure::Other, None, why, spent);
+        self.failed_as(Failure::Other, None, None, why, spent);
     }
 
     /// The round failed as [`RoundReply::failed_as`] says, and its work is to wait for the owner, for this reason, as
@@ -992,18 +992,27 @@ impl RoundReply {
             work: self.work,
             event: paused,
         });
-        self.failed_as(failure, resets, why, spent);
+        self.failed_as(failure, resets, None, why, spent);
     }
 
     /// The round failed, for this reason, having taken this, for a cause of this kind, as the carrier told it apart;
-    /// `resets` says when the account's usage limit resets, where that is the cause and its report says when. The
-    /// engine handles the failure as its kind says.
-    pub fn failed_as(self, failure: Failure, resets: Option<Time>, why: String, spent: Spent) {
+    /// `resets` says when the account's usage limit resets, where that is the cause and its report says when, and
+    /// `hindrance` what kept the host from running the engine's act and when it may be asked again, where the cause is
+    /// [`Failure::Held`]. The engine handles the failure as its kind says.
+    pub fn failed_as(
+        self,
+        failure: Failure,
+        resets: Option<Time>,
+        hindrance: Option<Hindrance>,
+        why: String,
+        spent: Spent,
+    ) {
         let event = Event::Failed {
             run: self.run,
             why,
             failure,
             resets,
+            hindrance,
             spent,
         };
         // Where the loop has ended, the process is stopping: the round is handed out again when it starts again.

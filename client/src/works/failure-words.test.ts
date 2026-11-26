@@ -25,7 +25,17 @@ describe('the words of a round that failed and of the waits that follow', () => 
   });
 
   it("says the engine's wait as a call, with how many failed in a row", () => {
-    expect(callWords({ kind: 'wait', until: 0, failed: 3 })).toMatch(/^the engine's wait until .*\(3 in a row\)$/);
+    expect(callWords({ kind: 'wait', until: 0, failed: 3, obstacle: null })).toMatch(
+      /^the engine's wait until .*\(3 in a row\)$/,
+    );
+  });
+
+  it("says the engine's wait before a round the host kept from running, with what kept it", () => {
+    expect(callWords({ kind: 'wait', until: 0, failed: 2, obstacle: 'limit' })).toMatch(
+      /^the engine's wait until .*, before the round the host kept from running is tried again: GitHub's limit on its requests \(2 in a row\)$/,
+    );
+    expect(callWords({ kind: 'wait', until: 0, failed: 1, obstacle: 'noRunner' })).toContain('no machine took the run');
+    expect(failureWords('held')).toBe('the host only kept it from running for now');
   });
 
   it('says a wait every work shares: what is down since when, what a check found, and what it holds', () => {

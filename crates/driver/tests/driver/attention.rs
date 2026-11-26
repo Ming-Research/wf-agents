@@ -968,6 +968,7 @@ fn the_wait_every_work_shares_is_one_line_about_no_work_and_the_works_it_holds_g
             why: "the account's usage limit was reached".to_string(),
             failure: decide::run::Failure::UsageLimit,
             resets: None,
+            hindrance: None,
             spent,
         },
     );

@@ -629,6 +629,7 @@ fn a_usage_limit_met_by_a_work_that_ended_on_an_earlier_version_still_stands() {
         why: "You've hit your limit".to_string(),
         failure: decide::run::Failure::UsageLimit,
         resets: Some(resets),
+        hindrance: None,
         spent,
     };
     h.on(a, failed);
