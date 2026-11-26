@@ -113,7 +113,7 @@ While the search is open the tree is dimmed, as round the item under the pointer
 n and N go to the next and the previous stop, m and M to the next and the previous reply not read, tree by tree in the list's order, round from the last; Next, left of Discuss on a stop, does as n.
 - replaced: A button Next question on a row of its own under Discuss was on main; the owner changed it, because the two buttons go together on one row, and Next is shorter.
 - replaced: Finding each thing to handle by looking for a card with a count and scrolling its window was on main; the owner changed it, because he works by those counts, and wanted to go from one thing he handles to the next by keys.
-- replaced: Walking by n and N alone, with no key for the replies he had not read, was on main; the owner changed it, because he could not find a reply an agent had written to his words after he left the page, and wanted to go from one unread reply to the next by keys.
+- replaced: Walking by n and N alone, with no key for the replies the owner had not read, was on main; the owner changed it, because the owner could not find a reply an agent had written to the owner's words after leaving the page, and wanted to go from one unread reply to the next by keys.
 
 ### decision the-map-draws-each-item-and-the-screen
 The map draws each item as a piece of its column's bar in the colour of its card's state, and frames in a thin light line the part of the tree the screen shows.
