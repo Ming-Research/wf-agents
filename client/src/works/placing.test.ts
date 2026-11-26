@@ -408,6 +408,7 @@ function listed(
     project: 'wf-agents',
     added: 0,
     dependsOn: [],
+    mainDependent: null,
     history: { first: { title: `${number}`, level: '2', dependsOn: [] }, changes: [] },
     work,
   };

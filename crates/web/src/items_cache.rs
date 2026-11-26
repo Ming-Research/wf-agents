@@ -3,7 +3,8 @@
 //! last given.
 //!
 //! What a summary is made from ([`Inputs`]) is cheap to read and holds none of the records' content: how far the
-//! work's records and its item's changes have come, where each of its round and calls under way stands as a CI run,
+//! work's records and its item's changes have come, which item's dependency on it is its main one, which a change of
+//! another item can move, where each of its round and calls under way stands as a CI run,
 //! the room the engine leaves it (the pause of everything, a slot, the turn), the items it waits for, and what holds
 //! every work at once. One more thing changes it with no record: time, for a work with a round or a call under way,
 //! whose time bar counts what is under way to now; such a summary is worked out again once the bound has passed.
@@ -47,6 +48,8 @@ struct Inputs {
     moments: usize,
     /// How many changes were made to its item.
     item_changes: usize,
+    /// The item whose dependency on its item is the main one, as the store keeps them.
+    main_dependent: Option<store::ItemNumber>,
     /// Each round or call of the work under way that stands as a CI run, with its link and the runner it waits for
     /// where it waits for one, or waits for its turn on a machine. What the rest of a round under way has come to
     /// changes with every call and is no part of a summary.
@@ -61,6 +64,7 @@ impl Inputs {
     fn of(
         driver: &Driver,
         number: WorkNumber,
+        item: store::ItemNumber,
         moments: usize,
         item_changes: usize,
         at_once: &driver::AtOnce,
@@ -68,6 +72,7 @@ impl Inputs {
         Inputs {
             moments,
             item_changes,
+            main_dependent: driver.main_dependent(item),
             runs: (driver.along_of(number).into_iter())
                 .filter_map(|(under, along)| match along {
                     Along::Runs { .. } | Along::WaitsForMachine { .. } => Some((under, along.clone())),
@@ -188,7 +193,14 @@ impl ItemsCache {
         for kept in driver.works() {
             let (number, item) = (kept.head.number, kept.item.number.0);
             let moments = kept.work.moments.len();
-            let key = Inputs::of(driver, number, moments, kept.item.changes.len(), &at_once);
+            let key = Inputs::of(
+                driver,
+                number,
+                kept.item.number,
+                moments,
+                kept.item.changes.len(),
+                &at_once,
+            );
             let stale = match inner.entries.get(&item) {
                 None => true,
                 Some(entry) => {

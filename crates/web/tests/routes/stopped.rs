@@ -40,6 +40,10 @@ impl Storage for Failing {
         self.store.items()
     }
 
+    fn mains(&self) -> Result<store::Mains, store::Fault> {
+        self.store.mains()
+    }
+
     fn works(&self) -> Result<Vec<WorkHead>, store::Fault> {
         self.store.works()
     }

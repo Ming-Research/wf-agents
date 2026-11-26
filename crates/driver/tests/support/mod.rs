@@ -3,7 +3,9 @@
 //!
 //! What the harness checks after every call that the driver took:
 //! - a store opened on the same file, apart from the driver's, holds every item and every work the driver shows,
-//!   exactly (principle `state-from-records`);
+//!   exactly (principle `state-from-records`), and the main dependencies the driver shows: one of each item some item
+//!   depends on, of an item that depends on it, and of a cancelled one only where every item that depends on it is
+//!   cancelled, and none of any other item;
 //! - what the driver gives to be done, that store already says is to be done;
 //! - no round and no call is given twice, and nothing answered is given again;
 //! - what was given and not yet answered is exactly what the driver says is pending;
@@ -541,6 +543,10 @@ impl Storage for Failing {
     fn items(&self) -> Result<Vec<Item>, store::Fault> {
         self.call(Op::Items)?;
         self.store.items()
+    }
+
+    fn mains(&self) -> Result<store::Mains, store::Fault> {
+        self.store.mains()
     }
 
     fn works(&self) -> Result<Vec<WorkHead>, store::Fault> {
@@ -1393,6 +1399,40 @@ impl H {
                 (k.head.item, end)
             })
             .collect();
+        let mains = self.reader.mains().expect("the main dependencies are read");
+        assert_eq!(
+            &mains,
+            d.mains(),
+            "the store holds other main dependencies than the driver"
+        );
+        let mut dependents: BTreeMap<ItemNumber, Vec<ItemNumber>> = BTreeMap::new();
+        for item in &items {
+            for on in &item.depends_on {
+                dependents.entry(*on).or_default().push(item.number);
+            }
+        }
+        assert_eq!(
+            mains.keys().collect::<Vec<_>>(),
+            dependents.keys().collect::<Vec<_>>(),
+            "the items with a main dependency are not those some item depends on"
+        );
+        // An item is cancelled, for its main dependency, where a cancel of its work stands, as its records say.
+        let cancels: BTreeSet<ItemNumber> = (d.works())
+            .filter(|k| k.work.records.cancelled().is_some())
+            .map(|k| k.head.item)
+            .collect();
+        let cancelled = |item: &ItemNumber| cancels.contains(item);
+        for (of, by) in &dependents {
+            let main = &mains[of];
+            assert!(
+                by.contains(main),
+                "the main dependency of {of} is of {main}, which does not depend on it"
+            );
+            assert!(
+                !cancelled(main) || by.iter().all(cancelled),
+                "the main dependency of {of} is of {main}, which is cancelled, while another that depends on it is not"
+            );
+        }
         for kept in d.works() {
             let number = kept.head.number;
             // What the store holds, read through the moves as the driver read the work.

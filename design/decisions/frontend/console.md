@@ -26,10 +26,10 @@ The items form one tree by what depends on what: where one item depends on anoth
 - replaced: A grey padlock on a card with the count of the open items it depends on was on main; the owner changed it, because everything an item waits for stands under it, so the count only said again what the tree shows.
 
 ### decision an-item-stands-in-one-place
-An item stands whole in one place, under the lowest-numbered item of its own project that depends on it; under each other item that depends on it, a shadow of it points there.
+An item stands whole under its main dependent, the item whose dependency on it the store keeps as main, where it is of its own project; under each other item that depends on it, a shadow points there.
 - rejected: an agent proposed a count, on the item, of the other items that depend on it; the owner rejected it, because a count does not say which they are.
 - rejected: an agent proposed linking the item to the others that depend on it only while the pointer is on it; the owner rejected it, because the link could not be found without pointing at the item.
-- replaced: A main dependent chosen for each item was on main; the owner changed it, because the code takes the lowest-numbered one, and a decision never runs ahead of the code.
+- replaced: An item standing under the lowest-numbered item of its own project that depends on it was on main; the owner changed it, because every item depended on has exactly one main dependency at all times, which the rebuild had lost, and the lowest number put open work under a cancelled item.
 
 ### decision an-ended-item-stands-where-it-stood
 A done or cancelled item stands under the item that depends on it, by the rule every item stands by; the tree works out no place of its own from the items' changes.
