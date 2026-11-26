@@ -384,7 +384,8 @@ async fn run_tests(
 }
 
 /// A request of `run_tests`: the tests, the checks and the measurements it names, each list left out where it names none,
-/// and the commit to run them on, left out for the last commit of the work's branch.
+/// the commit to run them on, left out for the last commit of the work's branch, and `publish`, left out for no
+/// publishing of that commit.
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Request {
@@ -396,6 +397,8 @@ struct Request {
     measure: Vec<String>,
     #[serde(default)]
     commit: Option<String>,
+    #[serde(default)]
+    publish: bool,
 }
 
 /// What a request names, each name trimmed and taken once, a blank one left out; an input with nothing in it names
@@ -427,6 +430,7 @@ fn asked(input: &str) -> Result<Named, String> {
         checks: once(request.checks),
         measure,
         commit: (request.commit.map(|c| c.trim().to_string())).filter(|c| !c.is_empty()),
+        publish: request.publish,
     })
 }
 
@@ -1019,6 +1023,19 @@ mod tests {
         }
     }
 
+    // `publish` asks for the commit to be left on the host, and by itself it is a request to do that: only a boolean is
+    // read. Well under a millisecond alone; no other test reads this field.
+    #[test]
+    fn a_request_to_publish_a_commit_is_a_request_by_itself_and_only_a_boolean_asks_for_it() {
+        let named = asked(r#"{"publish": true, "commit": "HEAD~1"}"#).expect("read");
+        assert!(named.publish && !named.is_empty() && named.commit.as_deref() == Some("HEAD~1"));
+        assert!(!asked(r#"{"publish": false}"#).expect("read").publish);
+        assert!(asked(r#"{"publish": false}"#).expect("read").is_empty());
+        for wrong in [r#"{"publish": "yes"}"#, r#"{"publish": 1}"#, r#"{"publish": ["a"]}"#] {
+            assert!(asked(wrong).is_err(), "{wrong:?}");
+        }
+    }
+
     // The measurements a request names are names, each once and trimmed, and a name is data: one that holds a character a
     // shell would treat specially, or white space inside it, is refused saying which, and nothing is named. Well under
     // a millisecond alone; no other test holds what a measurement's name may hold.
@@ -1119,6 +1136,22 @@ mod tests {
         ));
         let tool: flow::agents::Tool = toml::from_str(text).expect("the file of run_tests reads");
         assert!(!tool.words_local.expect("words for the local host").contains("measure"));
+    }
+
+    // Where the host is the local repository there is no host to leave a commit on: a request to publish is refused and
+    // the command is not run. Milliseconds alone, as the tests beside it; the one test of the local host's refusal of
+    // publishing.
+    #[tokio::test]
+    async fn a_commit_to_publish_where_the_host_is_the_local_repository_is_refused_and_the_command_is_not_run() {
+        let repo = Repo::new("echo all is well");
+        git::start(&repo.project, &repo.place(WORK), "main", "main")
+            .await
+            .unwrap();
+        let said = answered_with(&repo, RUN_TESTS, r#"{"publish": true}"#, &[]).await;
+        assert_eq!(
+            said,
+            "Nothing was run: this repository has no host to leave a commit on, so none can be published."
+        );
     }
 
     #[tokio::test]
