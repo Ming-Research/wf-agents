@@ -35,7 +35,7 @@ Red is the only colour of a stop: a work that waits for the owner and a work hal
 - replaced: Orange for what waits for the owner on the Works page and in the bar, but red on the console, was on main; the owner changed it, because one meaning has one colour, and he had chosen red for every stop.
 
 ### decision a-call-waited-for-is-no-run
-Wherever the page shows the state of a work waiting for the results of tools the engine runs, it says in a call's yellow that it waits for each tool, where it runs and how long, never that it runs.
+Wherever the page shows a work waiting for tools' results, it says in a call's yellow that it waits for each tool, where it runs and how long, never that it runs; a held call, until when and why.
 - rejected: an agent proposed a separate mark for the tool, after the cell that asked for it; the owner rejected it, because every call that takes time should keep the motion on the card: its cell's mark turned yellow and still blinking.
 - rejected: an agent proposed a cell in the flow for each tool, as the old system had; the owner rejected it, because cells for tools do not fit the flow's new model.
 - replaced: Different words for such a work in each place, finished in one, a call under way in another and running in a third, was on main; the owner changed it, because every place should show the same thing.
