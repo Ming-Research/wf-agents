@@ -1989,7 +1989,7 @@ impl Inner {
                 &profile,
                 crate::programs::engine().iter().cloned(),
                 &of.declaration.environment,
-                &BTreeMap::new(),
+                &of.beside.refused.environment,
                 token,
             ))
             .current_dir(dir);
