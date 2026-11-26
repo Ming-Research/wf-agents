@@ -63,6 +63,42 @@ describe.each(['light', 'dark'] as const)('what the named values leave as it was
     expect.soft(Number.parseFloat(look.lineHeight)).toBeCloseTo(Number.parseFloat(look.fontSize) * line, 3);
   });
 
+  it('keeps the question before a command as main drew it, by the numbers its styles then wrote', async () => {
+    // Reference: `parts.css` on main (`git show ff7954d3e:client/src/styles/parts.css`, `.confirm`, `.confirm-body`,
+    // `.confirm-buttons .button`, `.diagram-window`): written out here, so that a token that changes with its users
+    // does not move the oracle with it.
+    const part = draw(
+      <>
+        <Confirm title="Cancel this work?" verb="Cancel work" onAnswer={() => undefined}>
+          It stops, and its branch is let go.
+        </Confirm>
+        <DiagramWindow drawn={DRAWN} id="wf-diagram-main" onClose={() => undefined} />
+      </>,
+    );
+    const dialog = part.querySelector('dialog.confirm') as HTMLDialogElement;
+    const window_ = part.querySelector('dialog.diagram-window') as HTMLDialogElement;
+    await expect.poll(() => dialog.open && window_.open).toBe(true);
+    const look = getComputedStyle(dialog);
+    expect.soft(look.borderTopLeftRadius).toBe('12px');
+    expect.soft(look.lineHeight).toBe('19.5px');
+    expect.soft(getComputedStyle(window_).borderTopLeftRadius).toBe('12px');
+    expect.soft(getComputedStyle(dialog.querySelector('.confirm-body') as HTMLElement).fontSize).toBe('14px');
+    for (const button of dialog.querySelectorAll<HTMLButtonElement>('.confirm-buttons .button')) {
+      const ours = getComputedStyle(button);
+      expect.soft(ours.height).toBe('32px');
+      expect.soft(ours.borderTopLeftRadius).toBe('6px');
+      expect.soft(ours.fontSize).toBe('14px');
+    }
+    // Both panels carry the same three shadows: a hairline, then 8px 16px and 24px 48px blurs.
+    for (const panel of [dialog, window_]) {
+      const shadow = getComputedStyle(panel).boxShadow;
+      expect.soft(shadow).toContain('8px 16px');
+      expect.soft(shadow).toContain('24px 48px');
+      expect.soft(shadow).toContain('rgba(0, 0, 0, 0.08)');
+      expect.soft(shadow).toContain('rgba(0, 0, 0, 0.16)');
+    }
+  });
+
   it('dims the page under the window a diagram opens larger in, and leaves a margin of four spaces round it', async () => {
     const dialog = draw(<DiagramWindow drawn={DRAWN} id="wf-diagram-kept" onClose={() => undefined} />).querySelector(
       'dialog.diagram-window',
