@@ -49,6 +49,7 @@
 
 import {
   Application,
+  BitmapFontManager,
   BitmapText,
   BlurFilter,
   Container,
@@ -67,6 +68,12 @@ import type { CellNow, CellState } from '../works-api';
 import { NO_LEVEL, STATE, itemName, linesAdded, linesRemoved, stateOf, stoppedAt } from '../works/words';
 import { type Fold, STANDINGS, type Shown, type ShownWork, age, somethingUnread } from './items';
 import { indexTree, type Tree } from './tree';
+
+// A font the canvas builds as it meets each new character measures, unless told not to, the kerning of that character
+// against every character it holds, two measures a pair: with the thousands of Chinese characters the titles bring that
+// grows to millions of measures, and on 2026-11-26 it held the owner's page unresponsive for seconds at a time. Chinese
+// text has no kerning, and the page's Latin text is names and numbers, so no font of the canvas measures it.
+BitmapFontManager.defaultOptions.skipKerning = true;
 
 export const NODE_W = 300;
 /// A row's height, and the height of a node of one row: an item with a work going on has a second row, the work's, this
