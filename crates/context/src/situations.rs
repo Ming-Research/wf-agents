@@ -57,7 +57,12 @@ pub fn stood(cell: &CellSpec, s: &Situation) -> Vec<String> {
             .iter()
             .map(|key| format!("{id}: given the result of a call, {key}")),
     );
-    lines.extend(s.sent_back.then(|| format!("{id}: given why a return was sent back")));
+    // A return given whole again ends its reasons in words of its own, so it is a line of its own, not one beside the line
+    // of any other.
+    lines.extend(s.sent_back.then(|| match s.whole {
+        true => format!("{id}: given why a return was sent back, to give it whole again"),
+        false => format!("{id}: given why a return was sent back"),
+    }));
     lines.extend(
         s.main
             .iter()
@@ -84,7 +89,7 @@ fn name(entry: Entry, s: &Situation) -> String {
     parts.extend(s.main.iter().map(|key| format!("main_{key}")));
     parts.extend(s.results.iter().map(|key| format!("result_{key}")));
     if s.sent_back {
-        parts.push("sent_back".to_string());
+        parts.push(if s.whole { "sent_back_whole" } else { "sent_back" }.to_string());
     }
     parts.join("-")
 }

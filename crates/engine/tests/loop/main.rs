@@ -20,6 +20,7 @@ mod paused_answers;
 mod pausing;
 mod pending;
 mod questions;
+mod reading;
 mod rebuilt;
 mod refused;
 mod room;

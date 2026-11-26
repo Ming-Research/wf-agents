@@ -8,8 +8,12 @@
 //! made; and the agents' command line where it cannot run, which only the owner mends. Who can make a precondition
 //! hold is what the flow declares of each block, as the deciding code reads it ([`Maker::Owner`]). Nothing else is the
 //! owner's to end: a fault, a stalled work, the owner's own pause, a slot, a source outside the work, the project's
-//! turn, the wait every work shares for any other cause, which the engine lifts by itself, and the pause of every
-//! work, which is one thing wherever it holds and is said and lifted where it is set, not work by work.
+//! turn, the wait every work shares for any other cause, which the engine lifts by itself, and the owner's own pause of
+//! every work, which is the owner's and is said and lifted where it is set.
+//!
+//! The engine's pause of every work, which it sets as it starts with works going on, is the owner's to lift, and
+//! belongs to no work: it is one wait of the installation, however many works it holds, and is read from
+//! [`installation_waits`], which the count of the bar and the browser's notifications read beside each work's own.
 //!
 //! Each is said in a sentence in the words beside the flows ([`flow::agents::OwnerWords`]), of the flow the work runs
 //! on, with what the owner does that ends it.
@@ -31,6 +35,8 @@ pub const PAUSE: &str = "pause";
 pub const LIMIT: &str = "limit";
 /// The key of the agents' command line that cannot run.
 pub const AGENTS: &str = "agents";
+/// The key of the engine's pause of every work, the one wait of the installation.
+pub const EVERYTHING: &str = "everything";
 
 /// One thing a work waits on the owner for.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -58,10 +64,36 @@ pub enum Ends {
     /// Writes the block with this value, which makes the precondition hold; none where the block's values do not make
     /// that plain, and the owner says to the cell what is to be done.
     Write { block: BlockId, value: Option<String> },
-    /// Lets the work go on, lifting the engine's pause.
+    /// Lets the work go on, lifting the engine's pause; of the installation's wait, lets every work go on, lifting the
+    /// engine's pause of every work.
     Resume,
     /// Does what this says, which no control of the page does; the engine sees it done by itself.
     Outside { what: String },
+}
+
+/// One thing the whole installation waits on the owner for, which no work does: since when it has.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InstallationWaiting {
+    pub waiting: Waiting,
+    pub since: work::Time,
+}
+
+/// What the installation waits on the owner for, as the pause of every work stands: where the engine set it, as it
+/// started with works going on, one wait, however many works it holds, said in the words beside the flows; where the
+/// owner set it, or none holds, none, since it is the owner's own and ends when they say. The owner lifts it with Start
+/// all.
+pub fn installation_waits(everything: Option<store::EverythingPaused>, words: &OwnerWords) -> Vec<InstallationWaiting> {
+    match everything {
+        Some(paused) if paused.by == Pauser::Engine => vec![InstallationWaiting {
+            waiting: Waiting {
+                key: EVERYTHING.to_string(),
+                why: words.held.clone(),
+                ends: Ends::Resume,
+            },
+            since: paused.since,
+        }],
+        _ => Vec::new(),
+    }
 }
 
 /// What holds every work at once at a moment: who set the pause of everything, while it holds, which no work waits on
@@ -707,5 +739,40 @@ mod tests {
         ] {
             assert_eq!(of(&work, &decision), Vec::<Waiting>::new(), "{decision:?}");
         }
+    }
+    /// The pause of every work as the store keeps it, since this time, set by this one.
+    fn everything(by: Pauser, since: u64) -> Option<store::EverythingPaused> {
+        Some(store::EverythingPaused { since: Time(since), by })
+    }
+
+    #[test]
+    fn the_engines_pause_of_every_work_is_one_wait_of_the_installation_which_no_work_waits_on_the_owner_for() {
+        let flow = flow();
+        let words = &flow.waits.owner;
+        let waits = installation_waits(everything(Pauser::Engine, 4000), words);
+        assert_eq!(
+            waits,
+            vec![InstallationWaiting {
+                waiting: Waiting {
+                    key: EVERYTHING.to_string(),
+                    why: words.held.clone(),
+                    ends: Ends::Resume,
+                },
+                since: Time(4000),
+            }]
+        );
+        assert!(
+            !words.held.trim().is_empty(),
+            "the sentence is the engine's words beside the flows"
+        );
+        // It is the one wait however many works it holds: no work waits on the owner for it (the test before this).
+    }
+
+    #[test]
+    fn the_owners_own_pause_of_every_work_and_no_pause_are_no_wait_of_the_installation() {
+        let flow = flow();
+        let words = &flow.waits.owner;
+        assert_eq!(installation_waits(everything(Pauser::Owner, 4000), words), Vec::new());
+        assert_eq!(installation_waits(None, words), Vec::new());
     }
 }

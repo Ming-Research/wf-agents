@@ -35,6 +35,10 @@ pub struct Settings {
     /// How a line's session is kept: its program's prompt cache, and the pings that keep it warm while the line waits.
     #[serde(default)]
     pub sessions: Sessions,
+    /// When `wf-agents wait` gives again what stands, and how long work may be held up before that is something to
+    /// handle.
+    #[serde(default)]
+    pub wait: Wait,
 }
 
 /// The owner of the installation.
@@ -164,6 +168,65 @@ fn warm_minutes() -> u64 {
 
 /// A minute, in milliseconds.
 const MINUTE: u64 = 60_000;
+
+/// What `wf-agents wait` goes by, in minutes: how long after it gave what stands to be handled it gives it whole again,
+/// until each thing is gone; how long a work may hold its project's turn to check and merge, its round or call under
+/// way, while other works wait for the turn, before that is something to handle; how long a round or call may wait for
+/// a runner before that is something to handle; and how long a measurement may wait for its turn on its machine before
+/// that is something to handle.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Wait {
+    #[serde(default = "again_minutes")]
+    pub again_minutes: u64,
+    #[serde(default = "turn_minutes")]
+    pub turn_minutes: u64,
+    #[serde(default = "queued_minutes")]
+    pub queued_minutes: u64,
+    #[serde(default = "machine_minutes")]
+    pub machine_minutes: u64,
+}
+
+impl Default for Wait {
+    fn default() -> Self {
+        Wait {
+            again_minutes: again_minutes(),
+            turn_minutes: turn_minutes(),
+            queued_minutes: queued_minutes(),
+            machine_minutes: machine_minutes(),
+        }
+    }
+}
+
+fn again_minutes() -> u64 {
+    5
+}
+
+fn turn_minutes() -> u64 {
+    30
+}
+
+fn queued_minutes() -> u64 {
+    15
+}
+
+fn machine_minutes() -> u64 {
+    60
+}
+
+impl Wait {
+    /// How long after what stands was given whole it is given again, how long a turn may be held so, how long a round
+    /// may wait for a runner, and how long a measurement may wait for its machine, in milliseconds.
+    pub fn ms(&self) -> (u64, u64, u64, u64) {
+        let ms = |minutes: u64| minutes.saturating_mul(MINUTE);
+        (
+            ms(self.again_minutes),
+            ms(self.turn_minutes),
+            ms(self.queued_minutes),
+            ms(self.machine_minutes),
+        )
+    }
+}
 
 /// A project whose works are done, as this machine has it: a local git repository, its main branch, and where it is
 /// hosted. What is the project's own, such as the command that checks it, is in its declaration.
@@ -540,6 +603,9 @@ impl Settings {
                     .to_string(),
             );
         }
+        if settings.wait.again_minutes == 0 {
+            wrong.push("wait.again_minutes: what stands is given again at least a minute after it was".to_string());
+        }
         if settings.projects.is_empty() {
             wrong.push(
                 "projects: the installation names at least one project, as a table [projects.<name>]".to_string(),
@@ -774,6 +840,41 @@ mod tests {
             Settings::read(&late)
                 .expect_err("refused")
                 .contains("sessions.warm_minutes")
+        );
+    }
+
+    // What `wf-agents wait` goes by is read from its table, each time left out at its default, and a time of nought
+    // between two givings of what stands is refused, by its key. Fails where a default is not the one the sample says,
+    // a key is not read, or a key the table does not know is.
+    #[test]
+    fn what_wait_goes_by_is_read_each_left_out_at_its_default_and_no_time_between_givings_is_refused() {
+        let settings = Settings::read(SAMPLE).expect("the sample reads");
+        assert_eq!(settings.wait.ms(), (5 * MINUTE, 30 * MINUTE, 15 * MINUTE, 60 * MINUTE));
+        let without = (SAMPLE.replace("again_minutes = 5\n", ""))
+            .replace("turn_minutes = 30\n", "")
+            .replace("queued_minutes = 15\n", "")
+            .replace("machine_minutes = 60\n", "");
+        assert_ne!(without, SAMPLE, "the sample sets them");
+        assert_eq!(
+            Settings::read(&without).expect("it reads without").wait,
+            Wait::default()
+        );
+        assert_eq!(Wait::default(), settings.wait, "the sample sets each at its default");
+        let set = (SAMPLE.replace("again_minutes = 5", "again_minutes = 2"))
+            .replace("queued_minutes = 15", "queued_minutes = 40")
+            .replace("machine_minutes = 60", "machine_minutes = 90");
+        let read = Settings::read(&set).expect("it reads");
+        assert_eq!(read.wait.ms(), (2 * MINUTE, 30 * MINUTE, 40 * MINUTE, 90 * MINUTE));
+        let never = SAMPLE.replace("again_minutes = 5", "again_minutes = 0");
+        assert!(
+            Settings::read(&never)
+                .expect_err("refused")
+                .contains("wait.again_minutes")
+        );
+        let unknown = SAMPLE.replace("again_minutes = 5", "again_seconds = 30");
+        assert!(
+            Settings::read(&unknown).is_err(),
+            "a key the table does not know is read"
         );
     }
 

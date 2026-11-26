@@ -511,6 +511,7 @@ impl Explorer<'_> {
             nothing_but: &m.nothing_but,
             questions: m.answered[i].as_ref(),
             words: m.spoken[i].as_ref(),
+            stuck: None,
         };
         let step = run::next(log, requires, Hold::Nothing);
         let sent_back = variant.as_ref() == Some(&Variant::SentBack);

@@ -1052,6 +1052,7 @@ impl Real {
             },
             backup: None,
             sessions: Default::default(),
+            wait: Default::default(),
         };
         let flow = compiled(on);
         let tokens = Arc::new(service::KeptTokens::new());

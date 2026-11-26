@@ -79,7 +79,7 @@
 //! and shows nothing more of the works, which it may hold otherwise than the store does, and is to be opened again
 //! (principle `nothing-passes-for-normal`).
 //!
-//! What needs whoever plans the work since a mark they keep, read from the records of every work, is [`attention`];
+//! What needs whoever plans the work, read from the records of every work, each since when it stands, is [`attention`];
 //! what a work waits on the owner for, defined once for everything that counts or shows it, is [`owner`].
 //!
 //! The driver alone sees every work, so it is also what judges by history (principle `judged-by-own-history`): it
@@ -122,6 +122,8 @@ pub mod time;
 pub mod timed;
 
 mod turn;
+
+pub mod unread;
 
 pub mod usage;
 
@@ -327,6 +329,10 @@ pub struct Driver {
     /// Where each round or call under way stands, of a work, as what carries it out last said ([`along`]). What the
     /// outside says at a moment, kept only in memory: lost in a stop, it is said again as what is given again goes on.
     along: BTreeMap<(WorkNumber, Under), Along>,
+    /// Since when each round or call under way has waited for a runner, as what carries it out first said so after it
+    /// last did not: the time by the loop's clock, with the runner. Kept only in memory with [`Driver::along`]: lost in
+    /// a stop, it is taken again from the first time it is said after.
+    queued: BTreeMap<(WorkNumber, Under), (String, Time)>,
     /// What the agents' service last said of each account's usage, and the looks under way ([`usage`]). What the
     /// outside says at a moment, kept only in memory and read by nothing that decides: lost in a stop, it is said again
     /// at the next call under each account, or the next look.
@@ -817,6 +823,7 @@ impl Driver {
             answered: BTreeSet::new(),
             pinging: BTreeSet::new(),
             along: BTreeMap::new(),
+            queued: BTreeMap::new(),
             usage: Usages::default(),
             checks: RefCell::default(),
         };
@@ -1951,26 +1958,56 @@ impl Driver {
     }
 
     /// What carries out a round or a call of the work says where it stands now, or, with none, that it no longer says
-    /// so; taken while it is under way, and dropped otherwise. Gives whether what is kept changed. What it kept of the
-    /// work's rounds and calls no longer under way is let go.
-    pub fn along(&mut self, work: WorkNumber, under: Under, along: Option<Along>) -> bool {
+    /// so, at this time; taken while it is under way, and dropped otherwise. Gives whether what is kept changed. What
+    /// it kept of the work's rounds and calls no longer under way is let go. Where it says it waits for a runner, it
+    /// has waited since the first time it said so for that runner after it last did not.
+    pub fn along(&mut self, at: Time, work: WorkNumber, under: Under, along: Option<Along>) -> bool {
         let Some(held) = self.works.get(&work) else {
             return false;
         };
         let records = &held.work.records;
         self.along
             .retain(|(of, under), _| *of != work || under.under_way(records));
+        self.queued
+            .retain(|(of, under), _| *of != work || under.under_way(records));
         let key = (work, under);
         let was = self.along.get(&key).cloned();
         match along {
             Some(along) if under.under_way(records) => {
+                match &along {
+                    Along::Runs {
+                        queued_for: Some(runner),
+                        ..
+                    } => {
+                        let since = (self.queued.get(&key))
+                            .filter(|(was, _)| was == runner)
+                            .map_or(at, |(_, since)| *since);
+                        self.queued.insert(key, (runner.clone(), since));
+                    }
+                    _ => {
+                        self.queued.remove(&key);
+                    }
+                }
                 self.along.insert(key, along);
             }
             _ => {
                 self.along.remove(&key);
+                self.queued.remove(&key);
             }
         }
         self.along.get(&key) != was.as_ref()
+    }
+
+    /// Each round or call of the work under way that waits for a runner, with the runner and since when it has waited
+    /// for it, as what carries it out has said since the engine started.
+    pub fn queued_of(&self, work: WorkNumber) -> Vec<(Under, &str, Time)> {
+        let Some(held) = self.works.get(&work) else {
+            return Vec::new();
+        };
+        (self.queued.iter())
+            .filter(|((of, under), _)| *of == work && under.under_way(&held.work.records))
+            .map(|((_, under), (runner, since))| (*under, runner.as_str(), *since))
+            .collect()
     }
 
     /// What the agents' rounds under way have come to so far, as what carries them out last said, each with its work,
@@ -2487,6 +2524,16 @@ impl Driver {
             return Vec::new();
         };
         owner::waits(&kept, &kept.work.records, &view.decision, held, at_once.shared())
+    }
+
+    /// What the installation waits on the owner for as the pause of everything stands ([`owner::installation_waits`]),
+    /// said in the words beside the flows, which every flow reads alike: none where no flow is installed, since no work
+    /// then waits to be let on.
+    pub fn installation_waits(&self, at_once: &AtOnce) -> Vec<owner::InstallationWaiting> {
+        match self.flows().next() {
+            Some(flow) => owner::installation_waits(at_once.everything, &flow.waits.owner),
+            None => Vec::new(),
+        }
     }
 
     /// What holds every work at once as it stands ([`AtOnce`]), worked out from every work's records.

@@ -88,7 +88,25 @@ struct Plan {
     waits: BTreeMap<u64, Vec<u64>>,
 }
 
+/// The items that could be let on now, by their numbers, as [`Candidates`] counts them.
+pub(crate) fn could_be_let_on(driver: &Driver) -> Vec<u64> {
+    let plan = Plan::of(driver);
+    plan.paused_free().0.into_iter().map(|row| row.item).collect()
+}
+
 impl Plan {
+    /// The paused items every item they depend on of which has merged or been cancelled: those that could be let on
+    /// now, and those whose pause waits for items that have neither merged nor been cancelled, which are none yet.
+    fn paused_free(&self) -> (Vec<&Row>, Vec<&Row>) {
+        // A cancelled item is waited for no more than a merged one.
+        let ended = |on: &u64| self.rows.get(on).is_some_and(|row| row.standing.ended());
+        let free: Vec<&Row> = (self.rows.values())
+            .filter(|row| row.standing == Standing::Paused && self.next(row.item, Way::Up).iter().all(ended))
+            .collect();
+        // A pause that waits for items is none until each has merged or been cancelled.
+        (free.into_iter()).partition(|row| self.waits.get(&row.item).is_none_or(|waits| waits.iter().all(ended)))
+    }
+
     fn of(driver: &Driver) -> Plan {
         let mut plan = Plan {
             rows: BTreeMap::new(),
@@ -188,14 +206,7 @@ impl Candidates {
         let started: BTreeMap<u64, bool> = (driver.works())
             .map(|kept| (kept.item.number.0, !kept.work.records.started.is_empty()))
             .collect();
-        // A cancelled item is waited for no more than a merged one.
-        let ended = |on: &u64| plan.rows.get(on).is_some_and(|row| row.standing.ended());
-        let free: Vec<&Row> = (plan.rows.values())
-            .filter(|row| row.standing == Standing::Paused && plan.next(row.item, Way::Up).iter().all(ended))
-            .collect();
-        // A pause that waits for items is none until each has merged or been cancelled.
-        let (ready, waiting): (Vec<&Row>, Vec<&Row>) =
-            (free.into_iter()).partition(|row| plan.waits.get(&row.item).is_none_or(|waits| waits.iter().all(ended)));
+        let (ready, waiting) = plan.paused_free();
         let mut found: Vec<Candidate> = ready
             .into_iter()
             .map(|row| Candidate {

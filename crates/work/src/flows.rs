@@ -111,7 +111,8 @@ impl Work {
 #[cfg(test)]
 mod tests {
     use decide::{
-        BlockId, Cause, CellId, Finished, LetGo, PutIn, Questioned, RunId, Started, Write, Written, records::Outsider,
+        BlockId, Cause, CellId, Finished, LetGo, OwnerRead, PutIn, Questioned, RunId, Started, Write, Written,
+        records::Outsider,
     };
 
     use super::*;
@@ -186,6 +187,9 @@ mod tests {
         for l in &r.let_go {
             names.push(format!("let_go {}", l.cell));
         }
+        for o in &r.owner_reads {
+            names.push(format!("owner_read {:?}", o.versions));
+        }
         names.extend(
             work.contents
                 .keys()
@@ -227,6 +231,10 @@ mod tests {
             cell: "T2".into(),
             at: Seq(6),
         });
+        r.owner_reads.push(OwnerRead {
+            versions: vec![("t2_words".into(), Seq(2))],
+            at: Seq(7),
+        });
         work.contents
             .insert((BlockId::from("t2_words"), Seq(2)), "words".into());
         work
@@ -246,12 +254,12 @@ mod tests {
         assert_eq!(
             work.flows,
             [OnFlow {
-                at: Seq(7),
+                at: Seq(8),
                 version: Some("b".into())
             }]
         );
         // Recorded after the first move: a new T2's run.
-        work.records.started.push(started(8, "T2", "t2_words"));
+        work.records.started.push(started(9, "T2", "t2_words"));
         work.onto(
             Time(20),
             Some("c".into()),
@@ -262,7 +270,7 @@ mod tests {
         // Each of the first run's names went to T4 and then to T5; the run recorded between the moves went only to T4's
         // reading after it, which does not touch T2.
         assert_eq!(once("T5"), 4, "{read:#?}");
-        assert_eq!(once("t5_words"), 5, "{read:#?}");
+        assert_eq!(once("t5_words"), 6, "{read:#?}");
         assert!(read.contains(&"started T2 [BlockId(\"t2_words\")] [Changed { block: BlockId(\"t2_words\"), was: None, worked: None, behind: false }]".to_string()), "{read:#?}");
         assert!(
             !read.iter().any(|n| n.contains("T4") || n.contains("t4_words")),
@@ -271,7 +279,7 @@ mod tests {
         assert_eq!(work.given.get(&(RunId(1), 1)), Some(&crate::Given::Task));
         // Read from the records as recorded, through the readings kept, the same.
         let mut recorded = self::work();
-        recorded.records.started.push(started(8, "T2", "t2_words"));
+        recorded.records.started.push(started(9, "T2", "t2_words"));
         recorded.read_through(&work.readings);
         assert_eq!(names(&recorded), read);
         assert_eq!(work.version().and_then(|on| on.version.as_deref()), Some("c"));

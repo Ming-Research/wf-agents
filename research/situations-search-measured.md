@@ -176,3 +176,39 @@ exec bash "$(dirname "$0")/ci-test-build" \
 
 They were run with `run_tests` naming both in `measure`, and are deleted now that the profile is changed (section 3).
 Their medians can be had again by writing them out and running them in the root of a checkout in the order above.
+
+## 9. The small flow's search after item #363 changed what a run records, and bounds that find the line it lost
+
+Item #363 makes a run that ends in a call keep the blocks of the returns sent back before it. The small flow's search
+carries such returns out, so its route through the states changed, and it is as deterministic as before.
+
+(measured, fast runs 45798933864 on main at 45904cb9d and 45797732641 and 45798694881 on the work's commit f09c3e70b)
+On main the small-flow test finds every line its histories stood in, with the tool's bounds. On f09c3e70b the search
+carries out 11136 rounds, keeps 4711 states, finds 118 lines and ends by the plateau (5500 rounds without a new line),
+and one line a round of the histories stood in is not among them: `plan: request holds_latest and did not run it`. The
+test took 7.273 s and 5.797 s.
+
+(measured, fast run 45803425788, scratch commit 3b4820051, not on the branch) The script the search found for that line
+on the engine before the change, run again on the engine after it, carries out 17 rounds, and its round 16 stands in the
+line: the line is one a work reaches on both, and what the search lost is its route to it, not the line.
+
+(measured, fast run 45804215126, scratch commit e5ea16420, not on the branch; the search of the small flow with the
+tool's seed and draws, in the CI profile with level 3 for the four crates; the three searches together took 39 s) The
+same search, with other bounds:
+
+| Rounds | Plateau | Archive | Lines found | The line | Lines by rounds |
+|---|---|---|---|---|---|
+| 22000 | 5500 (the tool's) | 1000 (the tool's) | 118, ended at 11136 rounds | not found | 118 from 6000 on |
+| 22000 | 22000 | 1000 | 119 | not found | 118 from 6000, 119 from 16000 |
+| 44000 | 44000 | 1000 | 120 | found | 119 from 16000, 120 from 36000 |
+| 22000 | 22000 | 4000 | 120 | found | 118 from 5000, 119 from 8000, 120 from 15000 |
+
+The first row is the check's run, the others the scratch commit's. With the archive at 4000 and no end by plateau, the
+line is found by about 15000 rounds and the last 7000 rounds add none. (inferred from the curve) The tool's own plateau
+would have ended that search at about 13500 rounds, 5500 after the line found at 8000, before the line, so the archive
+alone does not give it back.
+
+(not measured) What an archive of 4000 costs the tool on the engineer's flow, in time and in memory, and what more it
+finds there: `measure/situations-search` was not run with it. The small flow's test has the bounds of the last row
+(`SMALL_FLOW_BOUNDS` in `crates/context/tests/histories.rs`), the tool's stay as the decision
+the-situations-tool-writes-the-situations-a-search-reached has them.

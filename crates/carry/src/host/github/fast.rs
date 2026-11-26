@@ -10,9 +10,11 @@
 //!
 //! - fast: runs only the tests and checks a request names, and builds only what they need; every `run_tests` that names
 //!   a test or a check is run by it, and so is what the check before a merge runs again of what failed.
-//! - measure: times the measurements a request names on the commit and on the commit the work's change began from, in
-//!   one run on the machine the project declares, and reports each timing as a case in a suite named for what was
-//!   timed; the engine gives the cases as it gives tests, and works out nothing of its own from them.
+//! - a measurement: the workflow a measurement the project declares names (`ci.measure.<name>`), run for each
+//!   measurement a request names, on the commit, with the commit the work's change began from among its inputs where
+//!   the declaration puts it there; it reports what it measured as a CSV file, which the engine gives as the file holds
+//!   it, after checking that each metric the declaration names is a number in every row, and works out nothing of its
+//!   own from it. On a machine of the project's own, it waits for its turn (`machines`).
 //! - full: the workflows that hold every job required to merge; the check before a merge runs them, once, on the
 //!   commit to merge, and nothing else does.
 //!
@@ -29,20 +31,21 @@
 //! no failed test of its own to say why, as a lint, is said with the end of what the step that failed it printed, read
 //! from its log on GitHub with the engine's token (`log`); a log that cannot be read is said so, and nothing else.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
 use driver::red_main::RedTest;
-use flow::agents::{Ci, CiFast, CiFull, CiMeasure, ResultWords, Tool, fill};
+use flow::agents::{Ci, CiFast, CiFull, Measurement, MeasurementWords, ResultWords, Tool, fill};
 use store::WorkNumber;
 use uuid::Uuid;
 
-use super::api::{Api, Check, Outcome, Run};
+use super::api::{Api, Check, File, Outcome, Run};
+use super::metrics::{self, Table};
 use super::results::{self, Became, Case};
 use super::{GitHub, log, output};
 use crate::git;
 use crate::held::Stop;
-use crate::host::{Asking, Failed, Named, Verdict};
+use crate::host::{Asking, Failed, Measure, Named, Verdict};
 use crate::process;
 use decide::Obstacle;
 use service::Along;
@@ -66,10 +69,14 @@ struct Plan<'a> {
     limit: Duration,
     /// The runner the workflow runs on, as the project's declaration names it.
     runner: &'a str,
+    /// Whether the run is a measurement's, which holds the turn on its machine itself; a run that is not waits, and is
+    /// not timed, while a measurement holds the turn on its machine, as its jobs wait in the machine's gate then.
+    measures: bool,
 }
 
-/// The runner that is GitHub's own machines, which a workflow's `runner` names `github`: they are never offline.
-const HOSTED: &str = "github";
+/// The runner that is GitHub's own machines, which a workflow's `runner` names `github`: they are never offline, and
+/// each run has a machine of its own.
+pub(super) const HOSTED: &str = "github";
 
 /// Whether a runner of a kind is online.
 enum Online {
@@ -151,13 +158,58 @@ impl Waiting {
     }
 }
 
-/// What a run of a workflow came to: its jobs, its results, and what the log of each job that failed with nothing in
-/// the results to say why says of it ([`unexplained`]).
-struct Ran {
+/// What a run of a workflow came to: its jobs, its results as the reader of what it uploaded read them, and what the
+/// log of each job that failed with nothing in the results to say why says of it ([`Reader::unexplained`]).
+struct Ran<T = results::Run> {
     run: Run,
     jobs: Vec<Check>,
-    results: Result<results::Run, String>,
+    results: Result<T, String>,
     ends: Vec<StepEnd>,
+}
+
+/// How what a run uploaded in its artifact is read.
+trait Reader: Sync {
+    type Read: Send;
+
+    /// What the files of the artifact say, or why they say nothing.
+    fn read(&self, files: &[File]) -> Result<Self::Read, String>;
+
+    /// The ids of the jobs that failed with nothing in what was read to say why, whose logs are read.
+    fn unexplained(&self, jobs: &[Check], read: &Result<Self::Read, String>) -> Vec<u64>;
+}
+
+/// JUnit XML, as the fast and the full workflows report each test.
+struct Junit;
+
+impl Reader for Junit {
+    type Read = results::Run;
+
+    fn read(&self, files: &[File]) -> Result<results::Run, String> {
+        results::read(files)
+    }
+
+    fn unexplained(&self, jobs: &[Check], read: &Result<results::Run, String>) -> Vec<u64> {
+        unexplained(jobs, read).map(|job| job.id).collect()
+    }
+}
+
+/// The CSV file a measurement's run uploads what it measured in, as its declaration names it.
+struct Metrics<'a>(&'a Measurement);
+
+impl Reader for Metrics<'_> {
+    type Read = Table;
+
+    fn read(&self, files: &[File]) -> Result<Table, String> {
+        metrics::read(files, self.0)
+    }
+
+    /// Every job that failed: a measurement reports no test of its own to say why one did.
+    fn unexplained(&self, jobs: &[Check], _: &Result<Table, String>) -> Vec<u64> {
+        (jobs.iter())
+            .filter(|job| matches!(job.outcome, Outcome::Failed(_)))
+            .map(|job| job.id)
+            .collect()
+    }
 }
 
 /// What the log of a job says of the step that failed it: the end of what the step printed ([`log::failed_step`]), or
@@ -410,8 +462,15 @@ fn short_record(tests: &[String], run: &results::Run) -> Vec<work::Short> {
 pub(super) enum Role<'a> {
     Fast(&'a CiFast),
     Full(&'a CiFull),
-    /// The measure workflow, and the commit the work's change began from, which it times the commit against.
-    Measure(&'a CiMeasure, &'a str),
+}
+
+/// A measurement a request names, as the project declares it, with the inputs the request sets, and its place among
+/// the measurements the request names, which tells its run from that of another of them.
+pub(super) struct Measuring<'a> {
+    pub(super) name: &'a str,
+    pub(super) declared: &'a Measurement,
+    pub(super) set: &'a BTreeMap<String, String>,
+    pub(super) place: usize,
 }
 
 impl<A: Api> GitHub<A> {
@@ -504,18 +563,163 @@ impl<A: Api> GitHub<A> {
         Ok(self.runner_missing(&fast.runner)?.map_or(Ok(Role::Fast(fast)), Err))
     }
 
-    /// Why a request that names measurements cannot be run by the project's measure workflow, in the words of the tool's
-    /// file, or that workflow. A request that names none does not ask this.
-    pub(super) fn measure_role<'a>(&'a self, ci: Option<&'a Ci>) -> Result<Result<&'a CiMeasure, String>, String> {
+    /// The measurements a request names as the project declares them, or why the request cannot be run, in the words of
+    /// the tool's file, every reason at once, each once: the project declares no measurement; it declares none of a
+    /// name named; a measurement named is set an input it does not let an agent set; or it runs on a machine the
+    /// installation lacks. A request that names none does not ask this.
+    pub(super) fn measurements<'a>(
+        &'a self,
+        ci: Option<&'a Ci>,
+        named: &'a [Measure],
+    ) -> Result<Result<Vec<Measuring<'a>>, String>, String> {
         let words = self
             .tool()?
             .github
             .as_ref()
             .ok_or("the words of run_tests have no [github]")?;
-        let Some(measure) = ci.and_then(|ci| ci.measure.as_ref()) else {
-            return Ok(Err(words.no_measure.clone()));
+        let declared = match ci {
+            Some(ci) if !ci.measure.is_empty() => &ci.measure,
+            _ => return Ok(Err(words.no_measure.clone())),
         };
-        Ok(self.runner_missing(&measure.runner)?.map_or(Ok(measure), Err))
+        let mut refused: Vec<String> = Vec::new();
+        let mut refuse = |why: String| {
+            if !refused.contains(&why) {
+                refused.push(why);
+            }
+        };
+        let mut measuring = Vec::new();
+        for (place, asked) in named.iter().enumerate() {
+            let Some((name, measurement)) = declared.get_key_value(&asked.name) else {
+                let names: Vec<String> = declared.keys().map(|name| format!("`{name}`")).collect();
+                refuse(fill(
+                    &words.unknown_measure,
+                    &[("name", &asked.name), ("declared", &names.join(", "))],
+                ));
+                continue;
+            };
+            let closed: Vec<&str> = (asked.inputs.keys())
+                .filter(|input| !measurement.open.contains(*input))
+                .map(String::as_str)
+                .collect();
+            if !closed.is_empty() {
+                let open: Vec<String> = measurement.open.iter().map(|input| format!("`{input}`")).collect();
+                let open = if open.is_empty() {
+                    words.none_open.clone()
+                } else {
+                    open.join(", ")
+                };
+                let closed: Vec<String> = closed.iter().map(|input| format!("`{input}`")).collect();
+                refuse(fill(
+                    &words.not_open,
+                    &[("name", name), ("inputs", &closed.join(", ")), ("open", &open)],
+                ));
+                continue;
+            }
+            if let Some(missing) = self.runner_missing(&measurement.runner)? {
+                refuse(missing);
+                continue;
+            }
+            measuring.push(Measuring {
+                name,
+                declared: measurement,
+                set: &asked.inputs,
+                place,
+            });
+        }
+        Ok(match refused.is_empty() {
+            true => Ok(measuring),
+            false => Err(refused.join("\n")),
+        })
+    }
+
+    /// The machines this project's measurements run on that one measurement at a time runs on, each once: every runner
+    /// they name but GitHub's own machines.
+    pub(super) fn measured_on(&self) -> Vec<String> {
+        let ci = self.config.ci.as_ref();
+        let mut machines: Vec<String> = (ci.into_iter().flat_map(|ci| ci.measure.values()))
+            .map(|measurement| measurement.runner.clone())
+            .filter(|runner| runner != HOSTED)
+            .collect();
+        machines.sort();
+        machines.dedup();
+        machines
+    }
+
+    /// The runs of this project's measurements on the machine that have not completed, by their links: each run by hand
+    /// on main of a workflow a measurement on it names, as the look every wait on that workflow shares found them.
+    pub(super) async fn measuring_on(&self, machine: &str) -> Result<Vec<String>, Failed> {
+        let ci = self.config.ci.as_ref();
+        let mut workflows: Vec<&str> = (ci.into_iter().flat_map(|ci| ci.measure.values()))
+            .filter(|measurement| measurement.runner == machine)
+            .map(|measurement| measurement.workflow.as_str())
+            .collect();
+        workflows.sort_unstable();
+        workflows.dedup();
+        let mut going = Vec::new();
+        for workflow in workflows {
+            let found = (self.looks)
+                .runs(&self.api, workflow, &self.project.main, self.config.fast_poll)
+                .await?;
+            going.extend((found.runs.into_iter()).filter(|run| !run.completed).map(|run| run.url));
+        }
+        Ok(going)
+    }
+
+    /// Runs the measurement on the commit, pushed already, and says what became of it; none where it was told to stop.
+    /// Its workflow is run by its file on main, given the inputs its declaration gives, the commit, the commit the
+    /// work's change began from and the call filled in, and those the request sets. On a machine of the project's own
+    /// the run waits for its turn first, and holds it until its result is read; a run the request asked for before,
+    /// which GitHub lists, is on the machine already and takes no turn.
+    pub(super) async fn run_measurement(
+        &self,
+        measuring: &Measuring<'_>,
+        base: &str,
+        request: Request<'_>,
+        stop: &mut Stop,
+    ) -> Result<Option<String>, Failed> {
+        let declared = measuring.declared;
+        let tool = self.tool()?;
+        let words = (tool.result.as_ref()).ok_or("the words of run_tests have no [result]")?;
+        let said = (tool.measurement.as_ref()).ok_or("the words of run_tests have no [measurement]")?;
+        let key = format!("ci.measure.{}.too_long", measuring.name);
+        let limit = flow::agents::span(&declared.too_long).map_err(|why| format!("{key}: {why}"))?;
+        let asking = format!(
+            "{}/measurement/{}/{}",
+            declared.workflow, measuring.place, measuring.name
+        );
+        let call = self.call(request, &asking);
+        let plan = Plan {
+            workflow: &declared.workflow,
+            results: &declared.artifact,
+            inputs: declared.inputs_of(request.commit, base, &call, measuring.set),
+            call,
+            limit,
+            runner: &declared.runner,
+            measures: true,
+        };
+        let turn = match declared.runner == HOSTED {
+            true => None,
+            false => {
+                let Some((asked, _)) = self.runs_of(&plan, Duration::ZERO, stop).await? else {
+                    return Ok(None);
+                };
+                match asked.iter().any(|run| !run.cancelled) {
+                    true => None,
+                    false => match (self.config.machines)
+                        .turn(&declared.runner, request.work, self.config.fast_poll, stop)
+                        .await?
+                    {
+                        Some(turn) => Some(turn),
+                        None => return Ok(None),
+                    },
+                }
+            }
+        };
+        let Some(ran) = self.execute(&plan, request.commit, stop, &Metrics(declared)).await? else {
+            return Ok(None);
+        };
+        drop(turn);
+        Ok(Some(measured(words, said, measuring, request.commit, base, &ran)))
     }
 
     /// Why the check before a merge cannot run the project's full workflows, in the words of the check's file, or those
@@ -632,8 +836,9 @@ impl<A: Api> GitHub<A> {
                     call,
                     limit,
                     runner: &fast.runner,
+                    measures: false,
                 };
-                match self.execute(&plan, commit, stop).await? {
+                match self.execute(&plan, commit, stop, &Junit).await? {
                     Some(one) => {
                         stop.timed(reading(&one, Source::Fast, &fast.workflow, request));
                         if let (Some(budget), Ok(run)) = (budget, &one.results) {
@@ -641,30 +846,6 @@ impl<A: Api> GitHub<A> {
                         }
                         ran.push(one);
                     }
-                    None => return Ok(None),
-                }
-            }
-            Role::Measure(measure, base) => {
-                let limit =
-                    flow::agents::span(&measure.too_long).map_err(|why| format!("ci.measure.too_long: {why}"))?;
-                let call = self.call(request, &measure.workflow);
-                let names: String = (named.measure.iter()).map(|m| format!("{}\n", m.trim())).collect();
-                let inputs = vec![
-                    (measure.commit_input.clone(), commit.to_string()),
-                    (measure.base_input.clone(), base.to_string()),
-                    (measure.call_input.clone(), call.clone()),
-                    (measure.measure_input.clone(), names),
-                ];
-                let plan = Plan {
-                    workflow: &measure.workflow,
-                    results: &measure.results,
-                    inputs,
-                    call,
-                    limit,
-                    runner: &measure.runner,
-                };
-                match self.execute(&plan, commit, stop).await? {
-                    Some(one) => ran.push(one),
                     None => return Ok(None),
                 }
             }
@@ -684,8 +865,9 @@ impl<A: Api> GitHub<A> {
                         call,
                         limit,
                         runner: &full.runner,
+                        measures: false,
                     };
-                    match self.execute(&plan, commit, stop).await? {
+                    match self.execute(&plan, commit, stop, &Junit).await? {
                         Some(one) => {
                             stop.timed(reading(&one, Source::Full, workflow, request));
                             ran.push(one);
@@ -940,9 +1122,15 @@ impl<A: Api> GitHub<A> {
     /// than [`Config::fast_poll`](super::Config::fast_poll), and the wait sleeps until that one is that old, so that the
     /// waits on a workflow look at it together, once each time. The jobs of a run that has started are looked at in the
     /// same way.
-    async fn execute(&self, plan: &Plan<'_>, commit: &str, stop: &mut Stop) -> Result<Option<Ran>, Failed> {
+    async fn execute<R: Reader>(
+        &self,
+        plan: &Plan<'_>,
+        commit: &str,
+        stop: &mut Stop,
+        reader: &R,
+    ) -> Result<Option<Ran<R::Read>>, Failed> {
         let mut run = None;
-        let ran = self.wait_for(plan, commit, stop, &mut run).await;
+        let ran = self.wait_for(plan, commit, stop, &mut run, reader).await;
         if let Some(run) = run {
             self.looks.forget(run);
         }
@@ -951,13 +1139,14 @@ impl<A: Api> GitHub<A> {
 
     /// [`GitHub::execute`], which leaves in `run` the number of the run it found, so that the look at its jobs is let go
     /// however the wait ends.
-    async fn wait_for(
+    async fn wait_for<R: Reader>(
         &self,
         plan: &Plan<'_>,
         commit: &str,
         stop: &mut Stop,
         found: &mut Option<u64>,
-    ) -> Result<Option<Ran>, Failed> {
+        reader: &R,
+    ) -> Result<Option<Ran<R::Read>>, Failed> {
         let workflow = plan.workflow;
         let main = &self.project.main;
         let poll = self.config.fast_poll;
@@ -1000,7 +1189,10 @@ impl<A: Api> GitHub<A> {
                 }
             };
             let now = tokio::time::Instant::now();
-            waiting.tick(now, queued);
+            // A run on a machine a measurement holds may wait in the machine's gate, and that wait is the
+            // measurement's, not the run's: it is not timed, as a wait for a runner is not.
+            let measured_beside = !plan.measures && self.config.machines.held(plan.runner);
+            waiting.tick(now, queued || measured_beside);
             // Once its run is found, the call or the act runs as it, at its link, and says the runner it waits for.
             if let Some(run) = &mine {
                 stop.say(Some(Along::Runs {
@@ -1062,7 +1254,7 @@ impl<A: Api> GitHub<A> {
                         "the run did not complete within {}, the time it may take, and the engine cancelled it",
                         super::span(plan.limit)
                     ));
-                    let ends = self.step_ends(&jobs, &results).await?;
+                    let ends = self.step_ends(&jobs, &reader.unexplained(&jobs, &results)).await?;
                     return Ok(Some(Ran {
                         run,
                         jobs,
@@ -1081,13 +1273,13 @@ impl<A: Api> GitHub<A> {
             return Ok(None);
         };
         let results = match self.api.artifact(run.id, plan.results).await {
-            Ok(Some(files)) => results::read(&files).map_err(|why| format!("the artifact {}: {why}", plan.results)),
+            Ok(Some(files)) => (reader.read(&files)).map_err(|why| format!("the artifact {}: {why}", plan.results)),
             Ok(None) => Err(format!("the run uploaded no artifact {}", plan.results)),
             // GitHub's limit, or its own fault, keeps the results from being read for now: not a run without results.
             Err(failed) if failed.hindrance().is_some() => return Err(failed),
             Err(why) => Err(format!("the artifact {} could not be fetched: {why}", plan.results)),
         };
-        let ends = self.step_ends(&jobs, &results).await?;
+        let ends = self.step_ends(&jobs, &reader.unexplained(&jobs, &results)).await?;
         Ok(Some(Ran {
             run,
             jobs,
@@ -1123,11 +1315,11 @@ impl<A: Api> GitHub<A> {
         }
     }
 
-    /// What the log of each job of a run that failed with nothing in the results to say why says of the step that
-    /// failed it ([`unexplained`]); a log that cannot be read is said so, and fails nothing else.
-    async fn step_ends(&self, jobs: &[Check], read: &Result<results::Run, String>) -> Result<Vec<StepEnd>, Failed> {
+    /// What the log of each job of a run that failed with nothing in what it uploaded to say why, by its id, says of
+    /// the step that failed it ([`Reader::unexplained`]); a log that cannot be read is said so, and fails nothing else.
+    async fn step_ends(&self, jobs: &[Check], unexplained: &[u64]) -> Result<Vec<StepEnd>, Failed> {
         let mut ends = Vec::new();
-        for job in unexplained(jobs, read) {
+        for job in jobs.iter().filter(|job| unexplained.contains(&job.id)) {
             let said = match self.api.log(job.id).await {
                 Ok(text) => Ok(log::failed_step(&text)),
                 // GitHub's limit, its own fault or the network keeps the log from being read for now: the run is read
@@ -1208,9 +1400,7 @@ fn said(
     let which = match role {
         Role::Fast(_) => &words.which_fast,
         Role::Full(_) => &words.which_full,
-        Role::Measure(..) => &words.which_measure,
     };
-    let measuring = matches!(role, Role::Measure(..));
     let urls: Vec<&str> = ran.iter().map(|r| r.run.url.as_str()).collect();
     let mut lines = Vec::new();
     let mut tests: Vec<String> = Vec::new();
@@ -1227,13 +1417,11 @@ fn said(
             }
         };
         match role {
-            Role::Fast(_) | Role::Measure(..) => {
-                // What a measure run is asked for is the measurements named, and its cases are timings of them.
-                let asked = if measuring { &named.measure } else { &named.tests };
-                for row in results::rows(asked, run) {
+            Role::Fast(_) => {
+                for row in results::rows(&named.tests, run) {
                     total += 1;
                     passed += usize::from(row.became == Became::Passed);
-                    let lines = test_lines(words, &row, run, measuring, on_main);
+                    let lines = test_lines(words, &row, run, on_main);
                     match row.became {
                         Became::Passed => green.extend(lines),
                         Became::Stopped | Became::NotStarted => short.extend(lines),
@@ -1247,7 +1435,7 @@ fn said(
                     if case.outcome == results::Outcome::Passed {
                         passed += 1;
                     } else {
-                        tests.extend(case_lines(words, case, false, None));
+                        tests.extend(case_lines(words, case, None));
                     }
                 }
                 tests.extend(run.unbuilt.iter().map(|u| {
@@ -1272,18 +1460,12 @@ fn said(
         .filter(|j| match role {
             Role::Full(_) => true,
             Role::Fast(_) => named.checks.contains(&j.name),
-            Role::Measure(..) => false,
         })
         .collect();
     let mut came = Vec::new();
     if total > 0 || matches!(role, Role::Full(_)) && unread.is_empty() {
         let (passed, total) = (passed.to_string(), total.to_string());
-        let said = if measuring {
-            &words.came_measures
-        } else {
-            &words.came_tests
-        };
-        came.push(fill(said, &[("passed", &passed), ("total", &total)]));
+        came.push(fill(&words.came_tests, &[("passed", &passed), ("total", &total)]));
     }
     if !checks.is_empty() {
         let green = checks.iter().filter(|j| !red_job(j)).count().to_string();
@@ -1311,14 +1493,12 @@ fn said(
         Role::Fast(_) => (named.checks.iter())
             .filter(|c| !ran.iter().flat_map(|r| &r.jobs).any(|j| &j.name == *c))
             .collect(),
-        Role::Full(_) | Role::Measure(..) => Vec::new(),
+        Role::Full(_) => Vec::new(),
     };
     // Every job of the runs, with how it ended and how long it took, and beneath one whose log was read what it says;
     // only those that did not pass where only what did not pass is said, the others being the note of the check.
     let ends: Vec<&StepEnd> = ran.iter().flat_map(|r| &r.ends).collect();
-    let shown = jobs
-        .iter()
-        .filter(|j| matches!(role, Role::Fast(_) | Role::Measure(..)) || red_job(j));
+    let shown = jobs.iter().filter(|j| matches!(role, Role::Fast(_)) || red_job(j));
     let mut said_jobs: Vec<String> = shown.map(|j| job_said(words, j, &ends)).collect();
     said_jobs.extend(missing.iter().map(|c| {
         fill(
@@ -1330,13 +1510,61 @@ fn said(
         lines.push(format!("{}\n{}", words.jobs_title, said_jobs.join("\n")));
     }
     if !green.is_empty() {
-        let title = if measuring {
-            &words.timings_title
-        } else {
-            &words.passed_title
-        };
-        lines.push(format!("{title}\n{}", green.join("\n")));
+        lines.push(format!("{}\n{}", words.passed_title, green.join("\n")));
     }
+    lines.join("\n\n")
+}
+
+/// What became of a measurement's run, in words for the agent: a line of its run, saying whether every job of it
+/// passed; each job, with how it ended, and beneath one that failed the end of what its failed step printed; and what
+/// it measured, its file's lines as the file holds them, with each metric's unit, or why what it measured is not known.
+fn measured(
+    words: &ResultWords,
+    said: &MeasurementWords,
+    measuring: &Measuring<'_>,
+    commit: &str,
+    base: &str,
+    ran: &Ran<Table>,
+) -> String {
+    let declared = measuring.declared;
+    let came = match ran.jobs.iter().any(red_job) {
+        true => &said.came_failed,
+        false => &said.came_passed,
+    };
+    let head = fill(
+        &said.head,
+        &[
+            ("name", measuring.name),
+            ("workflow", &declared.workflow),
+            ("commit", commit),
+            ("base", base),
+            ("url", &ran.run.url),
+            ("came", came),
+        ],
+    );
+    let mut lines = vec![head];
+    let ends: Vec<&StepEnd> = ran.ends.iter().collect();
+    let jobs: Vec<String> = ran.jobs.iter().map(|job| job_said(words, job, &ends)).collect();
+    if !jobs.is_empty() {
+        lines.push(format!("{}\n{}", words.jobs_title, jobs.join("\n")));
+    }
+    lines.push(match &ran.results {
+        Ok(table) => {
+            let units: Vec<String> = (declared.metrics.iter())
+                .map(|(metric, unit)| fill(&said.unit, &[("metric", metric), ("unit", unit)]))
+                .collect();
+            fill(
+                &said.measured,
+                &[
+                    ("rows", &table.rows.to_string()),
+                    ("file", &declared.file),
+                    ("units", &units.join(&said.units_join)),
+                    ("table", &output::fenced(&table.text)),
+                ],
+            )
+        }
+        Err(why) => fill(&said.unread, &[("why", why)]),
+    });
     lines.join("\n\n")
 }
 
@@ -1394,9 +1622,8 @@ fn time(words: &ResultWords, case: &Case) -> String {
         .map_or(String::new(), |time| fill(&words.time, &[("time", time)]))
 }
 
-/// A test as a line of what became of it and how long it took, and what a failed one said beneath it; a timing of a
-/// measurement as the same with what was timed in it, since the timings of one name differ only by that.
-fn case_lines(words: &ResultWords, case: &Case, measuring: bool, also: Option<String>) -> Vec<String> {
+/// A test as a line of what became of it and how long it took, and what a failed one said beneath it.
+fn case_lines(words: &ResultWords, case: &Case, also: Option<String>) -> Vec<String> {
     let became = match case.outcome {
         results::Outcome::Passed => &words.passed,
         results::Outcome::Failed => &words.failed,
@@ -1404,12 +1631,10 @@ fn case_lines(words: &ResultWords, case: &Case, measuring: bool, also: Option<St
         results::Outcome::Stopped => &words.stopped,
         results::Outcome::NotStarted => &words.not_started,
     };
-    let line = if measuring { &words.measure_case } else { &words.test };
     let mut lines = vec![fill(
-        line,
+        &words.test,
         &[
             ("name", &case.test.name),
-            ("unit", &case.test.unit),
             ("became", became),
             ("time", &time(words, case)),
         ],
@@ -1429,7 +1654,6 @@ fn test_lines(
     words: &ResultWords,
     row: &results::Row<'_>,
     run: &results::Run,
-    measuring: bool,
     on_main: Option<&OnMain<'_>>,
 ) -> Vec<String> {
     let mut lines = Vec::new();
@@ -1472,12 +1696,7 @@ fn test_lines(
         }
         Became::Passed | Became::Failed | Became::Stopped => {
             for case in &row.matched {
-                lines.extend(case_lines(
-                    words,
-                    case,
-                    measuring,
-                    on_main.and_then(|red| red.said(words, case)),
-                ));
+                lines.extend(case_lines(words, case, on_main.and_then(|red| red.said(words, case))));
             }
         }
     }

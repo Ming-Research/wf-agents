@@ -9,8 +9,8 @@ import { ItemTitlesProvider } from '../itemNumbers';
 import { levelWords } from '../marks';
 import { outlineOf } from '../testing';
 import { cellNowWords } from '../works/marks';
-import { NO_LEVEL, stateOf, stoppedAt } from '../works/words';
-import type { Act, CellNow, Item, Items, Now, Question, Speaking, Wait, WorkPage } from '../works-api';
+import { NO_LEVEL, REPLY_READ, stateOf, stoppedAt } from '../works/words';
+import type { Act, CellNow, Item, Items, Now, Question, Speaking, Version, VersionPage, Wait, WorkPage } from '../works-api';
 import type { Block, Flow } from '../api';
 import { FLOW, fixtureItems } from './fixtures';
 import { ItemPanel, type PageState } from './ItemWindow';
@@ -1102,5 +1102,155 @@ describe("the questions put to the owner, at the plan's end of the panel", () =>
     // The options still to pick are buttons, and no link stands in a button.
     expect(el.querySelectorAll('.cw-option')).toHaveLength(2);
     expect(el.querySelectorAll('.cw-option a')).toHaveLength(0);
+  });
+});
+
+describe('what the owner has not read, in the window', () => {
+  const run = { kind: 'run', run: 3, cell: 'research' } as const;
+  /// A version of the research's words, as the engine says it: a reply of a run unless told, and whether it is read.
+  const said = (at: number, number: number, by: Version['by'], extra: Partial<Version> = {}): Version => ({
+    at,
+    number,
+    time: at * 1000,
+    by,
+    meaning: number,
+    value: null,
+    saidTo: null,
+    chars: 12,
+    empty: false,
+    reply: by.kind === 'run',
+    read: false,
+    ...extra,
+  });
+  const CONTENTS: Record<number, string> = { 1: 'Please check.', 2: 'First reply.', 3: 'Second reply.', 4: 'Third reply.' };
+  const load = (_: number, block: string, number: number): Promise<VersionPage> =>
+    Promise.resolve({ block, number, content: CONTENTS[number] ?? '' });
+  /// The item 12's panel, its work's research words made of these versions, each read as the engine says.
+  const spoken = (versions: Version[], fresh: 'none' | 'new' | 'changed' = 'none'): { item: Item; page: PageState } => {
+    const i = itemOf(12);
+    const base = pageOf(i);
+    return {
+      item: { ...i, work: { ...i.work, fresh } },
+      page: base !== null && 'page' in base ? { page: { ...base.page, blocks: [{ name: 'research_words', versions }] } } : base,
+    };
+  };
+  const VERSIONS = [
+    said(5, 1, { kind: 'owner' }),
+    said(9, 2, run, { read: true }),
+    said(12, 3, run),
+    said(15, 4, run),
+  ];
+  type Ask = { way: 1 | -1; begin: boolean; seq: number };
+
+  /// Draws the panel of these versions and gives how to draw it again as another ask of a reply is made.
+  async function panel(
+    sent: Sent,
+    versions = VERSIONS,
+    fresh: 'none' | 'new' | 'changed' = 'none',
+    told: boolean[] = [],
+  ) {
+    const { item, page } = spoken(versions, fresh);
+    if (root !== undefined) act(() => root?.unmount());
+    document.body.innerHTML = '';
+    container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+    const r = root;
+    const render = (reply?: Ask) =>
+      act(() =>
+        r.render(
+          <ItemTitlesProvider items={null}>
+            <ItemPanel
+              item={item}
+              page={page}
+              act={answered(sent)}
+              loadVersion={load}
+              reply={reply}
+              onReply={(found) => told.push(found)}
+            />
+          </ItemTitlesProvider>,
+        ),
+      );
+    render();
+    await act(async () => undefined);
+    return { el: container, render };
+  }
+
+  it("draws a clock on each reply not read and a tick on one read, each saying so on pointing, and marks the owner's own words by none of the two", async () => {
+    const drawn = await panel([]);
+    const replies = [...drawn.el.querySelectorAll('.cw-message[data-reply]')];
+    expect(replies.map((m) => [m.getAttribute('data-reply'), m.hasAttribute('data-unread')])).toEqual([
+      ['research_words/2', false],
+      ['research_words/3', true],
+      ['research_words/4', true],
+    ]);
+    expect(replies.map((m) => m.querySelector('svg')?.getAttribute('aria-label'))).toEqual([
+      REPLY_READ.read,
+      REPLY_READ.unread,
+      REPLY_READ.unread,
+    ]);
+    expect(replies.map((m) => m.querySelector('svg')?.getAttribute('class'))).toEqual(['cw-taken', 'cw-waiting', 'cw-waiting']);
+    // The owner's words carry the one mark for being taken, not the mark of a reply read.
+    const mine = drawn.el.querySelector('.cw-message-owner') as HTMLElement;
+    expect(mine.hasAttribute('data-reply')).toBe(false);
+    expect(mine.querySelector('svg')?.getAttribute('aria-label')).toContain('Not taken yet');
+  });
+
+  it('says on a strip over the body how many replies are not read, and that the item is new where it is, with Mark as read', async () => {
+    const quiet = await panel([], VERSIONS);
+    expect(text(quiet.el, '.cw-fresh span')).toEqual(['2 replies you have not read']);
+    const read = [said(5, 1, { kind: 'owner' }), said(9, 2, run, { read: true })];
+    const none = await panel([], read);
+    expect(none.el.querySelector('.cw-fresh')).toBeNull();
+    const fresh = await panel([], read, 'new');
+    expect(text(fresh.el, '.cw-fresh span')).toEqual(['New to you']);
+    const both = await panel([], VERSIONS, 'changed');
+    expect(text(both.el, '.cw-fresh span')).toEqual(['Changed since you last read it · 2 replies you have not read']);
+  });
+
+  it('tells the engine which replies were read when the owner marks the item read, and shows them read and the strip gone at once', async () => {
+    const sent: Sent = [];
+    const { el } = await panel(sent);
+    await act(async () => button(el, 'Mark as read').click());
+    expect(sent).toEqual([
+      [
+        12,
+        {
+          kind: 'read',
+          versions: [
+            { block: 'research_words', version: 3 },
+            { block: 'research_words', version: 4 },
+          ],
+        },
+      ],
+    ]);
+    expect(el.querySelector('.cw-fresh')).toBeNull();
+    expect(el.querySelectorAll('.cw-message[data-unread]')).toHaveLength(0);
+    expect(
+      [...el.querySelectorAll('.cw-message[data-reply] svg')].map((m) => m.getAttribute('aria-label')),
+    ).toEqual([REPLY_READ.read, REPLY_READ.read, REPLY_READ.read]);
+  });
+
+  it("brings the first reply not read into view where it is asked, then the next after it, and says it has none after the last", async () => {
+    const scrolled: string[] = [];
+    vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(function (this: Element) {
+      scrolled.push(this.getAttribute('data-reply') ?? '');
+    });
+    const told: boolean[] = [];
+    const { render } = await panel([], VERSIONS, 'none', told);
+    render({ way: 1, begin: true, seq: 1 });
+    expect(scrolled).toEqual(['research_words/3']);
+    render({ way: 1, begin: false, seq: 2 });
+    expect(scrolled).toEqual(['research_words/3', 'research_words/4']);
+    render({ way: 1, begin: false, seq: 3 });
+    expect(scrolled).toHaveLength(2);
+    expect(told).toEqual([true, true, false]);
+    // Backwards, from the last: the last reply not read, then the one before it.
+    render({ way: -1, begin: true, seq: 4 });
+    render({ way: -1, begin: false, seq: 5 });
+    expect(scrolled.slice(2)).toEqual(['research_words/4', 'research_words/3']);
+    // The same ask drawn again goes nowhere.
+    render({ way: -1, begin: false, seq: 5 });
+    expect(scrolled).toHaveLength(4);
   });
 });

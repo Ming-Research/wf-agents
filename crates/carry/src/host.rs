@@ -306,13 +306,21 @@ pub trait Host: Send + Sync + 'static {
 pub struct Named {
     pub tests: Vec<String>,
     pub checks: Vec<String>,
-    /// The measurements to time on the commit and on the commit the work's change began from.
-    pub measure: Vec<String>,
+    /// The measurements the project declares to run on the commit, in the order named.
+    pub measure: Vec<Measure>,
     /// The commit to run on, as git names one in the agent's worktree; none for the last commit of the work's branch.
     pub commit: Option<String>,
     /// Whether the commit is to be left on the host, on a reference of the work's own, for as long as the work lasts, so
     /// that a workflow the agent starts itself can be given it.
     pub publish: bool,
+}
+
+/// A measurement an agent names: the name the project's declaration gives it, and the inputs of its workflow the agent
+/// sets, each by its name with its value.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Measure {
+    pub name: String,
+    pub inputs: std::collections::BTreeMap<String, String>,
 }
 
 impl Named {

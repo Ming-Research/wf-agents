@@ -837,9 +837,10 @@ impl History {
 
     /// What the run's returns come to taken together, from the design's own words (decision
     /// a-sent-back-return-is-completed-by-what-is-missing) and not from the deciding code: each return that came back
-    /// is completed by the ones after it, but for the blocks that the faults it was sent back for name, and a return
-    /// that asks for calls is neither carried nor carried into. What it deals with, what it writes, and whether it asks
-    /// for calls.
+    /// is completed by the ones after it, but for the blocks that the faults it was sent back for name; a return that
+    /// asks for calls holds only what stood before it, and where it follows one sent back, also not the blocks of a
+    /// verdict sent back for no point or of an answer in the tree that left the tree unchanged, which a return that
+    /// completes them would check again. What it deals with, what it writes, and whether it asks for calls.
     fn together(&self, run: RunId) -> (Vec<BlockId>, Vec<Write>, bool) {
         let (mut dealt, mut writes, mut calls) = (Vec::<BlockId>::new(), Vec::<Write>::new(), false);
         let mut before: Option<usize> = None;
@@ -852,12 +853,12 @@ impl History {
             else {
                 continue;
             };
-            let carries = before.is_some() && !calls && asked.is_empty();
-            if carries {
+            let asking = !asked.is_empty();
+            if let Some(before) = before {
                 let faults = self
                     .sent
                     .get(&run)
-                    .and_then(|m| m.get(&before.unwrap()))
+                    .and_then(|m| m.get(&before))
                     .cloned()
                     .unwrap_or_default();
                 let wrong: Vec<BlockId> = faults
@@ -869,10 +870,13 @@ impl History {
                         | Unmet::NotAValue { block, .. }
                         | Unmet::NotAChoice { block }
                         | Unmet::WrittenOver { block, .. }
-                        | Unmet::ChoiceChanged { block } => vec![block.clone()],
+                        | Unmet::ChoiceChanged { block }
+                        | Unmet::NotAnEntry { block: Some(block), .. } => vec![block.clone()],
                         Unmet::NothingBut { block, besides, .. } => {
                             std::iter::once(block.clone()).chain(besides.iter().cloned()).collect()
                         }
+                        Unmet::NoPoint { block, .. } if asking => vec![block.clone()],
+                        Unmet::TreeUnchanged { blocks, .. } if asking => blocks.clone(),
                         _ => Vec::new(),
                     })
                     .collect();
@@ -881,14 +885,19 @@ impl History {
                 dealt.clear();
                 writes.clear();
             }
-            for name in dealt_with {
-                if !dealt.contains(name) {
-                    dealt.push(name.clone());
+            if asking {
+                // It deals with nothing, and what it wrote itself is none of what it asks for.
+                dealt.clear();
+            } else {
+                for name in dealt_with {
+                    if !dealt.contains(name) {
+                        dealt.push(name.clone());
+                    }
                 }
+                writes.retain(|w| !now.iter().any(|n| n.block == w.block));
+                writes.extend(now.iter().cloned());
             }
-            writes.retain(|w| !now.iter().any(|n| n.block == w.block));
-            writes.extend(now.iter().cloned());
-            calls = !asked.is_empty();
+            calls = asking;
             before = Some(i);
         }
         (dealt, writes, calls)
@@ -929,6 +938,7 @@ impl History {
             nothing_but: &BTreeMap::new(),
             questions: None,
             words: None,
+            stuck: None,
         };
         let hold = decide::hold_in(&flow, &self.w.records, run, self.room);
         let step = run::next(&self.log_of(run), requires, hold);

@@ -6,7 +6,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { Bar, ProjectGroup, Tabs } from './parts';
-import { aheadCount, aheadOf } from './works/waiting';
+import { aheadCount, aheadOf, repliesUnreadCount, repliesUnreadOf } from './works/waiting';
 
 afterEach(() => {
   document.body.innerHTML = '';
@@ -89,16 +89,16 @@ describe("a window's tabs", () => {
 
 describe("the bar's counts beside Console", () => {
   /// The counts the bar draws beside Console, given these, in order, each by its colour and number.
-  function counts(count: number, ahead: number): string[] {
+  function counts(count: number, ahead: number, unread = 0): string[] {
     const container = document.body.appendChild(document.createElement('div'));
     const root = createRoot(container);
     const views = [
-      { name: 'Console', href: '#/console', count, countTitle: 'waits', ahead, aheadTitle: 'ahead' },
+      { name: 'Console', href: '#/console', count, countTitle: 'waits', ahead, aheadTitle: 'ahead', unread, unreadTitle: 'unread' },
       { name: 'Works', href: '#/works' },
     ];
     act(() => root.render(<Bar name="wf-agents" views={views} current="#/console" />));
     const drawn = [...container.querySelectorAll('.bar-count')].map(
-      (c) => `${c.classList.contains('ahead') ? 'orange' : 'red'} ${c.textContent}`,
+      (c) => `${c.classList.contains('unread') ? 'accent' : c.classList.contains('ahead') ? 'orange' : 'red'} ${c.textContent}`,
     );
     act(() => root.unmount());
     container.remove();
@@ -112,10 +112,22 @@ describe("the bar's counts beside Console", () => {
     expect(counts(0, 0)).toEqual([]);
   });
 
+  it('shows the replies the owner has not read in the accent, left of the orange and the red counts as a card does, and not at nought', () => {
+    expect(counts(1, 2, 3)).toEqual(['accent 3', 'orange 2', 'red 1']);
+    expect(counts(0, 0, 3)).toEqual(['accent 3']);
+    expect(counts(1, 0, 0)).toEqual(['red 1']);
+  });
+
   it('counts the questions to answer ahead as a card does: those of the works that go on', () => {
     const going = { kind: 'next', cell: 'plan' } as const;
     expect(aheadCount([{ now: going, ahead: 2 }, { now: { kind: 'merged' }, ahead: 3 }, { now: going }])).toBe(2);
     expect(aheadOf({ now: { kind: 'cancelled' }, ahead: 1 })).toBe(0);
+  });
+
+  it('counts the replies not read as a card does: those of the works the engine counts them for, however the work stands', () => {
+    expect(repliesUnreadCount([{ repliesUnread: 2 }, { repliesUnread: 1 }, {}])).toBe(3);
+    expect(repliesUnreadOf({ repliesUnread: 4 })).toBe(4);
+    expect(repliesUnreadOf({})).toBe(0);
   });
 });
 

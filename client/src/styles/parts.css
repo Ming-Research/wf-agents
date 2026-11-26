@@ -181,6 +181,11 @@ button {
   background: var(--orange);
 }
 
+/* Left of that, how many replies of the cells the owner has not read: white on the accent. */
+.bar-count.unread {
+  background: var(--accent);
+}
+
 /* The engine's part of the bar: its state, the switch of every work, Keep warm and the slots, in one row. */
 .engine,
 .engine-state,

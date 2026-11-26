@@ -17,8 +17,9 @@ The engine's tools are `query` and `run_tests`; an agent does everything else wi
 - rejected: an agent proposed a tool `read` that gives a version of a datum or the change between two versions; the owner rejected it, because one query gives any version and the agent diffs two itself, and the store was meant to give each version that way.
 
 ### decision a-measurement-is-a-request-of-run-tests
-A request of `run_tests` may name measurements: the project's measure workflow times them in one run, on the commit the work began from and on the work's commit, and the result gives each timing.
+A request of `run_tests` may name measurements its project declares, each with the inputs it lets an agent set: the engine runs each one's workflow on the commit and gives the metrics its run wrote.
 - rejected: an agent proposed no new capability, with performance measured by the project's own tests, which `run_tests` runs once on main's commit and once on the work's; the owner rejected it, because before and after would be two separate runs, not compared fairly on one machine in one run.
+- replaced: One measure workflow for each project, which timed scripts a request named and gave each timing in seconds, was on main; the owner changed it, because the projects measure throughput and p99 by workflows of their own, so each work started its runs by hand and asked him to wait for them.
 
 ### decision a-commit-is-published-by-a-request-of-run-tests
 A request of `run_tests` may ask to publish a commit: the engine pushes it to a branch of the work's own on GitHub, one for each commit, which stays until the work ends.
@@ -70,7 +71,7 @@ No cell of a flow runs the tests a cell asks for: they stay a call within that c
 - rejected: an agent proposed a cell of the engine that runs the tests each cell asks for, with the request and the result as data; the owner rejected it, because it was there only to show a cell's CI run on the page, and a row for each tool on the chart shows that just as well.
 
 ### decision every-project-meets-one-contract-for-its-tests
-Every project meets one contract for its tests: JUnit results, one name for a test, and, with `[ci]`, a fast and a full workflow taking the inputs the declaration names, and a measure one if any.
+Every project meets one contract for its tests: JUnit results, one name for a test, and, with `[ci]`, a fast and a full workflow taking the inputs the declaration names; a measurement writes CSV.
 - rejected: an agent proposed that each project describe its own CI (its workflows, and how they are dispatched, read and name their tests) and the engine run it as described; the owner rejected it, because the projects are all his, and any of them can be changed to one general, reasonable design.
 - replaced: Matching a named test to a log's tests by its whole name, a `::` ending or its binary's name was on main; the owner changed it, because the name the results give a test is the name an agent asks for it by and the name the fast workflow filters by.
 - replaced: The fast workflow running lint besides the named tests was on main; the owner changed it, because a fast run should only build and run the tests needed, and everything else goes to the full workflows, run once at the end.

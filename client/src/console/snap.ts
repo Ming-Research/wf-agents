@@ -40,8 +40,9 @@
 // frame where it has none. Nothing is drawn while the page or the console's view is hidden.
 //
 // A card's second row draws the level the work's cell runs at, the works page's strip of the work's cells, and the
-// lines the work changed; an ended item's one row, the lines its work changed. What the interface has nothing for yet
-// (an item new to the owner, messages unread) is read from the console's made-up data (`mock.ts`). The colours are read
+// lines the work changed; an ended item's one row, the lines its work changed. What the owner has not read of an item
+// (new or changed, and its replies) is the engine's word (`Summary.fresh`, `Summary.repliesUnread`); what the interface
+// has nothing for yet is read from the console's made-up data (`mock.ts`). The colours are read
 // from the page's tokens, so that the canvas follows light and dark; the canvas follows the size of what holds it,
 // besides the window's; the links dim with the items they join while an item is lit (`DIM_LINKS`); and the way from
 // each item whose work runs up to its root is lit, with a light running down it (`RUN`).
@@ -64,7 +65,7 @@ import { LINES_LOOKS, levelLook, levelPointed, levelWords } from '../marks';
 import { CELL_LOOKS, MARK, pulsing } from '../works/state-marks';
 import type { CellNow, CellState } from '../works-api';
 import { NO_LEVEL, STATE, itemName, linesAdded, linesRemoved, stateOf, stoppedAt } from '../works/words';
-import { type Fold, STANDINGS, type Shown, type ShownWork, age } from './items';
+import { type Fold, STANDINGS, type Shown, type ShownWork, age, somethingUnread } from './items';
 import { indexTree, type Tree } from './tree';
 
 export const NODE_W = 300;
@@ -516,7 +517,7 @@ const LIGHT = {
   over: '#6d9bf9',
   /// The words on a filled tag.
   onTag: '#ffffff',
-  /// What is new to the owner: the line inside a card's left edge, and its mark on the map.
+  /// What the owner has not read: the number of replies on a card, and the mark across an item's bar on the map.
   unseen: '#3673f5',
   accent: '#3673f5',
   /// What joins an item to those under it: Primer's neutral muted, `#818b981f` in light and `#656c7633` in dark, a
@@ -596,9 +597,12 @@ const undrawn = (key: string, value: unknown) =>
 /// view, which the cache of cards keeps with it.
 const LEVEL_SAID = new WeakMap<Container, { x: number; y: number; width: number; height: number; said: string }>();
 
+/// A tag at the right of a card's first row as it was drawn: its text and its colour.
+export type DrawnTag = { text: string; fill: string | number };
+
 /// A card as it was made, kept for the next tree that draws one the same ([`show`]): what it draws, its view, the room
-/// of its strip, and what its making set: its age, the pulse of its running cells, its strip, its look and the number
-/// it wrote, the last three for the tests.
+/// of its strip, and what its making set: its age, the pulse of its running cells, its strip, its look, the number it
+/// wrote and its tags, the last four for the tests.
 type CardMade = {
   sig: string;
   view: Container;
@@ -608,6 +612,7 @@ type CardMade = {
   drawnStrip: DrawnStrip | undefined;
   look: { rows: number; fill: string | number; edge: string | number } | undefined;
   number: DrawnNumber | undefined;
+  tags: DrawnTag[] | undefined;
 };
 
 /// The number a card wrote and where its title begins from the card's left, for the tests ([`drawnNumbers`]).
@@ -1014,6 +1019,14 @@ function cellLooks(): { measures: { side: number; gap: number }; looks: Record<C
 /// tall, and its colour.
 export type MapPiece = { id: number; column: number; y: number; height: number; colour: string };
 
+/// What the map drew at a frame: the part of the tree the screen shows, each item's piece, and the items whose piece
+/// the accent was drawn across, as something under them or they themselves are not read.
+export type MapDrawn = {
+  frame: { x: number; y: number; width: number; height: number } | null;
+  pieces: MapPiece[];
+  unread: number[];
+};
+
 /// One mark of a card's strip as it was drawn: its cell and state; its top left, from the card's left and its middle;
 /// its width, height and corners; its fill and its ring's colour and width; and whether it pulses.
 export type DrawnMark = {
@@ -1189,10 +1202,7 @@ export class SnapScene {
   /// The map's height of a row: the longest column fits it twice, as a column may stand with either end in the middle.
   private mapRow = 1;
   /// What the map drew at the last frame ([`drawnMap`]).
-  private mapDrawn: { frame: { x: number; y: number; width: number; height: number } | null; pieces: MapPiece[] } = {
-    frame: null,
-    pieces: [],
-  };
+  private mapDrawn: MapDrawn = { frame: null, pieces: [], unread: [] };
   private tree: Tree | null = null;
   /// Each item's number, in the tree's order.
   private ids: number[] = [];
@@ -1221,6 +1231,9 @@ export class SnapScene {
   private strips: { k: number; start: number; end: number; count: number; draw: (scale: number) => void }[] = [];
   /// How each card was drawn, by its item's number: its rows, its fill and its edge's colour ([`cardLook`]).
   private cardsDrawn = new Map<number, { rows: number; fill: string | number; edge: string | number }>();
+  /// The tags each card drew at the right of its first row, in the order they stand from the right, by its item's number
+  /// ([`drawnTags`]).
+  private tagsDrawn = new Map<number, DrawnTag[]>();
   /// The number each card wrote, by its place in the tree, and where its title begins ([`drawnNumbers`]); and how far
   /// from the card's left every title begins: past the widest number the whole tree holds, folded items included, so
   /// that no fold moves a title ([`show`]).
@@ -1647,8 +1660,9 @@ export class SnapScene {
       i.work === null || i.work.from === null ? 1 : 1 + WORK_ROW,
     );
     this.shape();
-    const unseen = (s: Shown) => s.unseen;
-    this.fresh = tree.columns.map((col) => col.flatMap((i, r) => (unseen(items[i]) || hides(i, unseen) ? [r] : [])));
+    this.fresh = tree.columns.map((col) =>
+      col.flatMap((i, r) => (somethingUnread(items[i]) || hides(i, somethingUnread) ? [r] : [])),
+    );
     // The items a work goes on on, and those above them up to their roots: from the roots one sees which branches
     // have work on.
     this.lit = new Uint8Array(items.length);
@@ -1701,6 +1715,7 @@ export class SnapScene {
     this.ages = new Map();
     this.strips = [];
     this.cardsDrawn = new Map();
+    this.tagsDrawn = new Map();
     this.numbersDrawn = new Map();
     // Each card is made only where no card drawn before draws the same: else the one drawn is kept, with what its
     // making set. What a card draws is its item as the cards draw it, the rows it stands in, whether a work goes on on
@@ -1752,6 +1767,7 @@ export class SnapScene {
       if (c.pulse !== undefined) this.pulses.set(k, c.pulse);
       if (c.drawnStrip !== undefined) this.drawnStrips.set(items[k].id, c.drawnStrip);
       if (c.look !== undefined) this.cardsDrawn.set(items[k].id, c.look);
+      if (c.tags !== undefined) this.tagsDrawn.set(items[k].id, c.tags);
       if (c.number !== undefined) this.numbersDrawn.set(k, c.number);
     });
     // The cards no longer drawn are let go; those drawn are kept for the next tree.
@@ -1770,6 +1786,7 @@ export class SnapScene {
         pulse: this.pulses.get(k),
         drawnStrip: item.shadow ? undefined : this.drawnStrips.get(item.id),
         look: item.shadow ? undefined : this.cardsDrawn.get(item.id),
+        tags: item.shadow ? undefined : this.tagsDrawn.get(item.id),
         number: this.numbersDrawn.get(k),
       };
       this.cardCache.set(sigs[k], [...(this.cardCache.get(sigs[k]) ?? []), card]);
@@ -2030,10 +2047,12 @@ export class SnapScene {
     view.addChild(number, title);
     // At the right of the first row: how many things its work waits for from the owner, white on red, the strongest
     // mark a card has, as what the owner looks for first; beside it, how many questions the owner may answer ahead,
-    // which hold the work at nothing yet, white on orange; its messages unread, white on the accent; and its returns
+    // which hold the work at nothing yet, white on orange; its replies unread, white on the accent; and its returns
     // sent back, framed in grey. What an item waits for stands under it in the tree, and no tag counts it again.
     let right = NODE_W - 8;
+    const tags: DrawnTag[] = [];
     const tag = (text: string, fill: string, sign: 'back' | null, solid: boolean) => {
+      tags.push({ text, fill });
       const t = new BitmapText({ text, style: s.mono(solid ? PALETTE.onTag : fill) });
       const pad = 4;
       const icon = sign !== null ? 10 : 0;
@@ -2057,12 +2076,13 @@ export class SnapScene {
       view.addChild(g, t);
       right -= 6;
     };
-    // What waits for the owner in red, the strongest, as the engine's one list counts it; how much is new to read in the
-    // colour of the line at the card's left that says something is new.
+    // What waits for the owner in red, the strongest, as the engine's one list counts it; then the replies the owner has
+    // not read, in the colour the map marks what is not read in.
     if (item.asks > 0) tag(String(item.asks), PALETTE.red, null, true);
     if (item.ahead > 0) tag(String(item.ahead), PALETTE.orange, null, true);
-    if (item.unread > 0) tag(String(item.unread), PALETTE.unseen, null, true);
+    if (item.repliesUnread > 0) tag(String(item.repliesUnread), PALETTE.unseen, null, true);
     if (item.work !== null && item.work.sentBack > 0) tag(String(item.work.sentBack), PALETTE.muted, 'back', false);
+    this.tagsDrawn.set(item.id, tags);
     // Of an item whose work has ended, the lines that work added and removed, at the right of its one row, each in its
     // colour (`LINES_LOOKS`), as the item's window says them.
     const ended = item.work === null ? item.endedLines : null;
@@ -2216,6 +2236,13 @@ export class SnapScene {
   /// for an item the tree does not draw, a shadow, and a deliverable, which has no card.
   cardLook(id: number): { rows: number; fill: string | number; edge: string | number } | null {
     return this.cardsDrawn.get(id) ?? null;
+  }
+
+  /// The tags the card of item `id` drew at the right of its first row, from the right: the number of things its work
+  /// waits for from the owner, of questions to answer ahead, of replies not read, and of returns sent back, each with its
+  /// colour, any with none left out; for the tests. None for an item the tree does not draw, and a shadow.
+  drawnTags(id: number): DrawnTag[] | null {
+    return this.tagsDrawn.get(id) ?? null;
   }
 
   /// The number each card of the tree wrote, shadows and deliverables too, in the tree's order, and where its title
@@ -2885,6 +2912,7 @@ export class SnapScene {
     const barAt = (d: number) => MAP_PAD + d * (MAP_STRIP + MAP_APART);
     this.mapBars.clear();
     const pieces: MapPiece[] = [];
+    const unread: number[] = [];
     this.columns.forEach((c, d) => {
       const left = barAt(d);
       t.columns[d].forEach((k, r) => {
@@ -2897,6 +2925,7 @@ export class SnapScene {
       });
       // Where items are new to the owner, the accent across the bar.
       for (const r of this.fresh[d] ?? []) {
+        unread.push(this.ids[t.columns[d][r]]);
         const at = mid + (this.slot(d, r) + this.rowsAt(d, r) / 2 - c.at) * this.mapRow;
         this.mapBars.rect(left - 1, at - 1, MAP_STRIP + 2, 2).fill(PALETTE.accent);
       }
@@ -2931,7 +2960,7 @@ export class SnapScene {
         .fill({ color: PALETTE.ink, alpha: MAP_FRAME_FILL })
         .stroke({ color: PALETTE.faint, width: 1 });
     }
-    this.mapDrawn = { frame, pieces };
+    this.mapDrawn = { frame, pieces, unread };
   }
 
   /// The colour an item's piece of the map takes, as its card stands: of its work's state while a work is drawn on it,
@@ -2946,7 +2975,7 @@ export class SnapScene {
 
   /// What the map drew at the last frame, for the tests: the part of the tree the screen shows, on the map, and each
   /// item's piece, by its column, from its top on the map and how tall, in its colour.
-  drawnMap(): { frame: { x: number; y: number; width: number; height: number } | null; pieces: MapPiece[] } {
+  drawnMap(): MapDrawn {
     return this.mapDrawn;
   }
 

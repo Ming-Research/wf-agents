@@ -366,7 +366,8 @@ fn the_engineer_s_form_is_made_of_the_files_beside_the_repository_s_flows() {
 // A request to run tests is a list of requests, each naming tests, checks and measurements, the commit to run on, and
 // whether to publish that commit, as the tool's words say; a member beside them is not a request. The commit is a
 // string, so that an agent runs the tests on a commit of its worktree and not only on the last of its branch, and
-// `publish` is a boolean, so that only `true` or `false` asks or does not ask for the commit to be left on the host.
+// `publish` is a boolean, so that only `true` or `false` asks or does not ask for the commit to be left on the host. A
+// measurement is named, with the inputs of its workflow it sets, each a text, and nothing beside them.
 #[test]
 fn a_request_to_run_tests_names_tests_checks_measurements_a_commit_and_whether_to_publish_it_and_nothing_else() {
     let beside = agents::read(&repository_flows()).expect("the files beside the flows are read");
@@ -375,10 +376,19 @@ fn a_request_to_run_tests_names_tests_checks_measurements_a_commit_and_whether_t
     assert_eq!(run_tests["type"], json!("array"), "{run_tests}");
     let request = &run_tests["items"];
     let names = json!({ "type": "array", "items": { "type": "string" } });
+    let measure = json!({ "type": "array", "items": {
+        "type": "object",
+        "properties": {
+            "name": { "type": "string" },
+            "inputs": { "type": "object", "additionalProperties": { "type": "string" } }
+        },
+        "required": ["name"],
+        "additionalProperties": false
+    } });
     assert_eq!(
         request["properties"],
         json!({
-            "tests": names, "checks": names, "measure": names, "commit": { "type": "string" },
+            "tests": names, "checks": names, "measure": measure, "commit": { "type": "string" },
             "publish": { "type": "boolean" }
         }),
         "{request}"

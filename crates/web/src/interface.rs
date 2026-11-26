@@ -25,6 +25,7 @@ use service::{Handle, Levels, Mark, Projects};
 use store::WorkNumber;
 use tokio::sync::broadcast::error::RecvError;
 
+use crate::attention::{Times, Wanted};
 use crate::items_cache::{Failure, ItemsCache};
 use crate::plan::{Candidates, Graph, HITS, Hits, PlanChanges, PlanMark, Tags, Way};
 use crate::pulls::Pulls;
@@ -35,14 +36,20 @@ use crate::works::{
 };
 
 /// The routes of the items and the works, over the engine's loop; an item is added at one of these levels, to one of
-/// these projects, and a work's rounds run at them.
-pub fn router(handle: Handle, levels: Levels, projects: Projects) -> Router {
+/// these projects, and a work's rounds run at them; `wf-agents wait` goes by these times.
+pub fn router(handle: Handle, levels: Levels, projects: Projects, times: Times) -> Router {
     let cache = std::sync::Arc::new(ItemsCache::new(handle.clone(), levels.clone()));
-    router_over(cache, handle, levels, projects)
+    router_over(cache, handle, levels, projects, times)
 }
 
 /// [`router`], reading the items through this cache, which the caller keeps to see what it has worked out.
-pub fn router_over(cache: std::sync::Arc<ItemsCache>, handle: Handle, levels: Levels, projects: Projects) -> Router {
+pub fn router_over(
+    cache: std::sync::Arc<ItemsCache>,
+    handle: Handle,
+    levels: Levels,
+    projects: Projects,
+    times: Times,
+) -> Router {
     let levels = std::sync::Arc::new(levels);
     let shown = LevelsPage::of(&levels);
     let named = ProjectsPage::of(&projects);
@@ -56,6 +63,12 @@ pub fn router_over(cache: std::sync::Arc<ItemsCache>, handle: Handle, levels: Le
         let (cache, projects) = (cache.clone(), projects.clone());
         move |handle: State<Handle>, query: Result<Query<Pulled>, QueryRejection>| {
             pulls(handle, cache.clone(), projects.clone(), query)
+        }
+    };
+    let attention = {
+        let cache = cache.clone();
+        move |handle: State<Handle>, asked: Result<Query<Wanted>, QueryRejection>| {
+            crate::attention::attention(handle, cache.clone(), times, asked)
         }
     };
     let work = move |handle: State<Handle>, path: Result<Path<u64>, PathRejection>| {
@@ -96,7 +109,7 @@ pub fn router_over(cache: std::sync::Arc<ItemsCache>, handle: Handle, levels: Le
         .route("/api/v1/works/{work}/calls/{call}", get(call))
         .route("/api/v1/works/{work}/acts", post(act))
         .route("/api/v1/works/{work}/runs/{run}/forks", post(fork))
-        .route("/api/v1/attention", get(crate::attention::attention))
+        .route("/api/v1/attention", get(attention))
         .route("/api/v1/system", get(system_now))
         .route("/api/v1/system/under-way", get(crate::system::under_way))
         .route("/api/v1/engine", get(engine))

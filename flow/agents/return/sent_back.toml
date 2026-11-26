@@ -12,9 +12,9 @@ between = ", "
 # What the round is told to do about the list: what it returned and is not listed stands (decision
 # a-sent-back-return-is-completed-by-what-is-missing).
 again = "Return again with only what is listed here. What you returned before and is not listed stands."
-# What follows the list where the return sent back stands for nothing of what the next gives: it asked for calls, or it
-# could not be read. Such a return is given whole again, as a return that asks for calls asks for nothing else (decision
-# a-sent-back-return-is-completed-by-what-is-missing).
+# What follows the list where what the return sent back holds itself stands for nothing of what the next gives: it
+# asked for calls, or it could not be read. Such a return is given whole again, as a return that asks for calls asks for
+# nothing else (decision a-sent-back-return-is-completed-by-what-is-missing).
 again_whole = "Return again, with everything this return should say in one return."
 
 # The words of each thing that can be wrong. In a text, `{block}` is a block's name; `{name}` a name as the return wrote
@@ -92,6 +92,9 @@ unanswered = "`{block}` is dealt with, but nothing is committed and no question 
 word_owed = "`{name}` is named in `dealt_with`, but the return answers none of its points in `{name}`, changes none of {watched}, and asks no question the work waits for. Answer each point there, change what it is about, or ask the owner."
 # A verdict, `{block}`, written with `{value}`, which does not pass, and no version of its dialogue, `{name}`.
 no_point = "`{block}` is `{value}`, but the return gives no `{name}`: give there the points that still stand."
+# The return meets everything else, and with it taken the work could not go on, and a version of one of these blocks the
+# cell may write, none of which has a version yet, would let it: each between backticks, joined by `between`.
+would_stall = "After this return the work cannot go on: none of these blocks has a version yet: {blocks}. Hand in each that your task says you write."
 
 # Why what came back could not be read as a return, said in `{why}` of `unreadable`: `{error}` what the reading of its
 # JSON says, `{name}` a tool's name.
