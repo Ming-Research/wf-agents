@@ -85,7 +85,9 @@
 //! The driver alone sees every work, so it is also what judges by history (principle `judged-by-own-history`): it
 //! gathers what the rounds of every work on a flow came to ([`history`]), and gives each round the lines it is judged
 //! by as it runs. It gives the keep-warm pings of the sessions as their time comes, each by its own last call and none
-//! while a round of its own line is under way, the time being among what it asks to be told ([`warm`]); it tells a
+//! while a round of its own line is under way, as many as the prices of the session's model make worth it, which the
+//! work's own reports of what its calls cost tell ([`prices`]), the time being among what it asks to be told
+//! ([`warm`]); it tells a
 //! round that missed its session's prompt cache from the records ([`cache`]); and it tells how each round and each
 //! call of a tool went against the lines of its history, which stops nothing ([`judged`]).
 //!
@@ -108,6 +110,8 @@ pub mod history;
 pub mod judged;
 
 pub mod owner;
+
+pub mod prices;
 
 pub mod sessions;
 

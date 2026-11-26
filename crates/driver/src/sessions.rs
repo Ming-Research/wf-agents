@@ -24,8 +24,6 @@
 //! session runs no cell: the next round in it is filled with all its cell's data, the entries of the design tree that
 //! the work was worked from among them (design document `data-and-context`, 15, 25).
 
-use std::collections::BTreeMap;
-
 use decide::run::Failure;
 use decide::{CellId, Decision, RunId, decide};
 use engine::Event;
@@ -60,10 +58,9 @@ pub struct Warm {
     pub life_ms: u64,
     /// How long after a session's last call it is sent a keep-warm ping, in milliseconds: less than the life.
     pub after_ms: u64,
-    /// The most pings one wait of a session on each model is worth, by the model's name: as many as cost, each reading
-    /// the session, no more than writing it to the cache again would beyond reading it. A session on a model not here
-    /// is not pinged, its worth not being known.
-    pub most: BTreeMap<String, u32>,
+    /// How many pings one wait of a session is worth where the work's own reports do not yet tell its model's prices,
+    /// which tell it otherwise ([`crate::prices`]): [`crate::prices::UNMEASURED_PINGS`], the fewest any model is worth.
+    pub unmeasured_pings: u32,
     /// The most a work may spend, as the installation says ([`crate::budget`]); none where it sets no budget. A work
     /// the engine paused past the bar its budget sets is pinged no more, a ping counting in its spend.
     pub budget: Option<Budget>,
