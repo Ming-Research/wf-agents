@@ -40,6 +40,8 @@ struct Kept {
     refuses_dispatch: Option<String>,
     /// Why reading what a run uploaded is refused, where it is.
     refuses_artifact: Option<String>,
+    /// Why reading the log of a job is refused, where it is.
+    refuses_log: Option<String>,
     /// Whether another request runs the workflow on the same branch and commit right after each one asked here, as
     /// another check of the same work may.
     another_call: bool,
@@ -191,6 +193,11 @@ impl Fake {
     /// Refuses to give what a run uploaded, with these words, until it is told otherwise.
     pub(crate) fn refuse_artifact(&self, why: Option<&str>) {
         self.kept().refuses_artifact = why.map(str::to_string);
+    }
+
+    /// Refuses to give the log of any job, with these words, until it is told otherwise.
+    pub(crate) fn refuse_log(&self, why: Option<&str>) {
+        self.kept().refuses_log = why.map(str::to_string);
     }
 
     /// Keeps every run by hand asked for from now on queued, never started, as with every runner busy or offline.
@@ -685,6 +692,9 @@ impl Api for Fake {
     async fn log(&self, job: u64) -> Result<String, Failed> {
         let mut kept = self.kept();
         kept.asked.push(Asked::Log(job));
+        if let Some(why) = &kept.refuses_log {
+            return Err(answered(why));
+        }
         (kept.logs.get(&job).cloned()).ok_or_else(|| answered("HTTP 404: Not Found"))
     }
 

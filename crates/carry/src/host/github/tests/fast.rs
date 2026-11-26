@@ -667,6 +667,33 @@ async fn results_githubs_fault_keeps_from_being_read_hold_what_asked_and_are_rea
     assert_eq!(hub.dispatched().len(), 1, "one run on {head}");
 }
 
+// The log of a job that failed with nothing in the results to say why is read to say it: where GitHub cannot give it for
+// now, what asked is held and not told that the log could not be read; asked again, it reads the same run and the log.
+#[tokio::test]
+async fn a_log_githubs_fault_keeps_from_being_read_holds_what_asked_and_is_read_by_asking_again() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    hub.github()
+        .fast(&head, vec![job("test", Outcome::Failed("failure".into()), 5)], None);
+    hub.github().refuse_log(Some("HTTP 503: Service Unavailable"));
+    let place = hub.place();
+    let (at, request, call) = (branch(&place), named(&["a"], &[]), hub.call());
+    let first = hub.host.run_tests(&at, &request, call, &mut Stop::never()).await;
+    let failed = first.expect_err("held");
+    assert_eq!(
+        failed.held,
+        Some(crate::host::Held {
+            obstacle: Obstacle::Fault,
+            retry: None
+        })
+    );
+    hub.github().refuse_log(None);
+    hub.github().logged(5, "the log of the job");
+    let said = hub.host.run_tests(&at, &request, call, &mut Stop::never()).await;
+    assert!(said.expect("read").expect("run").contains("the log of the job"));
+    assert_eq!(hub.dispatched().len(), 1, "one run on {head}");
+}
+
 // A run not complete in the time a run may take is cancelled, and said as what it found: each job, the one not
 // complete said so, and no test's result known.
 #[tokio::test]
