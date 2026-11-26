@@ -1577,6 +1577,7 @@ impl Handle {
                     question,
                     ended,
                     accounts: driver.accounts().clone(),
+                    limits: driver.limits(),
                 }))
             })
             .await?;

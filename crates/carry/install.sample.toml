@@ -145,8 +145,9 @@ compact_at = 500000
 cache_minutes = 60
 # A session whose line waits is sent a keep-warm ping this many minutes after its last call, so that the cache does not
 # let it go: five before it would, time for the ping and four tries again a minute apart. A wait is sent as many as
-# cost, each reading the session, no more than writing it again would beyond reading it, at its model's prices: 39 on
-# Opus and Sonnet 5.5, 19 on Haiku 5.5, 79 on Fable 5.1. Left out, it is 55.
+# cost, each reading the session, no more than writing it again would beyond reading it, at its model's prices as the
+# program's reports of the work's calls on it tell them: 39 on Opus and Sonnet 5.5, 19 on Haiku 5.5, 79 on Fable 5.2;
+# 19 before any report tells them. Left out, it is 55.
 warm_minutes = 55
 
 # The copies of the engine's database. Every day while the engine runs, it copies the database whole into

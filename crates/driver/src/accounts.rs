@@ -8,8 +8,12 @@
 //! handed out all the same, and fails as its token cannot be given. A try of a round records the account it ran under
 //! by its name, apart from the directory of the program's settings it ran with; a try kept before accounts were, none.
 
+use std::collections::BTreeMap;
+
 use store::{AccountAct, AccountRecord, AccountTaker};
 use work::Time;
+
+use crate::outage::Limit;
 
 /// The accounts, as the records the store keeps of them say.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -18,11 +22,13 @@ pub struct Accounts {
 }
 
 /// Why a command of a session runs under the account in use and not the one the session's last try ran under, whose
-/// cache holds the session: that one was removed, by its name; or the try ran under none.
+/// cache holds the session: that one was removed, by its name; the try ran under none; or that one is at its usage
+/// limit, by its name.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Instead {
     Removed(String),
     NoAccount,
+    AtLimit(String),
 }
 
 /// An account that has been added and not removed since: its name, and when it was added.
@@ -143,13 +149,29 @@ impl Accounts {
         removed
     }
 
-    /// The account a command of a session runs under, the session's last try having run under this one: that account
-    /// where it is still added; else the account in use, none where none is, with why it runs under that one instead:
-    /// the session's account was removed, or the try ran under none.
-    pub fn of_session(&self, account: Option<&str>) -> (Option<String>, Option<Instead>) {
+    /// The account a command of a session runs under at `now`, the session's last try having run under this one: that
+    /// account where it is still added and not at its usage limit; else the account in use, none where none is, with
+    /// why it runs under that one instead: the session's account was removed, the try ran under none, or the session's
+    /// account is at its limit. An account is at its limit where its limit stands, as `limits` says, and resets after
+    /// `now`; one whose reset was not said is not known to be, and the command meets the limit if it still stands. The
+    /// session's account stays where it is the one in use, or none is: no other account would serve.
+    pub fn of_session(
+        &self,
+        account: Option<&str>,
+        limits: &BTreeMap<String, Limit>,
+        now: Time,
+    ) -> (Option<String>, Option<Instead>) {
         let in_use = self.in_use().map(str::to_string);
+        let at_limit = |name: &str| {
+            (limits.get(name))
+                .and_then(|limit| limit.resets)
+                .is_some_and(|resets| resets > now)
+        };
         match account {
-            Some(name) if self.is_live(name) => (Some(name.to_string()), None),
+            Some(name) if self.is_live(name) => match &in_use {
+                Some(other) if other != name && at_limit(name) => (in_use, Some(Instead::AtLimit(name.to_string()))),
+                _ => (Some(name.to_string()), None),
+            },
             Some(name) => (in_use, Some(Instead::Removed(name.to_string()))),
             None => (in_use, Some(Instead::NoAccount)),
         }
@@ -246,19 +268,23 @@ mod tests {
         accounts.push(record("home", AccountAct::Taken, 3));
         accounts.push(record("old", AccountAct::Added, 4));
         accounts.push(record("old", AccountAct::Removed, 5));
-        assert_eq!(accounts.of_session(Some("work")), (Some("work".to_string()), None));
+        let (none, now) = (BTreeMap::new(), Time(100));
         assert_eq!(
-            accounts.of_session(Some("old")),
+            accounts.of_session(Some("work"), &none, now),
+            (Some("work".to_string()), None)
+        );
+        assert_eq!(
+            accounts.of_session(Some("old"), &none, now),
             (Some("home".to_string()), Some(Instead::Removed("old".to_string()))),
             "a removed account's session runs under the one in use, saying which was removed"
         );
         assert_eq!(
-            accounts.of_session(None),
+            accounts.of_session(None, &none, now),
             (Some("home".to_string()), Some(Instead::NoAccount)),
             "a session last run under no account runs under the one in use, saying so"
         );
         assert_eq!(
-            Accounts::default().of_session(None),
+            Accounts::default().of_session(None, &none, now),
             (None, Some(Instead::NoAccount)),
             "with none in use, under none: its token cannot be given"
         );
@@ -271,6 +297,54 @@ mod tests {
         );
         accounts.push(record("work", AccountAct::Removed, 7));
         assert_eq!(accounts.removed(), ["work"]);
+    }
+
+    #[test]
+    fn a_session_whose_account_is_at_its_limit_runs_under_the_one_in_use_saying_so_until_the_limit_resets() {
+        let mut accounts = Accounts::default();
+        accounts.push(record("work", AccountAct::Added, 1));
+        accounts.push(record("home", AccountAct::Added, 2));
+        accounts.push(record("home", AccountAct::Taken, 3));
+        let limit = |resets: Option<u64>| {
+            let limit = Limit {
+                since: Time(50),
+                resets: resets.map(Time),
+            };
+            BTreeMap::from([("work".to_string(), limit)])
+        };
+        assert_eq!(
+            accounts.of_session(Some("work"), &limit(Some(200)), Time(100)),
+            (Some("home".to_string()), Some(Instead::AtLimit("work".to_string()))),
+            "its limit resets later: the one in use, saying the session's is at its limit"
+        );
+        assert_eq!(
+            accounts.of_session(Some("work"), &limit(Some(200)), Time(200)),
+            (Some("work".to_string()), None),
+            "its limit has reset: its own, whose cache holds the session"
+        );
+        assert_eq!(
+            accounts.of_session(Some("work"), &limit(None), Time(100)),
+            (Some("work".to_string()), None),
+            "when its limit resets was not said: its own, not known to be at its limit"
+        );
+        assert_eq!(
+            accounts.of_session(Some("home"), &limit(Some(200)), Time(100)),
+            (Some("home".to_string()), None),
+            "another account's limit is no reason"
+        );
+        let home = BTreeMap::from([("home".to_string(), limit(Some(200))["work"])]);
+        assert_eq!(
+            accounts.of_session(Some("home"), &home, Time(100)),
+            (Some("home".to_string()), None),
+            "the session's account is the one in use: no other would serve"
+        );
+        let mut none_in_use = Accounts::default();
+        none_in_use.push(record("work", AccountAct::Added, 1));
+        assert_eq!(
+            none_in_use.of_session(Some("work"), &limit(Some(200)), Time(100)),
+            (Some("work".to_string()), None),
+            "with none in use, its own: none other would serve"
+        );
     }
 
     #[test]

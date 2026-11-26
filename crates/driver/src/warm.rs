@@ -1,12 +1,13 @@
 //! Keeping the sessions warm. The agents' program keeps a session's prompt in its cache a while after
 //! its last call (an hour for `claude`); a round after that writes the whole session to the cache again. A write kept
-//! an hour costs forty reads on Opus 5.5 and Sonnet 5.5, twenty on Haiku 5.5 and eighty on Fable 5.1, so a session read
-//! once by a minimal message a little before the cache lets it go costs a small part of what its next round would pay
-//! otherwise.
+//! an hour costs twenty reads or more, eighty on some models, so a session read once by a minimal message a little
+//! before the cache lets it go costs a small part of what its next round would pay otherwise.
 //!
 //! So in a work that has not ended, the session of each of its lines that can come back is sent a keep-warm ping
 //! `after_ms` after its own last call, and again as long as it goes on without a call, up to as many pings as cost,
-//! each reading the session, no more than writing it again would beyond reading it, on its model ([`Warm::most`]). A
+//! each reading the session, no more than writing it again would beyond reading it, on its model: as the work's own
+//! reports of what its calls on the model cost tell it, and where they do not yet, [`Warm::unmeasured_pings`]
+//! ([`crate::prices`]). No model is named: a session on a model the code has never seen is kept warm as any other. A
 //! line can come back where a cell of it is where the work stands, or is reached from there by the data the cells
 //! write: a ping of a line the work has passed for good would be paid for nothing. A ping that failed is tried again a
 //! minute after, while the cache keeps the session.
@@ -219,9 +220,10 @@ fn next(flow: &Compiled, number: WorkNumber, work: &Work, item: &Item, line: &st
         }
     }
     let (last_round, run, k) = last_round?;
-    // As many pings as the session's model makes worth it.
+    // As many pings as the session's model makes worth it, as the work's own reports tell its prices.
     let model = (work.ran.iter().rev()).find(|t| t.run == run && t.round == k)?;
-    let most = warm.most.get(&model.on.model).copied().unwrap_or(0);
+    let most = (crate::prices::learned(flow, work, &model.on.model))
+        .map_or(warm.unmeasured_pings, |prices| prices.pings_worth());
     let pings: Vec<&work::Pinged> = (work.pinged.iter())
         .filter(|p| p.line == line && p.session == session && p.at > last_round)
         .collect();
@@ -307,7 +309,7 @@ fn lines(flow: &Compiled) -> impl Iterator<Item = &str> {
 }
 
 /// The line of the run's cell.
-fn line_of_run<'a>(flow: &'a Compiled, work: &Work, run: RunId) -> Option<&'a str> {
+pub(crate) fn line_of_run<'a>(flow: &'a Compiled, work: &Work, run: RunId) -> Option<&'a str> {
     let started = work.records.started.iter().find(|s| s.run == run)?;
     (flow.cells.iter())
         .find(|c| c.id == started.cell)
