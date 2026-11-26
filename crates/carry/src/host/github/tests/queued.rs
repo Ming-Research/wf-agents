@@ -421,31 +421,34 @@ fn a_run_is_timed_only_by_the_time_it_does_not_wait_for_a_runner() {
         !waiting.due(at(200), window),
         "what it waited is forgotten once it does not wait"
     );
-    // It waits again: the window begins anew.
+    // It waits again: the window begins anew. The stretch before the look at 110, which did not wait at the look at
+    // 100, is its time.
     waiting.tick(at(110), true);
+    assert_eq!(waiting.ran_for, Duration::from_secs(40));
     assert!(!waiting.due(at(139), window));
     assert!(waiting.due(at(140), window));
     // Asked after at 140 and none online: the time it waits from then is its time, until one is online again.
     waiting.tick(at(140), true);
     waiting.asked(at(140), window, false);
-    assert_eq!(waiting.ran_for, Duration::from_secs(30));
+    assert_eq!(waiting.ran_for, Duration::from_secs(40));
     waiting.tick(at(170), true);
-    assert_eq!(waiting.ran_for, Duration::from_secs(60));
+    assert_eq!(waiting.ran_for, Duration::from_secs(70));
     waiting.asked(at(170), window, true);
     waiting.tick(at(200), true);
     assert_eq!(
         waiting.ran_for,
-        Duration::from_secs(60),
+        Duration::from_secs(70),
         "one online again: not its time"
     );
     // Asked after and none online, then a job under way: the stretch before the look that found it is its time, and
-    // the next wait is not counted until the runners are asked after again.
+    // so is the stretch after it; the wait that follows is not counted until the runners are asked after again.
     waiting.asked(at(200), window, false);
     waiting.tick(at(210), false);
-    assert_eq!(waiting.ran_for, Duration::from_secs(70));
-    waiting.tick(at(220), true);
-    waiting.tick(at(230), true);
     assert_eq!(waiting.ran_for, Duration::from_secs(80));
+    waiting.tick(at(220), true);
+    assert_eq!(waiting.ran_for, Duration::from_secs(90));
+    waiting.tick(at(230), true);
+    assert_eq!(waiting.ran_for, Duration::from_secs(90));
 }
 
 // The jobs of a run are looked at by one look at a time however many waits ask: an answer young enough is given to each
