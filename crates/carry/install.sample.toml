@@ -38,26 +38,22 @@ main = "main"
 # workflow, on the commit the request names or else the work's last commit; nothing is run on this machine. Both
 # workflows are declared in the project's wf-agents.toml, with how the pull request is merged. Without this table, the
 # local repository is the host, and the project's wf-agents.toml names the command that checks it.
-# The engine needs `git` and `gh`, and its own token for GitHub in its environment: a fine-grained token for the
-# project's repository, with Contents and Pull requests read and write, Checks and Commit statuses read, and Actions
-# read and write, for the workflows it runs by hand. The engine itself never pushes a change to the project's workflow
-# files; a work's commit that changes them is pushed only with Workflows read and write (the `workflow` scope of a
-# classic token), and without it GitHub refuses that push, which the agent is told. Each project's table names its
-# own repository, and may name a token of its own.
+# The engine needs `git`, `gh` and `openssl`, and acts on GitHub as its GitHub App, which [github_app] below names and
+# whose installation holds the repository. The engine itself never pushes a change to the project's workflow files; a
+# work's commit that changes them is pushed only with the App's Workflows read and write, and without it GitHub refuses
+# that push, which the agent is told. Each project's table names its own repository.
 # [projects.example.github]
 # # The repository on github.com, as owner/name.
 # repository = "owner/name"
 # # The clone's name for the repository on GitHub: main's head is fetched to refs/remotes/<remote>/<main>.
 # remote = "origin"
-# # The variable of the engine's environment that holds its token. No agent is given it.
-# token_env = "WF_GITHUB_TOKEN"
 # # A run of a workflow that is not listed after this many minutes: the CI never started. A run that waits for a runner
 # # (not taken, or the jobs of a started run not taken) this many minutes makes the engine ask whether a runner of the
 # # workflow's kind is online, and ask again after each further such time while one is, busy or not. Where none is
 # # online, or it cannot be told, the engine cancels the run it asked for where no job of it has started, and the check
 # # fails its round in passing and is tried again after a wait, or the agents' tool says so; a run a job of which has
 # # started is not cancelled, and its wait counts in the time it may take (`too_long`) until a runner is online again.
-# # GitHub's own machines count as online. To ask, the token
+# # GitHub's own machines count as online. To ask, the App
 # # needs to read the runners where they are registered: Administration read on the repository, or Self-hosted runners
 # # read on the organisation that owns it; one of them is enough.
 # start_minutes = 10
@@ -69,6 +65,24 @@ main = "main"
 # # label names one machine for every project that has it: the engine runs one measurement at a time there, of whatever
 # # project, and a request waits for its turn, as the owner's page says.
 # runners = ["github"]
+
+# The GitHub App the engine acts as on GitHub, needed where a project's repository or the copies of the database are
+# there: every call the engine makes of GitHub, through gh and through git over HTTPS, is given a token of the App's
+# installation, which the engine gets with the App's private key and gets anew before it expires. No sign-in of yours
+# and no token in the engine's environment is used, and the App's calls count against a limit of the App's own. Where
+# no token can be got, each call says why and none is made. The App needs, on each repository, Actions, Contents, Pull
+# requests and Workflows read and write, and Checks and Commit statuses read; and, to tell whether a self-hosted
+# runner is online, Self-hosted runners read on the organisation or Administration read on the repository.
+# docs/installing.md says how the App is made and installed.
+# [github_app]
+# # The App's id, as GitHub shows it on the App's page (App ID).
+# app_id = 123456
+# # The id of the App's installation on the account that holds the repositories: the number that ends the address of
+# # the installation's page on GitHub.
+# installation_id = 12345678
+# # The App's private key, the file GitHub made for it, by its absolute path on this machine, readable by you alone.
+# # The engine only opens it as it starts, to see that it can be read; openssl signs with it.
+# private_key = "/path/to/the/app.private-key.pem"
 
 [agents]
 # The command line program that runs an agent's round: `claude`, or a path to it. Every agent is refused it, so that
@@ -175,14 +189,11 @@ machine_minutes = 60
 # the disk they are kept against losing, so they do not guard against its loss, and the owner's page says so. With it,
 # each copy is also compressed and uploaded as an asset of the release `database-backups` of a repository on GitHub,
 # the newest `keep` kept there too. The database holds everything said to every agent, so the repository must be
-# private: it is asked before every upload, and one that is not is refused. It is not the project's repository, and
-# it has a token of its own: a fine-grained token for that one repository, with Contents read and write.
+# private: it is asked before every upload, and one that is not is refused. It is not the project's repository. The
+# engine reaches it as its GitHub App ([github_app]), whose installation holds it, with Contents read and write.
 # [backup]
 # # The private repository on github.com, as owner/name.
 # repository = "owner/name"
-# # The variable of the engine's environment that holds its token for it. No agent is given it, and it is not the
-# # project's.
-# token_env = "WF_BACKUP_TOKEN"
 # # How many copies are kept, the newest, on the machine and off it.
 # keep = 7
 # # The gh command line, or a path to it.
