@@ -254,6 +254,21 @@ async fn a_read_is_taken_for_the_versions_the_work_holds_and_refused_naming_one_
             .clone()
     };
     let read = |versions: Value| json!({ "kind": "read", "versions": versions });
+    // The items as a page reads them: what changed since a cursor, by the numbers of the items.
+    let items_since = |since: String| async move {
+        let page = get_json(router, &format!("/api/v1/items?since={since}")).await;
+        let numbers: Vec<u64> = page["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|i| i["number"].as_u64().unwrap())
+            .collect();
+        (numbers, page["cursor"].as_str().unwrap().to_string())
+    };
+    let first = get_json(router, "/api/v1/items").await["cursor"]
+        .as_str()
+        .unwrap()
+        .to_string();
     assert_eq!(read_of(&get_json(router, "/api/v1/works/1").await), json!(false));
     let both = read(json!([{ "block": "opinions", "version": 1 }, { "block": "opinions", "version": 7 }]));
     assert_eq!(
@@ -268,11 +283,20 @@ async fn a_read_is_taken_for_the_versions_the_work_holds_and_refused_naming_one_
         json!(false),
         "a read that is refused keeps nothing"
     );
+    assert_eq!(
+        items_since(first.clone()).await.0,
+        Vec::<u64>::new(),
+        "a refused read changes no item"
+    );
     let one = read(json!([{ "block": "opinions", "version": 1 }]));
     assert_eq!(post(router, ACTS, &one).await, done);
     assert_eq!(read_of(&get_json(router, "/api/v1/works/1").await), json!(true));
-    // Read again, it changes nothing and is no refusal.
+    // What the owner read is something that happened to the work: its item is given again.
+    let (given, cursor) = items_since(first).await;
+    assert_eq!(given, vec![1]);
+    // Read again, it changes nothing and is no refusal, and its item is not given again.
     assert_eq!(post(router, ACTS, &one).await, done);
+    assert_eq!(items_since(cursor).await.0, Vec::<u64>::new());
     let unknown = read(json!([{ "block": "nothing_here", "version": 1 }]));
     let (status, json) = post(router, ACTS, &unknown).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{json}");
