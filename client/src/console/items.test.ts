@@ -110,6 +110,12 @@ describe('the tree the console shows', () => {
     expect(lines(shownTree(data))).toEqual(['1', '  2', '  3', '4', '  8', '    9', '  3 shadow']);
   });
 
+  it('puts an open item under the open item that waits for it, not under one cancelled that waited for it first', () => {
+    const left: Items = { items: [item(20, 'cancelled', [22]), item(21, 'open', [22]), item(22, 'open')] };
+    expect(lines(shownTree(left))).toEqual(['21', '  22']);
+    expect(lines(shownTree(left, new Set(['open', 'cancelled'])))).toEqual(['20', '  22 shadow', '21', '  22']);
+  });
+
   it('indexes the tree by level, each item with its place among its level and the items under it', () => {
     const { tree, items } = indexTree(shownTree(data), (s) => s.children);
     expect(items.map((s) => s.id)).toEqual([1, 2, 3, 4, 8, 9, 3]);

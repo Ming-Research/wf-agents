@@ -153,15 +153,21 @@ export function projectsIn(data: Items, kept: readonly string[], named: readonly
 }
 
 /// Each item's main dependent, which it stands under in the tree: the first by number of the items of its own project
-/// that depend on it. An item that only items of other projects depend on stands at the top of its own project's tree,
-/// and a shadow of it stands under each of them.
+/// that depend on it and are still open, or, where every one of them has merged or been cancelled, the first by number
+/// of those: an open item stands under the open item that waits for it, never under one that ended long ago. An item
+/// that only items of other projects depend on stands at the top of its own project's tree, and a shadow of it stands
+/// under each of them.
 function mainDependents(data: Items): Map<number, number> {
   const byId = new Map(data.items.map((i) => [i.number, i]));
   const main = new Map<number, number>();
-  for (const i of [...data.items].sort((a, b) => a.number - b.number))
-    for (const d of i.dependsOn) {
-      const of = byId.get(d);
-      if (of !== undefined && !main.has(d) && projectOf(of) === projectOf(i)) main.set(d, i.number);
+  const byNumber = [...data.items].sort((a, b) => a.number - b.number);
+  for (const open of [true, false])
+    for (const i of byNumber) {
+      if ((standingOf(i) === 'open') !== open) continue;
+      for (const d of i.dependsOn) {
+        const of = byId.get(d);
+        if (of !== undefined && !main.has(d) && projectOf(of) === projectOf(i)) main.set(d, i.number);
+      }
     }
   return main;
 }
