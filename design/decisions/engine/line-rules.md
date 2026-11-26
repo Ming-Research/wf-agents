@@ -29,7 +29,7 @@ Every agent is refused pushing and the agents' program the installation names, a
 - rejected: an agent proposed dropping the agents' rule against heavy work on this machine once their permissions refuse it; the owner rejected it, because an agent may still try to run it locally for convenience, so the rule says it briefly and the permissions refuse it too.
 
 ### decision agents-cannot-push-however-it-is-written
-Every start of the agents' program has GIT_ALLOW_PROTOCOL=none from refused.toml, so its git refuses every transport; unsetting it and `gh` are not stopped, and the engine's own git has none.
+Every start of the agents' program has GIT_ALLOW_PROTOCOL=none from refused.toml, so its git refuses every transport; an agent that resets it, `gh`, git-lfs and a direct remote helper are not stopped.
 - replaced: Refusing a push only by the command rule `git push` was on main; the owner changed it, because a rule matches how a command starts, so `git -C <path> push`, an environment prefix, `sh -c` or a script pushed past it.
 - rejected: an agent proposed a pre-push hook in the engine's hook directory that always fails; the owner rejected it, because `--no-verify` or `-c core.hooksPath` bypasses it in one argument, which brings back matching by spelling.
 - rejected: an agent proposed only widening the spellings the permission rules match, such as `git * push *` and refusing `env` and `sh -c`; the owner rejected it, because the spellings can never all be listed and a script or another interpreter is not matched.

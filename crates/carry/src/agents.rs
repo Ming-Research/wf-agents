@@ -1162,7 +1162,7 @@ impl Inner {
                 &profile,
                 crate::programs::engine().iter().cloned(),
                 &of.declaration.environment,
-                &of.beside.refused.environment,
+                &BTreeMap::new(),
                 token,
             ))
             .current_dir(dir);
@@ -3656,6 +3656,11 @@ mod tests {
         assert_eq!(given().as_deref(), Some("sk-ant-oat01-work"));
         let profile = std::fs::read_to_string(data.join("directory")).expect("its directory");
         assert_eq!(profile, data.join("profile").display().to_string());
+        // The ping is given the variable the flows give every agent's program, as a round is.
+        assert_eq!(
+            std::fs::read_to_string(data.join("protocol")).expect("what it was given"),
+            "none"
+        );
         assert!(
             matches!(&usage, Some(driver::Said::Windows(windows)) if windows.len() == 1),
             "the week's window: {usage:?}"
