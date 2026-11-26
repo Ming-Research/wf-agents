@@ -107,7 +107,7 @@ error: could not compile `driver` (lib) due to 1 previous error
 ##[error]Process completed with exit code 101.";
 
 impl Hub {
-    async fn named_check(&self, named: &Named) -> Result<Option<String>, String> {
+    pub(super) async fn named_check(&self, named: &Named) -> Result<Option<String>, String> {
         let place = self.place();
         self.host
             .run_tests(&branch(&place), named, self.call(), &mut Stop::never())
