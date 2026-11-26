@@ -138,7 +138,8 @@ pub fn of_project(project: &str, members: &[Member<'_>], waiting: impl Fn(WorkNu
             unknown: false,
         };
     }
-    let heads: Vec<&str> = going.iter().filter_map(|m| latest_main(m)).collect();
+    // The works of a project are mostly told one head, so the readings are matched against the distinct words.
+    let heads: BTreeSet<&str> = going.iter().filter_map(|m| latest_main(m)).collect();
     let current = |commit: &str| !commit.is_empty() && heads.iter().any(|head| head.contains(commit));
     let mut seen: BTreeMap<(&str, &str), Vec<Seen>> = BTreeMap::new();
     let readings: Vec<(WorkNumber, Vec<(Time, &work::timed::Reading)>)> =
