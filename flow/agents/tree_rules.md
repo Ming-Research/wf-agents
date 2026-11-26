@@ -15,7 +15,8 @@ and an entry disagree, the entry is right.
   entries conflict.
 - `principles/`: the owner's rules for everything built from now on.
 - `decisions/`: what is true of one part of the system, written by the work that makes it true. A decision's first line
-  says only what the code on main does.
+  says only what the code on main does: a choice not merged yet, or a part with no code on main yet, has no decision
+  until the work that merges it writes one.
 
 Each directory is a tree of concepts. It doesn't have to follow the layout of the code. Write each entry once, in the
 file of the lowest concept that covers everything the entry is about. What several concepts share goes in the file of
@@ -52,13 +53,15 @@ Why: <the reason for it, at most 300 characters>
 - replaced: <an approach> was on main; <who> changed it, because <the reason given>.
 ```
 
-The first line says what is true now. Under it come one or more lines, each at most 300 characters, each about an
+The first line says what is true now. A decision never says when to look at it again: what is to be looked at again
+is an item. Under the first line come one or more lines, each at most 300 characters, each about an
 approach that was considered and not taken:
 
 - `rejected`: an approach someone proposed that was turned down.
 - `replaced`: an approach that was on main, in the code or in the tree, and was changed.
 
-A decision records a choice the owner made. These choices are the owner's:
+A decision records a choice the owner made. An approval the owner gave to several choices at once is a choice of each,
+as each was written then. These choices are the owner's:
 
 1. an approach that goes against what a decision says;
 2. two or more approaches that would each work, where each gives up something the owner cares about, such as cost,
@@ -73,10 +76,11 @@ code correct.
 The approach taken becomes the first line, of the decision that covers it or of a new one. Every approach not taken
 becomes a line under it: `replaced` if it was on main, `rejected` if it was not. This holds whichever approach the
 owner takes. Something done with no other approach considered has no decision. Keeping things as they are, or an option
-that would not work, is not another approach.
+that would not work, is not another approach, whatever the record called it. Choosing which approach to do first turns
+down none of the others.
 
 For case 2: an approach that is simply better, with nothing given up, is no choice of the owner's and leaves no line.
-But an approach an experiment showed to be better is always the owner's choice. An experiment measures every approach
+But an approach an experiment measured is always the owner's choice. An experiment measures every approach
 with the same measure under the same conditions, and its numbers are kept in the repository. Looking at how something
 looks or behaves is not an experiment. Fixing a fault is not a choice: a test guards the fix.
 

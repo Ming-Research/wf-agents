@@ -58,6 +58,18 @@ export type Call =
   | { kind: 'atLimit'; limit: Limit }
   | { kind: 'wait'; until: number; failed: number };
 
+/// What kept the host from carrying a call out for now: GitHub's limit on its requests, a fault of GitHub's own, no
+/// machine of the project's CI taking the run asked for, or a fault of the network.
+export type Obstacle = 'limit' | 'fault' | 'noRunner' | 'network';
+
+/// A call the host could not carry out for now, held until the engine's wait is over: when it ends, how many times in a
+/// row the call was held, and why.
+export interface HeldCall {
+  until: number;
+  failed: number;
+  obstacle: Obstacle;
+}
+
 /// The kind of cause of a round that failed, as what carried it out told it apart.
 export type Failure =
   | 'passing'
@@ -122,9 +134,19 @@ export type Maker = { kind: 'owner' } | { kind: 'outside'; source: string } | { 
 /// What a work waits for.
 export type Waited =
   /// The result of a call a run rests at: from this person, or from the engine where there is none; made at this time,
-  /// and, for a tool that runs as a CI run, the run's link, as the tool says as it goes. Absent from an engine that does
-  /// not give them yet.
-  | { kind: 'call'; call: number; who: Person | null; what: Call; made?: number; at?: string | null }
+  /// and, for a tool that runs as a CI run, the run's link, as the tool says as it goes, and the runner its run, or the
+  /// jobs of it, wait for where they wait for one. Absent from an engine that does not give them yet.
+  | {
+      kind: 'call';
+      call: number;
+      who: Person | null;
+      what: Call;
+      made?: number;
+      at?: string | null;
+      queuedFor?: string | null;
+      /// Where the host could not carry the call out for now: the engine asks for it again once its wait is over.
+      held?: HeldCall | null;
+    }
   /// A precondition of the cell does not hold: the named test, the words shown for it, and each who can make it hold,
   /// by writing a block that keeps it from holding.
   | { kind: 'precondition'; test: string; words: string; by: Maker[] }
@@ -155,11 +177,23 @@ export type Waited =
 /// What a work does now.
 export type Now =
   | { kind: 'fault'; words: string }
+  /// The engine could not work out what the work does now, and says why in the words of what it could not read; it goes
+  /// on with the work, and the rest of the summary is as worked out.
+  | { kind: 'broken'; words: string }
   | { kind: 'merged' }
   | { kind: 'cancelled' }
   /// A round of this run of this cell is under way, since this time; where it is an engine cell's act that runs as a
-  /// CI run, the run's link. The link is absent from an engine that does not give it yet.
-  | { kind: 'round'; cell: string; run: number; round: number; since: number; at?: string | null }
+  /// CI run, the run's link, and the runner its run, or the jobs of it, wait for where they wait for one. Both are absent
+  /// from an engine that does not give them yet.
+  | {
+      kind: 'round';
+      cell: string;
+      run: number;
+      round: number;
+      since: number;
+      at?: string | null;
+      queuedFor?: string | null;
+    }
   /// It is paused, and what it would do next is begin a round: by the owner, who gives no reason, or by the engine
   /// for this one.
   | { kind: 'paused'; at: string; by: Pauser; why: string | null }
@@ -247,6 +281,10 @@ export interface Summary {
   /// Who paused it, where it is paused: only a note to a cell is answered; a round under way goes on.
   paused: Pauser | null;
   now: Now;
+  /// The engine could not read the records the rest of this summary is made from: its cells, what it spent, its time
+  /// and how many of its questions may be answered ahead are not worked out and hold nothing; what it waits on the
+  /// owner for is what its view says. Absent from every summary that was read, whose `now` may still be broken.
+  unread?: boolean;
   /// In the order of the walk.
   cells: CellNow[];
   spent: Spent;

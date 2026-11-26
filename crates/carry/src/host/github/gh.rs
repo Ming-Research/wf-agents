@@ -13,8 +13,10 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use tokio::io::AsyncWriteExt;
 
-use super::api::{Api, Check, File, Listed, OPEN_PULLS, Outcome, Pull, Run, State};
+use super::api::{Api, Check, File, Jobs, Layer, Listed, OPEN_PULLS, Outcome, Pull, Run, Runner, Runners, State};
+use crate::acts::failing::told_by_its_words;
 use crate::host::Failed;
+use decide::{Obstacle, Retry};
 
 /// GitHub's REST API, through `gh`, in one repository.
 #[derive(Clone)]
@@ -42,15 +44,22 @@ impl std::fmt::Debug for Gh {
     }
 }
 
-/// What GitHub answered: the status, and the body; whether its headers say it limits the requests it takes, none
-/// remaining of them or a time given to try again after; and the entity tag they give the answer, where they give one.
+/// What GitHub answered: the status, and the body; whether it says it limits the requests it takes, by its status (429),
+/// its headers (none remaining of them, or a time given to try again after) or its words (a secondary limit gives
+/// neither); when it may be asked again where its headers say (any answer may say it, a 503's `Retry-After` as well);
+/// and the entity tag its headers give the answer, where they give one.
 #[derive(Debug, PartialEq, Eq)]
 struct Answer {
     status: u16,
     body: String,
     limited: bool,
+    retry: Option<Retry>,
     tag: Option<String>,
 }
+
+/// How long a limit is waited out when GitHub says nothing of when it may be asked again, in seconds: at least a
+/// minute, as GitHub's guide to its limits says of a limit that gives neither `retry-after` nor a reset.
+const LIMIT_WAIT: u64 = 60;
 
 impl Gh {
     /// `gh` as this command, in the repository `owner/name`, with the engine's token, keeping its configuration in
@@ -168,6 +177,34 @@ impl Gh {
             args[..2].join(" "),
             String::from_utf8_lossy(&output.stderr).trim_end()
         ))
+    }
+
+    /// Whether the repository's owner is an organisation, which has runners of its own to list.
+    async fn owner_is_an_organisation(&self) -> Result<bool, String> {
+        let path = format!("repos/{}", self.repository);
+        let repository = self
+            .json("GET", &path, None, &[200])
+            .await
+            .map_err(|failed| failed.why)?;
+        Ok(repository["owner"]["type"].as_str() == Some("Organization"))
+    }
+
+    /// The runners one layer lists, each page of GitHub's list read; or GitHub's words for why it could not be read.
+    async fn layer(&self, path: &str) -> Layer {
+        let mut runners = Vec::new();
+        for page in 1.. {
+            let paged = format!("{path}?per_page=100&page={page}");
+            let listed = self
+                .json("GET", &paged, None, &[200])
+                .await
+                .map_err(|failed| failed.why)?;
+            let listed = listed["runners"].as_array().cloned().unwrap_or_default();
+            runners.extend(listed.iter().map(runner));
+            if listed.len() < 100 {
+                break;
+            }
+        }
+        Ok(runners)
     }
 
     /// Asks GitHub, and gives the body of an answer whose status is one of `ok`; or GitHub's words for why not.
@@ -290,11 +327,43 @@ impl Api for Gh {
         self.want("POST", &path, None, &[202, 409]).await.map(|_| ())
     }
 
-    async fn jobs(&self, run: u64) -> Result<Vec<Check>, Failed> {
+    async fn jobs(&self, run: u64, tag: Option<&str>) -> Result<Jobs, Failed> {
         let path = format!("repos/{}/actions/runs/{run}/jobs?per_page=100", self.repository);
-        let listed = self.json("GET", &path, None, &[200]).await?;
-        let jobs = listed["jobs"].as_array().cloned().unwrap_or_default();
-        Ok(jobs.iter().filter_map(job).collect())
+        // As the look at the runs of a workflow does, it names the entity tag of the answer it would give again.
+        let condition = tag.map(|tag| format!("If-None-Match: {tag}"));
+        let flags: Vec<&str> = condition.iter().flat_map(|header| ["-H", header.as_str()]).collect();
+        let answer = self.ask_with("GET", &path, None, &flags).await?;
+        match answer.status {
+            200 => {
+                let listed: Value = serde_json::from_str(&answer.body)
+                    .map_err(|e| format!("GitHub's answer to GET {path} is not JSON: {e}"))?;
+                let jobs = listed["jobs"].as_array().cloned().unwrap_or_default();
+                Ok(Jobs::Listed {
+                    jobs: jobs.iter().filter_map(job).collect(),
+                    tag: answer.tag,
+                })
+            }
+            304 if tag.is_some() => Ok(Jobs::Unchanged),
+            304 => {
+                Err(format!("GitHub answered GET {path} with 304, unchanged, though it was sent no entity tag").into())
+            }
+            _ => Err(refused(&answer)),
+        }
+    }
+
+    async fn runners(&self) -> Runners {
+        let repository = self.layer(&format!("repos/{}/actions/runners", self.repository)).await;
+        let owner = self.repository.split('/').next().unwrap_or_default();
+        // Only an organisation has runners of its own beside the repository's; a person's repository has the one layer.
+        let organisation = match self.owner_is_an_organisation().await {
+            Ok(false) => None,
+            Ok(true) => Some(self.layer(&format!("orgs/{owner}/actions/runners")).await),
+            Err(why) => Some(Err(why)),
+        };
+        Runners {
+            repository,
+            organisation,
+        }
     }
 
     async fn artifact(&self, run: u64, name: &str) -> Result<Option<Vec<File>>, Failed> {
@@ -313,9 +382,9 @@ impl Api for Gh {
         ];
         let ran = self.run(&args).await;
         let files = match ran {
-            Ok(()) => files_under(&dir, ""),
+            Ok(()) => files_under(&dir, "").map_err(Failed::from),
             Err(why) if why.contains("no artifact") || why.contains("no valid artifact") => Ok(Vec::new()),
-            Err(why) => Err(why),
+            Err(why) => Err(told_by_the_command(why)),
         };
         let _ = tokio::fs::remove_dir_all(&dir).await;
         let files = files?;
@@ -457,12 +526,23 @@ pub(crate) fn environment(
 fn included(out: &str) -> Option<Answer> {
     let (head, body) = (out.split_once("\r\n\r\n")).or_else(|| out.split_once("\n\n"))?;
     let mut lines = head.lines();
-    let status = lines.next()?.split_whitespace().nth(1)?.parse().ok()?;
+    let status: u16 = lines.next()?.split_whitespace().nth(1)?.parse().ok()?;
     let headers: Vec<(String, &str)> = (lines.filter_map(|line| line.split_once(':')))
         .map(|(name, value)| (name.trim().to_ascii_lowercase(), value.trim()))
         .collect();
-    let limited = (headers.iter())
-        .any(|(name, value)| name == "retry-after" || (name == "x-ratelimit-remaining" && *value == "0"));
+    let header = |wanted: &str| headers.iter().find(|(name, _)| name == wanted).map(|(_, value)| *value);
+    let after = header("retry-after");
+    let exhausted = header("x-ratelimit-remaining") == Some("0");
+    // A secondary limit answers 403 or 429 and says so in its words, with neither header.
+    let named = (status == 403 || status == 429) && body.to_ascii_lowercase().contains("rate limit");
+    let retry = match (after.and_then(|seconds| seconds.parse().ok()), exhausted) {
+        (Some(seconds), _) => Some(Retry::In(seconds)),
+        (None, true) => header("x-ratelimit-reset")
+            .and_then(|epoch| epoch.parse().ok())
+            .map(Retry::At),
+        (None, false) => None,
+    };
+    let limited = status == 429 || after.is_some() || exhausted || named;
     let tag = (headers.iter())
         .find(|(name, value)| name == "etag" && !value.is_empty())
         .map(|(_, value)| value.to_string());
@@ -470,19 +550,43 @@ fn included(out: &str) -> Option<Answer> {
         status,
         body: body.to_string(),
         limited,
+        retry,
         tag,
     })
 }
 
 /// GitHub's refusal, of the kind its status tells: a fault of GitHub's own (5xx) or its limit on the requests it takes
-/// (429, or another refusal whose headers say it limits them) passes by itself; any other is a refusal no wait mends,
-/// whatever its words.
+/// (429, or another refusal that says it limits them) passes by itself, and only keeps what asked from being done for
+/// now, with when it may be asked again where GitHub says; a limit that says nothing of when is not asked again for at
+/// least a minute ([`LIMIT_WAIT`]); any other is a refusal no wait mends, whatever its words.
 fn refused(answer: &Answer) -> Failed {
     let why = refusal(answer);
-    if answer.status >= 500 || answer.status == 429 || answer.limited {
-        Failed::passing(why)
+    if answer.status >= 500 {
+        Failed::held(why, Obstacle::Fault, answer.retry)
+    } else if answer.limited {
+        Failed::held(
+            why,
+            Obstacle::Limit,
+            Some(answer.retry.unwrap_or(Retry::In(LIMIT_WAIT))),
+        )
     } else {
         Failed::refused(why)
+    }
+}
+
+/// A failure of a `gh` command other than `gh api`: it says what GitHub refused as `HTTP <status>: <words>` on its
+/// standard error and gives no headers. A fault of GitHub's own (5xx) and its limit (429, or a 403 whose words name a
+/// rate limit) are held as `refused` holds them, a limit for a minute as nothing of when is given; any other failure is
+/// the network's where its words say so ([`told_by_its_words`]), and is otherwise as it is.
+fn told_by_the_command(why: String) -> Failed {
+    let status = (why.find("HTTP ")).and_then(|at| why[at + "HTTP ".len()..].get(..3)?.parse::<u16>().ok());
+    match status {
+        Some(500..=599) => Failed::held(why, Obstacle::Fault, None),
+        Some(429) => Failed::held(why, Obstacle::Limit, Some(Retry::In(LIMIT_WAIT))),
+        Some(403) if why.to_ascii_lowercase().contains("rate limit") => {
+            Failed::held(why, Obstacle::Limit, Some(Retry::In(LIMIT_WAIT)))
+        }
+        _ => told_by_its_words(why),
     }
 }
 
@@ -558,8 +662,18 @@ fn run(run: &Value) -> Option<Run> {
     })
 }
 
+/// A self-hosted runner as GitHub's REST API lists it.
+fn runner(runner: &Value) -> Runner {
+    Runner {
+        online: runner["status"].as_str() == Some("online"),
+        labels: (runner["labels"].as_array().into_iter().flatten())
+            .filter_map(|label| label["name"].as_str().map(str::to_string))
+            .collect(),
+    }
+}
+
 /// A job of a run as a check; none for a job that has no id or no name. A job that did not run is a check that was
-/// skipped.
+/// skipped; one that no runner has taken is queued.
 fn job(job: &Value) -> Option<Check> {
     let outcome = match (job["status"].as_str(), job["conclusion"].as_str()) {
         (Some("completed"), Some("skipped")) => Outcome::Skipped,
@@ -567,7 +681,8 @@ fn job(job: &Value) -> Option<Check> {
         (Some("completed"), Some(how @ ("failure" | "timed_out"))) => Outcome::Failed(how.to_string()),
         (Some("completed"), Some(how)) => Outcome::Broken(how.to_string()),
         (Some("completed"), None) => Outcome::Broken("no conclusion".to_string()),
-        _ => Outcome::Pending,
+        (Some("in_progress"), _) => Outcome::Pending,
+        _ => Outcome::Queued,
     };
     // Only a job that ran to a conclusion has a time to give; one cancelled or not complete did not finish.
     let took = match outcome {

@@ -32,6 +32,7 @@ import { waitingCount, waitsOnOwner } from './waiting';
 import {
   NO_LEVEL,
   ORDER_WORDS,
+  UNREAD,
   clock,
   dollars,
   duration,
@@ -305,11 +306,14 @@ export function WorksTable({ items, projects = NO_PROJECTS, failed = null }: {
 }
 
 /// What the works cost, in millionths of a dollar, as their column of costs counts it.
-const spentOf = (works: ListedWork[]) => works.reduce((sum, w) => sum + w.work.spent.usdMicros, 0);
+/// The works the engine could not read the records of are left out, which hold no cost.
+const spentOf = (works: ListedWork[]) =>
+  works.reduce((sum, w) => sum + (w.work.unread === true ? 0 : w.work.spent.usdMicros), 0);
 
 /// The row of an item's work, drawn again only when the item is another object, which it is only where it changed.
 export const WorkRow = memo(function WorkRow({ item }: { item: Item }) {
   const work = item.work;
+  const unread = work.unread === true;
   return (
     <tr
       className={`work-row ${waitsOnOwner(work) ? 'for-owner' : ''}`}
@@ -326,7 +330,13 @@ export const WorkRow = memo(function WorkRow({ item }: { item: Item }) {
         <NowLine work={work} why={false} />
       </td>
       <td className="col-cells">
-        <Strip cells={work.cells} stopped={stoppedAt(work)} />
+        {unread ? (
+          <span className="muted" title={UNREAD.title}>
+            {UNREAD.shown}
+          </span>
+        ) : (
+          <Strip cells={work.cells} stopped={stoppedAt(work)} />
+        )}
       </td>
       <td className="mono col-level">
         <Level level={work.level} none={NO_LEVEL.level} />
@@ -334,8 +344,12 @@ export const WorkRow = memo(function WorkRow({ item }: { item: Item }) {
       <td className="mono col-cell-level">
         <Level level={work.cellLevel} none={NO_LEVEL.cellLevel} />
       </td>
-      <td className="small muted col-cost">{dollars(work.spent.usdMicros)}</td>
-      <td className="small muted col-time">{duration(work.spent.workingMs)}</td>
+      <td className="small muted col-cost" title={unread ? UNREAD.title : undefined}>
+        {unread ? UNREAD.shown : dollars(work.spent.usdMicros)}
+      </td>
+      <td className="small muted col-time" title={unread ? UNREAD.title : undefined}>
+        {unread ? UNREAD.shown : duration(work.spent.workingMs)}
+      </td>
       <td className="small muted col-last" title={work.last === null ? undefined : fullTime(work.last)}>
         {work.last === null ? 'nothing yet' : clock(work.last)}
       </td>

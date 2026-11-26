@@ -1198,6 +1198,18 @@ impl CallReply {
         }
     }
 
+    /// The host could not carry the call out for now, for this reason, and may be asked again after `retry` where it
+    /// says when: the call has no result yet, and the engine holds it until a wait of its own has.
+    pub fn held(self, obstacle: decide::Obstacle, retry: Option<decide::Retry>) {
+        let event = Event::Held {
+            call: self.call,
+            obstacle,
+            retry,
+        };
+        // Where the loop has ended, the process is stopping: the call is handed out again when it starts again.
+        let _ = self.to.send(Message::Happened { work: self.work, event });
+    }
+
     /// The call has this result.
     pub fn done(self, result: String) {
         let event = Event::Done {

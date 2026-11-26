@@ -76,6 +76,14 @@ describe('what a work does now, in words', () => {
     expect(nowWords(doing({ kind: 'fault', words: 'Two entries at place 3' }))).toBe('Halted · Two entries at place 3');
     expect(nowWords(doing({ kind: 'merged' }))).toBe('Merged');
     expect(nowWords(doing({ kind: 'cancelled' }))).toBe('Cancelled');
+    // A state the engine could not work out is said as broken, with the engine's words, not as a halt.
+    expect(nowWords(doing({ kind: 'broken', words: 'the driver names no turn' }))).toBe(
+      'Broken · the driver names no turn',
+    );
+    // What waits on the owner is still said first, and the broken state is not hidden by it.
+    expect(nowWords(doing({ kind: 'broken', words: 'the driver names no turn' }, [limit]))).toBe(
+      'Waiting for you · The cell ran 3 times in a row for what a cell after it wrote, which is its limit. the driver names no turn',
+    );
     expect(nowWords(doing({ kind: 'round', cell: 'implement', run: 5, round: 2, since }))).toBe('Running · implement');
     // A paused or held work names the cell it would go on at, as the engine names it.
     expect(nowWords(doing({ kind: 'paused', at: 'plan', by: 'owner', why: null }))).toBe('Paused · plan');
@@ -153,6 +161,8 @@ describe('what a work does now, in words', () => {
       cell: 'plan',
     });
     expect(stateOf(doing({ kind: 'fault', words: 'x' }))).toEqual({ tone: 'failed', word: STATE.halted, cell: null });
+    expect(stateOf(doing({ kind: 'broken', words: 'x' }))).toEqual({ tone: 'failed', word: STATE.broken, cell: null });
+    expect(STATE.broken).not.toBe(STATE.halted);
     // A work that waits for the calls of tools the engine carries out is neither running nor done: it waits for each
     // tool by its name, where it runs, in the yellow of a call (decision a-call-waited-for-is-no-run).
     const tool: Waited = { kind: 'call', call: 2, who: null, what: { kind: 'tool', name: 'ci', input: 'all' } };
@@ -161,7 +171,7 @@ describe('what a work does now, in words', () => {
     // The act of an engine cell under way, its cell marked as calling, is waited for as a call, by where it runs.
     const act = { ...calling, now: { kind: 'round', cell: 'M1', run: 3, round: 1, since: 5, at: 'https://ci/9' } as Now };
     expect(stateOf(act)).toEqual({ tone: 'calling', word: 'Waiting for CI', cell: 'M1' });
-    expect(callsWaited(act)).toEqual([{ tool: null, ci: 'https://ci/9', made: 5 }]);
+    expect(callsWaited(act)).toEqual([{ tool: null, ci: 'https://ci/9', queued: null, made: 5 }]);
     expect(stateOf({ ...act, now: { kind: 'round', cell: 'M1', run: 3, round: 1, since: 5 } })).toEqual({
       tone: 'calling',
       word: 'Waiting for the engine',
@@ -175,6 +185,53 @@ describe('what a work does now, in words', () => {
       word: STATE.owner,
       cell: 'merge',
     });
+  });
+
+  it('says the runner a call or an act waits for while its CI run, or the jobs of it, wait for one', () => {
+    const calling = (now: Now) => ({
+      now,
+      cells: [{ cell: 'M1', state: 'calling' as const, finished: 0, record: null, open: 1 }],
+      waits: [],
+    });
+    const tool: Waited = {
+      kind: 'call',
+      call: 2,
+      who: null,
+      what: { kind: 'tool', name: 'run_tests', input: 'a' },
+      at: 'https://ci/9',
+      queuedFor: '14900k',
+    };
+    expect(stateOf(calling({ kind: 'waits', at: 'M1', on: [tool] })).word).toBe(
+      'Waiting for run_tests in CI (queued for 14900k)',
+    );
+    // Once a runner took it, or where the engine says none, the words are the plain ones.
+    expect(stateOf(calling({ kind: 'waits', at: 'M1', on: [{ ...tool, queuedFor: null }] })).word).toBe(
+      'Waiting for run_tests in CI',
+    );
+    expect(stateOf(calling({ kind: 'waits', at: 'M1', on: [{ ...tool, queuedFor: undefined }] })).word).toBe(
+      'Waiting for run_tests in CI',
+    );
+    const act: Now = { kind: 'round', cell: 'M1', run: 3, round: 1, since: 5, at: 'https://ci/9', queuedFor: '14900k' };
+    expect(stateOf(calling(act)).word).toBe('Waiting for CI (queued for 14900k)');
+  });
+
+  it('says a tool call the host could not carry out for now as the engine\'s wait before it is asked for again, with why', () => {
+    const until = 1_700_000_000_000;
+    const held = (obstacle: 'limit' | 'fault' | 'noRunner' | 'network', failed = 1): Waited => ({
+      kind: 'call',
+      call: 2,
+      who: null,
+      what: { kind: 'tool', name: 'run_tests', input: '' },
+      held: { until, failed, obstacle },
+    });
+    const wait = `the engine's wait until ${clock(until)}, before the tool run_tests is asked for again: `;
+    expect(waitedWords(held('limit'))).toBe(`${wait}GitHub's limit on its requests (1 in a row)`);
+    expect(waitedWords(held('fault', 2))).toBe(`${wait}GitHub failed (2 in a row)`);
+    expect(waitedWords(held('noRunner'))).toBe(`${wait}no machine took the run (1 in a row)`);
+    expect(waitedWords(held('network'))).toBe(`${wait}the network failed (1 in a row)`);
+    // A call not held is said as it was.
+    const plain: Waited = { kind: 'call', call: 2, who: null, what: { kind: 'tool', name: 'run_tests', input: '' } };
+    expect(waitedWords(plain)).toBe('the result of the tool run_tests');
   });
 
   it('says each kind of thing a work waits for, each work by its number as W12', () => {
@@ -215,6 +272,7 @@ describe('what a work does now, in words', () => {
       'owner',
     );
     expect(nowTone(doing({ kind: 'fault', words: 'Two entries at place 3' }))).toBe('failed');
+    expect(nowTone(doing({ kind: 'broken', words: 'x' }))).toBe('failed');
     expect(nowTone(doing({ kind: 'stalled', at: 'M2', on: [], by: [], why: 'x' }))).toBe('failed');
     expect(nowTone(doing({ kind: 'paused', at: 'plan', by: 'owner', why: null }))).toBe('quiet');
     expect(nowTone(doing({ kind: 'everything', at: 'plan', by: 'owner' }))).toBe('quiet');

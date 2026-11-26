@@ -54,11 +54,44 @@ pub fn ran(work: &Work, model: &dyn Fn(RunId) -> bool, now: Time) -> Vec<Stretch
         let (Some(from), Some(until)) = (work.time_of(called.at), end_of(done.map(|d| d.at))) else {
             continue;
         };
-        out.push(Stretch {
-            from,
-            until: until.max(from),
-            went: Went::Tools,
-        });
+        let until = until.max(from);
+        // The engine's wait for a call the host could not carry out for now is no time of the tools: nothing runs in
+        // it, so it is cut out of the call's stretch and read as a wait like any other ([`Waits::at`]).
+        let mut cuts: Vec<(Time, Time)> = (r.held.iter())
+            .filter(|held| held.call == called.call)
+            .filter_map(|held| {
+                let wait = r.called.iter().find(|c| c.call == held.wait)?;
+                let ended = r.done.iter().find(|d| d.call == held.wait);
+                Some((work.time_of(wait.at)?, end_of(ended.map(|d| d.at))?))
+            })
+            .collect();
+        if cuts.is_empty() {
+            out.push(Stretch {
+                from,
+                until,
+                went: Went::Tools,
+            });
+            continue;
+        }
+        cuts.sort();
+        let mut at = from;
+        for (cut_from, cut_until) in cuts {
+            if cut_from > at {
+                out.push(Stretch {
+                    from: at,
+                    until: cut_from.min(until),
+                    went: Went::Tools,
+                });
+            }
+            at = at.max(cut_until);
+        }
+        if at < until {
+            out.push(Stretch {
+                from: at,
+                until,
+                went: Went::Tools,
+            });
+        }
     }
     out
 }
@@ -422,6 +455,63 @@ mod tests {
 
     // A round that fails pauses its work for the owner: from its end to the round that begins as the owner lets the
     // work on, the work waited on the owner, and each round was a model's, the writer being an agent's cell.
+    // A call the host could not carry out for now ran as the tools from when it was made to when it was done, but for
+    // the engine's wait it was held until: nothing ran then, so that time is no stretch of the tools.
+    #[test]
+    fn the_wait_a_call_was_held_until_is_no_time_of_the_tools() {
+        use decide::{CallId, Called, Done, Held, Obstacle};
+        let mut work = Work::default();
+        let called = |call, at| Called {
+            call: CallId(call),
+            run: RunId(1),
+            on: None,
+            at: Seq(at),
+        };
+        work.records.called = vec![called(2, 1), called(3, 3)];
+        work.records.held = vec![Held {
+            call: CallId(2),
+            wait: CallId(3),
+            at: Seq(2),
+            obstacle: Obstacle::Limit,
+        }];
+        work.records.done = vec![
+            Done {
+                call: CallId(3),
+                at: Seq(4),
+            },
+            Done {
+                call: CallId(2),
+                at: Seq(5),
+            },
+        ];
+        work.calls.insert(
+            CallId(2),
+            Call::Asked(Ask::Tool {
+                name: "run_tests".to_string(),
+                input: String::new(),
+            }),
+        );
+        work.moments = [(1, 1000), (3, 5000), (4, 65_000), (5, 70_000)]
+            .iter()
+            .map(|(from, at)| work::Moment {
+                from: Seq(*from),
+                at: Time(*at),
+            })
+            .collect();
+        let tools = |from: u64, until: u64| Stretch {
+            from: Time(from),
+            until: Time(until),
+            went: Went::Tools,
+        };
+        assert_eq!(
+            ran(&work, &|_| true, Time(80_000)),
+            [tools(1000, 5000), tools(65_000, 70_000)]
+        );
+        // A call held and not yet done: the wait under way is cut out up to now, and what came before is kept.
+        work.records.done.clear();
+        assert_eq!(ran(&work, &|_| true, Time(20_000)), [tools(1000, 5000)]);
+    }
+
     #[test]
     fn what_ran_is_read_from_the_records_and_what_the_work_waited_for_between_as_they_stood_then() {
         let flow = flow();

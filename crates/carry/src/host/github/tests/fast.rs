@@ -5,6 +5,7 @@
 use super::super::api::{Check, Outcome};
 use super::*;
 use crate::host::Named;
+use decide::Obstacle;
 
 pub(super) fn named(tests: &[&str], checks: &[&str]) -> Named {
     let all = |xs: &[&str]| xs.iter().map(|x| x.to_string()).collect();
@@ -107,7 +108,12 @@ error: could not compile `driver` (lib) due to 1 previous error
 ##[error]Process completed with exit code 101.";
 
 impl Hub {
-    async fn named_check(&self, named: &Named) -> Result<Option<String>, String> {
+    pub(super) async fn named_check(&self, named: &Named) -> Result<Option<String>, String> {
+        self.named_failed(named).await.map_err(|failed| failed.why)
+    }
+
+    /// As [`Hub::named_check`], the failure as the host told it, with its kind and what holds what asked.
+    pub(super) async fn named_failed(&self, named: &Named) -> Result<Option<String>, Failed> {
         let place = self.place();
         self.host
             .run_tests(&branch(&place), named, self.call(), &mut Stop::never())
@@ -574,33 +580,184 @@ async fn the_workflow_is_run_by_mains_file_with_the_commit_given_and_nothing_sta
     );
 }
 
-// With no runner online, the run is listed at once, queued: it is given up as never started once the start is waited
-// for, and not waited for until the run would time out.
+// With no runner of its kind online, the run is listed at once, queued: once the start is waited for it is cancelled,
+// and what asked is held, not failed, the timeout of a run not being waited for.
 #[tokio::test]
-async fn a_run_no_runner_took_is_given_up_as_never_started() {
-    let hub = Hub::new();
+async fn a_run_no_runner_took_is_cancelled_and_holds_what_asked() {
+    let hub = super::queued::on_14900k(Hub::new());
     let head = hub.committed().await;
-    hub.github().no_runner();
+    hub.github().queue_runs();
     let began = std::time::Instant::now();
-    let why = hub.named_check(&named(&["a"], &[])).await.expect_err("not run");
+    let failed = hub.named_failed(&named(&["a"], &[])).await.expect_err("not run");
     assert!(
-        why.starts_with(&format!(
+        failed.why.starts_with(&format!(
             "the run of fast.yml asked for on {head} never started: no runner took it after "
         )),
-        "{why}"
+        "{failed}"
     );
     assert!(
-        why.ends_with("(https://github.example/actions/runs/1000), and the engine cancelled it"),
-        "{why}"
+        failed.why.ends_with(
+            "(https://github.example/actions/runs/1000), none of 14900k is online, and the engine cancelled the run"
+        ),
+        "{failed}"
     );
+    assert_eq!(
+        failed.held,
+        Some(crate::host::Held {
+            obstacle: Obstacle::NoRunner,
+            retry: None
+        })
+    );
+    assert_eq!(failed.kind, Some(Failure::Passing));
     assert!(
         began.elapsed() < Duration::from_secs(2),
         "the timeout was not waited for"
     );
+    assert_eq!(hub.github().runners_asked(), 1, "the runners were asked after once");
+    assert_eq!(cancelled(&hub), [1000]);
+}
+
+// A run GitHub never lists, in the time the CI may take to start, is a fault of GitHub's for now: what asked is held, the
+// run is not cancelled (there is none to cancel) and the timeout of a run is not waited for.
+#[tokio::test]
+async fn a_run_github_never_lists_holds_what_asked_as_a_fault_of_its_own() {
+    let hub = super::queued::on_14900k(Hub::new());
+    let head = hub.committed().await;
+    hub.github().hide_runs();
+    let began = std::time::Instant::now();
+    let failed = hub.named_failed(&named(&["a"], &[])).await.expect_err("not run");
     assert!(
-        hub.github().asked().contains(&Asked::Cancel(1000)),
-        "the run is cancelled"
+        failed.why.starts_with(&format!(
+            "the run of fast.yml asked for on {head} never started: GitHub listed none after "
+        )),
+        "{failed}"
     );
+    assert_eq!(
+        failed.held,
+        Some(crate::host::Held {
+            obstacle: Obstacle::Fault,
+            retry: None
+        })
+    );
+    assert_eq!(failed.kind, Some(Failure::Passing));
+    assert!(
+        began.elapsed() < Duration::from_secs(2),
+        "the timeout was not waited for"
+    );
+    assert!(cancelled(&hub).is_empty(), "no run was listed to cancel");
+}
+
+// GitHub's own faults and its limit on the requests it takes keep a request from being run for now, at each place the
+// host asks it: they hold what asked, with when it may be asked again where GitHub says, and nothing of them is said as
+// the result of the tests.
+#[tokio::test]
+async fn a_fault_of_githubs_or_its_limit_holds_what_asked_and_says_nothing_of_the_tests() {
+    for (refused, obstacle, retry) in [
+        ("HTTP 503: Service Unavailable", Obstacle::Fault, None),
+        ("HTTP 502: Bad Gateway", Obstacle::Fault, None),
+        (
+            "HTTP 429: Too Many Requests",
+            Obstacle::Limit,
+            Some(decide::Retry::In(60)),
+        ),
+    ] {
+        let hub = Hub::new();
+        hub.committed().await;
+        hub.github().refuse_dispatch(refused);
+        let failed = hub.named_failed(&named(&["a"], &[])).await.expect_err("held");
+        assert_eq!(failed.held, Some(crate::host::Held { obstacle, retry }), "{refused}");
+        assert_eq!(failed.kind, Some(Failure::Passing), "{refused}");
+    }
+    // Any other refusal is the agent's to read, and holds nothing.
+    let hub = Hub::new();
+    hub.committed().await;
+    hub.github().refuse_dispatch("HTTP 422: No ref found for: main");
+    let failed = hub.named_failed(&named(&["a"], &[])).await.expect_err("refused");
+    assert_eq!(failed.held, None);
+}
+
+// A run that ended, whose results GitHub cannot give for now, holds what asked and is not said to have no results;
+// asked again, it reads the same run, which no second one was asked for.
+#[tokio::test]
+async fn results_githubs_fault_keeps_from_being_read_hold_what_asked_and_are_read_by_asking_again() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    hub.github().fast(&head, vec![], Some(("test-results", junit_green())));
+    hub.github().refuse_artifact(Some("HTTP 502: Bad Gateway"));
+    let place = hub.place();
+    let (at, request, call) = (branch(&place), named(&["tools::tests::a"], &[]), hub.call());
+    let first = hub.host.run_tests(&at, &request, call, &mut Stop::never()).await;
+    let failed = first.expect_err("held");
+    assert_eq!(
+        failed.held,
+        Some(crate::host::Held {
+            obstacle: Obstacle::Fault,
+            retry: None
+        })
+    );
+    hub.github().refuse_artifact(None);
+    let said = hub.host.run_tests(&at, &request, call, &mut Stop::never()).await;
+    assert!(said.expect("read").expect("run").contains("tools::tests::a"));
+    assert_eq!(hub.dispatched().len(), 1, "one run on {head}");
+}
+
+// The log of a job that failed with nothing in the results to say why is read to say it: where GitHub cannot give it
+// for now, what asked is held and not told that the log could not be read; asked again, it reads the same run and the
+// log.
+#[tokio::test]
+async fn a_log_githubs_fault_keeps_from_being_read_holds_what_asked_and_is_read_by_asking_again() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    hub.github()
+        .fast(&head, vec![job("test", Outcome::Failed("failure".into()), 5)], None);
+    hub.github().refuse_log(Some("HTTP 503: Service Unavailable"));
+    let place = hub.place();
+    let (at, request, call) = (branch(&place), named(&["a"], &[]), hub.call());
+    let first = hub.host.run_tests(&at, &request, call, &mut Stop::never()).await;
+    let failed = first.expect_err("held");
+    assert_eq!(
+        failed.held,
+        Some(crate::host::Held {
+            obstacle: Obstacle::Fault,
+            retry: None
+        })
+    );
+    hub.github().refuse_log(None);
+    hub.github().logged(5, "the log of the job");
+    let said = hub.host.run_tests(&at, &request, call, &mut Stop::never()).await;
+    assert!(said.expect("read").expect("run").contains("the log of the job"));
+    assert_eq!(hub.dispatched().len(), 1, "one run on {head}");
+}
+
+// `gh` says nothing of GitHub's status where the network keeps it from reaching GitHub: the log is then not read for
+// the network's failure, which holds what asked as a failure of GitHub's does, and not told that the log could not be
+// read; asked again, it reads the same run and the log.
+#[tokio::test]
+async fn a_log_the_network_keeps_from_being_read_holds_what_asked_and_is_read_by_asking_again() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    hub.github()
+        .fast(&head, vec![job("test", Outcome::Failed("failure".into()), 5)], None);
+    hub.github().refuse_log(Some(
+        "gh api GET repos/o/r/actions/jobs/5/logs gave no answer (exit status: 1): error connecting to api.github.com\n\
+         check your internet connection or https://githubstatus.com",
+    ));
+    let place = hub.place();
+    let (at, request, call) = (branch(&place), named(&["a"], &[]), hub.call());
+    let first = hub.host.run_tests(&at, &request, call, &mut Stop::never()).await;
+    let failed = first.expect_err("held");
+    assert_eq!(
+        failed.held,
+        Some(crate::host::Held {
+            obstacle: Obstacle::Network,
+            retry: None
+        })
+    );
+    hub.github().refuse_log(None);
+    hub.github().logged(5, "the log of the job");
+    let said = hub.host.run_tests(&at, &request, call, &mut Stop::never()).await;
+    assert!(said.expect("read").expect("run").contains("the log of the job"));
+    assert_eq!(hub.dispatched().len(), 1, "one run on {head}");
 }
 
 // A run not complete in the time a run may take is cancelled, and said as what it found: each job, the one not

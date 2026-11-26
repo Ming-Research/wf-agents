@@ -23,6 +23,14 @@ fn a_job_is_read_by_its_conclusion_and_one_that_did_not_run_is_skipped() {
         Some(Outcome::Broken("cancelled".to_string()))
     );
     assert_eq!(job("in_progress", None).map(|j| j.outcome), Some(Outcome::Pending));
+    // A job no runner has taken is told from one under way, whichever word GitHub has for waiting.
+    for waiting in ["queued", "waiting", "pending", "requested"] {
+        assert_eq!(
+            job(waiting, None).map(|j| j.outcome),
+            Some(Outcome::Queued),
+            "{waiting}"
+        );
+    }
     assert_eq!(
         job("completed", Some("skipped")).map(|j| j.outcome),
         Some(Outcome::Skipped),
@@ -399,6 +407,53 @@ fn a_refusal_is_of_the_kind_its_status_tells_whatever_its_words() {
     }
 }
 
+// A limit that passes keeps what asked from being done for now, and says when it may be asked again as GitHub says it:
+// in seconds by `retry-after`, at a time by the reset of the requests it takes, and, for a limit that gives neither, at
+// least a minute; a fault of GitHub's own says nothing of when unless it gives `retry-after`. Any other refusal is held
+// for nothing.
+#[test]
+fn a_limit_says_when_it_may_be_asked_again_as_github_says_it() {
+    use decide::{Obstacle, Retry};
+    let held = |head: &str, message: &str| {
+        let out = format!("{head}\r\nContent-Type: application/json\r\n\r\n{{\"message\":\"{message}\"}}");
+        refused(&included(&out).expect("an answer"))
+            .held
+            .map(|held| (held.obstacle, held.retry))
+    };
+    let limit = |retry| Some((Obstacle::Limit, retry));
+    assert_eq!(
+        held("HTTP/2.0 403 Forbidden\r\nretry-after: 60", "Forbidden"),
+        limit(Some(Retry::In(60)))
+    );
+    assert_eq!(
+        held(
+            "HTTP/2.0 403 Forbidden\r\nx-ratelimit-remaining: 0\r\nx-ratelimit-reset: 1764000000",
+            "API rate limit exceeded"
+        ),
+        limit(Some(Retry::At(1_764_000_000)))
+    );
+    assert_eq!(
+        held(
+            "HTTP/2.0 403 Forbidden\r\nx-ratelimit-remaining: 4999",
+            "You have exceeded a secondary rate limit. Please wait a few minutes before you try again."
+        ),
+        limit(Some(Retry::In(60)))
+    );
+    assert_eq!(
+        held("HTTP/2.0 429 Too Many Requests", "Slow down"),
+        limit(Some(Retry::In(60)))
+    );
+    assert_eq!(
+        held("HTTP/2.0 502 Bad Gateway", "Bad Gateway"),
+        Some((Obstacle::Fault, None))
+    );
+    assert_eq!(
+        held("HTTP/2.0 403 Forbidden\r\nx-ratelimit-remaining: 4999", "Forbidden"),
+        None
+    );
+    assert_eq!(held("HTTP/2.0 422 Unprocessable Entity", "Validation Failed"), None);
+}
+
 #[test]
 fn gh_is_given_the_token_and_nothing_else_of_the_engines_but_what_git_is() {
     let engine = [
@@ -647,4 +702,275 @@ async fn a_304_to_a_look_that_sent_no_tag_is_refused() {
     let gh = Gh::new(&script.display().to_string(), "o/r", "the-token", dir.path());
     let refused = gh.runs("fast.yml", "main", None).await.expect_err("no runs");
     assert!(refused.why.contains("though it was sent no entity tag"), "{refused}");
+}
+
+/// A `gh` in this directory that answers a look at the jobs of a run as GitHub does: with a job queued and a job under
+/// way and the entity tag `W/"3"`, or, to a look that sends that tag, with 304 and no body, exiting with 1 as `gh` does.
+/// Each look's arguments are written to the file `asked`, one to a line, after a line `--`.
+fn gh_with_jobs(dir: &std::path::Path) -> Gh {
+    let jobs = json!({ "total_count": 2, "jobs": [
+        { "id": 5, "name": "test", "status": "queued", "conclusion": null, "html_url": "https://github.com/o/r/runs/5" },
+        { "id": 6, "name": "lint", "status": "in_progress", "conclusion": null, "html_url": "https://github.com/o/r/runs/6" },
+    ] });
+    std::fs::write(dir.join("jobs.json"), jobs.to_string()).unwrap();
+    let text = r#"#!/bin/sh
+echo '--' >> '{dir}/asked'
+printf '%s\n' "$@" >> '{dir}/asked'
+case "$*" in
+*'If-None-Match: W/"3"'*)
+  printf 'HTTP/2.0 304 Not Modified\nEtag: "3"\r\n\r\n'
+  echo 'gh: HTTP 304' >&2
+  exit 1 ;;
+*) printf 'HTTP/2.0 200 OK\nContent-Type: application/json; charset=utf-8\r\nEtag: W/"3"\r\n\r\n'
+  cat '{dir}/jobs.json' ;;
+esac
+"#
+    .replace("{dir}", &dir.display().to_string());
+    let script = dir.join("gh");
+    std::fs::write(&script, text).unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    Gh::new(&script.display().to_string(), "o/r", "the-token", dir)
+}
+
+// A look at a run's jobs sends the entity tag it is given, as a look at a workflow's runs does, and GitHub's 304 to it is
+// read as the jobs unchanged, which costs nothing against GitHub's limit; and a job no runner has taken is read as
+// queued, one under way as pending. A script stands in for `gh`; it runs in milliseconds, and no other test holds what
+// is sent to GitHub.
+#[tokio::test]
+async fn a_look_at_the_jobs_sends_the_tag_it_is_given_and_reads_githubs_304_as_unchanged() {
+    let dir = tempfile::tempdir().unwrap();
+    let gh = gh_with_jobs(dir.path());
+    let listed = gh.jobs(9, None).await.expect("the jobs");
+    let job = |id: u64, name: &str, outcome: Outcome| Check {
+        id,
+        name: name.to_string(),
+        outcome,
+        url: Some(format!("https://github.com/o/r/runs/{id}")),
+        took: None,
+    };
+    assert_eq!(
+        listed,
+        Jobs::Listed {
+            jobs: vec![job(5, "test", Outcome::Queued), job(6, "lint", Outcome::Pending)],
+            tag: Some("W/\"3\"".to_string()),
+        }
+    );
+    let unchanged = gh.jobs(9, Some("W/\"3\"")).await.expect("an answer");
+    assert_eq!(unchanged, Jobs::Unchanged);
+    let older = gh.jobs(9, Some("W/\"2\"")).await.expect("the jobs");
+    assert_eq!(older, listed, "the tag of another answer is given the jobs");
+    let asked = looks_asked(dir.path());
+    assert_eq!(asked.len(), 3);
+    let path = "repos/o/r/actions/runs/9/jobs?per_page=100";
+    assert!(asked.iter().all(|look| look.iter().any(|a| a == path)), "{asked:?}");
+    assert!(
+        !asked[0].iter().any(|a| a.starts_with("If-None-Match")),
+        "{:?}",
+        asked[0]
+    );
+    assert!(asked[1].iter().any(|a| a == "If-None-Match: W/\"3\""), "{:?}", asked[1]);
+}
+
+/// What GitHub answers with this body and status line.
+fn answer(status: &str, body: &str) -> String {
+    format!("HTTP/2.0 {status}\r\n\r\n{body}")
+}
+
+/// A `gh` in this directory that answers the questions of the runners as GitHub does: what `owner` says of the
+/// repository's owner, and these whole answers, status line and body, for the repository's runners and the
+/// organisation's. Each question's arguments are written to the file `asked`, one to a line.
+fn gh_with_runners(dir: &std::path::Path, owner: &str, repository: &str, organisation: &str) -> Gh {
+    let owned = answer("200 OK", &json!({ "owner": { "type": owner } }).to_string());
+    for (name, text) in [
+        ("owner.out", owned.as_str()),
+        ("repo.out", repository),
+        ("org.out", organisation),
+    ] {
+        std::fs::write(dir.join(name), text).unwrap();
+    }
+    let text = r#"#!/bin/sh
+echo "$*" >> '{dir}/asked'
+case "$*" in
+*orgs/o/actions/runners*) cat '{dir}/org.out' ;;
+*repos/o/r/actions/runners*) cat '{dir}/repo.out' ;;
+*repos/o/r) cat '{dir}/owner.out' ;;
+esac
+"#
+    .replace("{dir}", &dir.display().to_string());
+    let script = dir.join("gh");
+    std::fs::write(&script, text).unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    Gh::new(&script.display().to_string(), "o/r", "the-token", dir)
+}
+
+/// The runners as GitHub lists them: one online and busy, one offline.
+fn listed_runners() -> String {
+    let runners = json!({ "total_count": 2, "runners": [
+        { "id": 1, "name": "a", "status": "online", "busy": true, "labels": [{ "name": "self-hosted" }, { "name": "14900k" }] },
+        { "id": 2, "name": "b", "status": "offline", "busy": false, "labels": [{ "name": "14900k" }] },
+    ] });
+    answer("200 OK", &runners.to_string())
+}
+
+fn none_listed() -> String {
+    answer("200 OK", r#"{"total_count":0,"runners":[]}"#)
+}
+
+// An organisation's runners are listed beside the repository's, each by what it says of itself: its status, busy or
+// not, and its labels. The repository here has none and its organisation has two, as this project's do.
+#[tokio::test]
+async fn the_runners_of_an_organisation_are_listed_beside_the_repositorys_each_with_its_status_and_labels() {
+    let dir = tempfile::tempdir().unwrap();
+    let gh = gh_with_runners(dir.path(), "Organization", &none_listed(), &listed_runners());
+    let runners = gh.runners().await;
+    assert_eq!(runners.repository, Ok(Vec::new()));
+    let busy = Runner {
+        online: true,
+        labels: vec!["self-hosted".to_string(), "14900k".to_string()],
+    };
+    let offline = Runner {
+        online: false,
+        labels: vec!["14900k".to_string()],
+    };
+    assert_eq!(runners.organisation, Some(Ok(vec![busy, offline])));
+}
+
+// A repository owned by a person has the one layer, and the organisation's is not asked for: GitHub has none to answer.
+#[tokio::test]
+async fn a_repository_of_a_person_has_no_organisation_layer_and_none_is_asked_for() {
+    let dir = tempfile::tempdir().unwrap();
+    let gh = gh_with_runners(dir.path(), "User", &listed_runners(), &answer("404 Not Found", "{}"));
+    let runners = gh.runners().await;
+    assert_eq!(runners.organisation, None);
+    assert_eq!(runners.repository.map(|list| list.len()), Ok(2));
+    let asked = std::fs::read_to_string(dir.path().join("asked")).unwrap();
+    assert!(!asked.contains("orgs/"), "{asked}");
+}
+
+// A layer the token may not read is that layer unread, in GitHub's words, and does not hide what the other layer lists.
+#[tokio::test]
+async fn a_layer_that_is_refused_is_unread_in_githubs_words_and_the_other_is_still_read() {
+    let refusal = answer(
+        "403 Forbidden",
+        r#"{"message":"Resource not accessible by personal access token"}"#,
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let gh = gh_with_runners(dir.path(), "Organization", &refusal, &listed_runners());
+    let runners = gh.runners().await;
+    assert_eq!(
+        runners.repository,
+        Err("HTTP 403: Resource not accessible by personal access token".to_string())
+    );
+    assert_eq!(runners.organisation.expect("asked").map(|list| list.len()), Ok(2));
+    let dir = tempfile::tempdir().unwrap();
+    let gh = gh_with_runners(dir.path(), "Organization", &none_listed(), &refusal);
+    let runners = gh.runners().await;
+    assert_eq!(runners.repository, Ok(Vec::new()));
+    assert_eq!(
+        runners.organisation,
+        Some(Err(
+            "HTTP 403: Resource not accessible by personal access token".to_string()
+        ))
+    );
+}
+
+/// A `gh` in this directory that fails `gh run download` with this on its standard error, as `gh` does where GitHub
+/// refuses or does not answer, and exits with 1.
+fn gh_whose_download_fails(dir: &std::path::Path, said: &str) -> Gh {
+    let text = format!("#!/bin/sh\nprintf '%s\\n' '{said}' >&2\nexit 1\n");
+    let script = dir.join("gh");
+    std::fs::write(&script, text).unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    Gh::new(&script.display().to_string(), "o/r", "the-token", dir)
+}
+
+// What a run uploaded is fetched by `gh run download`, which says what GitHub refused in words on its standard error and
+// no headers. GitHub's limit and its 5xx pass by themselves (GitHub's guide to its rate limits, and RFC 9110 on 5xx), so
+// a fetch they keep from being done is held, as the same refusal to any other request is, and not a failure of the
+// fetch: the run's results are then read by asking again. A refusal no wait mends is not held.
+#[tokio::test]
+async fn a_download_githubs_limit_or_fault_refuses_is_held_as_any_other_request_they_refuse_is() {
+    use decide::Obstacle;
+    for (said, obstacle) in [
+        (
+            "HTTP 502: Bad Gateway (https://api.github.com/repos/o/r/actions/runs/9/artifacts)",
+            Obstacle::Fault,
+        ),
+        ("HTTP 503: Service Unavailable", Obstacle::Fault),
+        (
+            "HTTP 403: API rate limit exceeded for user ID 1. (https://api.github.com/repos/o/r/actions/runs/9/artifacts)",
+            Obstacle::Limit,
+        ),
+        ("HTTP 429: Too Many Requests", Obstacle::Limit),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let gh = gh_whose_download_fails(dir.path(), said);
+        let failed = gh.artifact(9, "test-results").await.expect_err("refused");
+        assert_eq!(
+            failed.held.map(|held| held.obstacle),
+            Some(obstacle),
+            "{said}: {failed:?}"
+        );
+    }
+    for said in ["HTTP 404: Not Found", "HTTP 401: Bad credentials"] {
+        let dir = tempfile::tempdir().unwrap();
+        let gh = gh_whose_download_fails(dir.path(), said);
+        let failed = gh.artifact(9, "test-results").await.expect_err("refused");
+        assert_eq!(failed.held, None, "{said}: a refusal no wait mends is not held");
+    }
+}
+
+// A fetch of what a run uploaded that the network keeps from being done is the network's failure, held as any other
+// request of the engine's the network fails is (`gh`'s own words, as the module of the acts' failures lists them).
+#[tokio::test]
+async fn a_download_the_network_keeps_from_being_done_is_held() {
+    use decide::Obstacle;
+    let dir = tempfile::tempdir().unwrap();
+    let gh = gh_whose_download_fails(
+        dir.path(),
+        "error connecting to api.github.com\ncheck your internet connection or https://githubstatus.com",
+    );
+    let failed = gh.artifact(9, "test-results").await.expect_err("not fetched");
+    assert_eq!(
+        failed.held.map(|held| held.obstacle),
+        Some(Obstacle::Network),
+        "{failed:?}"
+    );
+}
+
+// GitHub's guide to its rate limits: a primary or secondary limit answers 403 or 429; with `retry-after`, wait that many
+// seconds; with `x-ratelimit-remaining` 0, wait until `x-ratelimit-reset`; otherwise wait at least a minute. So a 429
+// that says nothing of when is not asked again after less than a minute, whatever its words.
+#[test]
+fn a_429_that_says_nothing_of_when_is_asked_again_after_at_least_a_minute() {
+    use decide::Retry;
+    for (head, message) in [
+        ("HTTP/2.0 429 Too Many Requests", "Slow down"),
+        ("HTTP/2.0 429 Too Many Requests\r\nx-ratelimit-remaining: 4999", ""),
+        (
+            "HTTP/2.0 403 Forbidden\r\nx-ratelimit-remaining: 0",
+            "API rate limit exceeded",
+        ),
+    ] {
+        let out = format!("{head}\r\nContent-Type: application/json\r\n\r\n{{\"message\":\"{message}\"}}");
+        let held = refused(&included(&out).expect("an answer")).held.expect("held");
+        let waits = match held.retry {
+            Some(Retry::In(seconds)) => seconds,
+            other => panic!("{head}: a wait of at least a minute, not {other:?}"),
+        };
+        assert!(waits >= 60, "{head}: {waits} s");
+    }
+}
+
+// RFC 9110 10.2.3: a server that answers 503 may say with `Retry-After` how long its client should wait before asking
+// again; asked again sooner, the request is refused again.
+#[test]
+fn a_503_that_says_when_to_ask_again_is_not_asked_again_before_then() {
+    use decide::Retry;
+    let out = "HTTP/2.0 503 Service Unavailable\r\nretry-after: 120\r\n\r\n{\"message\":\"Service Unavailable\"}";
+    let held = refused(&included(out).expect("an answer")).held.expect("held");
+    assert_eq!(held.retry, Some(Retry::In(120)));
 }

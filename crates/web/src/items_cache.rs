@@ -28,7 +28,7 @@ use service::{Handle, Levels, OfWork, Refusal, Seen};
 use store::WorkNumber;
 use work::Time;
 
-use crate::works::{Broken, EveryWork, Item, Items, Others, Outages, Summary, asked};
+use crate::works::{Broken, EveryWork, Item, Items, Now, Others, Outages, Summary, asked};
 
 /// How long a summary of a work with something under way, and what git says of such a work, are kept before they
 /// are worked out again: the page reads again at this interval while such a work is on its screen.
@@ -47,9 +47,10 @@ struct Inputs {
     moments: usize,
     /// How many changes were made to its item.
     item_changes: usize,
-    /// Each round or call of the work under way that stands as a CI run, with its link. What the rest of a round under
-    /// way has come to changes with every call and is no part of a summary.
-    runs: Vec<(Under, String)>,
+    /// Each round or call of the work under way that stands as a CI run, with its link and the runner it waits for
+    /// where it waits for one. What the rest of a round under way has come to changes with every call and is no part of
+    /// a summary.
+    runs: Vec<(Under, String, Option<String>)>,
     /// What the engine leaves the work room for, which says what holds its next round back.
     room: Room,
     /// The items it waits for, those its pause waits for and whose turn to check and merge it is.
@@ -69,7 +70,7 @@ impl Inputs {
             item_changes,
             runs: (driver.along_of(number).into_iter())
                 .filter_map(|(under, along)| match along {
-                    Along::Runs { at } => Some((under, at.clone())),
+                    Along::Runs { at, queued_for } => Some((under, at.clone(), queued_for.clone())),
                     Along::Going(_) => None,
                 })
                 .collect(),
@@ -195,7 +196,12 @@ impl ItemsCache {
             };
             if stale {
                 let every = every.get_or_insert_with(|| EveryWork::with(driver, at_once.clone()));
-                let base = Item::of(kept, driver, every, &self.levels, now)?;
+                let base = Item::of(kept, driver, every, &self.levels, now);
+                // A work whose state or summary cannot be worked out is given as such; saying why here, where the entry
+                // is worked out and not where it is read, says it once for each time it is worked out.
+                if let Now::Broken { words } = &base.work.now {
+                    eprintln!("{number} cannot be shown as it is: {words}");
+                }
                 self.built.fetch_add(1, Ordering::Relaxed);
                 let (looked, looking, rev, old) = match inner.entries.remove(&item) {
                     Some(entry) => (entry.looked, entry.looking, entry.rev, Some(entry.json)),
