@@ -19,6 +19,11 @@
 //! the engine's. A line that changes only the project's tests is refused nothing more than any line that writes, the
 //! look at its run's change as each round ends holding it to them (`tests_only`); it is told the paths of the tests.
 //!
+//! The rule that refuses pushing matches how a command starts, so `git -C <path> push`, an environment prefix, a shell
+//! or a script are not matched by it; what stops them is the variable the same file gives every start of the agents'
+//! program, which has git refuse every transport (`cli::environment`, decision
+//! agents-cannot-push-however-it-is-written).
+//!
 //! The command line refuses what any rule refuses even where another allows it, so a refused command stays refused
 //! though `shell` lets the agents run shell commands.
 

@@ -1073,6 +1073,11 @@ impl Service {
                     test_time: (name == driver::timed::RUN_TESTS)
                         .then(|| self.driver.test_time(work))
                         .flatten(),
+                    red_on_main: if name == driver::timed::RUN_TESTS {
+                        self.driver.red_tests(work)
+                    } else {
+                        Vec::new()
+                    },
                 };
                 self.carriers
                     .tools
@@ -1106,6 +1111,7 @@ impl Service {
                         item: kept.item.clone(),
                         kept: Arc::new(kept.work.clone()),
                         test_time: None,
+                        red_on_main: Vec::new(),
                     };
                     self.carriers
                         .tools

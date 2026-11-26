@@ -170,3 +170,29 @@ fn each_project_is_carried_with_its_own_heavy_commands_and_a_time_no_one_can_cou
         .expect_err("a time no one can count holds its project");
     assert!(why.contains("ci.fast.too_long"), "{why}");
 }
+
+// A declaration that names a variable the flows give every agent's program (`environment` of `agents/refused.toml`) holds
+// its project, as it does for any variable the engine owns, saying where it is written: the engine's value comes last of
+// all, so a declared one would say what is not so. The reference is the declaration's own rules (`[environment]` names no
+// variable the engine gives every round itself). Two git repositories: about 0.2 s alone; the one test that the engine
+// reads the flows' variables, not only a fixed list, as it checks a declaration, which the unit test of the check with
+// the names handed to it cannot show.
+#[test]
+fn a_declaration_that_names_the_variable_the_flows_give_every_agents_program_holds_its_project() {
+    let dir = tempfile::tempdir().expect("a directory");
+    let good = base();
+    let named = good.replace(
+        "RUSTUP_AUTO_INSTALL = \"0\"",
+        "RUSTUP_AUTO_INSTALL = \"0\"\nGIT_ALLOW_PROTOCOL = \"always\"",
+    );
+    assert_ne!(named, good, "the declaration names the variable that is added");
+    let projects = vec![("good", good.into_bytes()), ("named", named.into_bytes())];
+    let (found, faults) = found(dir.path(), &projects);
+    assert_eq!(faults, Vec::<String>::new());
+    assert!(found["good"].is_ok(), "{:?}", found["good"].as_ref().err());
+    let why = found["named"].as_ref().expect_err("a declaration naming it is held");
+    assert!(
+        why.contains("wf-agents.toml [environment]: GIT_ALLOW_PROTOCOL is the engine's own"),
+        "{why}"
+    );
+}

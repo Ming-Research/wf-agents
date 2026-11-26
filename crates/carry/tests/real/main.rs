@@ -22,6 +22,7 @@ mod levels;
 mod permissions;
 mod projects;
 mod protected;
+mod pushing;
 mod query;
 mod reading;
 mod sessions;
@@ -531,6 +532,7 @@ printf '%s' "${{CLAUDE_CODE_OAUTH_TOKEN:-}}" > "$log/$n.token"
 printf '%s' "${{CLAUDE_CONFIG_DIR:-}}" > "$log/$n.profile"
 printf '%s' "${{CLAUDE_CODE_SUBPROCESS_ENV_SCRUB:-}}" > "$log/$n.scrub"
 printf '%s' "${{RUSTUP_AUTO_INSTALL-unset}}" > "$log/$n.rustup"
+printf '%s' "${{GIT_ALLOW_PROTOCOL-unset}}" > "$log/$n.protocol"
 prev=''
 for arg in "$@"; do
     [ "$prev" = --json-schema ] && printf '%s' "$arg" > "$log/$n.schema"

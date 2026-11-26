@@ -7,7 +7,7 @@
 // stand alone, over every project; a number that counts a list unfolds it under the numbers. Each thing is said once:
 // the engine's pause and its slots in Now, and the rounds under way in their list, not among the numbers of the works.
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { CHOICE_KEYS, write } from '../kept';
 import { Coded, PanelPart, RoundLink, SpanLinks } from '../parts';
@@ -32,6 +32,7 @@ import {
 import { type Figure, type Going, type RanOn, type Rest, type System, type UnderWay, useSystemSource } from './api';
 import { copiesTone, copiesWords } from './copies';
 import { ItemName, ProjectName, Tile, Tiles, ViewTable, WorkLink } from './parts';
+import { redMainWords } from './redMain';
 import {
   cacheShare,
   mergeAverages,
@@ -215,6 +216,13 @@ function NowPart({ items, engine, copies, copiesFailed, system, going }: {
         <dd>{engine === null ? 'not given' : `${engine.taken} taken of ${engine.slots}`}</dd>
         <dt>The wait every work shares</dt>
         <dd className={shared === null ? undefined : 'failed'}>{shared === null ? 'none' : <Coded text={shared} />}</dd>
+        {/* A project whose main fails a test on its head: its works wait on what no change of theirs mends. */}
+        {(system?.redMain ?? []).map((red) => (
+          <Fragment key={red.project}>
+            <dt>Main of {red.project}</dt>
+            <dd className="failed">{redMainWords(red)}</dd>
+          </Fragment>
+        ))}
         {/* An engine that keeps no copies, one that runs a script, has none to show. */}
         {copies?.state.kind !== 'notKept' && (
           <>
