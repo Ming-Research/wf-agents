@@ -357,7 +357,10 @@ async fn what_the_owner_reads_lowers_what_the_items_say_of_the_work_and_gives_th
     pass(1000).await;
     // The owner speaks to the plan, and the work goes on: the plan hands in its plan and a reply.
     let say = json!({ "kind": "say", "to": { "kind": "cell", "cell": "plan" }, "words": "Keep it short." });
-    assert_eq!(post(router, ACTS, &say).await, done);
+    assert_eq!(
+        post(router, ACTS, &say).await,
+        (StatusCode::OK, json!({ "reached": "plan" }))
+    );
     assert_eq!(post(router, ACTS, &json!({ "kind": "resume" })).await, done);
     let mut work = Value::Null;
     for _ in 0..100 {
