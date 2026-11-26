@@ -3,7 +3,7 @@
 How everything on the owner's page looks. The values behind these rules (the colours, the sizes, the heights) and the parts they are built into are kept with the page's code.
 
 ### principle dense-page
-Spacing follows one small grid, and the bar, a view's line, a row and a control each have one fixed, small height; the buttons of the question before a command are the one exception, taller.
+Spacing follows one small grid, and the bar, a view's line, a row and a control each have one fixed, small height.
 Why: The owner reads many works and many blocks at once, and every row spent on chrome is a row of content lost (principle room-goes-to-content).
 
 ### principle full-width
@@ -11,7 +11,7 @@ Content takes the full width of the window: no centred column, and no cards roun
 Why: A chart and a table need every column (principle room-goes-to-content).
 
 ### principle few-sizes-two-weights
-Text has four sizes and two weights, and no others: one for labels and tags, one for secondary words and everything in monospace, one for body text, and one, semibold, for the title of a page or panel. Numbers are tabular. The question before a command, with larger type, is the exception.
+Text has four sizes and two weights, and no others: one size for labels and tags, one for secondary words and everything in monospace, one for body text, and one, semibold, for the title of the page and of a panel. Numbers are tabular.
 Why: A few sizes far enough apart read as an order at a glance.
 
 ### principle monospace-for-names-and-values
