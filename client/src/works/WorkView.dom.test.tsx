@@ -419,21 +419,6 @@ describe('the list of works', () => {
     expect(page.querySelector('[data-work="46"] .now-paused')).toBeNull();
   });
 
-  // The engine says of the run's cell that its round is to be given again; a pause holds it back, so that it is given
-  // once the pause is lifted, which the first line of the Step says beside why.
-  it('says in the Step that a run to be given again is given once the pause is lifted, where a pause holds it', async () => {
-    const work = structuredClone(fixtureWork(50));
-    work.summary.now = { kind: 'paused', ran: true, at: 'implement', by: 'owner', why: null };
-    work.summary.paused = 'owner';
-    work.summary.waits = [];
-    const { page } = await drawWork(work);
-    const rows = runRows(page).map((r) => r.textContent?.includes('implement') === true);
-    await chooseRun(page, rows.lastIndexOf(true));
-    expect(step(page).querySelector('.status-word')?.textContent).toBe(
-      'Failed: its last round failed, to be given once the pause is lifted',
-    );
-  });
-
   it('keeps the list when a read fails, says so, and reads again when the stream opens again', async () => {
     let fail = false;
     const source = fixtureSource();
@@ -856,6 +841,21 @@ describe("the Step of the work's item window", () => {
     // The same row pressed again lets it go.
     await chooseRun(container, 2);
     expect(window.location.hash).toBe('#/works/41');
+  });
+
+  // The engine says of the run's cell that its round is to be given again; a pause holds it back, so that it is given
+  // once the pause is lifted, which the first line of the Step says beside why.
+  it('says in the Step that a run to be given again is given once the pause is lifted, where a pause holds it', async () => {
+    const work = structuredClone(fixtureWork(50));
+    work.summary.now = { kind: 'paused', ran: true, at: 'implement', by: 'owner', why: null };
+    work.summary.paused = 'owner';
+    work.summary.waits = [];
+    const { page } = await drawWork(work);
+    const rows = runRows(page).map((r) => r.textContent?.includes('implement') === true);
+    await chooseRun(page, rows.lastIndexOf(true));
+    expect(step(page).querySelector('.status-word')?.textContent).toBe(
+      'Failed: its last round failed, to be given once the pause is lifted',
+    );
   });
 
   it('shows why a return was sent back, and a way round', async () => {
