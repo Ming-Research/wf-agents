@@ -3,7 +3,7 @@
 //! checks are judged by what earlier ones took (principle `judged-by-own-history`), so the times are kept as the host
 //! read them, never as the words an agent was told.
 
-use decide::Seq;
+use decide::{CallId, Seq};
 use serde::{Deserialize, Serialize};
 
 /// Which kind of run of the project's CI a record is of.
@@ -51,6 +51,59 @@ pub struct Test {
     pub name: String,
     pub passed: bool,
     pub millis: u64,
+}
+
+/// A call of `run_tests` that the budget of the project's fast workflow kept tests of from running to their end: the
+/// engine refused the request before anything ran, or the run stopped a test as the budget ran out and did not start
+/// those after it. Its place in the order of what happened to the work tells when, and its call which request.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ShortOfTime {
+    /// The place of the entry in the order of what happened to the work.
+    pub at: Seq,
+    pub call: CallId,
+    /// The budget the request had, in whole seconds.
+    pub budget: u64,
+    /// Each test the budget kept from its end, once, in the order the request named them: none is empty.
+    pub tests: Vec<Short>,
+}
+
+/// A test the budget kept from its end, by the name it was asked for by.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Short {
+    pub name: String,
+    pub how: ShortHow,
+    /// How long it ran before it was stopped, as the run's results give it; for a test refused, the median of its
+    /// times in the project's earlier fast runs; none where neither is known.
+    pub millis: Option<u64>,
+}
+
+/// What the budget did to a test.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ShortHow {
+    /// The run stopped it as the budget ran out.
+    Stopped,
+    /// The run did not start it, the budget used up.
+    NotStarted,
+    /// The engine refused the request before anything ran, its tests known to take longer than the budget.
+    Refused,
+}
+
+impl ShortHow {
+    /// The name the store keeps it by.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ShortHow::Stopped => "stopped",
+            ShortHow::NotStarted => "not_started",
+            ShortHow::Refused => "refused",
+        }
+    }
+
+    /// What a name the store keeps names; none for any other.
+    pub fn named(name: &str) -> Option<ShortHow> {
+        [ShortHow::Stopped, ShortHow::NotStarted, ShortHow::Refused]
+            .into_iter()
+            .find(|how| how.as_str() == name)
+    }
 }
 
 /// What one run of the project's CI said of time, before it has a place among the work's records.

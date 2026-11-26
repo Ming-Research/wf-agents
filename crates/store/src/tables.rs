@@ -10,7 +10,7 @@ use decide::{
 use rusqlite::{Connection, Row, params};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use work::timed::{Job, Reading, Source, Test};
+use work::timed::{Job, Reading, Short, ShortHow, ShortOfTime, Source, Test};
 use work::{
     Filled, Forked, KeptTime, LeftBehind, Measured, Measures, Moment, Observed, OnFlow, Pinged, Pulled, Ran, RanOn,
     Session, Spent, Time, Timed, Work,
@@ -612,6 +612,42 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
             },
         });
     }
+    let mut short: BTreeMap<Seq, Vec<Short>> = BTreeMap::new();
+    for (at, name, how, millis) in rows(
+        db,
+        "SELECT at, name, how, millis FROM short_tests WHERE work = ?1 ORDER BY at, n",
+        w,
+        |row| {
+            Ok((
+                Seq(row.get(0)?),
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<u64>>(3)?,
+            ))
+        },
+    )? {
+        let how = ShortHow::named(&how).ok_or_else(|| Fault::Value {
+            table: "short_tests",
+            message: format!("{how:?} is nothing the budget did to a test"),
+        })?;
+        short.entry(at).or_default().push(Short { name, how, millis });
+    }
+    out.short_of_time = rows(
+        db,
+        "SELECT at, call, budget FROM short_of_time WHERE work = ?1 ORDER BY at",
+        w,
+        |row| {
+            Ok(ShortOfTime {
+                at: Seq(row.get(0)?),
+                call: CallId(row.get(1)?),
+                budget: row.get(2)?,
+                tests: Vec::new(),
+            })
+        },
+    )?;
+    for s in &mut out.short_of_time {
+        s.tests = short.remove(&s.at).unwrap_or_default();
+    }
     out.flows = rows(
         db,
         "SELECT at, version FROM on_flow WHERE work = ?1 ORDER BY at",
@@ -737,6 +773,9 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     let forked = grown("forked", &held.forked, &given.forked, |f| Entry::At(f.at))?;
     let pulls = grown("pulls", &held.pulls, &given.pulls, |p| Entry::At(p.at))?;
     let timed = grown("timed", &held.timed, &given.timed, |t| Entry::At(t.at))?;
+    let short_of_time = grown("short_of_time", &held.short_of_time, &given.short_of_time, |s| {
+        Entry::At(s.at)
+    })?;
     let on_flow = grown("on_flow", &held.flows, &given.flows, |f| Entry::At(f.at))?;
     let kept_time = grown("kept_time", &held.kept_time, &given.kept_time, |k| Entry::At(k.at))?;
 
@@ -1079,6 +1118,18 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
                 "INSERT OR IGNORE INTO timed_tests (work, at, test, passed, millis) \
                  VALUES (?1, ?2, (SELECT test FROM test_names WHERE unit = ?3 AND name = ?4), ?5, ?6)",
                 params![w, t.at.0, test.unit, test.name, test.passed, test.millis],
+            )?;
+        }
+    }
+    for s in short_of_time {
+        db.execute(
+            "INSERT INTO short_of_time (work, at, call, budget) VALUES (?1, ?2, ?3, ?4)",
+            params![w, s.at.0, s.call.0, s.budget],
+        )?;
+        for (n, test) in s.tests.iter().enumerate() {
+            db.execute(
+                "INSERT INTO short_tests (work, at, n, name, how, millis) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![w, s.at.0, n, test.name, test.how.as_str(), test.millis],
             )?;
         }
     }
