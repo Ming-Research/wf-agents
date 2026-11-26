@@ -1,8 +1,9 @@
 // What the change of raw values to named values is to leave as it was, read in a real browser (Chromium) where the
-// styles apply. A raw value made a named value is the same size, colour or space under a name, so the look of the page
-// does not change. The parts the two dialog tests do not read (the dimming under a dialog, its width, its line height,
-// the window's size) are read here against the values they had and the tokens they take, and a key cap, which has a
-// corner and a line of its own, is read as it was.
+// styles apply. A raw value made a named value is the same size, colour or space under a name; only the look of the two
+// dialogs changes (the page's own sizes, square corners, the window shadow, the line height), as decision
+// the-dialogs-take-the-pages-own-values says. So the parts the two dialog tests do not read (the dimming under a dialog,
+// its width, its line height, the window's size) are read here against the values they had and the tokens they take,
+// and a key cap, which has a corner and a line of its own, is read as it was.
 
 import './styles/tokens.css';
 import './styles/parts.css';
@@ -59,44 +60,8 @@ describe.each(['light', 'dark'] as const)('what the named values leave as it was
     const room = window.innerWidth - 2 * Number.parseFloat(named('width', 'var(--space-16)'));
     expect.soft(dialog.getBoundingClientRect().width).toBeCloseTo(Math.min(Number.parseFloat(named('width', 'var(--dialog-width)')), room), 3);
     const look = getComputedStyle(dialog);
-    const line = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dialog-line-height'));
+    const line = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--line-height'));
     expect.soft(Number.parseFloat(look.lineHeight)).toBeCloseTo(Number.parseFloat(look.fontSize) * line, 3);
-  });
-
-  it('keeps the question before a command as main drew it, by the numbers its styles then wrote', async () => {
-    // Reference: `parts.css` on main (`git show ff7954d3e:client/src/styles/parts.css`, `.confirm`, `.confirm-body`,
-    // `.confirm-buttons .button`, `.diagram-window`): written out here, so that a token that changes with its users
-    // does not move the oracle with it.
-    const part = draw(
-      <>
-        <Confirm title="Cancel this work?" verb="Cancel work" onAnswer={() => undefined}>
-          It stops, and its branch is let go.
-        </Confirm>
-        <DiagramWindow drawn={DRAWN} id="wf-diagram-main" onClose={() => undefined} />
-      </>,
-    );
-    const dialog = part.querySelector('dialog.confirm') as HTMLDialogElement;
-    const window_ = part.querySelector('dialog.diagram-window') as HTMLDialogElement;
-    await expect.poll(() => dialog.open && window_.open).toBe(true);
-    const look = getComputedStyle(dialog);
-    expect.soft(look.borderTopLeftRadius).toBe('12px');
-    expect.soft(look.lineHeight).toBe('19.5px');
-    expect.soft(getComputedStyle(window_).borderTopLeftRadius).toBe('12px');
-    expect.soft(getComputedStyle(dialog.querySelector('.confirm-body') as HTMLElement).fontSize).toBe('14px');
-    for (const button of dialog.querySelectorAll<HTMLButtonElement>('.confirm-buttons .button')) {
-      const ours = getComputedStyle(button);
-      expect.soft(ours.height).toBe('32px');
-      expect.soft(ours.borderTopLeftRadius).toBe('6px');
-      expect.soft(ours.fontSize).toBe('14px');
-    }
-    // Both panels carry the same three shadows: a hairline, then 8px 16px and 24px 48px blurs.
-    for (const panel of [dialog, window_]) {
-      const shadow = getComputedStyle(panel).boxShadow;
-      expect.soft(shadow).toContain('8px 16px');
-      expect.soft(shadow).toContain('24px 48px');
-      expect.soft(shadow).toContain('rgba(0, 0, 0, 0.08)');
-      expect.soft(shadow).toContain('rgba(0, 0, 0, 0.16)');
-    }
   });
 
   it('dims the page under the window a diagram opens larger in, and leaves a margin of four spaces round it', async () => {
