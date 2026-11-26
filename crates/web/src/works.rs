@@ -5835,4 +5835,23 @@ pub(crate) mod tests {
             "{said}"
         );
     }
+
+    // A pause a build before `ran` was said wrote reads as one of a work that has run, so that no stored page says Not
+    // started of a work it never said that of; one that says it reads as it says.
+    #[test]
+    fn a_pause_written_before_ran_was_said_reads_as_one_of_a_work_that_ran() {
+        let read = |said: serde_json::Value| serde_json::from_value::<Now>(said).expect("a state");
+        let ran = |now: Now| match now {
+            Now::Paused { ran, .. } | Now::Everything { ran, .. } => ran,
+            other => panic!("not a pause: {other:?}"),
+        };
+        assert!(ran(read(
+            serde_json::json!({ "kind": "paused", "at": "plan", "by": "owner", "why": null })
+        )));
+        assert!(ran(read(
+            serde_json::json!({ "kind": "everything", "at": "plan", "by": "owner" })
+        )));
+        let said = serde_json::json!({ "kind": "paused", "at": "plan", "by": "owner", "ran": false, "why": null });
+        assert!(!ran(read(said)));
+    }
 }
