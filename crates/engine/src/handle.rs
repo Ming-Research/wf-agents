@@ -16,8 +16,8 @@ use crate::event::{Effect, Event, Gate, Hold, Refused};
 use crate::handed_in;
 use crate::spoken;
 use work::{
-    Ask, Back, Call, Filled, Forked, Given, Left, LeftBehind, Measured, Moment, Pinged, Pulled, Ran, Session, Time,
-    Timed, Work,
+    Ask, Back, Call, Filled, Forked, Given, Left, LeftBehind, Measured, Moment, Pinged, Pulled, Ran, Session,
+    ShortOfTime, Time, Timed, Work,
 };
 
 /// Takes one thing that happened to the work, at the time the driver's clock gives, and gives what is to be done for
@@ -327,6 +327,7 @@ fn take(flow: &Compiled, work: &mut Work, now: Time, event: Event, effects: &mut
         | Event::Forked { .. }
         | Event::Pulled { .. }
         | Event::Timed { .. }
+        | Event::ShortOfTime { .. }
         | Event::NotReleased { .. }
         | Event::Released) => {
             take_kept(&|work| end_of(flow, work), &flow.waits.paused.let_go, work, event)?;
@@ -755,6 +756,25 @@ fn take_kept(end: &dyn Fn(&Work) -> Option<End>, let_go: &str, work: &mut Work, 
             work.timed.push(Timed {
                 at,
                 reading: reading.normalised(),
+            });
+        }
+        Event::ShortOfTime { call, budget, tests } => {
+            if !work.records.called.iter().any(|c| c.call == call) {
+                return Err(Refused::NoSuchCall(call));
+            }
+            // Said again after the engine started again, as the same call reads the same run again, it is kept once.
+            if work.short_of_time.iter().any(|s| s.call == call) {
+                return Ok(());
+            }
+            if done(work, call).is_some() {
+                return Err(Refused::AlreadyDone(call));
+            }
+            let at = work.tick();
+            work.short_of_time.push(ShortOfTime {
+                at,
+                call,
+                budget,
+                tests,
             });
         }
         Event::NotReleased { why } => {

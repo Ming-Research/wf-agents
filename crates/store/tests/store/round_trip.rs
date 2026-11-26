@@ -417,3 +417,48 @@ fn a_cause_kept_without_the_version_worked_from_reads_back_with_none_and_one_kep
     let text = serde_json::to_string(&new).expect("it is JSON");
     assert_eq!(serde_json::from_str::<Cause>(&text).expect("it reads back"), new);
 }
+
+// A call of run_tests whose tests the fast workflow's budget kept from their end loads back as it was kept, with its
+// budget and each test in the order the request named them, what the budget did to it and its time where it has one.
+#[test]
+fn a_call_short_of_time_loads_back_with_its_budget_and_each_test_in_the_order_named() {
+    let mut d = Driver::saved();
+    d.wrote("request", Outsider::Person, None);
+    let call = (d.end(Came::asks(vec![tool("a")])).into_iter())
+        .find_map(|e| match e {
+            Effect::Call {
+                call,
+                what: engine::Call::Asked(_),
+                ..
+            } => Some(call),
+            _ => None,
+        })
+        .expect("the tool is to be called");
+    let short = |name: &str, how: work::ShortHow, millis: Option<u64>| work::Short {
+        name: name.to_string(),
+        how,
+        millis,
+    };
+    // The driver saves the work and loads it back after the event, and compares the two.
+    d.on(Event::ShortOfTime {
+        call,
+        budget: 600,
+        tests: vec![
+            short("zeta", work::ShortHow::Stopped, Some(598_500)),
+            short("alpha", work::ShortHow::NotStarted, None),
+        ],
+    });
+    d.on(Event::ShortOfTime {
+        call,
+        budget: 600,
+        tests: vec![short("never kept", work::ShortHow::Refused, None)],
+    });
+    let kept = &d.work.short_of_time;
+    assert_eq!(kept.len(), 1, "kept once for the call");
+    let tests: Vec<(&str, work::ShortHow)> = kept[0].tests.iter().map(|t| (t.name.as_str(), t.how)).collect();
+    assert_eq!(
+        tests,
+        [("zeta", work::ShortHow::Stopped), ("alpha", work::ShortHow::NotStarted)],
+        "in the order named"
+    );
+}

@@ -1963,13 +1963,14 @@ pub struct ForkPage {
     pub left: usize,
 }
 
-/// Why a fork ran under the account in use and not the one its session last ran under: that one was removed, or the
-/// session ran under none.
+/// Why a fork ran under the account in use and not the one its session last ran under: that one was removed, the
+/// session ran under none, or that one is at its usage limit.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ForkInstead {
     Removed { account: String },
     NoAccount,
+    AtLimit { account: String },
 }
 
 impl ForkPage {
@@ -1988,6 +1989,7 @@ impl ForkPage {
             instead: forked.instead.map(|instead| match instead {
                 service::Instead::Removed(account) => ForkInstead::Removed { account },
                 service::Instead::NoAccount => ForkInstead::NoAccount,
+                service::Instead::AtLimit(account) => ForkInstead::AtLimit { account },
             }),
             left: forked.left,
         }

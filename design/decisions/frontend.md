@@ -115,6 +115,15 @@ Tags, buttons, inputs and the console's cards have 3 px rounded corners, and pan
 - rejected: the owner proposed trying the Solid Glass style, with round panes of glass, controls shaped as pills and soft shadows; the owner rejected it, because the console and the flow are drawings, not ordinary controls, and the round corners looked bad where the cool, square look worked well.
 - rejected: an agent proposed an instrument look, with a grid of dots and square unfilled cards, or a terminal look, with a grid of lines and titles in monospace; the owner rejected it, because neither worked well when tried behind a switch next to the current look.
 
+### decision the-dialogs-take-the-pages-own-values
+The page's question before a command and the window a diagram opens larger in use the page's body size, control height, button corner and window shadow, with square corners.
+- replaced: A look of their own, with 14 px type, 32 px buttons, corners of 6 px and 12 px and a shadow of their own, was on main; the owner changed it, because it made an exception to the rules for sizes, heights and corners that other parts could copy.
+
+### decision the-style-check-lists-the-media-breakpoints
+The check of the page's styles lists the three breakpoints in `works.css` as its exceptions, each with its reason, because a media condition cannot read a named value.
+- rejected: an agent proposed that the script read the breakpoint tokens with matchMedia and give the page a class for each width, with no media condition in the styles; the owner rejected it, because the layout would depend on script and the first paint could come in the wrong width and jump.
+- rejected: an agent proposed expanding the breakpoints at build time with a `@custom-media` plugin; the owner rejected it, because it adds a build dependency and a change of the lock file, and the source would then differ from the CSS the browser reads itself.
+
 ### decision no-made-up-data-in-the-installed-page
 The page built into the program shows only the engine's data: the page's made-up data exist only on the development server and in the tests.
 - replaced: Made-up data built into the program, shown with `?mocks` or `?fixtures` in the address, was on main; the owner changed it, because the owner's program should hold no false data that one parameter could show.

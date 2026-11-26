@@ -85,7 +85,9 @@
 //! The driver alone sees every work, so it is also what judges by history (principle `judged-by-own-history`): it
 //! gathers what the rounds of every work on a flow came to ([`history`]), and gives each round the lines it is judged
 //! by as it runs. It gives the keep-warm pings of the sessions as their time comes, each by its own last call and none
-//! while a round of its own line is under way, the time being among what it asks to be told ([`warm`]); it tells a
+//! while a round of its own line is under way, as many as the prices of the session's model make worth it, which the
+//! work's own reports of what its calls cost tell ([`prices`]), the time being among what it asks to be told
+//! ([`warm`]); it tells a
 //! round that missed its session's prompt cache from the records ([`cache`]); and it tells how each round and each
 //! call of a tool went against the lines of its history, which stops nothing ([`judged`]).
 //!
@@ -108,6 +110,8 @@ pub mod history;
 pub mod judged;
 
 pub mod owner;
+
+pub mod prices;
 
 pub mod red_main;
 
@@ -1870,6 +1874,19 @@ impl Driver {
     pub fn test_time(&self, work: WorkNumber) -> Option<f64> {
         let held = self.works.get(&work)?;
         timed::test_time(&self.merged_checks(held.item.project.as_deref()), self.samples())
+    }
+
+    /// The median of each test's times in the earlier fast runs of the work's project, every work of it counted, by the
+    /// name a request of `run_tests` asks for it by ([`timed::fast_medians`]); empty where the work is not held.
+    pub fn fast_medians(&self, work: WorkNumber) -> BTreeMap<String, f64> {
+        let Some(held) = self.works.get(&work) else {
+            return BTreeMap::new();
+        };
+        let project = held.item.project.as_deref();
+        let readings = (self.works.values())
+            .filter(|other| other.item.project.as_deref() == project)
+            .flat_map(|other| other.work.timed.iter().map(|t| &t.reading));
+        timed::fast_medians(readings)
     }
 
     /// The wait every work shares for the agents' service, if one stands: worked out from the records of every work

@@ -24,7 +24,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use decide::run::Failure;
 use decide::{BlockId, CallId, End, Outsider, Pauser, RunId};
 use driver::history::Lines;
-use driver::{Accounts, Along, Found, Going, Instead, Policy, Said, Under};
+use driver::{Accounts, Along, Found, Going, Instead, Limit, Policy, Said, Under};
 use engine::{Came, Event};
 use flow::{CellSpec, Compiled, Kind};
 use store::{Item, WorkNumber};
@@ -163,9 +163,9 @@ pub trait Rounds: Send + Sync {
 
 /// A fork of a round's session, asked a question: the work as it is kept, the outline of the version of its flow it is
 /// on, by which its rounds are placed in their sessions whichever version is installed, its item, the run and the round
-/// of it whose session is forked, the question, whether the work has ended, and the accounts as they stand, by which
-/// the fork runs under its session's account, or the one in use where that one was removed or the session ran under
-/// none ([`Accounts::of_session`]).
+/// of it whose session is forked, the question, whether the work has ended, and the accounts and the usage limits that
+/// stand as they are, by which the fork runs under its session's account, or the one in use where that one was removed,
+/// the session ran under none, or that one is at its usage limit ([`Accounts::of_session`]).
 #[derive(Clone, Debug)]
 pub struct Fork {
     pub work: WorkNumber,
@@ -177,6 +177,7 @@ pub struct Fork {
     pub question: String,
     pub ended: bool,
     pub accounts: Accounts,
+    pub limits: BTreeMap<String, Limit>,
 }
 
 /// Why a fork could not be asked or gave no answer, what its program cost where it ran, and how many processes it
@@ -876,6 +877,10 @@ pub struct ToolCall {
     /// For a call of the tool that runs the project's tests: how long one test may run before it is stopped, in
     /// milliseconds, as the history of the project's merged checks says it (crate `driver`, module `timed`).
     pub test_time: Option<f64>,
+    /// For a call of the tool that runs the project's tests: the median of each test's times in the project's earlier
+    /// fast runs, in milliseconds, by the name a request asks for it by (crate `driver`, module `timed`); empty for
+    /// any other call.
+    pub fast_medians: Arc<BTreeMap<String, f64>>,
     /// For a call of the tool that runs the project's tests: the tests that are red on the main of the work's project,
     /// which a failed test of the result is said to be among (crate `driver`, module `red_main`).
     pub red_on_main: Vec<driver::red_main::RedTest>,
@@ -1042,6 +1047,15 @@ impl Hosting {
     pub fn timed(&self, reading: work::Reading) {
         let event = Event::Timed { reading };
         // Where the loop has ended, the process is stopping: what is given again reads the run again.
+        let _ = self.to.send(Message::Happened { work: self.work, event });
+    }
+
+    /// The call of `run_tests`, of this budget in whole seconds, had these of its tests kept from their end by the
+    /// budget: refused before anything ran, or stopped or not started by the run; said before the call's result, and
+    /// kept once.
+    pub fn short_of_time(&self, call: CallId, budget: u64, tests: Vec<work::Short>) {
+        let event = Event::ShortOfTime { call, budget, tests };
+        // Where the loop has ended, the process is stopping: what is given again says it again.
         let _ = self.to.send(Message::Happened { work: self.work, event });
     }
 

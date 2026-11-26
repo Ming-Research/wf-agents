@@ -1,7 +1,7 @@
 //! What a run of a project's workflow reports of its tests, read from the JUnit XML files of the artifact the project's
 //! declaration names (`ci.fast.results`, `ci.full.results`): each test it reported, with what became of it, how long
 //! it took and what it said, and each unit it did not build; and what became of each test an agent named. The workflow
-//! and the engine hold to four conventions:
+//! and the engine hold to five conventions:
 //!
 //! - The results are JUnit XML: the artifact holds one or more files ending in `.xml`. Each `testsuite` is a unit (a
 //!   test binary, a test file), named by its `name`; each `testcase` in it is a test, named by its `name`. A testcase
@@ -16,6 +16,16 @@
 //!   it, so that what each job reported is told apart; a job that runs tests writes its file whatever became of them,
 //!   and says a step of its own that failed beside its tests as a testsuite of the job's name with an error naming the
 //!   step, as a unit not built is said.
+//! - A fast run given a budget for its tests (`ci.fast.budget_input`) says a test it stopped as the budget ran out
+//!   as an error whose message begins [`STOPPED`], and a test it did not start, the budget used up, as skipped with a
+//!   message that begins [`NOT_STARTED`]; a failure with the same message is read as an error. Neither passed or
+//!   failed: the budget, not the test, ended it.
+
+/// How the message of a test's error begins where the fast run stopped it as its budget ran out.
+pub const STOPPED: &str = "stopped: the fast check's time ran out";
+
+/// How the message of a skipped test begins where the fast run did not start it, its budget used up.
+pub const NOT_STARTED: &str = "not run: the fast check's time was used up";
 
 /// A test as a run reported it: the unit it is in (a test binary, a test file) and its name.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,6 +48,10 @@ pub enum Outcome {
     Passed,
     Failed,
     Skipped,
+    /// Stopped as the fast run's budget ran out ([`STOPPED`]).
+    Stopped,
+    /// Not started, the fast run's budget used up ([`NOT_STARTED`]).
+    NotStarted,
 }
 
 impl Outcome {
@@ -48,6 +62,8 @@ impl Outcome {
             Outcome::Passed => "passed",
             Outcome::Failed => "failed",
             Outcome::Skipped => "skipped",
+            Outcome::Stopped => "stopped",
+            Outcome::NotStarted => "not started",
         }
     }
 }
@@ -125,13 +141,20 @@ pub fn read(files: &[(String, Vec<u8>)]) -> Result<Run, String> {
                 .unwrap_or_default();
             let child = |tag: &str| case.children().find(|c| c.has_tag_name(tag));
             let failed = child("failure").or_else(|| child("error"));
-            let outcome = match (&failed, child("skipped")) {
-                (Some(_), _) => Outcome::Failed,
-                (None, Some(_)) => Outcome::Skipped,
-                (None, None) => Outcome::Passed,
-            };
             let text = |node: roxmltree::Node| -> String {
                 (node.descendants().filter(|n| n.is_text()).filter_map(|n| n.text())).collect()
+            };
+            // What an element says begins its message, or else its text.
+            let begins = |node: roxmltree::Node, with: &str| {
+                let said = node.attribute("message").map_or_else(|| text(node), str::to_string);
+                said.trim_start().starts_with(with)
+            };
+            let outcome = match (&failed, child("skipped")) {
+                (Some(f), _) if begins(*f, STOPPED) => Outcome::Stopped,
+                (Some(_), _) => Outcome::Failed,
+                (None, Some(s)) if begins(s, NOT_STARTED) => Outcome::NotStarted,
+                (None, Some(_)) => Outcome::Skipped,
+                (None, None) => Outcome::Passed,
             };
             let said = failed.and_then(|f| {
                 let own = Some(text(f)).filter(|t| !t.trim().is_empty());
@@ -201,6 +224,10 @@ pub enum Became {
     Failed,
     /// Each test it names was skipped.
     Skipped,
+    /// A test it names was stopped as the fast run's budget ran out, and none failed.
+    Stopped,
+    /// A test it names was not started, the fast run's budget used up, and none failed or was stopped.
+    NotStarted,
     /// No test of the run has the name, and the run built every unit.
     NotRun,
     /// No test of the run has the name, and the run did not build some unit, which the engine cannot tell the test is
@@ -217,19 +244,22 @@ pub struct Row<'a> {
 }
 
 /// What became of each test named, from what the run reported. A name names the tests whose name it is, as it is,
-/// trimmed. It is failed when any test it names failed, skipped when each was, and passed otherwise.
+/// trimmed. It is failed when any test it names failed; else stopped when one was stopped by the budget, else not
+/// started when one was not started for it, since what the budget kept from running is not known to pass; skipped when
+/// each was, and passed otherwise.
 pub fn rows<'a>(tests: &'a [String], run: &'a Run) -> Vec<Row<'a>> {
     (tests.iter())
         .map(|named| {
             let matched: Vec<&Case> = (run.cases.iter()).filter(|c| c.test.name == named.trim()).collect();
-            let failed = matched.iter().any(|c| c.outcome == Outcome::Failed);
-            let ran = matched.iter().any(|c| c.outcome == Outcome::Passed);
-            let became = match (matched.is_empty(), failed, ran) {
-                (false, true, _) => Became::Failed,
-                (false, false, true) => Became::Passed,
-                (false, false, false) => Became::Skipped,
-                (true, _, _) if !run.unbuilt.is_empty() => Became::NotBuilt,
-                (true, _, _) => Became::NotRun,
+            let any = |outcome: Outcome| matched.iter().any(|c| c.outcome == outcome);
+            let became = match () {
+                () if matched.is_empty() && !run.unbuilt.is_empty() => Became::NotBuilt,
+                () if matched.is_empty() => Became::NotRun,
+                () if any(Outcome::Failed) => Became::Failed,
+                () if any(Outcome::Stopped) => Became::Stopped,
+                () if any(Outcome::NotStarted) => Became::NotStarted,
+                () if any(Outcome::Passed) => Became::Passed,
+                () => Became::Skipped,
             };
             Row { named, matched, became }
         })
@@ -656,5 +686,82 @@ AssertionError: expected 1 to be 2 // Object.is equality
         assert_eq!(got[0].became, Became::Passed);
         assert_eq!(got[1].became, Became::NotRun);
         assert_eq!(run.reported, ["measure"]);
+    }
+
+    // A fast run's budget says what it stopped and what it did not start by the messages the interface fixes: an
+    // error or a failure whose message begins with the stop, a skip whose message begins with the not-started; any
+    // other error fails, any other skip is skipped, and the words only count at the start.
+    #[test]
+    fn a_test_stopped_or_not_started_by_the_budget_is_read_apart_from_one_that_failed_or_was_skipped() {
+        let xml = r#"<testsuites><testsuite name="u">
+  <testcase name="stopped" time="59.9"><error message="stopped: the fast check's time ran out after 600 s"/></testcase>
+  <testcase name="stopped_failure"><failure>stopped: the fast check's time ran out</failure></testcase>
+  <testcase name="not_started"><skipped message="not run: the fast check's time was used up"/></testcase>
+  <testcase name="failed"><error message="timed out: stopped: the fast check's time ran out"/></testcase>
+  <testcase name="skipped"><skipped message="ignored"/></testcase>
+  <testcase name="passed" time="1"/>
+</testsuite></testsuites>"#;
+        let run = read(&[file("t.xml", xml)]).unwrap();
+        let got: Vec<(&str, Outcome)> = (run.cases.iter()).map(|c| (c.test.name.as_str(), c.outcome)).collect();
+        assert_eq!(
+            got,
+            [
+                ("stopped", Outcome::Stopped),
+                ("stopped_failure", Outcome::Stopped),
+                ("not_started", Outcome::NotStarted),
+                ("failed", Outcome::Failed),
+                ("skipped", Outcome::Skipped),
+                ("passed", Outcome::Passed),
+            ]
+        );
+        assert_eq!(
+            run.cases[0].millis,
+            Some(59_900),
+            "a stopped test keeps the time it ran"
+        );
+    }
+
+    // A name whose tests the budget ended is neither passed nor failed: failed where one of its tests failed, else
+    // stopped where one was stopped, else not started where one was not started, before any that passed.
+    #[test]
+    fn a_name_is_stopped_or_not_started_where_the_budget_ended_a_test_of_it_and_none_failed() {
+        let case = |name: &str, unit: &str, outcome: Outcome| Case {
+            test: Reported {
+                unit: unit.to_string(),
+                name: name.to_string(),
+            },
+            job: "test".to_string(),
+            outcome,
+            ended: None,
+            said: None,
+            time: None,
+            millis: None,
+        };
+        let run = Run {
+            cases: vec![
+                case("a", "u1", Outcome::Stopped),
+                case("a", "u2", Outcome::Passed),
+                case("b", "u1", Outcome::NotStarted),
+                case("b", "u2", Outcome::Passed),
+                case("c", "u1", Outcome::Stopped),
+                case("c", "u2", Outcome::Failed),
+                case("d", "u1", Outcome::Stopped),
+                case("d", "u2", Outcome::NotStarted),
+                case("e", "u1", Outcome::NotStarted),
+            ],
+            ..Run::default()
+        };
+        let named = names(&["a", "b", "c", "d", "e"]);
+        let became: Vec<Became> = rows(&named, &run).iter().map(|r| r.became).collect();
+        assert_eq!(
+            became,
+            [
+                Became::Stopped,
+                Became::NotStarted,
+                Became::Failed,
+                Became::Stopped,
+                Became::NotStarted
+            ]
+        );
     }
 }

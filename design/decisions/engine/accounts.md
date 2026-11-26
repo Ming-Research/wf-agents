@@ -25,3 +25,7 @@ What the engine knows of an account's usage is what the service last reported fo
 ### decision the-owner-lets-the-engine-move-by-a-switch
 While the owner's switch is on, the engine at a usage limit checks each other account like the outside, one unchecked at once, and moves to the first found well; the switch acts at once, off at first.
 - rejected: an agent proposed no switch, the engine asking the owner at each usage limit; the owner rejected it, because nobody is there to answer at night, so the work stands still, which is what moving is for, and an account is the installation's, with no work to ask in.
+
+### decision a-fork-runs-under-its-sessions-account-unless-it-is-at-its-limit
+A fork runs under the account its session last ran under, whose cache holds the session, or, saying why, under the account in use where that one was removed or is at its usage limit.
+- replaced: Running a fork under its session's account wherever that account was still added, at its usage limit too, was on main; the owner changed it, because a fork of a session made under an account at its limit could not run until the limit reset, days later.

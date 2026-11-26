@@ -33,9 +33,11 @@
 //! keeps the tokens gives it as the round begins; a token it cannot give, or none where the round was handed out with
 //! no account, fails the round as a command line that cannot run, in its words, nothing being run (decision
 //! no-default-credential). A keep-warm ping runs under the account it is handed out with, which its session's last call
-//! ran under, and a fork under its session's account, or under the one in use where that one was removed or the session
-//! ran under none, which it says. What the program's stream says of the usage of the account a round, a ping or a fork
-//! runs under is said to the loop under that account, a round's as each rate limit event comes. Which of its line's
+//! ran under, and a fork under its session's account, or under the one in use where that one was removed, the session
+//! ran under none, or that one is at its usage limit, which it says; a fork that meets the usage limit of its session's
+//! account, which the engine did not know of, is asked once more under the one in use, saying so. What the program's
+//! stream says of the usage of the account a round, a ping or a fork runs under is said to the loop under that account,
+//! a round's as each rate limit event comes. Which of its line's
 //! sessions a round runs in, and whether it begins it, is counted from the work's records (`cli::in_session`); what it
 //! is sent is what the context manager fills into that session (crate `context`): what the session lacks, or, where the
 //! program begins the session under its id, everything from the top, and what each try's message fills is said to the
@@ -117,7 +119,7 @@ use std::sync::Arc;
 
 use decide::run::{Failure, Unmet};
 use decide::{BlockId, CellId, Pauser, RunId, Seq};
-use driver::{Going, Policy};
+use driver::{Going, Instead, Policy};
 use engine::Came;
 use flow::agents::Declaration;
 use serde::{Deserialize, Serialize};
@@ -1850,9 +1852,12 @@ impl Inner {
             }
         };
         // The account the session's last try ran under, whose cache holds it; else the one in use, which it says: that
-        // one was removed, or the try ran under none. With none in use, no token can be given and nothing is run.
-        let (account, instead) = fork.accounts.of_session(made.on.account.as_deref());
-        let token = account::token_of(&self.tokens, account.as_deref(), &of.beside.cost.check.no_account).await?;
+        // one was removed, the try ran under none, or that one is at its usage limit, which has not reset. With none in
+        // use, no token can be given and nothing is run.
+        let now = (self.clock.now()).map_err(|why| format!("The time cannot be read: {why}."))?;
+        let (mut account, mut instead) = fork.accounts.of_session(made.on.account.as_deref(), &fork.limits, now);
+        let no_account = &of.beside.cost.check.no_account;
+        let token = account::token_of(&self.tokens, account.as_deref(), no_account).await?;
         let place = git::place(&self.data, &git::tag(&self.installation), fork.work);
         if !place.dir.exists() && !fork.ended {
             return Err(format!("{} has not ended, and its worktree is not there.", fork.work).into());
@@ -1884,11 +1889,42 @@ impl Inner {
             .await;
             added.map_err(|why| format!("The work's worktree is gone, and its branch could not stand in: {why}"))?;
         }
-        let asked = self.forked(fork, &made, begins.as_deref(), (&place.dir, &token)).await;
+        let mut asked = self.forked(fork, &made, begins.as_deref(), (&place.dir, &token)).await;
+        // Its session's account at a usage limit the engine did not know of: once more under the one in use, which it
+        // says, what the first cost and left counted with what the second does.
+        let in_use = fork.accounts.in_use().map(str::to_string);
+        let again = matches!(&asked, Err(Unforked { limited: true, .. }))
+            && instead.is_none()
+            && in_use.is_some()
+            && in_use != account;
+        if again && let Err(Unforked { failed: first, .. }) = asked {
+            let token = account::token_of(&self.tokens, in_use.as_deref(), no_account).await;
+            instead = account.take().map(Instead::AtLimit);
+            account = in_use;
+            asked = match token {
+                Ok(token) => self.forked(fork, &made, begins.as_deref(), (&place.dir, &token)).await,
+                Err(why) => Err(Unforked::from(why)),
+            };
+            asked = match asked {
+                Ok(mut forking) => {
+                    forking.2 = plus(first.spent.unwrap_or_default(), forking.2);
+                    forking.6 += first.left;
+                    Ok(forking)
+                }
+                Err(mut second) => {
+                    second.failed.spent = match (first.spent, second.failed.spent) {
+                        (Some(a), Some(b)) => Some(plus(a, b)),
+                        (a, b) => a.or(b),
+                    };
+                    second.failed.left += first.left;
+                    Err(second)
+                }
+            };
+        }
         if let Some(stand_in) = stand_in.as_mut() {
             stand_in.take_away().await;
         }
-        let (answer, text, spent, read, kept, usage, left) = asked?;
+        let (answer, text, spent, read, kept, usage, left) = asked.map_err(|unforked| unforked.failed)?;
         let last = match until {
             Some(_) => (fork.run, fork.round),
             None => (made.run, made.number),
@@ -1955,7 +1991,7 @@ impl Inner {
         made: &SessionLine,
         begins: Option<&str>,
         (dir, token): (&Path, &Token),
-    ) -> Result<Forking, ForkFailed> {
+    ) -> Result<Forking, Unforked> {
         let base = kept::base(&self.data, fork.work, fork.run, fork.round);
         let name = base.file_name().unwrap_or_default().to_string_lossy().to_string();
         let n = (1..)
@@ -2034,7 +2070,13 @@ impl Inner {
                 why: "The fork's program was stopped before it ended.".to_string(),
                 spent: stream.took(),
                 left: 0,
-            });
+            }
+            .into());
+        };
+        let limited = || {
+            let report =
+                (!stream.has_result()).then(|| process::tail(String::from_utf8_lossy(&stderr).trim().as_bytes()));
+            limit_met(&lines, report, &of.beside.cost.program)
         };
         // The question is the second message: a stream that holds one result holds only the first message's return,
         // which is no answer to it.
@@ -2048,10 +2090,13 @@ impl Inner {
                 let ended = process::ended(&of.beside.cost.program, &self.settings.agents.command, status, &end);
                 why = format!("{why}; {ended}");
             }
-            return Err(ForkFailed {
-                why: format!("{why}."),
-                spent: stream.took(),
-                left,
+            return Err(Unforked {
+                limited: limited(),
+                failed: ForkFailed {
+                    why: format!("{why}."),
+                    spent: stream.took(),
+                    left,
+                },
             });
         }
         let read = stream.own.first.map(|(read, _)| read);
@@ -2074,10 +2119,13 @@ impl Inner {
                     let ended = process::ended(&of.beside.cost.program, &self.settings.agents.command, status, &end);
                     why = format!("{why}; {ended}");
                 }
-                return Err(ForkFailed {
-                    why: flow::agents::sentence(&format!("The fork wrote no answer: {why}")),
-                    spent: no.spent.or_else(|| stream.took()),
-                    left,
+                return Err(Unforked {
+                    limited: limited(),
+                    failed: ForkFailed {
+                        why: flow::agents::sentence(&format!("The fork wrote no answer: {why}")),
+                        spent: no.spent.or_else(|| stream.took()),
+                        left,
+                    },
                 });
             }
             Err(no) => (None, no.spent.unwrap_or_else(|| stream.took().unwrap_or_default())),
@@ -2085,6 +2133,54 @@ impl Inner {
         let kept = answer.clone().unwrap_or_else(|| text.clone());
         write(&at("answer"), kept.as_bytes()).await?;
         Ok((answer, text, spent, read, at("answer"), stream.usage().cloned(), left))
+    }
+}
+
+/// Why a fork's program gave no answer, and whether it met the usage limit of the account it ran under.
+struct Unforked {
+    failed: ForkFailed,
+    limited: bool,
+}
+
+impl From<String> for Unforked {
+    fn from(why: String) -> Self {
+        Unforked {
+            failed: ForkFailed::from(why),
+            limited: false,
+        }
+    }
+}
+
+impl From<ForkFailed> for Unforked {
+    fn from(failed: ForkFailed) -> Self {
+        Unforked { failed, limited: false }
+    }
+}
+
+/// Whether a fork's program that gave no answer met the usage limit of the account it ran under, as the kind of a
+/// round's failure is told ([`failure::of`]): by what its stream says, and by what it reported, its result's words, or,
+/// where it printed no result, `report`, what it wrote of itself.
+fn limit_met(lines: &[u8], report: Option<String>, words: &flow::agents::ProgramWords) -> bool {
+    let Err(no) = cli::read(lines, words) else {
+        return false;
+    };
+    let report = report.unwrap_or(no.report);
+    failure::of(&report, &no.said, no.spent.as_ref()) == Failure::UsageLimit
+}
+
+/// What two calls of a program took together: their costs and tokens added, and the context the second ended with.
+fn plus(first: Spent, second: Spent) -> Spent {
+    Spent {
+        usd_micros: first.usd_micros + second.usd_micros,
+        uncached_tokens: first.uncached_tokens + second.uncached_tokens,
+        cache_written_tokens: match (first.cache_written_tokens, second.cache_written_tokens) {
+            (Some(a), Some(b)) => Some(a + b),
+            _ => None,
+        },
+        cached_tokens: first.cached_tokens + second.cached_tokens,
+        output_tokens: first.output_tokens + second.output_tokens,
+        context_tokens: second.context_tokens,
+        compactions: first.compactions + second.compactions,
     }
 }
 
@@ -2621,7 +2717,6 @@ async fn write(path: &Path, bytes: &[u8]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use decide::{Pause, Returned, Round as Began, Seq};
-    use driver::Instead;
     use store::AccountAct;
     use work::Back;
 
@@ -2889,7 +2984,7 @@ mod tests {
     /// the work as [`ran_once`] keeps it: the program a stand-in ([`write_program`]) that prints [`FORK_STREAM`].
     /// The engineer's line's first session began as kept, the work's worktree is there, its project's repository
     /// beside, and the time now is ten thousand seconds in; the cache keeps a session an hour after its last call. The
-    /// accounts `work` and `home` are added, and `work` is in use.
+    /// accounts `work` and `home` are added, and `work` is in use; no usage limit stands.
     fn forking(data: &Path) -> (Agents, git::tests::Repo, Fork) {
         let program = write_program(data, &FORK_STREAM);
         let mut settings = Settings::read(include_str!("../install.sample.toml")).expect("the sample reads");
@@ -2956,6 +3051,7 @@ mod tests {
                 ("home", AccountAct::Added),
                 ("work", AccountAct::Taken),
             ])),
+            limits: BTreeMap::new(),
         };
         (agents, repo, fork)
     }
@@ -2975,10 +3071,11 @@ mod tests {
     }
 
     // A fork runs under the account its session's last try ran under, whose cache holds the session, given its token
-    // and the engine's directory; where that account was removed, or the try ran under none, under the account in use,
-    // and it says why; with none in use, such a fork runs nothing and fails, saying none is. What its stream says of
-    // the usage of the account it ran under comes with it; it is given the variable the flows give every agent's
-    // program, as a round is. Three forks of a stand-in program: a few tens of milliseconds.
+    // and the engine's directory; where that account was removed, the try ran under none, or that account is at its
+    // usage limit until a time to come, under the account in use, and it says why; with none in use, such a fork runs
+    // nothing and fails, saying none is. What its stream says of the usage of the account it ran under comes with it;
+    // it is given the variable the flows give every agent's program, as a round is. Five forks of a stand-in program:
+    // a few tens of milliseconds.
     #[tokio::test]
     async fn a_fork_runs_under_its_sessions_account_or_the_one_in_use_saying_why_and_none_with_none_in_use() {
         let dir = tempfile::tempdir().expect("a directory");
@@ -3024,6 +3121,36 @@ mod tests {
             (forked.account.as_str(), forked.instead, given()),
             ("home", None, "sk-ant-oat01-home".to_string())
         );
+        // The session's account is at its usage limit, which resets after now, ten thousand seconds in: under the one
+        // in use. Once the limit has reset, under the session's own again.
+        let limited = |resets: u64| Fork {
+            limits: BTreeMap::from([(
+                "home".to_string(),
+                driver::Limit {
+                    since: work::Time(9_000_000),
+                    resets: Some(work::Time(resets)),
+                },
+            )]),
+            ..under(&done)
+        };
+        let forked = agents
+            .inner
+            .fork(&limited(20_000_000))
+            .await
+            .expect("the fork is asked");
+        assert_eq!(
+            (forked.account.as_str(), forked.instead, given()),
+            (
+                "work",
+                Some(Instead::AtLimit("home".to_string())),
+                "sk-ant-oat01-work".to_string()
+            )
+        );
+        let forked = agents.inner.fork(&limited(9_500_000)).await.expect("the fork is asked");
+        assert_eq!(
+            (forked.account.as_str(), forked.instead, given()),
+            ("home", None, "sk-ant-oat01-home".to_string())
+        );
         done.push(("home", AccountAct::Removed));
         let forked = agents.inner.fork(&under(&done)).await.expect("the fork is asked");
         assert_eq!(
@@ -3044,6 +3171,81 @@ mod tests {
         assert_eq!(refused.why, "No account is in use: choose one on the Settings view.");
         assert_eq!(refused.spent, None, "nothing was run, and nothing cost");
         assert!(!data.join("token").exists(), "nothing was run");
+    }
+
+    // A fork that meets the usage limit of its session's account, which no limit standing told of, is asked once more
+    // under the account in use, saying so, what both cost counted; where the session's account is the one in use, it
+    // is asked no more, and fails. Three forks of a stand-in program that refuses one token as at its weekly limit: a
+    // few tens of milliseconds.
+    #[tokio::test]
+    async fn a_fork_that_meets_its_sessions_account_at_its_limit_is_asked_once_more_under_the_one_in_use() {
+        let dir = tempfile::tempdir().expect("a directory");
+        let data = std::path::absolute(dir.path()).expect("absolute");
+        let (agents, _repo, fork) = forking(&data);
+        let limit = [
+            r#"{"type":"system","subtype":"init","claude_code_version":"9.9.9"}"#,
+            r#"{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":1795129200,"rateLimitType":"seven_day"}}"#,
+            r#"{"type":"result","subtype":"success","is_error":true,"api_error":"usage_limit_reached","result":"You have hit your weekly limit","total_cost_usd":0}"#,
+        ];
+        let printed =
+            |stream: &[&str]| -> String { stream.iter().map(|line| format!("printf '%s\\n' '{line}'\n")).collect() };
+        let script = format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$CLAUDE_CODE_OAUTH_TOKEN\" >> '{0}/tokens'\ncat > /dev/null\n\
+             if [ \"$CLAUDE_CODE_OAUTH_TOKEN\" = 'sk-ant-oat01-home' ]; then\n{1}exit 1\nfi\n{2}",
+            data.display(),
+            printed(&limit),
+            printed(&FORK_STREAM),
+        );
+        std::fs::write(data.join("program.sh"), script).expect("written");
+        let tokens = || {
+            let given = std::fs::read_to_string(data.join("tokens")).unwrap_or_default();
+            std::fs::remove_file(data.join("tokens")).expect("taken away");
+            given.lines().map(str::to_string).collect::<Vec<_>>()
+        };
+        let mut kept = (*fork.kept).clone();
+        kept.ran[0].on.account = Some("home".to_string());
+        let under = |done: &[(&str, AccountAct)]| Fork {
+            kept: Arc::new(kept.clone()),
+            accounts: driver::Accounts::new(accounts(done)),
+            ..fork.clone()
+        };
+        let work_in_use = [
+            ("work", AccountAct::Added),
+            ("home", AccountAct::Added),
+            ("work", AccountAct::Taken),
+        ];
+        let forked = agents.inner.fork(&under(&work_in_use)).await.expect("asked again");
+        assert_eq!(tokens(), ["sk-ant-oat01-home", "sk-ant-oat01-work"]);
+        assert_eq!(
+            (forked.account.as_str(), forked.instead),
+            ("work", Some(Instead::AtLimit("home".to_string())))
+        );
+        assert_eq!(forked.spent.usd_micros, 500_000, "the refused one cost nothing");
+        let answer: serde_json::Value =
+            serde_json::from_str(forked.answer.as_deref().expect("a return")).expect("JSON");
+        assert_eq!(answer["outcome"]["observations"][0], "The task reads two ways.");
+        // A fork already under the one in use, its session's account removed, is asked no more.
+        let mut removed = work_in_use.to_vec();
+        removed.push(("work", AccountAct::Removed));
+        removed.push(("home", AccountAct::Taken));
+        let mut gone = kept.clone();
+        gone.ran[0].on.account = Some("work".to_string());
+        let gone = Fork {
+            kept: Arc::new(gone),
+            ..under(&removed)
+        };
+        let refused = agents.inner.fork(&gone).await.expect_err("at its limit");
+        assert_eq!(tokens(), ["sk-ant-oat01-home"]);
+        assert!(refused.why.contains("was not answered"), "{}", refused.why);
+        // The session's account is the one in use: no other would serve.
+        let home_in_use = [
+            ("work", AccountAct::Added),
+            ("home", AccountAct::Added),
+            ("home", AccountAct::Taken),
+        ];
+        let refused = agents.inner.fork(&under(&home_in_use)).await.expect_err("at its limit");
+        assert_eq!(tokens(), ["sk-ant-oat01-home"]);
+        assert!(refused.why.contains("was not answered"), "{}", refused.why);
     }
 
     #[tokio::test]

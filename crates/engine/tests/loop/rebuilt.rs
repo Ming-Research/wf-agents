@@ -28,6 +28,7 @@ fn rebuilt(work: &Work) -> Work {
         readings: work.readings.clone(),
         kept_time: work.kept_time.clone(),
         timed: work.timed.clone(),
+        short_of_time: work.short_of_time.clone(),
     }
 }
 

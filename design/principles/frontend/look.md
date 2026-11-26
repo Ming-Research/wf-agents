@@ -47,8 +47,8 @@ A cell of a table stays on one line, cut at the edge of its column and shown who
 Why: A table is read across many rows at once, and rows that wrap slow the reading.
 
 ### principle no-raw-values-in-styles
-A style of the page writes no raw value of a colour, a size or a space: it uses the look's named values, and the checks a change passes before it merges hold it to that.
-Why: So that no change goes round the look.
+A style of the page writes no raw value of a colour, a size or a space: it uses the look's named values, and the checks a change passes before it merges hold it to that. A media condition cannot read a named value, so its breakpoints are listed in the check, each with its reason.
+Why: So that no change goes round the look. A breakpoint is the one value that cannot be named, so each is listed with its reason, and a new one turns the check red until it is listed on purpose.
 
 ### principle an-agents-heading-is-small
 A heading in what an agent wrote, of whatever level, is drawn as a small heading.
