@@ -30,7 +30,7 @@ describe('the trunks of the arrows a write runs', () => {
     expect(said(shownArrows(chart, 'T4', false))).toEqual([
       'R1 acceptance > T4',
       'D1 acceptance > T4',
-      'I1 acceptance, testing > T4',
+      'I1 testing > T4',
       'T2 needs_testing > T4',
     ]);
   });
@@ -48,7 +48,7 @@ describe('the trunks of the arrows a write runs', () => {
       'D1 plan > P2 +tree_review; I1 +plan_doubts',
       'D1 acceptance > T4',
       'I1 change > T2 +test_review; T3 +design_review',
-      'I1 acceptance, testing > T4',
+      'I1 testing > T4',
       'T2 needs_testing > T4',
     ]);
   });

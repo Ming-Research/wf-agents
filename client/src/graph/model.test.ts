@@ -205,7 +205,7 @@ describe('the flowchart of the engineer flow', () => {
       { name: 'change', group: true },
       { name: 'review', group: false },
     ]);
-    expect(all['I1>T4']).toBe('acceptance, testing');
+    expect(all['I1>T4']).toBe('testing');
     expect(all['T4>I1']).toBe('testing');
     expect(all['R1>D1']).toBe('found, better_found, plan_review, tree_review, plan_doubts, r1_questions');
     // The check's head and main are no cell's writes: nothing runs it but from outside.
