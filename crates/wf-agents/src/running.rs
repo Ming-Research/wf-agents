@@ -159,6 +159,13 @@ pub fn run(data: &Path, flows: &Flows, with: With, port: u16, new: bool) -> Exit
                 }
             },
         };
+        // What `wf-agents wait` goes by: the settings' table, or, for a script, which has no settings, what the
+        // settings take where the table is left out.
+        let (again, turn, queued) = match &with {
+            Read::Script(_) => carry::Wait::default().ms(),
+            Read::Settings(settings, _) => settings.wait.ms(),
+        };
+        let times = web::attention::Times { again, turn, queued };
         // The projects an item may be added to: the settings'; a script's one, named as its file is.
         let projects = match &with {
             Read::Script(_) => scripted,
@@ -248,7 +255,7 @@ pub fn run(data: &Path, flows: &Flows, with: With, port: u16, new: bool) -> Exit
             about
         });
         let (levels_of_observations, projects_of_observations) = (levels.clone(), projects.clone());
-        let router = web::with_works_and_copies(flows_shown, handle, levels, projects, about);
+        let router = web::with_works_and_copies(flows_shown, handle, levels, projects, times, about);
         // The observations are read, added to, changed and marked read through connections of their own to the store's
         // file.
         let router = router.merge(web::observations::router(

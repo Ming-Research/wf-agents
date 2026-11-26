@@ -216,9 +216,12 @@ fn started_again_on_a_work_going_on_the_engine_holds_everything_until_the_owner_
              answer call 2: its run reached its limit, 2 returns having been sent back\n"
         )
     );
-    // `wait` says first that the engine waits for the owner.
+    // `wait` says first, of what stands, that the engine waits for the owner.
     let said = engine.says(&["wait", "--for", "0"]);
-    assert!(said.starts_with(&format!("{held}, for ")), "{said}");
+    assert!(
+        (said.lines().nth(1)).is_some_and(|line| line.starts_with(&format!("{held}, for "))),
+        "{said}"
+    );
     // The answer is taken, and the plan's next round waits for the owner to let everything on.
     engine.says(&["let-go", "1", "--call", "2"]);
     engine.until(&["list"], |line| {

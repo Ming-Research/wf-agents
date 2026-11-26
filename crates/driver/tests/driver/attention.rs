@@ -1,23 +1,42 @@
-//! What needs whoever plans the work since a mark (`driver::attention`): a work that ended, one that waits on the owner,
-//! one that is stalled, one that waits for items none of which is going on, and one the owner paused for items that
-//! have all ended, each once from the mark after it came to stand so, since the time it did; never a work going on; the
-//! same answer for the same mark, a restart between or not; at most a number of lines, the rest coming again.
+//! What needs whoever plans the work (`driver::attention`): a work that ended, one that waits on the owner, one that is
+//! stalled, one that waits for items none of which is going on, and one the owner paused for items that have all ended,
+//! each since the time it came to stand so; never a work going on; the same lines, a restart between or not. The
+//! interface gives a line as new where it came to stand at or after the time it last read them, as these tests read it.
 
-use driver::attention::{Attention, Heed, Idle, LINES, Line, Mark, Refused, Stuck};
+use driver::attention::{Heed, Idle, Line, Stuck};
 use driver::{Asked, NewItem};
 use rusqlite::{Connection, params};
 use store::ItemChange;
 
 use super::*;
 
-/// The heeds of the answer's lines, in their order.
-fn heeds(attention: &Attention) -> Vec<Heed> {
-    attention.lines.iter().map(|line| line.heed.clone()).collect()
+/// What the planner is given at a read, as the interface reads the driver's lines: with the time of a read before, each
+/// line that came to stand at or after it; with none, each line that stands but the works that ended. With the time of
+/// this read, after everything that happened so far and before anything to come, from which the next read gives.
+#[derive(Debug)]
+struct Answer {
+    lines: Vec<Line>,
+    mark: Time,
 }
 
-/// What needs the planner since the mark, which the driver must answer.
-fn since(h: &H, mark: Option<&Mark>) -> Attention {
-    h.d().attention(mark).expect("the driver answers")
+/// The heeds of the answer's lines, in their order.
+fn heeds(answer: &Answer) -> Vec<Heed> {
+    answer.lines.iter().map(|line| line.heed.clone()).collect()
+}
+
+/// What needs the planner since the read at the mark, of the lines the driver must give.
+fn since(h: &H, mark: Option<&Time>) -> Answer {
+    let lines = h.d().attention().expect("the driver answers");
+    let lines = (lines.into_iter())
+        .filter(|line| match mark {
+            None => !matches!(line.heed, Heed::Ended { .. }),
+            Some(mark) => line.since >= *mark,
+        })
+        .collect();
+    Answer {
+        lines,
+        mark: Time(h.clock + 1),
+    }
 }
 
 /// The work's run reaches its limit of returns and calls the owner; gives the time it did.
@@ -42,7 +61,6 @@ fn a_call_for_the_owner_comes_once_since_it_was_made_and_a_restart_adds_only_its
             since: asked,
         }]
     );
-    assert_eq!(answer.left_out, 0);
     let again = since(&h, Some(&answer.mark));
     assert_eq!(
         heeds(&again),
@@ -58,9 +76,9 @@ fn a_call_for_the_owner_comes_once_since_it_was_made_and_a_restart_adds_only_its
     let mut lines = vec![held];
     lines.extend(answer.lines.clone());
     assert_eq!(since(&h, Some(&first.mark)).lines, lines);
-    // A mark is a place in the records: once the pause is lifted, the driver gives the same answer to each mark.
+    // The lines are read from the records: once the pause is lifted, the driver gives the same lines to each mark.
     h.lift_the_starts_pause();
-    assert_eq!(since(&h, Some(&first.mark)), answer);
+    assert_eq!(since(&h, Some(&first.mark)).lines, answer.lines);
     assert_eq!(heeds(&since(&h, Some(&answer.mark))), vec![]);
     assert_eq!(
         since(&h, None).lines,
@@ -468,55 +486,6 @@ fn what_rests_for_a_person_comes_first_the_longest_waiting_first() {
     );
 }
 
-#[test]
-fn lines_past_the_most_are_counted_and_come_again_at_the_next_mark() {
-    let mut h = H::new();
-    let works: Vec<WorkNumber> = (0..LINES + 3)
-        .map(|i| h.add(new_item(&format!("item {i}"), &[], "plain")).1)
-        .collect();
-    for w in &works {
-        h.let_on(*w);
-        calls_the_owner(&mut h, *w);
-    }
-    let first = since(&h, None);
-    let shown = |works: &[WorkNumber]| -> Vec<Heed> { works.iter().map(|w| Heed::ForAPerson { work: *w }).collect() };
-    assert_eq!(heeds(&first), shown(&works[..LINES]));
-    assert_eq!(first.left_out, 3);
-    let rest = since(&h, Some(&first.mark));
-    assert_eq!(heeds(&rest), shown(&works[LINES..]));
-    assert_eq!(rest.left_out, 0);
-    assert_eq!(heeds(&since(&h, Some(&rest.mark))), vec![]);
-}
-
-#[test]
-fn a_mark_is_written_and_read_back_and_one_not_of_these_records_is_refused() {
-    let mut h = H::new();
-    let (_, wa) = h.add(new_item("a", &[], "plain"));
-    let (_, wb) = h.add(new_item("b", &[], "plain"));
-    h.let_on(wa);
-    h.through(wa);
-    let mark = since(&h, None).mark;
-    let tick = h.d().work(wb).expect("the work is there").work.tick();
-    assert_eq!(
-        mark.to_string(),
-        format!("2,2.{}", tick.0),
-        "a work that ended is left out of the mark"
-    );
-    assert_eq!(Mark::read(&mark.to_string()), Ok(mark.clone()));
-    for unreadable in ["", "x", "2,", "2,1", "2,1.x", "2,3.1", "2,1.1,1.2", "-1"] {
-        assert!(Mark::read(unreadable).is_err(), "{unreadable:?} was read as a mark");
-    }
-    let refused = |text: &str| h.d().attention(Some(&Mark::read(text).expect("the mark reads")));
-    assert_eq!(refused("3"), Err(Refused::NotOfTheseRecords { work: WorkNumber(3) }));
-    assert_eq!(
-        refused(&format!("2,2.{}", tick.0 + 1)),
-        Err(Refused::NotOfTheseRecords { work: wb })
-    );
-    // A work left out of a mark had ended, and the work b has not.
-    assert_eq!(refused("2"), Err(Refused::NotOfTheseRecords { work: wb }));
-    assert!(refused("1").is_ok(), "a mark from before the second item was added");
-}
-
 /// Makes the records of the work faulty behind the driver's back, an entry at the place of its first, and opens the
 /// driver again on them, the owner lifting at once the pause of everything it makes as it opens.
 fn at_fault(h: &mut H, work: WorkNumber) {
@@ -844,11 +813,11 @@ fn red_tests(head: &str) -> Vec<driver::red_main::RedTest> {
     }]
 }
 
-// The check before a merge found a test failing on the head of main: the project's main is red, which the planner is
-// told once for each time it came to be so, at rank 0 ahead of every work, with the works that wait for it; main moving
-// on makes it not known to be red, and where the check finds it red on the new head too, with no pass between, that is
-// the red already given; a pass on main ends it, and a failure after that is a new line. Under a second alone, a store
-// on disk; no other test holds the line, its mark and what makes it new.
+// The check before a merge found a test failing on the head of main: the project's main is red, a line since it came to
+// be so, at rank 0 ahead of every work, with the works that wait for it; main moving on makes it not known to be red,
+// and where the check finds it red on the new head too, with no pass between, that is the red already given, since the
+// same time; a pass on main ends it, and a failure after that is a new line. Under a second alone, a store on disk; no
+// other test holds the line and what makes it new.
 #[test]
 fn a_red_main_is_a_line_once_for_each_time_it_came_to_be_and_a_pass_on_main_ends_it() {
     let mut h = H::with(vec![checked()]);
@@ -870,38 +839,30 @@ fn a_red_main_is_a_line_once_for_each_time_it_came_to_be_and_a_pass_on_main_ends
             since: read,
         }]
     );
-    assert_eq!(answer.left_out, 0);
-    assert!(
-        answer.mark.to_string().ends_with(&format!(",r.{}.{PROJECT}", read.0)),
-        "{}",
-        answer.mark
-    );
-    assert_eq!(heeds(&since(&h, Some(&answer.mark))), vec![], "it is given once");
+    assert_eq!(heeds(&since(&h, Some(&answer.mark))), vec![], "it is new once");
     assert_eq!(
         since(&h, None).lines,
         answer.lines,
         "with no mark, what stands now is given"
     );
-    // Main moves on: what it is, is not known until a check reads it, so it is not said to be red, and what was read is
-    // kept in the mark.
-    let red_in_mark = format!(",r.{}.{PROJECT}", read.0);
+    // Main moves on: what it is, is not known until a check reads it, so it is not said to be red.
     h.outside("main", "Main is at m2.");
     let moved = since(&h, Some(&answer.mark));
     assert_eq!(heeds(&moved), vec![]);
-    assert!(moved.mark.to_string().ends_with(&red_in_mark), "{}", moved.mark);
-    // The check reads the test failing on the new head as well: it is the red that was given, and is not given again.
+    assert_eq!(since(&h, None).lines, vec![], "main is not known to be red");
+    // The check reads the test failing on the new head as well: it is the red that was given, since the same time, and
+    // is not new.
     assert_eq!(h.round(w).1, "check");
     finds_main_red(&mut h, w, "run/1/round/2", "own2", "m2");
     let again = since(&h, Some(&moved.mark));
     assert_eq!(heeds(&again), vec![], "no test passed between, so it is the same red");
-    assert!(again.mark.to_string().ends_with(&red_in_mark), "{}", again.mark);
-    // The test passes on the next head of main: the red is over, and the mark no longer holds it.
+    assert_eq!(since(&h, None).lines.first().map(|line| line.since), Some(read));
+    // The test passes on the next head of main: the red is over.
     h.outside("main", "Main is at m3.");
     assert_eq!(h.round(w).1, "check");
     checks(&mut h, w, "run/1/round/3", "own3", "m3", false);
     let over = since(&h, Some(&again.mark));
     assert_eq!(heeds(&over), vec![]);
-    assert!(!over.mark.to_string().contains(",r."), "{}", over.mark);
     assert_eq!(since(&h, None).lines, vec![], "nothing is red now");
     // It fails on the head after that: main is red again, which is told again, since the time it began.
     h.outside("main", "Main is at m4.");
@@ -990,83 +951,6 @@ fn a_red_main_is_the_projects_own() {
     );
 }
 
-// A red main is a line ahead of every work's, so a work's line is left out before it; the red of a project whose line is
-// left out for the most lines of an answer comes again with the next mark, as a work's does. `LINES` projects and one
-// more are the least that leaves a red out; a work in each reads the two runs that make its project's main red, the
-// rest of a check being no part of the fact.
-#[test]
-fn a_red_main_comes_before_the_works_and_one_left_out_for_the_most_lines_comes_again() {
-    let mut h = H::with(vec![checked()]);
-    let projects: Vec<String> = (0..LINES + 1).map(|i| format!("p{i:02}")).collect();
-    for (i, project) in projects.iter().enumerate() {
-        let (_, w) = h.add(NewItem {
-            project: project.clone(),
-            ..new_item(&format!("item {i}"), &[], "checked")
-        });
-        h.outside_of(project, "main", "Main is at m1.");
-        let asking = format!("run/{i}/round/1");
-        read_test(&mut h, w, &asking, work::Source::Full, "own", false);
-        read_test(&mut h, w, &asking, work::Source::Fast, "m1", false);
-    }
-    let (_, last) = h.add(new_item("late", &[], "checked"));
-    h.let_on(last);
-    calls_the_owner(&mut h, last);
-    let first = since(&h, None);
-    let reds = |attention: &Attention| -> Vec<String> {
-        (attention.lines.iter())
-            .filter_map(|line| match &line.heed {
-                Heed::MainRed { project, .. } => Some(project.clone()),
-                _ => None,
-            })
-            .collect()
-    };
-    assert_eq!(first.lines.len(), LINES);
-    assert_eq!(reds(&first).len(), LINES, "the works that wait are after the reds");
-    assert_eq!(first.left_out, 2, "a red and the call for the owner are left out");
-    let rest = since(&h, Some(&first.mark));
-    assert_eq!(reds(&rest).len(), 1, "the red left out comes again");
-    assert_eq!(rest.lines.len(), 2);
-    let mut given = reds(&first);
-    given.extend(reds(&rest));
-    assert_eq!(given, projects, "each red once, in the order the reds began");
-    assert_eq!(heeds(&since(&h, Some(&rest.mark))), vec![]);
-}
-
-// A mark holds the time each project's red began, which tells that red from a later one: written as `r.`, the time and
-// the project's name, a `%` and a `,` in the name written as `%25` and `%2C`, and read back as it was written.
-#[test]
-fn a_mark_holds_the_red_of_each_project_and_one_that_is_not_so_written_is_refused() {
-    for text in [
-        "3,r.7.Firn-wf",
-        "3,e.1,r.7.a.b,r.8.c",
-        "3,1.4,r.7.a%2Cb%25",
-        "0,r.7.%252C",
-    ] {
-        let mark = Mark::read(text).expect("the mark reads");
-        assert_eq!(mark.to_string(), text);
-    }
-    for unreadable in [
-        "3,r",
-        "3,r.7",
-        "3,r.7.",
-        "3,r.x.a",
-        "3,r.-1.a",
-        "3,r.7.a,r.8.a",
-        "3,r.7.a%",
-        "3,r.7.a%41",
-        "3,r.7.a%2",
-        "3,r.7.a,b",
-    ] {
-        assert!(Mark::read(unreadable).is_err(), "{unreadable:?} was read as a mark");
-    }
-    // A project that is not red now, named by a mark, is no fault of the records.
-    let h = H::new();
-    assert_eq!(
-        heeds(&since(&h, Some(&Mark::read("0,r.7.gone").expect("it reads")))),
-        vec![]
-    );
-}
-
 #[test]
 fn the_wait_every_work_shares_is_one_line_about_no_work_and_the_works_it_holds_go_on() {
     let mut h = H::new();
@@ -1096,7 +980,7 @@ fn the_wait_every_work_shares_is_one_line_about_no_work_and_the_works_it_holds_g
             since: Time(h.clock),
         }]
     );
-    assert_eq!(heeds(&since(&h, Some(&answer.mark))), vec![], "the wait is given once");
+    assert_eq!(heeds(&since(&h, Some(&answer.mark))), vec![], "the wait is new once");
 }
 
 #[test]
@@ -1168,20 +1052,19 @@ fn the_owners_pause_of_everything_is_one_line_about_no_work_and_leaves_no_work_i
             since: paused,
         }]
     );
-    assert_eq!(Mark::read(&answer.mark.to_string()), Ok(answer.mark.clone()));
-    assert_eq!(heeds(&since(&h, Some(&answer.mark))), vec![], "the pause is given once");
+    assert_eq!(heeds(&since(&h, Some(&answer.mark))), vec![], "the pause is new once");
     h.pause_everything(false);
     h.pause_everything(true);
     assert_eq!(
         heeds(&since(&h, Some(&answer.mark))),
         vec![Heed::Everything { by: Pauser::Owner }],
-        "a later pause is given again"
+        "a later pause is new again"
     );
 }
 
 /// The heeds of the answer's lines that say a pause is over.
-fn over(attention: &Attention) -> Vec<Heed> {
-    (attention.lines.iter())
+fn over(answer: &Answer) -> Vec<Heed> {
+    (answer.lines.iter())
         .map(|line| line.heed.clone())
         .filter(|heed| matches!(heed, Heed::PauseOver { .. }))
         .collect()
@@ -1223,7 +1106,7 @@ fn the_owners_pause_that_waited_for_items_is_a_line_once_each_has_ended_and_neve
         .iter()
         .find(|line| matches!(line.heed, Heed::PauseOver { .. }));
     assert_eq!(line.map(|line| line.since), Some(ended));
-    assert_eq!(over(&since(&h, Some(&both.mark))), vec![], "it is given once");
+    assert_eq!(over(&since(&h, Some(&both.mark))), vec![], "it is new once");
     assert_eq!(
         over(&since(&h, None)).len(),
         1,
@@ -1233,13 +1116,13 @@ fn the_owners_pause_that_waited_for_items_is_a_line_once_each_has_ended_and_neve
     assert_eq!(over(&since(&h, None)), vec![], "let on, its pause waits for nothing");
 }
 
-// A pause that is over is given again to the same mark after the driver is opened again, and those past the most lines
-// of an answer come at the next mark, each work once: the line is read from the records, and the mark counts the records.
+// A pause that is over is given again to the same mark after the driver is opened again: the line is read from the
+// records, since the time the item it waited for was cancelled.
 #[test]
-fn a_pause_that_is_over_is_given_again_to_the_same_mark_after_a_restart_and_those_past_the_most_come_at_the_next() {
+fn a_pause_that_is_over_is_given_again_to_the_same_mark_after_a_restart() {
     let mut h = H::new();
     let (a, _) = h.add(new_item("a", &[], "plain"));
-    let waiting: Vec<WorkNumber> = (0..LINES + 2)
+    let waiting: Vec<WorkNumber> = (0..3)
         .map(|i| {
             let (_, work) = h.add(new_item(&format!("item {i}"), &[], "plain"));
             h.on(
@@ -1255,8 +1138,8 @@ fn a_pause_that_is_over_is_given_again_to_the_same_mark_after_a_restart_and_thos
         .collect();
     let mark = since(&h, None).mark;
     h.changes(vec![(a, Asked::Cancel)]).expect("a is cancelled");
-    let works = |attention: &Attention| -> Vec<WorkNumber> {
-        over(attention)
+    let works = |answer: &Answer| -> Vec<WorkNumber> {
+        over(answer)
             .into_iter()
             .filter_map(|heed| match heed {
                 Heed::PauseOver { work, .. } => Some(work),
@@ -1265,28 +1148,14 @@ fn a_pause_that_is_over_is_given_again_to_the_same_mark_after_a_restart_and_thos
             .collect()
     };
     let first = since(&h, Some(&mark));
-    // The cancelled item may be a line of its own beside the pauses that waited for it.
-    assert_eq!(first.lines.len(), LINES);
-    assert!(first.left_out >= 2, "{}", first.left_out);
+    assert_eq!(works(&first), waiting);
     h.restart();
     let again = since(&h, Some(&mark));
     assert_eq!(
-        works(&again),
-        works(&first),
+        again.lines, first.lines,
         "the same mark gives the same lines after a restart"
     );
-    assert_eq!(again.left_out, first.left_out);
-    assert_eq!(again.mark, first.mark);
-    let rest = since(&h, Some(&first.mark));
-    assert_eq!(rest.left_out, 0);
-    let mut every: Vec<WorkNumber> = works(&first);
-    every.extend(works(&rest));
-    every.sort();
-    assert_eq!(
-        every, waiting,
-        "each work is given once, those past the most at the next mark"
-    );
-    assert_eq!(over(&since(&h, Some(&rest.mark))), vec![]);
+    assert_eq!(over(&since(&h, Some(&first.mark))), vec![]);
 }
 
 // A pause for items that have ended already is over as it is made: it is a line at once, as is a pause that names none
@@ -1446,32 +1315,6 @@ fn a_red_main_stands_when_the_work_waiting_for_it_is_paused_and_then_cancelled()
     assert_eq!(h.d().red_tests(other), red_tests("m1"));
 }
 
-// A project's name may hold a dot, a comma and a percent sign: a red of such a project is given once, and the mark that
-// says so, written and read back, says it again. Reference: the mark's documented form (`%` and `,` escaped as `%25`
-// and `%2C`, the name read to the end of the segment). Under a second alone, a store on disk; the engineer's tests of the
-// mark never meet a mark written by a real red of such a name.
-#[test]
-fn the_red_of_a_project_named_with_a_dot_a_comma_and_a_percent_is_given_once_through_the_mark() {
-    let name = "Fi,rn.%25wf";
-    let mut h = H::with(vec![checked()]);
-    let (_, w) = h.add(NewItem {
-        project: name.to_string(),
-        ..new_item("a", &[], "checked")
-    });
-    h.outside_of(name, "main", "Main is at m1.");
-    comes_to_its_check(&mut h, w);
-    let first = since(&h, None);
-    let read = finds_main_red(&mut h, w, "run/1/round/1", "own1", "m1");
-    let answer = since(&h, Some(&first.mark));
-    assert_eq!(answer.lines.len(), 1);
-    assert_eq!(answer.lines[0].since, read);
-    let text = answer.mark.to_string();
-    assert!(text.ends_with(&format!(",r.{}.Fi%2Crn.%2525wf", read.0)), "{text}");
-    let back = Mark::read(&text).expect("the mark it wrote reads");
-    assert_eq!(back, answer.mark);
-    assert_eq!(heeds(&since(&h, Some(&back))), vec![], "given once");
-}
-
 // While one test of a project's main stays red and another that was red passes, the project's main has been red the whole
 // time: it is not a red that came to be anew, and is not given again. Reference: acceptance 3 (the same red is given
 // once, and again only after a pass and a new failure) and the documentation of `Heed::MainRed` (once for each time it
@@ -1527,8 +1370,8 @@ fn a_red_main_is_not_given_again_when_one_of_its_failing_tests_passes_and_anothe
     );
 }
 
-// While no work of a project has not ended, nothing says whether its main is red, and the red that was given is kept in
-// the mark as it was: a work that comes to the same head finds the same red, which is not given again. Reference:
+// While no work of a project has not ended, nothing says whether its main is red: a work that comes to the same head
+// finds the same red, since the same time, which is not new. Reference:
 // acceptance 3 (the same red is given once) and acceptance 5 (no current fact where no work has not ended). Under a
 // second alone, a store on disk.
 #[test]
@@ -1543,8 +1386,8 @@ fn a_red_main_is_not_given_again_when_its_works_end_and_another_comes_to_the_sam
     assert_eq!(given.lines.len(), 1);
     h.on(w, Event::Cancelled { why: None });
     let alone = since(&h, Some(&given.mark));
-    let reds = |attention: &Attention| {
-        (heeds(attention).into_iter())
+    let reds = |answer: &Answer| {
+        (heeds(answer).into_iter())
             .filter(|heed| matches!(heed, Heed::MainRed { .. }))
             .count()
     };
@@ -1554,6 +1397,6 @@ fn a_red_main_is_not_given_again_when_its_works_end_and_another_comes_to_the_sam
     assert_eq!(
         reds(&since(&h, Some(&alone.mark))),
         0,
-        "the same red, found again, is not given again"
+        "the same red, found again, is not new"
     );
 }

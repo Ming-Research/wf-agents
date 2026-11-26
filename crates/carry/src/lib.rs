@@ -81,7 +81,7 @@ pub use agents::{Agents, Of, ROUNDS};
 pub use branch::compared;
 pub use host::github::{GhOffsite, UPLOAD_RATE};
 pub use process::{STOP_WAIT, TAIL};
-pub use settings::Settings;
+pub use settings::{Settings, Wait};
 pub use tools::{QUERY, Querying, RUN_TESTS};
 
 /// The carriers of these settings, keeping what they keep in the data directory: the installation's id, the works'

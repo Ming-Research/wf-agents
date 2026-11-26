@@ -34,8 +34,9 @@ wf-agents runs coding agents through a defined flow.
   `no-longer-continues`);
   `wf-agents pause --all` and `wf-agents resume --all` pause everything and lift it; `wf-agents pause <work>` and `add`
   take `--why <sentence>` and `--waits-for <item>`, which say why the work is paused and which items it waits for to
-  merge or be cancelled, and `wf-agents wait` says once that each has. Whoever plans the work waits
-  with `wf-agents wait` for what needs them, each answer ending with the mark to give the next, and read the
+  merge or be cancelled, and `wf-agents wait` says when each has. Whoever plans the work waits
+  with `wf-agents wait` for what needs them, each answer ending with the mark to give the next: what came since the
+  mark at once, and everything that stands to be handled again every `wait.again_minutes` until it is gone; and read the
   observations with `wf-agents observations`, the newest first, which leaves out those an item took in unless given
   `--all` and takes `--tag` and `--project`; they add one with `add-observation`, naming the project it is of and the
   project that reported it, and give each a title and tags, delete it or have an item take it in with

@@ -973,14 +973,20 @@ impl QuestionPage {
     /// asking something, of a version an answer names and not answered, with no wait of the key `answer-<name>`. The
     /// item window reads a question so, from the work's page and the work's waits, to draw it as holding the work or not.
     pub(crate) fn ahead(questions: &[QuestionPage], waits: &[Wait]) -> usize {
+        QuestionPage::ahead_of(questions, waits).len()
+    }
+
+    /// The questions of `questions` [`QuestionPage::ahead`] counts, in their order: what `wf-agents wait` names of
+    /// them is what the page counts.
+    pub(crate) fn ahead_of<'a>(questions: &'a [QuestionPage], waits: &[Wait]) -> Vec<&'a QuestionPage> {
         let open =
             |q: &&QuestionPage| q.withdrawn.is_none() && q.ask.is_some() && q.version.is_some() && q.answer.is_none();
         let holds = |q: &QuestionPage| (waits.iter()).any(|w| w.key == format!("answer-{}", q.name));
-        (questions.iter()).filter(open).filter(|q| !holds(q)).count()
+        (questions.iter()).filter(open).filter(|q| !holds(q)).collect()
     }
 
     /// Each question of the work, as it stands, numbered as the version the work is on names each cell's questions.
-    fn all(kept: &Kept<'_>) -> Result<Vec<QuestionPage>, Broken> {
+    pub(crate) fn all(kept: &Kept<'_>) -> Result<Vec<QuestionPage>, Broken> {
         let work = kept.work;
         let skipped = decide::skipped(&kept.flow.flow, &work.records);
         (decide::questions::questions(&work.records).into_iter())
@@ -2666,7 +2672,8 @@ impl Now {
     }
 
     /// What the work does now by its view, what holds back its next round and what the driver says of the others
-    /// ([`Now::of`]), or [`Now::Broken`]: the one reading of it that a summary and a line of what waits both take.
+    /// ([`Now::of`]), or [`Now::Broken`]: the one reading of it, which a summary takes, and a line of what waits takes
+    /// from the summary.
     pub(crate) fn of_work(
         kept: Kept<'_>,
         view: &View,
@@ -5246,9 +5253,10 @@ pub(crate) mod tests {
     }
 
     // Where the deciding code says a work waits for its project's turn and the driver names none, the summary is still
-    // given: its state is broken, with the words of what could not be worked out, and every other part of it is worked out
-    // as it is for a work that can be. The line of what waits that the attention read gives reads its state by the same
-    // `Now::of_work`. Fails where the error of the state is given as the error of the summary, or the rest is left out.
+    // given: its state is broken, with the words of what could not be worked out, and every other part of it is worked
+    // out as it is for a work that can be, by `Now::of_work`, the one reading of it, which a line of what waits takes
+    // from the summary. Fails where the error of the state is given as the error of the summary, or the rest is left
+    // out.
     #[test]
     fn a_summary_whose_state_cannot_be_worked_out_is_given_with_every_other_part_as_worked_out() {
         let flow = flow_with("takes_turn = true\n");
@@ -5300,7 +5308,7 @@ pub(crate) mod tests {
             panic!("the state is not said broken: {:?}", broken.now);
         };
         assert!(words.contains("whose turn"), "{words}");
-        // The line of what waits that the attention read gives takes its state from the same reading.
+        // The state is the one reading of it.
         let held = driver.held_at(number, &every.at_once);
         assert_eq!(
             Now::of_work(kept, &turned, held, &driver, &every.outages, &every.at_once),

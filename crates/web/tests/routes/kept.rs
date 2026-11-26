@@ -305,7 +305,7 @@ impl Page {
     async fn is_whole(&mut self, router: &Router, handle: &service::Handle, at: &str) {
         self.read(router).await;
         pass(50).await;
-        let whole = web::interface::router(handle.clone(), levels(), projects());
+        let whole = web::interface::router(handle.clone(), levels(), projects(), crate::times());
         let from_nothing = read(&whole, None).await;
         let mut wholly: BTreeMap<u64, Value> = BTreeMap::new();
         for item in from_nothing["items"].as_array().unwrap() {

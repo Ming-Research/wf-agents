@@ -152,6 +152,20 @@ cache_minutes = 60
 # 19 before any report tells them. Left out, it is 55.
 warm_minutes = 55
 
+# What `wf-agents wait` goes by, which tells whoever plans the work what needs someone: each thing as it comes, and
+# everything that stands, given whole again from time to time until each thing is gone.
+[wait]
+# How long after `wf-agents wait` gave everything that stands it gives it whole again, in minutes. At least 1. Left
+# out, it is 5.
+again_minutes = 5
+# How long a work may hold its project's turn to check and merge while its round or call is under way, waiting for a
+# runner or running, and other works wait for the turn, before `wf-agents wait` gives that as something to handle, in
+# minutes. Left out, it is 30.
+turn_minutes = 30
+# How long a round or call may wait for a runner before `wf-agents wait` gives that as something to handle, in minutes,
+# as the engine has heard it wait since it started. Left out, it is 15.
+queued_minutes = 15
+
 # The copies of the engine's database. Every day while the engine runs, it copies the database whole into
 # `backups/` in the data directory and keeps the newest `keep` there. Without this table, that is all: the copies share
 # the disk they are kept against losing, so they do not guard against its loss, and the owner's page says so. With it,

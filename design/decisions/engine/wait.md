@@ -6,6 +6,10 @@ What a work waits on the owner for, and how whoever plans the work learns what n
 Whoever plans the work learns what needs them through `wf-agents wait`, a call that returns as soon as something does; nothing is pushed to them.
 - rejected: an agent proposed that the board push a message to whoever plans the work as each item is done; the owner rejected it, because a message pushed while the assistant talks with the owner breaks into that talk, and that talk's context must stay on it.
 
+### decision wait-gives-what-stands-until-it-is-gone
+`wf-agents wait` gives everything the owner's page shows as needing someone, counted as the page counts it, and gives what stands again every `wait.again_minutes` until it is gone.
+- replaced: `wf-agents wait` telling each thing once, as it came to stand, and leaving out what the page counts in orange and what holds work back with no one asked, was on main; the owner changed it, because things told once were forgotten, and what he sees needing handling must be handled.
+
 ### decision only-a-sign-in-waits-on-the-owner
 When the agents' command line fails, only a cause no retry mends, like a refused sign-in or a program too old, waits on the owner, who is told what to do; the engine waits out any other cause itself.
 - rejected: an agent proposed counting every case of the agents' program not starting as waiting on the owner; the owner rejected it, because only a sign-in or a refusal cannot be mended without the owner.
@@ -17,5 +21,5 @@ A question the owner is to answer shows only what it asks, and no line beside it
 - rejected: an agent proposed the line "The merge waits for this answer." under a question's card; the owner rejected it, because the owner had called such a line needless, and the red card and the work's line at the check already say so.
 
 ### decision the-engine-reports-a-red-main-and-fixes-nothing
-The engine reports that a project's main is red on tests, once for each time it came to be so, in `wf-agents wait` and on the System view; it makes no item to fix it and starts no agent.
+The engine reports that a project's main is red on tests, in `wf-agents wait` while it stands and on the System view; it makes no item to fix it and starts no agent.
 - rejected: the owner proposed reading main's full CI every minute and stopping the merges while it is red, as the old system did; the owner rejected it, because pushes to main no longer run CI, so the check has to work as today's checks do.

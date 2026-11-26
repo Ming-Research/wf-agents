@@ -56,7 +56,7 @@ fn serving() -> (Router, Handle, tempfile::TempDir) {
         git: &[],
     };
     let flows = Flows::dirs(trial_dir().join("flow"), Box::new(trial_has));
-    let router = web::with_works(flows, handle.clone(), levels(), projects())
+    let router = web::with_works(flows, handle.clone(), levels(), projects(), crate::times())
         .merge(web::settings::router(install, handle.clone()));
     (router, handle, dir)
 }
