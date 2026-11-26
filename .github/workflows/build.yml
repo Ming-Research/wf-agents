@@ -60,7 +60,13 @@ jobs:
       - name: Check the program names the commit
         run: |
           said=$(target/release/wf-agents --version)
-          echo "$said"
+          case "$said" in
+            *"($WF_BUILD_COMMIT)") echo "$said" ;;
+            *)
+              echo "wf-agents --version says: $said; the commit built is $WF_BUILD_COMMIT" >&2
+              exit 1
+              ;;
+          esac
       # A tar keeps the file's executable mark, which the artifact's zip does not.
       - name: Pack the program
         run: tar -C target/release -cf wf-agents-macos-arm64.tar wf-agents
