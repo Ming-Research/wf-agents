@@ -789,6 +789,13 @@ fn check(records: &Records) -> Result<(), RecordFault> {
             return Err(RecordFault::DoneTwice(d.call));
         }
     }
+    for h in &records.held {
+        for call in [h.call, h.wait] {
+            if !records.called.iter().any(|c| c.call == call) {
+                return Err(RecordFault::UnknownCall(call));
+            }
+        }
+    }
     let places = records.entry_places();
     let mut seen = BTreeSet::new();
     for at in places {
@@ -815,10 +822,13 @@ fn check(records: &Records) -> Result<(), RecordFault> {
         }
     }
     for c in &records.called {
+        // The engine's wait for a call held is made as the call is held, which is after the run that asked for it has
+        // finished.
+        let waits = records.held.iter().any(|h| h.wait == c.call);
         let ended = (records.finished.iter().filter(|f| f.run == c.run).map(|f| f.at))
             .chain(records.abandoned.iter().filter(|a| a.run == c.run).map(|a| a.at))
             .any(|at| at < c.at);
-        if ended {
+        if ended && !waits {
             return Err(RecordFault::CalledAfterEnd(c.call));
         }
     }

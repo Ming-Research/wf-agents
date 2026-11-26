@@ -58,6 +58,10 @@ A return with no call must hand in the blocks its cell must write, unless it ask
 - replaced: Requiring those blocks of every return that asks for no call, including one with a question its cell waits for, was on main; the owner changed it, because a cell stopped by a question then had to force a value, and the work stops at the cell until the answer comes.
 - rejected: the owner proposed deleting the rule, so that a cell testing the change would not give its verdict before any result; the owner rejected it, because the rule asks for the blocks only in a return that makes no call, so a review that asks for the tests gives its verdict after the results.
 
+### decision a-return-that-leaves-the-work-stuck-is-sent-back
+A return that would leave the work waiting for blocks cells write, none of which will run, is sent back naming the blocks of its cell that would end it, as the walk decides with the return taken.
+- rejected: an agent proposed declaring in the flow which blocks a value or a cell must come with, as `with_nothing_but` is; the owner rejected it, because it covers only the cells thought of, and each other cell or flow with the same gap needs a rule written again.
+
 ### decision normalise-shape-only
 If a return is not in the form's shape but means it, like a list written as a string or the form wrapped in one more object, the engine puts it into shape before reading it; its content never changes.
 - replaced: Sending back a return that wrote a field at another level of the form was on main; the owner changed it, because returns put their short fields inside `outcome`, and the engine can move them out without changing them.

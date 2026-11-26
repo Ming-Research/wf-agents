@@ -4,8 +4,8 @@
 use std::collections::BTreeMap;
 
 use decide::{
-    Abandoned, Answered, BlockId, CallId, Called, CellId, Done, Finished, Hurried, LetGo, Pause, PutIn, Questioned,
-    Returned, Round, RunId, Seq, Started, Write, Written, holds_nothing,
+    Abandoned, Answered, BlockId, CallId, Called, CellId, Done, Finished, Held, Hurried, LetGo, Pause, PutIn,
+    Questioned, Returned, Round, RunId, Seq, Started, Write, Written, holds_nothing,
 };
 use rusqlite::{Connection, Row, params};
 use serde::Serialize;
@@ -99,6 +99,29 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
             call: CallId(row.get(1)?),
         })
     })?;
+
+    let held = rows(
+        db,
+        "SELECT at, call, wait, obstacle FROM held WHERE work = ?1 ORDER BY at",
+        w,
+        |row| {
+            Ok((
+                Seq(row.get(0)?),
+                CallId(row.get(1)?),
+                CallId(row.get(2)?),
+                row.get::<_, String>(3)?,
+            ))
+        },
+    )?;
+    for (at, call, wait, obstacle) in held {
+        let obstacle = from_name("held", obstacle)?;
+        r.held.push(Held {
+            call,
+            wait,
+            at,
+            obstacle,
+        });
+    }
 
     let mut writes: BTreeMap<RunId, Vec<Write>> = BTreeMap::new();
     for (run, write) in rows(
@@ -662,6 +685,7 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     let returned = grown("returned", &h.returned, &g.returned, |e| Entry::At(e.at))?;
     let called = grown("called", &h.called, &g.called, |e| Entry::At(e.at))?;
     let done = grown("done", &h.done, &g.done, |e| Entry::At(e.at))?;
+    let held_calls = grown("held", &h.held, &g.held, |e| Entry::At(e.at))?;
     let finished = grown("finished", &h.finished, &g.finished, |e| Entry::At(e.at))?;
     let abandoned = grown("abandoned", &h.abandoned, &g.abandoned, |e| Entry::At(e.at))?;
     let put_in = grown("put_in", &h.put_in, &g.put_in, |e| Entry::At(e.at))?;
@@ -753,6 +777,13 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
         db.execute(
             "INSERT INTO done (work, at, call) VALUES (?1, ?2, ?3)",
             params![w, d.at.0, d.call.0],
+        )?;
+    }
+    for h in held_calls {
+        let obstacle = name("held", &h.obstacle)?;
+        db.execute(
+            "INSERT INTO held (work, at, call, wait, obstacle) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![w, h.at.0, h.call.0, h.wait.0, obstacle],
         )?;
     }
     for f in finished {

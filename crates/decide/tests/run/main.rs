@@ -9,6 +9,7 @@ mod committing;
 mod completing;
 mod failing;
 mod handing_in;
+mod held;
 mod limits;
 mod malformed;
 mod nothing_but;
