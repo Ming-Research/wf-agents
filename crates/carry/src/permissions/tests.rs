@@ -502,3 +502,53 @@ fn what_files_lets_the_agents_edit_does_not_move_with_the_shell() {
         }
     }
 }
+
+// A worktree's path is written into the rule and the flag as it is spelled, whatever its trailing separators: the
+// program's rules take a space and parentheses in a path literally (`Edit(./Finance (2024)/**)` matches the folder as
+// spelled), and `//` followed by the path from the root is the absolute path. The rule allows edits under that
+// directory alone: its path ends at the directory's own name and then `/**`, so a sibling whose name begins with the
+// same letters is not under it. Reference: the program's permission rules (code.claude.com/docs/en/permissions, the
+// path pattern table and its note on parentheses). Microseconds.
+#[test]
+fn a_worktree_with_a_space_and_parentheses_is_written_as_it_is_spelled_in_its_rule_and_directory() {
+    for spelled in ["/x/My data (2024)/W", "/x/My data (2024)/W/", "/x/My data (2024)/W///"] {
+        let p = Permissions::of(false, &[Ability::Files], Path::new(spelled), Path::new("/x/T"), &[]);
+        assert_eq!(
+            p.allowed,
+            ["Grep", "Glob", "Edit(//x/My data (2024)/W/**)"],
+            "{spelled}"
+        );
+        assert_eq!(p.directories, ["/x/My data (2024)/W"], "{spelled}");
+        assert_eq!(
+            p.arguments()
+                .windows(2)
+                .filter(|w| w[0] == "--add-dir")
+                .map(|w| w[1].as_str())
+                .collect::<Vec<_>>(),
+            ["/x/My data (2024)/W"],
+            "{spelled}"
+        );
+    }
+}
+
+// How many trailing separators a worktree's path is given does not change what the program is given, for any set of
+// words and either kind of line: the rule, the directory and the flags are those of the path without them. Reference:
+// the same function's own result for the path without the separators. Microseconds.
+#[test]
+fn the_same_worktree_gives_the_same_permissions_however_its_trailing_separator_is_written() {
+    for mask in 0..32 {
+        let may = picked(mask);
+        for reads_only in [false, true] {
+            let bare = Permissions::of(reads_only, &may, Path::new("/x/W"), Path::new("/x/T"), &commands());
+            for spelled in ["/x/W/", "/x/W//"] {
+                let other = Permissions::of(reads_only, &may, Path::new(spelled), Path::new("/x/T"), &commands());
+                assert_eq!(other, bare, "{may:?} reads_only {reads_only} {spelled}");
+                assert_eq!(
+                    other.arguments(),
+                    bare.arguments(),
+                    "{may:?} reads_only {reads_only} {spelled}"
+                );
+            }
+        }
+    }
+}
