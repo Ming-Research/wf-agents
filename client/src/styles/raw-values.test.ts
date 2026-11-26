@@ -115,7 +115,7 @@ type Exception = { file: string; value: string; within: string; reason: string; 
 function judge(sheets: Record<string, string>, exceptions: Exception[]) {
   const found = Object.entries(sheets).flatMap(([file, css]) => scan(css).map((f) => ({ file, ...f })));
   const holds = (e: Exception, f: { file: string; found: string; statement: string }) =>
-    e.file === f.file && e.value === f.found;
+    e.file === f.file && e.value === f.found && f.statement.toLowerCase().startsWith(e.within);
   return {
     unlisted: found.filter((f) => !exceptions.some((e) => holds(e, f))),
     stale: exceptions.filter((e) => !found.some((f) => holds(e, f))),
