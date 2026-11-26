@@ -2698,7 +2698,9 @@ impl Now {
                     .map(|waited| {
                         Ok(match waited {
                             WaitedOf::Call { call, on } => {
-                                let (at, queued_for) = runs_at(
+                                let held = held_call(work, *call);
+                                let (at, queued_for) = call_runs_at(
+                                    held.as_ref(),
                                     (along.iter())
                                         .find(|(under, _)| *under == Under::Call(*call))
                                         .map(|(_, said)| *said),
@@ -2710,7 +2712,7 @@ impl Now {
                                     made: made(work, *call)?,
                                     at,
                                     queued_for,
-                                    held: held_call(work, *call),
+                                    held,
                                 }
                             }
                             // The work waits for those of the items its item depends on that have not ended.
@@ -3405,6 +3407,12 @@ fn runs_at(said: Option<&Along>) -> (Option<String>, Option<String>) {
         Some(Along::Runs { at, queued_for }) => (Some(at.clone()), queued_for.clone()),
         _ => (None, None),
     }
+}
+
+/// The link and the runner of a call as [`runs_at`] says them, none where the call is held: it is carried out nowhere
+/// until its wait is over, and the run it last said it ran as is no longer where it stands.
+fn call_runs_at(held: Option<&HeldCall>, said: Option<&Along>) -> (Option<String>, Option<String>) {
+    if held.is_some() { (None, None) } else { runs_at(said) }
 }
 
 /// When the call was made.
@@ -5252,6 +5260,14 @@ pub(crate) mod tests {
         );
         assert_eq!(runs_at(Some(&runs)), (Some(link.to_string()), None));
         assert_eq!(runs_at(None), (None, None));
+        // A call held is carried out nowhere until its wait is over, whatever it last said.
+        let held = HeldCall {
+            until: 9_000,
+            failed: 1,
+            obstacle: Obstacle::NoRunner,
+        };
+        assert_eq!(call_runs_at(Some(&held), Some(&waits)), (None, None));
+        assert_eq!(call_runs_at(None, Some(&waits)), runs_at(Some(&waits)));
         let call = |(at, queued_for)| Waited::Call {
             call: 4,
             who: None,
