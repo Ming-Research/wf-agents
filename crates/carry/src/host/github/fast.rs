@@ -78,6 +78,22 @@ struct Plan<'a> {
 /// each run has a machine of its own.
 pub(super) const HOSTED: &str = "github";
 
+/// The fewest runs a workflow's usual time is worked out of: with fewer, the median is one or two runs' time, and the
+/// workflow has none.
+const USUAL_OF: usize = 5;
+
+/// How long the workflow's runs usually take: the median of the times of those of these runs that completed and were
+/// not cancelled, the upper of the two middle ones where they are an even number; none where fewer than [`USUAL_OF`]
+/// have a time.
+pub(super) fn usual(runs: &[Run]) -> Option<Duration> {
+    let mut took: Vec<u64> = runs.iter().filter_map(|run| run.took).collect();
+    if took.len() < USUAL_OF {
+        return None;
+    }
+    took.sort_unstable();
+    Some(Duration::from_secs(took[took.len() / 2]))
+}
+
 /// Whether a runner of a kind is online.
 enum Online {
     Yes,
@@ -700,7 +716,7 @@ impl<A: Api> GitHub<A> {
         let turn = match declared.runner == HOSTED {
             true => None,
             false => {
-                let Some((asked, _)) = self.runs_of(&plan, Duration::ZERO, stop).await? else {
+                let Some((asked, _, _)) = self.runs_of(&plan, Duration::ZERO, stop).await? else {
                     return Ok(None);
                 };
                 match asked.iter().any(|run| !run.cancelled) {
@@ -1121,7 +1137,10 @@ impl<A: Api> GitHub<A> {
     /// sent now, so that a run the request asked for moments before is found; then by the last one, where it is younger
     /// than [`Config::fast_poll`](super::Config::fast_poll), and the wait sleeps until that one is that old, so that the
     /// waits on a workflow look at it together, once each time. The jobs of a run that has started are looked at in the
-    /// same way.
+    /// same way. Once the run is found, it is looked at so only near the time it is expected to end, from half the time
+    /// the workflow's runs listed with it usually take ([`usual`]) after the wait began; before that, every
+    /// [`Config::slow_poll`](super::Config::slow_poll). A workflow with no usual time is looked at often throughout. A
+    /// run asked for before the engine started again is timed from the wait, which began later than the run.
     async fn execute<R: Reader>(
         &self,
         plan: &Plan<'_>,
@@ -1149,9 +1168,9 @@ impl<A: Api> GitHub<A> {
     ) -> Result<Option<Ran<R::Read>>, Failed> {
         let workflow = plan.workflow;
         let main = &self.project.main;
-        let poll = self.config.fast_poll;
+        let (fast, slow) = (self.config.fast_poll, self.config.slow_poll);
         let start = self.config.start;
-        let Some((asked, _)) = self.runs_of(plan, Duration::ZERO, stop).await? else {
+        let Some((asked, _, _)) = self.runs_of(plan, Duration::ZERO, stop).await? else {
             return Ok(None);
         };
         // A run cancelled judged nothing, and is passed over: the request asks for another.
@@ -1165,8 +1184,15 @@ impl<A: Api> GitHub<A> {
         let mut waiting = Waiting::new(began);
         // Whether a job of the run has started, as GitHub's word for the run or, where that is queued, its jobs said.
         let mut under_way = false;
+        // From when the run is near the time it is expected to end; none until it is found, or where its workflow has
+        // no usual time.
+        let mut near: Option<tokio::time::Instant> = None;
         let run = loop {
-            let Some((runs, at)) = self.runs_of(plan, poll, stop).await? else {
+            let poll = match near {
+                Some(near) if tokio::time::Instant::now() < near => slow,
+                _ => fast,
+            };
+            let Some((runs, at, usual)) = self.runs_of(plan, poll, stop).await? else {
                 return Ok(None);
             };
             let mine = (runs.into_iter())
@@ -1200,6 +1226,8 @@ impl<A: Api> GitHub<A> {
                     queued_for: queued.then(|| plan.runner.to_string()),
                 }));
             }
+            // Once the run is found, it is near its end from half the workflow's usual time after the wait began.
+            let near_from = mine.as_ref().and(usual).map(|usual| began + usual / 2);
             match mine {
                 Some(run) if run.completed => break run,
                 None if began.elapsed() >= start => {
@@ -1264,8 +1292,13 @@ impl<A: Api> GitHub<A> {
                 }
                 _ => {}
             }
+            near = near_from;
+            let next = match near {
+                Some(near) if now < near => (at + slow).min(near),
+                _ => at + fast,
+            };
             tokio::select! {
-                () = tokio::time::sleep_until(at + poll) => {}
+                () = tokio::time::sleep_until(next) => {}
                 () = stop.told() => return Ok(None),
             }
         };
@@ -1344,22 +1377,23 @@ impl<A: Api> GitHub<A> {
     }
 
     /// The runs by hand of the plan's workflow on main whose name holds the plan's value, as the shared look found them
-    /// that was sent less than `within` ago, or else one sent now, and when that look was sent; none where it was told
-    /// to stop.
+    /// that was sent less than `within` ago, or else one sent now; when that look was sent; and how long the runs it
+    /// lists usually take ([`usual`]). None where it was told to stop.
     async fn runs_of(
         &self,
         plan: &Plan<'_>,
         within: Duration,
         stop: &mut Stop,
-    ) -> Result<Option<(Vec<Run>, tokio::time::Instant)>, Failed> {
+    ) -> Result<Option<(Vec<Run>, tokio::time::Instant, Option<Duration>)>, Failed> {
         let found = tokio::select! {
             found = self.looks.runs(&self.api, plan.workflow, &self.project.main, within) => found?,
             () = stop.told() => return Ok(None),
         };
+        let usual = usual(&found.runs);
         let mine = (found.runs.into_iter())
             .filter(|r| r.title.contains(&plan.call))
             .collect();
-        Ok(Some((mine, found.at)))
+        Ok(Some((mine, found.at, usual)))
     }
 }
 
