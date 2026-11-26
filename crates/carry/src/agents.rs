@@ -3073,6 +3073,30 @@ mod tests {
         assert_eq!(after("--effort"), Some("high"));
         assert_eq!(after("--resume"), Some(session.to_string().as_str()));
         assert_eq!(args.last(), Some(&"--fork-session"));
+        // The session's line is given the worktree as a round of it is: its edits allowed by its absolute path, and
+        // the path a directory of its own.
+        let worktree_path = place.dir.to_string_lossy().trim_end_matches('/').to_string();
+        let given_after = |flag: &str| {
+            args.iter()
+                .enumerate()
+                .filter(|(_, a)| **a == flag)
+                .map(|(i, _)| args[i + 1])
+                .collect::<Vec<_>>()
+        };
+        assert!(given_after("--add-dir").contains(&worktree_path.as_str()), "{args:?}");
+        let rule = format!("Edit(/{worktree_path}/**)");
+        let allowed = args
+            .iter()
+            .position(|a| *a == "--allowedTools")
+            .expect("the allowed rules");
+        assert!(
+            args[allowed + 1..]
+                .iter()
+                .take_while(|a| !a.starts_with("--"))
+                .any(|a| *a == rule),
+            "{args:?}"
+        );
+        assert!(!args.contains(&"Edit(./**)"), "{args:?}");
         let cwd = std::fs::read_to_string(data.join("cwd")).expect("where it ran");
         let worktree = std::fs::canonicalize(&place.dir).expect("the worktree");
         assert_eq!(std::fs::canonicalize(cwd.trim()).expect("a directory"), worktree);
