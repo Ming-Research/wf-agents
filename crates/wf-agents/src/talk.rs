@@ -2398,6 +2398,7 @@ fn now(now: &Now) -> String {
             why,
             waits_for,
             open,
+            ..
         } => owner_paused(at, why.as_deref(), waits_for, open),
         Now::Paused {
             at,
@@ -3421,6 +3422,7 @@ mod tests {
             now(&Now::Paused {
                 at: "plan".to_string(),
                 by,
+                ran: true,
                 why: why.map(str::to_string),
                 waits_for: waits_for.to_vec(),
                 open: open.to_vec(),

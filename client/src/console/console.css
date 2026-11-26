@@ -47,6 +47,12 @@
   color: var(--red-text);
 }
 
+/* What the tree says where it draws no item: not a fault, so in the muted colour, beside the boxes it names. */
+.console-empty {
+  margin: 0;
+  color: var(--muted);
+}
+
 /* The search, while it is open: one card over the middle of the console's top, a sixth of the way down, so that what
    it finds has room under it, over the tree and the window: with a card's corners, its hairline frame lit with the
    accent, in a soft light of the accent's colour, which is the focus's, close round it and wider further out (decision

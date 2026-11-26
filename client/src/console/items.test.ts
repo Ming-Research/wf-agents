@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { CellNow, Item, Items, Now, Summary, Wait } from '../works-api';
 import {
   asksOf,
+  emptyOf,
   findItems,
   NO_PROJECT,
   projectsIn,
@@ -413,7 +414,7 @@ describe('what a card shows of an item', () => {
   it('gives a work that has not run a round no second row, its colours only where it is halted or waits for the owner', () => {
     const paused: Item = {
       ...item(1, 'open', [4]),
-      work: work(1, { kind: 'paused', at: 'plan', by: 'owner', why: null }),
+      work: work(1, { kind: 'paused', ran: false, at: 'plan', by: 'owner', why: null }),
     };
     const fault: Item = { ...item(2, 'open'), work: work(2, { kind: 'fault', words: 'No session' }) };
     const owner: Now = {
@@ -424,7 +425,7 @@ describe('what a card shows of an item', () => {
     const ruling: Wait = { key: 'write-read', why: 'plan requires test = read, which read keeps from holding.', ends: { kind: 'write', block: 'read', value: 'yes' } };
     const waiting: Item = { ...item(3, 'open'), work: { ...work(3, owner), waits: [ruling] } };
     // Brought over from elsewhere: its first cell stands done, and no round of it ever ran.
-    const held: Now = { kind: 'paused', at: 'implement', by: 'owner', why: null };
+    const held: Now = { kind: 'paused', ran: false, at: 'implement', by: 'owner', why: null };
     const brought: Item = { ...item(5, 'open'), work: { ...work(5, held, ['done', 'notYet', 'notYet']), from: null } };
     const shown = shownTree({ items: [paused, fault, waiting, item(4, 'open'), brought] });
     // Paused before its first round, as the one brought over is, it is drawn as an open item with no work; halted, or
@@ -438,7 +439,8 @@ describe('what a card shows of an item', () => {
     // Not begun, it still says what it waits on the owner for.
     expect(shown[2].asks).toBe(1);
     // Once its first round has begun, the same work paused is drawn, with the time of that round.
-    const ran = shownTree({ items: [{ ...paused, work: { ...paused.work, from: 1 } }, item(4, 'open')] });
+    const after: Now = { kind: 'paused', ran: true, at: 'plan', by: 'owner', why: null };
+    const ran = shownTree({ items: [{ ...paused, work: { ...work(1, after), from: 1 } }, item(4, 'open')] });
     expect(ran[0].begun).toBe(true);
     expect([ran[0].work?.now.kind, ran[0].work?.from]).toEqual(['paused', 1]);
   });
@@ -485,3 +487,37 @@ describe('what the owner has not read of an item', () => {
     ]);
   });
 });
+
+describe('why the tree of a project shows no item', () => {
+  const only = (standing: 'open' | 'done' | 'cancelled') => new Set<'open' | 'done' | 'cancelled'>([standing]);
+  const elsewhere = (n: number, standing: 'open' | 'done' | 'cancelled', project: string): Item => ({
+    ...item(n, standing),
+    project,
+  });
+
+  it('says there is no item where the project has none, whatever the boxes tick', () => {
+    const data: Items = { items: [item(1, 'open')] };
+    expect(emptyOf(data, only('open'), 'Birch')).toEqual({ kind: 'none' });
+    expect(emptyOf(data, new Set(STANDINGS), 'Birch')).toEqual({ kind: 'none' });
+  });
+
+  it('says that the boxes hide every item, how many, and which boxes to tick, those that hide one', () => {
+    const data: Items = { items: [item(1, 'open'), item(2, 'open'), item(3, 'done')] };
+    // Only Open is unticked of what hides an open item: the done one is hidden too, its box unticked.
+    expect(emptyOf(data, new Set(), 'wf-agents')).toEqual({ kind: 'hidden', count: 3, unticked: ['open', 'done'] });
+    // Only open items, Open unticked: Done and Cancelled would show nothing, and are not named.
+    const open: Items = { items: [item(1, 'open')] };
+    expect(emptyOf(open, only('done'), 'wf-agents')).toEqual({ kind: 'hidden', count: 1, unticked: ['open'] });
+    // Only done and cancelled items, as the first load shows them: the boxes to tick are those two.
+    const ended: Items = { items: [item(1, 'done'), item(2, 'cancelled'), item(3, 'done')] };
+    expect(emptyOf(ended, only('open'), 'wf-agents')).toEqual({ kind: 'hidden', count: 3, unticked: ['done', 'cancelled'] });
+  });
+
+  it('says nothing where an item of the project is shown, or only the project asked for is looked at', () => {
+    const data: Items = { items: [item(1, 'open'), item(2, 'done'), elsewhere(3, 'open', 'Birch')] };
+    expect(emptyOf(data, only('open'), 'wf-agents')).toBeNull();
+    // The items of another project do not count for this one: its own are hidden.
+    expect(emptyOf(data, only('cancelled'), 'wf-agents')).toEqual({ kind: 'hidden', count: 2, unticked: ['open', 'done'] });
+  });
+});
+

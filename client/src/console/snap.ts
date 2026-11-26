@@ -64,7 +64,7 @@ import { accentNow, onAccent, turning } from '../accent';
 import { LINES_LOOKS, levelLook, levelPointed, levelWords } from '../marks';
 import { CELL_LOOKS, MARK, pulsing } from '../works/state-marks';
 import type { CellNow, CellState } from '../works-api';
-import { NO_LEVEL, STATE, itemName, linesAdded, linesRemoved, stateOf, stoppedAt } from '../works/words';
+import { NO_LEVEL, itemName, linesAdded, linesRemoved, stateOf, stateSaid, stoppedAt } from '../works/words';
 import { type Fold, STANDINGS, type Shown, type ShownWork, age, somethingUnread } from './items';
 import { indexTree, type Tree } from './tree';
 
@@ -953,12 +953,12 @@ export type Mood = 'running' | 'owner' | 'calling' | 'paused' | 'halted' | 'wait
 /// cell for the calls of tools waits for them; a halted one, at a fault or stalled, is halted; one paused, by the
 /// owner's pause or the owner's pause of everything, is paused; any other waits.
 export function moodOf(w: Pick<ShownWork, 'now' | 'cells' | 'waits'>): Mood {
-  const { tone, word } = stateOf(w);
+  const { tone, which } = stateOf(w);
   if (tone === 'owner') return 'owner';
   if (tone === 'running') return 'running';
   if (tone === 'calling') return 'calling';
   if (tone === 'failed') return 'halted';
-  return word === STATE.paused ? 'paused' : 'waiting';
+  return which === 'paused' ? 'paused' : 'waiting';
 }
 
 /// The cell a work is stopped at, for the owner or by the engine, and the colour its mark takes, red, as its card is
@@ -3016,6 +3016,13 @@ export class SnapScene {
     return this.beside(t, x, y, 0, NODE_W);
   }
 
+  /// What pointing at the card of item `k` says of how its work stands, in the engine's words (`stateSaid`), where the
+  /// pointer is over the card but not its level; nothing over a shadow or an item with no work.
+  private stateSaid(k: number): string {
+    const stands = k < 0 ? undefined : this.shownItems[k]?.stands;
+    return stands == null ? '' : stateSaid(stands);
+  }
+
   /// What pointing at the level on the card of item `k` says, where the pointer is over it; else nothing.
   private levelSaid(k: number): string {
     const p = this.pointer;
@@ -3333,7 +3340,7 @@ export class SnapScene {
       // What a click on the fold does, else what the level under the pointer is: a level cannot be pressed, so only a
       // fold's words turn the pointer to a hand.
       const foldWordsSaid = fold == null ? '' : foldWords(fold);
-      const said = foldWordsSaid !== '' ? foldWordsSaid : this.levelSaid(this.under);
+      const said = foldWordsSaid !== '' ? foldWordsSaid : this.levelSaid(this.under) || this.stateSaid(this.under);
       if (said !== this.foldSaid) {
         this.foldSaid = said;
         this.app.canvas.title = said;

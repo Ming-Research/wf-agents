@@ -78,6 +78,17 @@ describe("a card's mood", () => {
     const agent: CellNow[] = [{ ...at[0], state: 'running' }];
     expect(moodOf({ now: act, cells: agent, waits: [] })).toBe('running');
   });
+
+  // A pause and a wait are one grey and two moods: the mood is read from which state it is, not from the word that
+  // says it, so that a state added with a word of its own does not turn into the mood of a pause or a wait by it.
+  it('tells a pause from a wait by which state it is, and says Paused and Waiting differently', () => {
+    const paused: Now = { kind: 'paused', ran: true, at: 'M1', by: 'owner', why: null };
+    const waits: Now = { kind: 'waits', at: 'M1', on: [{ kind: 'items', items: [4] }] };
+    expect(moodOf({ now: paused, cells: [], waits: [] })).toBe('paused');
+    expect(moodOf({ now: { kind: 'everything', ran: true, at: 'M1', by: 'owner' }, cells: [], waits: [] })).toBe('paused');
+    expect(moodOf({ now: waits, cells: [], waits: [] })).toBe('waiting');
+    expect(stateOf({ now: paused, cells: [], waits: [] }).word).not.toBe(stateOf({ now: waits, cells: [], waits: [] }).word);
+  });
 });
 
 describe('what a fold hides', () => {
@@ -92,6 +103,7 @@ describe('what a fold hides', () => {
     repliesUnread: 0,
     begun: false,
     shadow,
+    stands: null,
     work: null,
     children,
   });

@@ -8,7 +8,7 @@
 //! did with it cannot differ.
 
 use decide::run::{self, Hold, Step};
-use decide::{BlockId, Decision, Holder, Room, Write, decide_in, hold_in, paused, told};
+use decide::{BlockId, Decision, Holder, Room, RunId, Write, decide_in, hold_in, paused, told};
 use flow::Compiled;
 use work::Work;
 
@@ -31,27 +31,8 @@ pub fn held(flow: &Compiled, work: &Work, room: Room) -> Option<Holder> {
         Decision::Paused { .. } => Some(pause()),
         Decision::Wait { on, .. } if on == [decide::Waited::Turn] => Some(Holder::Turn),
         Decision::Wait { on, .. } if on == [decide::Waited::Slot] => Some(Holder::Slot),
-        Decision::GoOn { run, .. } => {
-            let choices = choices(flow);
-            let nothing_but = nothing_but(flow);
-            let answers = answers(flow, work, run);
-            let told = told(&flow.flow, records, run)?;
-            // As the loop asks it: a round the pause holds back is held whether the return before it was sent back for
-            // what it left out of the blocks the work needs, or for any other fault.
-            let stuck =
-                |dealt_with: &[BlockId], writes: &[Write]| stuck_blocks(flow, work, &choices, run, dealt_with, writes);
-            let requires = requires(
-                flow,
-                &choices,
-                &nothing_but,
-                &answers,
-                &told,
-                Some(run::Stuck(&stuck)),
-                work,
-                run,
-            )?;
-            let log = log(flow, work, run, &told);
-            let held = |hold: Hold| run::next(&log, requires, hold) == Step::Held;
+        Decision::GoOn { run, .. } => with_run(flow, work, run, |log, requires| {
+            let held = |hold: Hold| run::next(log, requires, hold) == Step::Held;
             // The pauses alone, as if the turn were this work's and a slot were free; then the turn; then everything the
             // room holds back.
             let paused_only = Room {
@@ -67,7 +48,47 @@ pub fn held(flow: &Compiled, work: &Work, room: Room) -> Option<Holder> {
                 return Some(Holder::Turn);
             }
             held(hold_in(&flow.flow, records, run, room)).then_some(Holder::Slot)
-        }
+        })?,
         _ => None,
     }
+}
+
+/// Whether the run, a run of the work at rest between two rounds, would send back what it last returned if nothing
+/// held it: what the engine has decided for it, whether or not a pause, the turn or a slot holds the round back now.
+/// None of the holders changes this, for they hold a round back and decide nothing of what it is.
+pub fn sends_back(flow: &Compiled, work: &Work, run: RunId) -> bool {
+    with_run(flow, work, run, |log, requires| {
+        matches!(run::next(log, requires, Hold::Nothing), Step::SendBack { .. })
+    })
+    .unwrap_or(false)
+}
+
+/// What `then` makes of the run's own log and of what the flow requires of what it returns, as the engine's loop reads
+/// them; none where they cannot be read.
+fn with_run<R>(
+    flow: &Compiled,
+    work: &Work,
+    run: RunId,
+    then: impl FnOnce(&run::Log, run::Requires<'_>) -> R,
+) -> Option<R> {
+    let records = &work.records;
+    let choices = choices(flow);
+    let nothing_but = nothing_but(flow);
+    let answers = answers(flow, work, run);
+    let told = told(&flow.flow, records, run)?;
+    // As the loop asks it: a round the pause holds back is held whether the return before it was sent back for what it
+    // left out of the blocks the work needs, or for any other fault.
+    let stuck = |dealt_with: &[BlockId], writes: &[Write]| stuck_blocks(flow, work, &choices, run, dealt_with, writes);
+    let requires = requires(
+        flow,
+        &choices,
+        &nothing_but,
+        &answers,
+        &told,
+        Some(run::Stuck(&stuck)),
+        work,
+        run,
+    )?;
+    let log = log(flow, work, run, &told);
+    Some(then(&log, requires))
 }

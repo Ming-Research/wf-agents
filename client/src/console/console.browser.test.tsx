@@ -25,14 +25,14 @@ import { DEFAULT_ACCENT, pickAccent, PRESETS, tones } from '../accent';
 import { apart, lchOf } from '../colour';
 import { MARKS } from '../marks';
 import { useBarItems } from '../Engine';
-import { NO_LEVEL } from '../works/words';
-import type { Changed, Items, Now } from '../works-api';
+import { NO_LEVEL, STATE } from '../works/words';
+import type { CellNow, Changed, Items, Now } from '../works-api';
 import { FIXTURES, type Source as PageSource, SourceContext } from '../works/source';
 import { fixtureSource } from './fixtures';
 import { FIND_SAYS } from './find';
 import { CONSOLE_MARKS } from './help';
-import { ConsolePage } from './index';
-import type { Shown, ShownWork } from './items';
+import { ConsolePage, emptyWords } from './index';
+import { STANDINGS, type Shown, type ShownWork, standingOf } from './items';
 import {
   DIM,
   DOT_AT,
@@ -65,6 +65,7 @@ const card = (id: number, children: Shown[] = []): Shown => ({
   deliver: false,
   begun: false,
   shadow: false,
+  stands: null,
   work: null,
   children,
 });
@@ -236,6 +237,45 @@ describe('the tree in columns', () => {
     expect(said(worked(3, { level: '2', raise: 0, cellLevel: '2', held: null })).title).toBe('level 2');
     // A work whose engine gives no level: a dash, and why there is none.
     expect(said(worked(4, { level: null, raise: 0, cellLevel: null, held: null })).title).toBe(NO_LEVEL.level);
+  });
+
+  // A pause and a wait stand in one grey, neither needing the owner, so the card says which on pointing at it, in the
+  // engine's words for the state: the cell, and where a pause holds a round to be given again, that it is given once the
+  // pause is lifted. A work that has run no round is drawn as a plain card and says its state too.
+  it("says on pointing at a card how its work stands in the engine's words, and draws a pause and a wait in one grey", async () => {
+    const failed: CellNow = { cell: 'implement', state: 'failed', finished: 0, record: null, open: 1 };
+    const resting: CellNow = { ...failed, state: 'resting' };
+    const paused: Now = { kind: 'paused', ran: true, at: 'implement', by: 'owner', why: null };
+    const waits: Now = { kind: 'waits', at: 'implement', on: [{ kind: 'items', items: [9] }] };
+    const never: Now = { kind: 'paused', ran: false, at: 'plan', by: 'owner', why: null };
+    const standing = (id: number, now: Now, cells: CellNow[]): Shown => {
+      const work = { ...running(id), now, cells, paused: now.kind === 'paused' ? ('owner' as const) : null };
+      return { ...card(id), begun: true, stands: { now, cells, waits: [] }, work };
+    };
+    const left = () => scene.place().left;
+    const said = (item: Shown) => {
+      scene.show([item]);
+      settle(scene);
+      move(WIDTH - 10, HEIGHT - 10);
+      scene.step();
+      move(left() + 100, line);
+      scene.step();
+      return canvas().title;
+    };
+    expect(said(standing(1, paused, [failed]))).toBe('Paused · implement · its last round is to be given once the pause is lifted');
+    expect(said(standing(2, paused, [resting]))).toBe('Paused · implement');
+    expect(said(standing(3, waits, [resting]))).toBe(`${STATE.items} · implement`);
+    // Never run, it is a plain card of one row with no work drawn, and says Not started as the engine does.
+    expect(said({ ...card(4), stands: { now: never, cells: [], waits: [] } })).toBe('Not started · plan');
+    // A shadow, and an item with no work, say nothing.
+    expect(said(shadow(5))).toBe('');
+    expect(said(card(6))).toBe('');
+    // The pause and the wait are drawn on the map in one grey.
+    scene.show([standing(1, paused, [resting]), standing(3, waits, [resting])]);
+    settle(scene);
+    const colour = new Map(scene.drawnMap().pieces.map((p) => [p.id, p.colour]));
+    expect(colour.get(1)).toBe(themed().paused);
+    expect(colour.get(3)).toBe(themed().paused);
   });
 
   it("writes the number of each card, a shadow's and a deliverable's too, as #n, and starts every title past the widest number the whole tree holds, folded items included", () => {
@@ -547,7 +587,7 @@ describe('the tree in columns', () => {
       on: [{ kind: 'call', call: 1, who: null, what: { kind: 'tool', name: 'ci', input: 'the tests' } }],
     };
     const asks = [{ key: 'answer-which', why: 'Which?', ends: { kind: 'resume' as const } }];
-    const paused: Now = { kind: 'paused', at: 'implement', by: 'owner', why: null };
+    const paused: Now = { kind: 'paused', ran: true, at: 'implement', by: 'owner', why: null };
     const items: Shown[] = [
       { ...card(1), begun: true, work: running(1) },
       { ...card(2), begun: true, work: { ...running(2), now: call } },
@@ -713,7 +753,7 @@ describe('the tree in columns', () => {
       at: 'implement',
       on: [{ kind: 'call', call: 1, who: null, what: { kind: 'tool', name: 'ci', input: 'the tests' } }],
     };
-    const paused: Now = { kind: 'paused', at: 'implement', by: 'owner', why: null };
+    const paused: Now = { kind: 'paused', ran: true, at: 'implement', by: 'owner', why: null };
     const asks = [{ key: 'answer-which', why: 'Which?', ends: { kind: 'resume' as const } }];
     const under = (k: number, work: ShownWork) => ({ ...card(k), begun: true, work });
     // Under 1: 2 runs a round, 3 waits for the engine's call, 4 waits for the owner, and 5 is paused.
@@ -1179,7 +1219,7 @@ describe('the console page', () => {
     expect(container.querySelector('.console-shows')?.getAttribute('aria-label')).toBe('Which items the tree shows');
     expect(boxes().map((l) => l.textContent)).toEqual(['Open', 'Done', 'Cancelled']);
     expect(boxes().map((l) => l.title)).toEqual([
-      'The items not done or cancelled: running, paused or waiting',
+      'The items not done or cancelled: running, paused, waiting or not started',
       'The items whose work merged',
       'The items whose work was cancelled',
     ]);
@@ -1703,6 +1743,47 @@ describe('the console page, with several projects', () => {
     container.remove();
     open();
     await expect.poll(current).toBe('Birch');
+  });
+
+  it('says why a tree is empty where it is: the project has no item, or the boxes hide every one of them, and which boxes to tick', async () => {
+    await drawn();
+    const said = () => container.querySelector('.console-empty')?.textContent ?? null;
+    const box = (name: string) =>
+      [...container.querySelectorAll<HTMLLabelElement>('.console-shows label')]
+        .find((l) => l.textContent === name)
+        ?.querySelector('input') as HTMLInputElement;
+    // A tree that draws items says nothing of this.
+    await expect.poll(current).toBe('Alder');
+    expect(said()).toBeNull();
+    // A project with no item yet.
+    key('2');
+    await expect.poll(current).toBe('Birch');
+    await expect.poll(said).toBe('No items in this project yet');
+    // A project whose items the boxes all hide: Open unticked hides the open ones, and the done and the cancelled were
+    // hidden already, so each box of a kind the project has is named.
+    key('1');
+    await expect.poll(current).toBe('Alder');
+    await expect.poll(said).toBeNull();
+    const alder = (await fixtureSource(Date.now(), 4).items.loadItems()).items.filter((i) => i.project === 'Alder');
+    const kinds = STANDINGS.filter((s) => alder.some((i) => standingOf(i) === s));
+    box('Open').click();
+    await expect.poll(said).toBe(emptyWords({ kind: 'hidden', count: alder.length, unticked: kinds }));
+    expect(said()).toMatch(/^All \d+ items are hidden by the boxes: tick Open/);
+    // Ticked again, the items are drawn and nothing is said.
+    box('Open').click();
+    await expect.poll(said).toBeNull();
+  });
+
+  it('says in words, which the empty tree draws, that no item is there, or that all of them, or the one, are hidden by boxes to tick', () => {
+    expect(emptyWords({ kind: 'none' })).toBe('No items in this project yet');
+    expect(emptyWords({ kind: 'hidden', count: 3, unticked: ['done', 'cancelled'] })).toBe(
+      'All 3 items are hidden by the boxes: tick Done or Cancelled',
+    );
+    expect(emptyWords({ kind: 'hidden', count: 7, unticked: ['open'] })).toBe('All 7 items are hidden by the boxes: tick Open');
+    expect(emptyWords({ kind: 'hidden', count: 4, unticked: ['open', 'done', 'cancelled'] })).toBe(
+      'All 4 items are hidden by the boxes: tick Open, Done or Cancelled',
+    );
+    expect(emptyWords({ kind: 'hidden', count: 1, unticked: ['done'] })).toBe('The item is hidden by the boxes: tick Done');
   });
 
   it('puts the list in the order a name is dragged into, keeps that order, and gives the keys by it', async () => {

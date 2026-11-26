@@ -400,8 +400,8 @@ describe('the list of works', () => {
     const pause: Wait = { key: 'pause', why: 'x', ends: { kind: 'resume' } };
     const question: Wait = { key: 'answer-scope', why: 'Which scope?', ends: { kind: 'answer', question: 'scope', version: 3 } };
     const merge: Now = { kind: 'waits', at: 'merge', on: [{ kind: 'precondition', test: 'asked', words: 'asked', by: [{ kind: 'owner' }] }] };
-    expect(pauseDiffers(at({ kind: 'paused', at: 'plan', by: 'owner', why: null }, 'owner'))).toBe(false);
-    const engine = at({ kind: 'paused', at: 'plan', by: 'engine', why: 'A round failed.' }, 'engine', [pause]);
+    expect(pauseDiffers(at({ kind: 'paused', ran: true, at: 'plan', by: 'owner', why: null }, 'owner'))).toBe(false);
+    const engine = at({ kind: 'paused', ran: true, at: 'plan', by: 'engine', why: 'A round failed.' }, 'engine', [pause]);
     expect(pauseDiffers(engine)).toBe(false);
     // The owner's pause holds a work that waits for the owner as well: both are said.
     expect(pauseDiffers(at(merge, 'owner', [question]))).toBe(true);
@@ -410,9 +410,28 @@ describe('the list of works', () => {
     expect(pauseDiffers(at({ kind: 'waits', at: 'plan', on: [{ kind: 'slot' }] }, 'owner'))).toBe(true);
     expect(pauseDiffers(at({ kind: 'round', cell: 'plan', run: 1, round: 1, since: 0 }, 'owner'))).toBe(true);
     expect(pauseDiffers(at({ kind: 'merged' }, 'owner'))).toBe(false);
+    // Not started is the state of a pause no round of the work has begun: it says the pause itself, and no `Paused` stands
+    // beside it; a round under way under the pause is something else, and the pause is said beside it.
+    expect(pauseDiffers(at({ kind: 'paused', ran: false, at: 'plan', by: 'owner', why: null }, 'owner'))).toBe(false);
+    expect(pauseDiffers(at({ kind: 'everything', ran: false, at: 'plan', by: 'owner' }, 'owner'))).toBe(false);
     expect(pauseDiffers(at({ kind: 'waits', at: 'plan', on: [{ kind: 'slot' }] }, null))).toBe(false);
     const page = draw(<WorksTable items={fixtureItems()} />, fixtureSource());
     expect(page.querySelector('[data-work="46"] .now-paused')).toBeNull();
+  });
+
+  // The engine says of the run's cell that its round is to be given again; a pause holds it back, so that it is given
+  // once the pause is lifted, which the first line of the Step says beside why.
+  it('says in the Step that a run to be given again is given once the pause is lifted, where a pause holds it', async () => {
+    const work = structuredClone(fixtureWork(50));
+    work.summary.now = { kind: 'paused', ran: true, at: 'implement', by: 'owner', why: null };
+    work.summary.paused = 'owner';
+    work.summary.waits = [];
+    const { page } = await drawWork(work);
+    const rows = runRows(page).map((r) => r.textContent?.includes('implement') === true);
+    await chooseRun(page, rows.lastIndexOf(true));
+    expect(step(page).querySelector('.status-word')?.textContent).toBe(
+      'Failed: its last round failed, to be given once the pause is lifted',
+    );
   });
 
   it('keeps the list when a read fails, says so, and reads again when the stream opens again', async () => {
