@@ -2868,7 +2868,7 @@ fn dollars(micros: u64) -> String {
     format!("${:.2}", micros as f64 / 1_000_000.0)
 }
 
-/// What the works waited for over the span, in at most nine lines whatever there is: for each cause how many stops ended
+/// What the works waited for over the span, in at most ten lines whatever there is: for each cause how many stops ended
 /// and how long they took, with the median and the longest; how long the calls and rounds that waited for CI took and
 /// how long its jobs waited for a runner; how many works held a slot and ran; and what is not known. Nothing is judged:
 /// the lines of each history are the judgments' to say.
