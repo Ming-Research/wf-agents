@@ -612,8 +612,12 @@ pub fn runs(work: &Work, texts: &Texts, given: Option<&ResultGiven>) -> Vec<Stri
         .enumerate()
         .map(|(i, (call, input))| {
             let result = work.results.get(&call).map(String::as_str).unwrap_or_default();
-            let _ = given;
-            let result = result.trim_end().to_string();
+            let result = match given {
+                Some(given) => given.cut_with(result, |kept, size| {
+                    fill(says("cut"), &[("given", kept), ("size", size)])
+                }),
+                None => result.trim_end().to_string(),
+            };
             fill(
                 says("call"),
                 &[("n", &(i + 1).to_string()), ("request", input), ("result", &result)],
