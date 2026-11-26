@@ -23,12 +23,12 @@ pub const HISTORY_SAMPLES: usize = 19;
 
 /// The line of a history: past its largest value by as much as that is past its median. None for an empty one.
 pub fn line(values: &[f64]) -> Option<f64> {
-    line_of_sorted(&sorted(values))
+    line_of_sorted(sorted(values).as_slice())
 }
 
 /// The median of values, the mean of the middle two for an even number of them; none for no value.
 pub fn median(values: &[f64]) -> Option<f64> {
-    median_of_sorted(&sorted(values))
+    median_of_sorted(sorted(values).as_slice())
 }
 
 /// The values, the smallest first.
@@ -38,18 +38,38 @@ fn sorted(values: &[f64]) -> Vec<f64> {
     sorted
 }
 
+/// Values in order, the smallest first, as a history holds them: a sorted slice, or the counts the judgments keep as
+/// they go through a flow's history ([`crate::judged`]).
+pub(crate) trait Sorted {
+    /// How many values there are.
+    fn count(&self) -> usize;
+    /// The value at this place, counted from nought for the smallest.
+    fn nth(&self, place: usize) -> f64;
+}
+
+impl Sorted for [f64] {
+    fn count(&self) -> usize {
+        self.len()
+    }
+
+    fn nth(&self, place: usize) -> f64 {
+        self[place]
+    }
+}
+
 /// The line of a history whose values are sorted, the smallest first.
-fn line_of_sorted(sorted: &[f64]) -> Option<f64> {
-    Some(2.0 * sorted.last()? - median_of_sorted(sorted)?)
+fn line_of_sorted<S: Sorted + ?Sized>(sorted: &S) -> Option<f64> {
+    let last = sorted.count().checked_sub(1)?;
+    Some(2.0 * sorted.nth(last) - median_of_sorted(sorted)?)
 }
 
 /// The median of values sorted, the smallest first.
-fn median_of_sorted(sorted: &[f64]) -> Option<f64> {
-    let n = sorted.len();
+pub(crate) fn median_of_sorted<S: Sorted + ?Sized>(sorted: &S) -> Option<f64> {
+    let n = sorted.count();
     match n {
         0 => None,
-        _ if n % 2 == 1 => Some(sorted[n / 2]),
-        _ => Some((sorted[n / 2 - 1] + sorted[n / 2]) / 2.0),
+        _ if n % 2 == 1 => Some(sorted.nth(n / 2)),
+        _ => Some((sorted.nth(n / 2 - 1) + sorted.nth(n / 2)) / 2.0),
     }
 }
 
@@ -79,31 +99,37 @@ pub struct Line {
 /// The line of values of one's own, where at least `least` of them have a median above nothing; else of everyone's,
 /// from at least `least`, where a line above nothing; else none.
 fn judged(own: &[f64], any: &[f64], least: usize, own_scope: Scope, any_scope: Scope) -> Option<Line> {
-    judged_sorted(&sorted(own), &sorted(any), least, own_scope, any_scope)
+    judged_sorted(
+        sorted(own).as_slice(),
+        sorted(any).as_slice(),
+        least,
+        own_scope,
+        any_scope,
+    )
 }
 
 /// [`judged`] of values each sorted, the smallest first.
-pub(crate) fn judged_sorted(
-    own: &[f64],
-    any: &[f64],
+pub(crate) fn judged_sorted<A: Sorted + ?Sized, B: Sorted + ?Sized>(
+    own: &A,
+    any: &B,
     least: usize,
     own_scope: Scope,
     any_scope: Scope,
 ) -> Option<Line> {
-    if own.len() >= least.max(1) && median_of_sorted(own).is_some_and(|m| m > 0.0) {
+    if own.count() >= least.max(1) && median_of_sorted(own).is_some_and(|m| m > 0.0) {
         return line_of_sorted(own).map(|value| Line {
             value,
-            samples: own.len(),
+            samples: own.count(),
             scope: own_scope,
         });
     }
-    if any.len() < least.max(1) {
+    if any.count() < least.max(1) {
         return None;
     }
     let value = line_of_sorted(any).filter(|v| *v > 0.0)?;
     Some(Line {
         value,
-        samples: any.len(),
+        samples: any.count(),
         scope: any_scope,
     })
 }
