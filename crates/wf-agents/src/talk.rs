@@ -668,6 +668,7 @@ fn done(work: u64, act: &Act, said: Option<&Said>) -> String {
             option,
             ..
         } => format!("Version {version} of the question {question} of work {work} is answered with option {option}."),
+        Act::Read { versions } => format!("{} versions of work {work} are read.", versions.len()),
         Act::Say { to, .. } => {
             let cell = said.map_or("the cell the engine chose", |s| s.reached.as_str());
             match to {
@@ -3181,7 +3182,7 @@ fn spent(spent: &Spent) -> String {
 
 #[cfg(test)]
 mod tests {
-    use web::works::{FirstItem, Item, ItemHistory, Summary};
+    use web::works::{FirstItem, Fresh, Item, ItemHistory, Summary};
 
     use super::*;
 
@@ -3258,12 +3259,18 @@ mod tests {
                 pull: None,
                 changed: None,
                 unread: false,
+                fresh: Fresh::None,
+                replies_unread: 0,
             },
         }
     }
 
     fn items(items: Vec<Item>) -> Items {
-        Items { items, outage: None }
+        Items {
+            items,
+            outage: None,
+            waits: Vec::new(),
+        }
     }
 
     /// An observation of the plan's first round of this work, kept at this time.
@@ -4793,6 +4800,8 @@ mod tests {
                 said_to: None,
                 chars: 5,
                 empty: false,
+                reply: false,
+                read: false,
             }],
         };
         let mut page = work(0, 0, 0, 0, 0);

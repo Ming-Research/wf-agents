@@ -5,9 +5,9 @@ use std::collections::BTreeMap;
 
 use decide::run::{self, Answer, Failure, Pausing, Requires, Step, Told, Unmet};
 use decide::{
-    Abandoned, BlockId, CallId, Called, CellId, Decision, Done, End, Finished, Held, LetGo, Obstacle, Outsider, Pause,
-    Pauser, PutIn, Retry, Returned, Room, Round, RunId, Seq, Started, Waited, Who, Write, Written, decide, decide_in,
-    hold_in, told,
+    Abandoned, BlockId, CallId, Called, CellId, Decision, Done, End, Finished, Held, LetGo, Obstacle, Outsider,
+    OwnerRead, Pause, Pauser, PutIn, Retry, Returned, Room, Round, RunId, Seq, Started, Waited, Who, Write, Written,
+    decide, decide_in, hold_in, told,
 };
 use flow::{Compiled, Kind};
 
@@ -318,6 +318,7 @@ fn take(flow: &Compiled, work: &mut Work, now: Time, event: Event, effects: &mut
     match event {
         event @ (Event::Look
         | Event::Paused { .. }
+        | Event::Read { .. }
         | Event::Resumed
         | Event::Done { .. }
         | Event::Ran { .. }
@@ -636,6 +637,28 @@ fn take_kept(end: &dyn Fn(&Work) -> Option<End>, let_go: &str, work: &mut Work, 
                 why,
                 waits_for,
             });
+        }
+        Event::Read { versions } => {
+            // Each version is named by its number among the block's versions; the entry names it by its place, once
+            // each, in the order the store reads them back.
+            let mut read = Vec::with_capacity(versions.len());
+            for (block, number) in versions {
+                let Some(version) = work.records.place([&block], number) else {
+                    return Err(Refused::NoSuchBlockVersion { block, version: number });
+                };
+                read.push((block, version));
+            }
+            read.sort();
+            read.dedup();
+            // What the owner has read already is not kept again, and an entry with nothing new adds nothing.
+            let read: Vec<(BlockId, Seq)> = read
+                .into_iter()
+                .filter(|version| !work.records.owner_reads.iter().any(|r| r.versions.contains(version)))
+                .collect();
+            if !read.is_empty() {
+                let at = work.tick();
+                work.records.owner_reads.push(OwnerRead { versions: read, at });
+            }
         }
         Event::Resumed => {
             let at = work.tick();

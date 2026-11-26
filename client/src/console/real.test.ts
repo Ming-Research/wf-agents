@@ -43,7 +43,14 @@ const SPOKEN: Flow = {
 };
 
 /// A version written at this place, the one of this number among its block's versions, which its content is read by.
-const version = (at: number, number: number, by: Version['by'], chars: number, saidTo: string | null = null): Version => ({
+const version = (
+  at: number,
+  number: number,
+  by: Version['by'],
+  chars: number,
+  saidTo: string | null = null,
+  said: { reply?: boolean; read?: boolean } = {},
+): Version => ({
   at,
   number,
   time: at * 1000,
@@ -53,6 +60,9 @@ const version = (at: number, number: number, by: Version['by'], chars: number, s
   saidTo,
   chars,
   empty: chars === 0,
+  // What the engine says of the version as a reply and as read: a run's version in a words block is a reply unless told.
+  reply: said.reply ?? by.kind === 'run',
+  read: said.read ?? false,
 });
 
 describe("the item's body, read from the data the flow's card names", () => {
@@ -139,7 +149,14 @@ describe("the messages of a work, read from each cell's own words", () => {
     const body = await readBody(page, load);
     expect(body.messages).toEqual([
       { who: 'owner', at: 5000, to: ['implement'], quote: 'Greet them.', text: 'By the first name.', taken: false },
-      { who: 'implement', at: 9000, to: ['owner'], quote: null, text: 'Done.' },
+      {
+        who: 'implement',
+        at: 9000,
+        to: ['owner'],
+        quote: null,
+        text: 'Done.',
+        reply: { block: 'implement_words', version: 2, read: false },
+      },
     ]);
     // A work that ended is given no flow: its card and its talk are read from its outline alone, as a work going on's.
     const ended = await readBody({ ...page, flow: null }, load);
@@ -222,6 +239,114 @@ describe("the messages of a work, read from each cell's own words", () => {
     expect(body.messages).toEqual([
       { who: 'owner', at: 12000, to: ['implement'], quote: null, text: 'One table.', taken: false },
       { who: 'owner', at: 14000, to: ['research'], quote: null, text: 'One table.', taken: false },
+    ]);
+  });
+});
+
+describe('what the owner has not read, read from what the engine says of each version', () => {
+  const run = { kind: 'run', run: 3, cell: 'implement' } as const;
+  const pageOf = (work: number, blocks: WorkPage['blocks'], card: string[]): WorkPage => {
+    const item = fixtureItems().items[0];
+    const flow: Flow = { ...SPOKEN, card };
+    return {
+      summary: { ...item.work, number: item.work.number + work },
+      title: item.title,
+      level: item.level,
+      project: item.project,
+      history: item.history,
+      outline: outlineOf(flow),
+      flow,
+      cells: [],
+      blocks,
+      steps: [],
+    };
+  };
+  const loading =
+    (contents: Record<string, string>) =>
+    (_: number, block: string, number: number): Promise<VersionPage> =>
+      Promise.resolve({ block, number, content: contents[`${block}/${number}`] ?? '' });
+
+  it("draws a cell's words as a reply only where the engine counts it one, with whether the owner has read it", async () => {
+    const page = pageOf(
+      10,
+      [
+        {
+          name: 'implement_words',
+          versions: [
+            // Written before the owner spoke: no reply, and left out.
+            version(2, 1, run, 20, null, { reply: false }),
+            version(5, 2, { kind: 'owner' }, 40),
+            version(9, 3, run, 30, null, { read: true }),
+            version(12, 4, run, 30),
+          ],
+        },
+      ],
+      [],
+    );
+    const body = await readBody(
+      page,
+      loading({
+        'implement_words/1': 'An agent:\n\nBefore.',
+        'implement_words/2': 'The owner:\n\nHello.',
+        'implement_words/3': 'An agent:\n\nOne.',
+        'implement_words/4': 'An agent:\n\nTwo.',
+      }),
+    );
+    expect(body.messages.map((m) => [m.who, m.text, m.reply])).toEqual([
+      ['owner', 'Hello.', undefined],
+      ['implement', 'One.', { block: 'implement_words', version: 3, read: true }],
+      ['implement', 'Two.', { block: 'implement_words', version: 4, read: false }],
+    ]);
+  });
+
+  it('marks changed the paragraphs of the latest version that the last version the owner read does not have, and none of an item read of nothing', async () => {
+    const by = { kind: 'run', run: 1, cell: 'research' } as const;
+    const contents = {
+      'how/1': 'First.\n\nSecond.',
+      'how/2': 'First.\n\nSecond, as it is now.\n\nThird.',
+      'why/1': 'Because.',
+    };
+    const page = pageOf(
+      11,
+      [
+        { name: 'how', versions: [version(3, 1, by, 16, null, { read: true }), version(6, 2, by, 40)] },
+        { name: 'why', versions: [version(4, 1, by, 8)] },
+      ],
+      ['how', 'why'],
+    );
+    const body = await readBody(page, loading(contents));
+    expect(body.sections).toEqual([
+      {
+        title: 'how',
+        parts: [
+          { kind: 'text', text: 'First.' },
+          { kind: 'text', text: 'Second, as it is now.\n\nThird.', changed: true },
+        ],
+      },
+      // Nothing of it was read: it is new as a whole, and no passage of it is marked.
+      { title: 'why', parts: [{ kind: 'text', text: 'Because.' }] },
+    ]);
+  });
+
+  it('names the versions that reading the item reads: the latest a run wrote of each datum the card names, where not read', async () => {
+    const by = { kind: 'run', run: 1, cell: 'research' } as const;
+    const page = pageOf(
+      12,
+      [
+        { name: 'how', versions: [version(3, 1, by, 16, null, { read: true }), version(6, 2, by, 20)] },
+        { name: 'why', versions: [version(4, 1, by, 8, null, { read: true })] },
+        { name: 'plan', versions: [version(5, 1, by, 8), version(7, 2, { kind: 'owner' }, 8)] },
+        // A run's latest version holds only whitespace, which is more than no characters and still nothing: the engine
+        // counts the one before it, which has something in it.
+        { name: 'last', versions: [version(8, 1, by, 10), { ...version(9, 2, by, 3), empty: true }] },
+      ],
+      ['how', 'why', 'plan', 'last', 'later'],
+    );
+    const body = await readBody(page, loading({}));
+    expect(body.toRead).toEqual([
+      { block: 'how', version: 2 },
+      { block: 'plan', version: 1 },
+      { block: 'last', version: 1 },
     ]);
   });
 });

@@ -4,7 +4,8 @@
 use std::collections::BTreeSet;
 
 use decide::{
-    Answered, Called, Finished, Held, Hurried, LetGo, Obstacle, Outsider, Pause, Questioned, Records, Started,
+    Answered, Called, Finished, Held, Hurried, LetGo, Obstacle, Outsider, OwnerRead, Pause, Questioned, Records,
+    Started,
 };
 
 use super::*;
@@ -151,12 +152,16 @@ fn every_kind() -> Records {
             version: Seq(8),
             at: Seq(22),
         }],
+        owner_reads: vec![OwnerRead {
+            versions: vec![("p".into(), Seq(1))],
+            at: Seq(LAST - 1),
+        }],
         reopens: vec![Seq(LAST)],
     }
 }
 
 /// The place of the last entry of [`every_kind`].
-const LAST: u64 = 25;
+const LAST: u64 = 26;
 
 /// The place of every entry of the records, with the list that holds it.
 fn places(r: &Records) -> BTreeSet<(&'static str, Seq)> {
@@ -181,6 +186,7 @@ fn places(r: &Records) -> BTreeSet<(&'static str, Seq)> {
         .chain(of("cancels", &r.cancels, |at| *at))
         .chain(of("reopens", &r.reopens, |at| *at))
         .chain(of("releases", &r.releases, |at| *at))
+        .chain(of("owner_reads", &r.owner_reads, |e| e.at))
         .collect()
 }
 

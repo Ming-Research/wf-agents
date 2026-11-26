@@ -95,6 +95,11 @@ fn changes() -> Vec<Change> {
             ("let_go", Entry::At(e.at))
         },
         |w| {
+            let e = &mut w.records.owner_reads[0];
+            e.versions.push(("elsewhere".into(), Seq(1)));
+            ("owner_read", Entry::At(e.at))
+        },
+        |w| {
             let e = &mut w.records.pauses[0];
             e.paused = !e.paused;
             ("pauses", Entry::At(e.at))
@@ -199,6 +204,7 @@ fn removals() -> Vec<Change> {
         },
         |w| ("answers", Entry::At(w.records.answers.pop().expect("an answer").at)),
         |w| ("let_go", Entry::At(w.records.let_go.pop().expect("a let-go").at)),
+        |w| ("owner_read", Entry::At(w.records.owner_reads.pop().expect("a read").at)),
         |w| ("pauses", Entry::At(w.records.pauses.pop().expect("a pause").at)),
         |w| ("cancelled", Entry::At(w.records.cancels.pop().expect("cancelled"))),
         |w| ("released", Entry::At(w.records.releases.pop().expect("released"))),
@@ -249,7 +255,7 @@ fn a_work_changed_at_an_entry_the_store_holds_is_refused_for_every_table_and_not
     let (db, mut store, work, kept) = held();
     let changes = changes();
     let tables: BTreeSet<&str> = changes.iter().map(|change| change(&mut kept.clone()).0).collect();
-    assert_eq!(tables.len(), 25, "a table has no change: {tables:?}");
+    assert_eq!(tables.len(), 26, "a table has no change: {tables:?}");
     for change in changes {
         let mut given = kept.clone();
         let (table, entry) = change(&mut given);

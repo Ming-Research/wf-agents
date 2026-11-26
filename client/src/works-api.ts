@@ -275,6 +275,9 @@ export interface Spent {
   rounds: number;
 }
 
+/// Whether an item is new to the owner, or has changed since they read it.
+export type Fresh = 'none' | 'new' | 'changed';
+
 /// A work in brief.
 export interface Summary {
   number: number;
@@ -319,6 +322,12 @@ export interface Summary {
   /// them ahead, as one the merge will wait for: those the item window draws as not holding the work. One that holds it
   /// counts in `waits` alone. Absent from an engine that does not give it yet.
   ahead?: number;
+  /// Whether the item is new to the owner, or has changed since they read it, as the engine's one definition of what the
+  /// owner has not read says. Absent from an engine that does not give it yet, as none.
+  fresh?: Fresh;
+  /// How many of the cells' replies the owner has not read, as the same definition says. Absent from an engine that does
+  /// not give it yet, as none.
+  repliesUnread?: number;
   /// The level its rounds run at, by the engine's rule that gives a round its level: its item's, or the default where
   /// its item has none; none where the rule refuses it, the item's level being none an item may be at. Absent from
   /// made-up data, as none.
@@ -471,6 +480,16 @@ export interface Items {
   /// A wait every work shares, where one stands; the interface always says, as none where none stands, and a page's own
   /// made-up items may leave it out.
   outage?: Outage | null;
+  /// What the whole installation waits on the owner for, which no work does, as the engine's one definition of what
+  /// waits on the owner says: the bar's count and the browser's notifications read it beside each work's own. A page's
+  /// own made-up items may leave it out, as none.
+  waits?: InstallationWait[];
+}
+
+/// One thing the whole installation waits on the owner for: a wait of no work, and since when it has, in milliseconds
+/// since 1970.
+export interface InstallationWait extends Wait {
+  since: number;
 }
 
 /// What a read of the items gives. The engine gives where its items stood (`cursor`), to be handed back as `since` at
@@ -527,6 +546,11 @@ export interface Version {
   chars: number;
   /// Whether it holds nothing, as the engine recorded it and a test of content reads it.
   empty: boolean;
+  /// Whether it is a cell's reply to the owner, as the engine's one definition of a reply says. Absent from an engine
+  /// that does not give it yet, as no reply.
+  reply?: boolean;
+  /// Whether the owner has read it. Absent from an engine that does not give it yet, as not read.
+  read?: boolean;
 }
 
 export interface Block {
@@ -981,6 +1005,9 @@ export type Act =
   | { kind: 'result'; call: number; result: string }
   /// Answers a version of a question, by its number, taking an option counted from one, and nothing else.
   | { kind: 'answer'; question: string; version: number; option: number }
+  /// Says the owner read these versions of the work's blocks, each by its block and its number among the block's
+  /// versions.
+  | { kind: 'read'; versions: { block: string; version: number }[] }
   /// Has the line begin a new session at its next round.
   /// Says words to a cell of the work's flow, or to a line of it: to the cell the engine chooses, which the work's page
   /// shows (`speaking`).

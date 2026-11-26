@@ -424,15 +424,20 @@ export function keptSame(before: Items, now: Items): Items {
     return item;
   });
   const outage = JSON.stringify(before.outage ?? null) === JSON.stringify(now.outage ?? null) ? before.outage : now.outage;
-  if (!changed && outage === before.outage) return before;
-  return { ...now, items, outage };
+  const waits = JSON.stringify(before.waits ?? null) === JSON.stringify(now.waits ?? null) ? before.waits : now.waits;
+  if (!changed && outage === before.outage && waits === before.waits) return before;
+  return { ...now, items, outage, waits };
 }
 
 /// The items the page holds once `read` came after `before`: all of them where `read` says it is the whole list, or
 /// says nothing of it as a source of made-up items does, else each item it gives in the place of the one of its number
 /// (a new one after the others), every other as the object it was.
 export function mergedItems(before: Items | null, read: ItemsRead): Items {
-  const given: Items = read.outage === undefined ? { items: read.items } : { items: read.items, outage: read.outage };
+  const given: Items = {
+    items: read.items,
+    ...(read.outage === undefined ? {} : { outage: read.outage }),
+    ...(read.waits === undefined ? {} : { waits: read.waits }),
+  };
   if (before === null) return given;
   if (read.full !== false) return keptSame(before, given);
   const changed = new Map(read.items.map((item) => [item.number, item]));

@@ -6,7 +6,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useNotifications } from '../notify';
-import type { Changed, Engine, Item, Items, ItemsRead, Wait, WorkPage } from '../works-api';
+import type { Changed, Engine, InstallationWait, Item, Items, ItemsRead, Wait, WorkPage } from '../works-api';
 import { fixtureItems } from './fixtures';
 import {
   fixturesOf,
@@ -258,6 +258,30 @@ describe('the items the page holds', () => {
     expect(now.items[2]).toBe(first.items[2]);
     expect(now.items[1]).not.toBe(first.items[1]);
     expect(now.items[1].title).toBe(retitled(b).title);
+  });
+
+  it("carry what the installation waits on the owner for as the last read gave it, the same list while it is the same, and none once it is gone", async () => {
+    const [a, b] = base;
+    const stopped: InstallationWait = { key: 'everything', why: 'The engine paused every work.', ends: { kind: 'resume' }, since: 5000 };
+    const w = wire((since) =>
+      since === undefined
+        ? { cursor: 'p.1', full: true, items: [a, b], outage: null, waits: [stopped], againAfterMs: AGAIN }
+        : since === 'p.1'
+          ? { cursor: 'p.2', full: false, items: [retitled(b)], outage: null, waits: [{ ...stopped }], againAfterMs: AGAIN }
+          : { cursor: 'p.3', full: false, items: [], outage: null, waits: [], againAfterMs: AGAIN },
+    );
+    const { held, onHeld } = holder();
+    draw(<Bar onHeld={onHeld} />, w.source);
+    await settle();
+    const first = held.latest.value as Items;
+    expect(first.waits).toEqual([stopped]);
+    // Read again as it was, it is the list the page held, so that nothing that reads it is drawn again.
+    w.tell(notice([b.work.number]));
+    await settle();
+    expect((held.latest.value as Items).waits).toBe(first.waits);
+    w.tell(notice([b.work.number]));
+    await settle();
+    expect((held.latest.value as Items).waits).toEqual([]);
   });
 
   it('are the whole list where the engine says so, and a read that failed keeps what was shown and the cursor', async () => {

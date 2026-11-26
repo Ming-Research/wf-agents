@@ -652,6 +652,61 @@ export function ConsolePage({
     walkOnNow.current = walkOn;
   });
 
+  // The walk of the replies not read by m and M: the item it last went to, and the item and the way of the window's
+  // latest ask to bring one into view. The window decides which reply of an item is next, as it draws them and knows which
+  // are read; an item where it finds none sends the walk on to the next item that has any, in the tree's order, round from
+  // the end to the start. `hops` bounds how far one press goes on, so that counts that run ahead of what the window draws
+  // do not walk on for ever.
+  const replyWalk = useRef<number | null>(null);
+  const hops = useRef(0);
+  const [replyAsked, setReplyAsked] = useState<{ item: number; way: 1 | -1; begin: boolean; seq: number } | null>(null);
+  const goReply = (item: number, way: 1 | -1, begin: boolean) => {
+    replyWalk.current = item;
+    setReplyAsked((was) => ({ item, way, begin, seq: (was?.seq ?? 0) + 1 }));
+    if (item !== selectedNow()) pick(item);
+  };
+  // The items in the tree's order with how many replies each has not read, over every project.
+  const replyOrder = () => {
+    const d = latestData.current;
+    if (d === undefined) return [];
+    return projectsIn(d, orderNow.current, installedNow.current).flatMap((p) =>
+      walkOrder(shownTree(d, new Set(STANDINGS), foldsNow.current, p), (s) => s.repliesUnread),
+    );
+  };
+  // The next item with replies not read from the item `from`, `way` on, round from the end to the start.
+  const replyAfter = (order: { id: number; stops: number }[], from: number | null, way: 1 | -1): number | null => {
+    const at = order.findIndex((o) => o.id === from);
+    const start = at < 0 ? (way > 0 ? -1 : order.length) : at;
+    for (let k = 1; k <= order.length; k += 1) {
+      const o = order[(((start + way * k) % order.length) + order.length) % order.length];
+      if (o.stops > 0) return o.id;
+    }
+    return null;
+  };
+  const replyWalkOn = (way: 1 | -1) => {
+    const order = replyOrder();
+    const sel = selectedNow();
+    hops.current = 0;
+    // The walk goes on in the item it is in: the window brings its next reply not read, or says it has none.
+    if (sel !== null && replyWalk.current === sel) return goReply(sel, way, false);
+    // A walk begins at the item selected where it has replies not read, else at the next item that has.
+    if (sel !== null && (order.find((o) => o.id === sel)?.stops ?? 0) > 0) return goReply(sel, way, true);
+    const next = replyAfter(order, sel, way);
+    if (next !== null) goReply(next, way, true);
+  };
+  const replyWalkOnNow = useRef(replyWalkOn);
+  const repliesAsked = (found: boolean) => {
+    if (found || replyAsked === null) return;
+    hops.current += 1;
+    const order = replyOrder();
+    if (hops.current > order.length) return;
+    const next = replyAfter(order, replyAsked.item, replyAsked.way);
+    if (next !== null) goReply(next, replyAsked.way, true);
+  };
+  useEffect(() => {
+    replyWalkOnNow.current = replyWalkOn;
+  });
+
   /// The width of the tree that the window leaves to be seen: all of it while the window is in.
   const room = (out: boolean) => {
     const tree = host.current?.clientWidth ?? 0;
@@ -702,9 +757,10 @@ export function ConsolePage({
         return;
       }
       // `e` folds the items under the card the pointer is over away, or shows them again, as a click on its funnel or
-      // its dot does; `/` opens the search; `n` goes to the next stop and `N` to the one before. None while
-      // the owner types in a field, nor with Ctrl, Alt or Meta held.
-      if (e.key === 'e' || e.key === '/' || e.key === 'n' || e.key === 'N') {
+      // its dot does; `/` opens the search; `n` goes to the next stop and `N` to the one before; `m` goes to the next
+      // reply not read and `M` to the one before. None while the owner types in a field, nor with Ctrl, Alt or Meta
+      // held.
+      if (e.key === 'e' || e.key === '/' || e.key === 'n' || e.key === 'N' || e.key === 'm' || e.key === 'M') {
         const to = e.target as HTMLElement | null;
         if (e.ctrlKey || e.metaKey || e.altKey) return;
         if (to && (to.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(to.tagName))) return;
@@ -714,6 +770,9 @@ export function ConsolePage({
         } else if (e.key === 'n' || e.key === 'N') {
           e.preventDefault();
           walkOnNow.current(e.key === 'n' ? 1 : -1);
+        } else if (e.key === 'm' || e.key === 'M') {
+          e.preventDefault();
+          replyWalkOnNow.current(e.key === 'm' ? 1 : -1);
         } else if (scene.current?.foldPointedCard() === true) e.preventDefault();
         return;
       }
@@ -867,6 +926,8 @@ export function ConsolePage({
               scene.current?.flash(item.number);
             }}
             stop={stopAsked !== null && stopAsked.item === item.number ? stopAsked : undefined}
+            reply={replyAsked !== null && replyAsked.item === item.number ? replyAsked : undefined}
+            onReply={repliesAsked}
             onStopChosen={(at) => {
               walk.current = { item: item.number, at };
             }}

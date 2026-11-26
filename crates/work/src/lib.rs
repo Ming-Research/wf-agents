@@ -109,6 +109,7 @@ impl Work {
             .chain(r.cancels.iter().copied())
             .chain(r.reopens.iter().copied())
             .chain(r.releases.iter().copied())
+            .chain(r.owner_reads.iter().map(|e| e.at))
             .chain(self.sessions.iter().map(|s| s.at))
             .chain(self.filled.iter().map(|f| f.at))
             .chain(self.ran.iter().map(|r| r.at))

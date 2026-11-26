@@ -8,6 +8,7 @@ import type {
   CallRow,
   Cause,
   Failure,
+  Fresh,
   HeldCall,
   Limit,
   Line,
@@ -465,6 +466,32 @@ export const waitCount = (n: number): string => `${n} ${waitCounted(n)}`;
 /// How many questions the owner may answer ahead, which hold no work yet, said one way wherever it is said.
 export const aheadCount = (n: number): string =>
   `${n} ${n === 1 ? 'question' : 'questions'} you may answer ahead`;
+
+/// How many replies of the cells the owner has not read, said one way wherever it is said.
+export const unreadCount = (n: number): string => `${n} ${n === 1 ? 'reply' : 'replies'} you have not read`;
+
+/// What the strip over an item's body says the owner has not read of it: that it is new, or how many of its passages
+/// changed, and how many replies are not read; nothing where there is nothing.
+export function freshWords(fresh: Fresh, changes: number, replies: number): string {
+  const item =
+    changes === 1
+      ? '1 passage changed since you last read it'
+      : changes > 1
+        ? `${changes} passages changed since you last read it`
+        : fresh === 'new'
+          ? 'New to you'
+          : fresh === 'changed'
+            ? 'Changed since you last read it'
+            : null;
+  return [item, replies > 0 ? unreadCount(replies) : null].filter((part) => part !== null).join(' · ');
+}
+
+/// What pointing at the mark of a cell's reply says: whether the owner read it, in the words that say whether the one a
+/// message is for has taken it in.
+export const REPLY_READ = {
+  unread: 'Not read yet: it is read once it has been in view in this window for a moment',
+  read: 'You have read this reply',
+} as const;
 
 /// Who gives what a work waits for that is not the owner's: the engine for a call it makes, a slot and the wait every
 /// work shares, the source outside the work, or else the cells, for a

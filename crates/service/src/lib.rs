@@ -257,6 +257,11 @@ pub enum Act {
         version: u64,
         option: u64,
     },
+    /// Says the owner read these versions of the work's blocks, each by its block and its number among the block's
+    /// versions. A version the work has not is refused, and none of them is kept.
+    Read {
+        versions: Vec<(BlockId, u64)>,
+    },
 }
 
 /// What came of an act the loop took: of one that says the owner's words, the cell the engine gave them to.
@@ -916,6 +921,7 @@ impl Service {
                 version,
                 option,
             },
+            Act::Read { versions } => Event::Read { versions },
             Act::Result { call, result } => {
                 // A call the engine makes has its result from what makes it: a person's answer to it would be a
                 // second one.

@@ -551,13 +551,18 @@ tr.row.chosen > .block-head {
 }
 
 /* A card's tags: how many things its work waits for from the owner, white on red; how many questions the owner may
-   answer ahead, white on orange; and framed in grey, the arrow back with how many returns were sent back. */
+   answer ahead, white on orange; how many replies the owner has not read, white on the accent; and framed in grey, the
+   arrow back with how many returns were sent back. */
 .legend-for-you {
   background: var(--red);
 }
 
 .legend-ahead {
   background: var(--orange);
+}
+
+.legend-unread {
+  background: var(--accent);
 }
 
 .legend-tag {

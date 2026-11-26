@@ -115,6 +115,9 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                 "waits": [{ "key": "limit", "why": WHY, "ends": { "kind": "goOn", "call": 2 } }],
                 // The call holds the work, and no question of its own stands to be answered ahead.
                 "ahead": 0,
+                // The trial's cells have no words of their own, and no card: nothing is new, and no reply is unread.
+                "fresh": "none",
+                "repliesUnread": 0,
                 // Its rounds run at its item's level, and the plan's line raises it no higher.
                 "level": "2",
                 "cellLevel": "2",
@@ -183,6 +186,9 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                         "saidTo": null,
                         "chars": 42,
                         "empty": false,
+                        // Neither is a cell's reply to the owner, and the owner has read neither.
+                        "reply": false,
+                        "read": false,
                     }],
                 },
                 {
@@ -197,6 +203,9 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                         "saidTo": null,
                         "chars": 23,
                         "empty": false,
+                        // Neither is a cell's reply to the owner, and the owner has read neither.
+                        "reply": false,
+                        "read": false,
                     }],
                 },
             ],

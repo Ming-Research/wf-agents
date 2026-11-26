@@ -84,5 +84,10 @@ impl Reading {
         for l in records.let_go.iter_mut().filter(|e| e.at < at) {
             cell(&mut l.cell);
         }
+        for r in records.owner_reads.iter_mut().filter(|e| e.at < at) {
+            for (b, _) in &mut r.versions {
+                block(b);
+            }
+        }
     }
 }
