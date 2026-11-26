@@ -225,18 +225,21 @@ impl Stuck {
     }
 }
 
-/// A place in what was given: the time of the read an answer was made from, what came to stand at or after which is new
-/// to the next answer; when what stands is next given whole; where an answer giving what stands whole was cut, how many
-/// of it, from the most pressing, were given, so that the next gives the rest, else nought; and where an answer was cut
-/// before a work that ended or came to be idle, that one, by when it did and its number, else none, the next giving
-/// those from the time of the read. Written as those numbers joined by dots, the last two only where there is such a
-/// work: `1800000000000.1800000300000.0`, `1800000000000.1800000000000.20.1799999000000.7`.
+/// A place in what was given: the time of the read an answer was made from, what came to stand after which is new to
+/// the next answer; when what stands is next given whole; where an answer giving what stands whole was cut, how many of
+/// it, from the most pressing, were given, so that the next gives the rest, else nought; where an answer was cut before
+/// a work that ended or came to be idle, that one, by when it did and its number, else none, the next giving those
+/// after the read; and the things given that came to stand in the very millisecond of the read, by their keys
+/// ([`Line::key`]), which are not new to the next answer though what comes in that millisecond after the read is.
+/// Written as those numbers joined by dots, the two of the work only where there is one, then each key as eight hex
+/// digits after a dash: `1800000000000.1800000300000.0`, `1800000000000.1800000000000.20.1799999000000.7-0f3a29c1`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Mark {
     read: Time,
     due: Time,
     from: usize,
     told: Option<(Time, u64)>,
+    seen: Vec<u32>,
 }
 
 /// Why a text is no mark, in words.
@@ -248,11 +251,21 @@ impl Mark {
     pub fn read(text: &str) -> Result<Mark, Unreadable> {
         let unreadable = || {
             Unreadable(format!(
-                "{text:?} is not a mark: a mark is three or five numbers joined by dots, such as \
-                 1800000000000.1800000300000.0"
+                "{text:?} is not a mark: a mark is three or five numbers joined by dots, then any keys of eight hex \
+                 digits each after a dash, such as 1800000000000.1800000300000.0"
             ))
         };
-        let parts = (text.trim().split('.'))
+        let mut pieces = text.trim().split('-');
+        let numbers = pieces.next().unwrap_or_default();
+        let seen = pieces
+            .map(
+                |key| match key.len() == 8 && key.bytes().all(|b| b.is_ascii_hexdigit()) {
+                    true => u32::from_str_radix(key, 16).map_err(|_| unreadable()),
+                    false => Err(unreadable()),
+                },
+            )
+            .collect::<Result<Vec<u32>, Unreadable>>()?;
+        let parts = (numbers.split('.'))
             .map(|part| {
                 if part.is_empty() || !part.bytes().all(|b| b.is_ascii_digit()) {
                     return Err(unreadable());
@@ -267,20 +280,32 @@ impl Mark {
                 due: Time(due),
                 from: from(n)?,
                 told: None,
+                seen,
             }),
             [read, due, n, at, work] => Ok(Mark {
                 read: Time(read),
                 due: Time(due),
                 from: from(n)?,
                 told: Some((Time(at), work)),
+                seen,
             }),
             _ => Err(unreadable()),
         }
     }
 
-    /// From where the works that ended or came to be idle are new to the answer to this mark.
-    fn told_from(&self) -> (Time, u64) {
-        self.told.unwrap_or((self.read, 0))
+    /// Whether the thing is new to the answer to this mark: it came to stand after the read, or in its very millisecond
+    /// and was not given then.
+    fn gives_new(&self, thing: &Thing) -> bool {
+        thing.came > self.read || (thing.came == self.read && !self.seen.contains(&thing.line.key()))
+    }
+
+    /// Whether the work that ended or came to be idle is new to the answer to this mark: from where an answer was cut
+    /// before such works, where one was, else as any thing is.
+    fn gives_told(&self, thing: &Thing) -> bool {
+        match self.told {
+            Some(from) => (thing.came, thing.work) >= from,
+            None => self.gives_new(thing),
+        }
     }
 }
 
@@ -289,6 +314,9 @@ impl std::fmt::Display for Mark {
         write!(f, "{}.{}.{}", self.read.0, self.due.0, self.from)?;
         if let Some((at, work)) = self.told {
             write!(f, ".{}.{work}", at.0)?;
+        }
+        for key in &self.seen {
+            write!(f, "-{key:08x}")?;
         }
         Ok(())
     }
@@ -307,6 +335,34 @@ pub(crate) struct Thing {
 }
 
 impl Line {
+    /// What tells this thing from every other that stands at once: its kind, its work, and the project or runner where
+    /// it names one, as 32 bits of their FNV-1a hash. A mark names by it what it gave in the millisecond of its read.
+    pub fn key(&self) -> u32 {
+        let (kind, work, name): (u8, u64, &str) = match self {
+            Line::Everything { .. } => (0, 0, ""),
+            Line::Agents { outage, .. } => (1, outage.work, ""),
+            Line::MainRed { project, .. } => (2, 0, project.as_str()),
+            Line::Fault { of, .. } => (3, of.work, ""),
+            Line::Broken { of, .. } => (4, of.work, ""),
+            Line::Stalled { of, .. } => (5, of.work, ""),
+            Line::ForAPerson { of, .. } => (6, of.work, ""),
+            Line::Turn { holder, project, .. } => (7, holder.work, project.as_deref().unwrap_or_default()),
+            Line::Queued { of, runner, .. } => (8, of.work, runner.as_str()),
+            Line::Ahead { of, .. } => (9, of.work, ""),
+            Line::PauseOver { of, .. } => (10, of.work, ""),
+            Line::Unexplained { of, .. } => (11, of.work, ""),
+            Line::Slots { .. } => (12, 0, ""),
+            Line::Root { of, .. } => (13, of.work, ""),
+            Line::Idle { of, .. } => (14, of.work, ""),
+            Line::Ended { of, .. } => (15, of.work, ""),
+        };
+        let bytes = std::iter::once(kind).chain(work.to_le_bytes()).chain(name.bytes());
+        let hash = bytes.fold(0xcbf2_9ce4_8422_2325u64, |hash, byte| {
+            (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+        });
+        (hash ^ (hash >> 32)) as u32
+    }
+
     /// Since when it stands.
     pub fn since(&self) -> u64 {
         match self {
@@ -341,23 +397,20 @@ pub(crate) struct Given {
 
 /// What of these things the answer to the mark gives at this time, what stands being given whole again this long after
 /// it was last given whole. With no mark, what stands, whole, and nothing that is told once: the works that ended are
-/// taken as read. With one, what came to stand at or after its read, and what is told once from where it says; and
-/// what stands, whole, where it is due or an answer before was cut while giving it.
+/// taken as read. With one, what is new to it, and what stands, whole, where it is due or an answer before was cut while
+/// giving it.
 pub(crate) fn answer(things: Vec<Thing>, mark: Option<&Mark>, now: Time, again: u64) -> Given {
     let (mut stands, mut once): (Vec<Thing>, Vec<Thing>) = things.into_iter().partition(|thing| !thing.once);
     stands.sort_by_key(|thing| (thing.rank, thing.line.since(), thing.work));
     once.sort_by_key(|thing| (thing.came, thing.work));
     let whole = mark.is_none_or(|mark| mark.from > 0 || now >= mark.due);
     let from = mark.map_or(0, |mark| mark.from);
-    let new = |thing: &Thing| mark.is_some_and(|mark| thing.came >= mark.read);
     let due: Vec<(usize, &Thing)> = (stands.iter().enumerate())
-        .filter(|(at, thing)| (whole && *at >= from) || new(thing))
+        .filter(|(at, thing)| (whole && *at >= from) || mark.is_some_and(|mark| mark.gives_new(thing)))
         .collect();
     let told: Vec<&Thing> = match mark {
         None => Vec::new(),
-        Some(mark) => (once.iter())
-            .filter(|thing| (thing.came, thing.work) >= mark.told_from())
-            .collect(),
+        Some(mark) => once.iter().filter(|thing| mark.gives_told(thing)).collect(),
     };
     let given = due.len().min(LINES);
     let room = LINES - given;
@@ -372,12 +425,19 @@ pub(crate) fn answer(things: Vec<Thing>, mark: Option<&Mark>, now: Time, again: 
         (false, false) => (mark.map_or(now, |mark| mark.due), 0),
     };
     let told_next = (told_left > 0).then(|| match told_given {
-        0 => mark.map_or((now, 0), Mark::told_from),
+        0 => mark.map_or((now, 0), |mark| mark.told.unwrap_or((mark.read, 0))),
         n => (told[n - 1].came, told[n - 1].work + 1),
     });
-    let lines = (due.iter().take(given).map(|(_, thing)| thing.line.clone()))
-        .chain(told.iter().take(told_given).map(|thing| thing.line.clone()))
+    let given: Vec<&Thing> = (due.iter().take(given).map(|(_, thing)| *thing))
+        .chain(told.iter().take(told_given).copied())
         .collect();
+    let mut seen: Vec<u32> = (given.iter())
+        .filter(|thing| thing.came == now)
+        .map(|thing| thing.line.key())
+        .collect();
+    seen.sort_unstable();
+    seen.dedup();
+    let lines = given.iter().map(|thing| thing.line.clone()).collect();
     Given {
         whole,
         lines,
@@ -387,6 +447,7 @@ pub(crate) fn answer(things: Vec<Thing>, mark: Option<&Mark>, now: Time, again: 
             due: due_next,
             from: from_next,
             told: told_next,
+            seen,
         },
     }
 }
@@ -666,7 +727,10 @@ pub(crate) fn gather(cache: &Arc<ItemsCache>, driver: &Driver, now: Time, times:
 
 /// The item whose work is of this number.
 fn item_of<'a>(by_work: &BTreeMap<u64, &'a Item>, work: u64) -> Result<&'a Item, Failed> {
-    (by_work.get(&work).copied()).ok_or_else(|| Failed::Broken(Broken(format!("there is no item of work {work}"))))
+    (by_work.get(&work).copied()).ok_or_else(|| {
+        let work = WorkNumber(work);
+        Failed::Broken(Broken(format!("there is no item of work {work}")))
+    })
 }
 
 /// The work of an item, as a line names it.
@@ -764,7 +828,10 @@ fn ready_since(
     by_item: &BTreeMap<u64, &Item>,
     ended: &BTreeMap<u64, Time>,
 ) -> Result<Time, Failed> {
-    let of = (by_item.get(&item)).ok_or_else(|| Failed::Broken(Broken(format!("there is no item #{item}"))))?;
+    let of = (by_item.get(&item)).ok_or_else(|| {
+        let item = store::ItemNumber(item);
+        Failed::Broken(Broken(format!("there is no item {item}")))
+    })?;
     let kept = driver.work(WorkNumber(of.work.number));
     let pause = kept.as_ref().and_then(|kept| decide::pause(&kept.work.records));
     let paused = (kept.as_ref()).and_then(|kept| paused_since(&kept.work.records).and_then(|at| kept.work.time_of(at)));
@@ -1053,11 +1120,15 @@ mod tests {
         );
     }
 
-    // A mark is written as three or five numbers joined by dots and read back as it was written; any other text is no
-    // mark.
+    // A mark is written as three or five numbers joined by dots, then keys after dashes, and read back as it was
+    // written; any other text is no mark.
     #[test]
     fn a_mark_is_written_and_read_back_and_other_text_is_refused() {
-        for text in ["1.2.0", "1800000000000.1800000300000.20.1799999000000.7"] {
+        for text in [
+            "1.2.0",
+            "1800000000000.1800000300000.20.1799999000000.7",
+            "1.2.0-0000002a-ffffffff",
+        ] {
             assert_eq!(Mark::read(text).expect("it reads").to_string(), text);
         }
         for text in [
@@ -1070,9 +1141,29 @@ mod tests {
             "-1.2.0",
             "1.2.0.4.5.6",
             "1,2,0",
+            "1.2.0-2a",
+            "1.2.0-0000002g",
+            "1.2.0-",
         ] {
             assert!(Mark::read(text).is_err(), "{text:?} was read as a mark");
         }
+    }
+
+    // What came to stand in the very millisecond of a read and was given then is not new to the next answer, and what
+    // came in that millisecond after the read is: neither is given twice, and nothing is lost. Fails where a thing is
+    // given again for having come at the time of the read, or one that came after it in the same millisecond is not.
+    #[test]
+    fn what_came_in_the_millisecond_of_a_read_is_given_once_and_nothing_after_it_is_lost() {
+        let first = answer(vec![stands(5, 1, 1_000)], None, Time(1_000), AGAIN);
+        assert_eq!(works(&first), [1]);
+        assert_eq!(first.mark.seen, [first.lines[0].key()]);
+        let later = vec![stands(5, 1, 1_000), stands(5, 2, 1_000), ended(3, 1_000)];
+        let next = answer(later.clone(), Some(&first.mark), Time(1_001), AGAIN);
+        assert_eq!(works(&next), [2, 3], "what came after the read in its millisecond");
+        assert_eq!(
+            works(&answer(later, Some(&next.mark), Time(1_002), AGAIN)),
+            Vec::<u64>::new()
+        );
     }
 
     // A red main is a line of its own kind, about no work, which names the tests, the head and the works that wait, and

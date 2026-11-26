@@ -168,8 +168,8 @@ fn wait_refuses_a_mark_that_is_none_and_one_later_than_the_engines_clock() {
     let engine = Engine::start(&place);
     assert_eq!(
         engine.refuses(&["wait", "--since", "soon"]),
-        "\"soon\" is not a mark: a mark is three or five numbers joined by dots, such as \
-         1800000000000.1800000300000.0.\n"
+        "\"soon\" is not a mark: a mark is three or five numbers joined by dots, then any keys of eight hex digits \
+         each after a dash, such as 1800000000000.1800000300000.0.\n"
     );
     let later = "99999999999999.99999999999999.0";
     let refused = engine.refuses(&["wait", "--since", later, "--for", "0"]);

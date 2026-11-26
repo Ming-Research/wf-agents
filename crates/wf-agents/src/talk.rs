@@ -2029,14 +2029,14 @@ fn heed(line: &Line, now: u64) -> String {
                 .map_or_else(String::new, |project| format!(" of {project}"));
             let waiting: Vec<String> = waiting.iter().map(|of| work_number(of.work)).collect();
             return format!(
-                "The turn{project} to check and merge is held by item {} \"{}\", work {}, whose round or call has been \
-                 under way for {}; now {}. Waiting for the turn: {}.",
-                item_number(holder.item),
-                cut_title(&holder.title),
-                work_number(holder.work),
-                duration(now.saturating_sub(*since)),
-                self::now(is),
-                waiting.join(", ")
+                "The turn{project} to check and merge is held by item {item} \"{title}\", work {work}, whose round or \
+                 call has been under way for {held}; now {is}. Waiting for the turn: {waiting}.",
+                item = item_number(holder.item),
+                title = cut_title(&holder.title),
+                work = work_number(holder.work),
+                held = duration(now.saturating_sub(*since)),
+                is = self::now(is),
+                waiting = waiting.join(", ")
             );
         }
         Line::Queued {
