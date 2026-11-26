@@ -120,6 +120,7 @@ fn config(bare: &std::path::Path) -> Config {
         tool: Some(tool()),
         check: Some(crate::acts::words().check),
         fast_poll: Duration::from_millis(10),
+        slow_poll: Duration::from_millis(10),
         credential: None,
         withheld: Vec::new(),
         words: words(),
