@@ -19,7 +19,10 @@
 //! named, what the worktree holds that is not committed is said, and nothing is pushed. The measurements it names are
 //! timed by the project's measure workflow, once, on that commit and on the one the work's change began from, after the
 //! fast workflow where tests or checks are named too; a workflow the project cannot run is refused before anything is
-//! pushed. A request that names no test, no check and no measurement runs nothing.
+//! pushed. A request may also ask to publish the commit: it is pushed to a branch of the work's own, one for each
+//! commit, which stays on GitHub until the work ends, so that a workflow the agent starts itself can be given it, and
+//! a request that asks for nothing else pushes nothing more and runs nothing. A request that names no test, no check, no
+//! measurement and no publishing runs nothing.
 //!
 //! - `api`: what is asked of GitHub besides pushing and fetching, and `gh`, which asks it with the `gh` command line.
 //! - `output`: what a test said, as a reader wants it.
@@ -445,8 +448,8 @@ impl<A: Api> GitHub<A> {
         Ok(Err(said))
     }
 
-    /// The branches on GitHub that calls of `run_tests` of the work pushed commits to, as their names there; those
-    /// the call deleted already are not among them.
+    /// The branches on GitHub that calls of `run_tests` of the work pushed commits to, and those of the commits it
+    /// published, as their names there; the branches a call deleted already are not among them.
     async fn trials(&self, branch: &Branch<'_>) -> Result<Vec<String>, String> {
         let pattern = format!("refs/heads/{}", trial_pattern(branch));
         let args = ["ls-remote", "--heads", &self.config.url, &pattern];
@@ -475,8 +478,9 @@ impl<A: Api> GitHub<A> {
         Ok(())
     }
 
-    /// Deletes what the calls of `run_tests` left of the branches they pushed commits to, where the engine stopped
-    /// before it read the result: they are the work's, whether or not it merged.
+    /// Deletes the branches the work's calls of `run_tests` left on GitHub: those of calls the engine stopped before it
+    /// read the result, which it found no more to delete, and those of the commits the work published, which stay on
+    /// purpose until the work ends. They are the work's, whether or not it merged.
     async fn sweep_trials(&self, branch: &Branch<'_>) -> Result<(), String> {
         for left in self.trials(branch).await? {
             (self.api.delete(&left).await).map_err(|why| format!("GitHub did not delete the branch {left}: {why}"))?;
@@ -661,8 +665,8 @@ impl<A: Api> Host for GitHub<A> {
     }
 
     async fn end(&self, branch: &Branch<'_>, merged: bool) -> Result<(), String> {
-        // The pull request is closed first, and the branches the calls left are swept whether or not that went well: they
-        // are harmless leftovers, and what fails is said, not hidden by what comes before it.
+        // The pull request is closed first, and the branches the calls left and the work published are swept whether or
+        // not that went well: they are harmless leftovers, and what fails is said, not hidden by what comes before it.
         let closed = match merged {
             true => Ok(()),
             false => self.close_pulls(branch).await,
@@ -710,7 +714,8 @@ impl<A: Api> Host for GitHub<A> {
 }
 
 /// The pattern of git's that takes the name of every branch a call of `run_tests` of the work pushes a commit to, a place
-/// no work's own branch is in: `wf-try/<the work's branch>/` and anything after it.
+/// no work's own branch is in: `wf-try/<the work's branch>/` and anything after it, the branches of its calls and those
+/// of the commits it published.
 fn trial_pattern(branch: &Branch<'_>) -> String {
     format!("wf-try/{}/*", branch.place.branch)
 }
@@ -719,6 +724,12 @@ fn trial_pattern(branch: &Branch<'_>) -> String {
 /// each call, so that calls asked together do not take each other's branch.
 fn trial_branch(branch: &Branch<'_>, asking: Asking) -> String {
     format!("wf-try/{}/{}", branch.place.branch, asking.name())
+}
+
+/// The branch on GitHub that a commit the agent asked to publish is pushed to: one for each commit, which no push moves,
+/// so that a workflow started on it runs what was published, and which stays until the work ends.
+fn published_branch(branch: &Branch<'_>, commit: &str) -> String {
+    format!("wf-try/{}/commit/{commit}", branch.place.branch)
 }
 
 /// The reference that holds main's head as GitHub last gave it, fetched there from the remote of this name, main of
@@ -875,46 +886,59 @@ impl<A: Api> GitHub<A> {
                 (git::git(repo, &["rev-parse", &place.reference()]).await?, untracked)
             }
         };
-        // The commit is pushed to a branch of its own for this call, never to the work's branch, which the check before
-        // the merge pushes: a commit named only to be run, such as one that shows a new test red on the code before the
-        // change, must not land on the work's branch.
-        let trying = trial_branch(branch, asking);
-        (self.push_to(&commit, &format!("refs/heads/{trying}"), false).await)
-            .map_err(crate::acts::failing::told_by_its_words)?;
-        let request = fast::Request {
-            work: branch.work,
-            commit: &commit,
-            asking,
+        // A commit to publish is left on a branch of the work's own that no call deletes, for the agent to start a workflow
+        // on, whether or not the request runs anything: it stays until the work ends ([`Host::end`]). A commit that is
+        // there already is pushed as nothing.
+        let published = match named.publish {
+            false => None,
+            true => {
+                let kept = published_branch(branch, &commit);
+                (self.push_to(&commit, &format!("refs/heads/{kept}"), false).await)
+                    .map_err(crate::acts::failing::told_by_its_words)?;
+                Some(fill(&words.published, &[("commit", &commit), ("branch", &kept)]))
+            }
         };
-        // The fast workflow first, then the measure workflow, which times the commit against the one the work's change
-        // began from: the newest commit main and the work's commit have in common, a commit of main's, so that what is
-        // timed is the change alone and not what other works merged into main since.
         let mut said: Vec<String> = Vec::new();
-        if let Some(role) = fast {
-            match self.run_role(role, request, named, stop).await? {
-                Some(one) => said.push(one),
-                None => return Ok(None),
+        if fast.is_some() || measure.is_some() {
+            // The commit is pushed to a branch of its own for this call, never to the work's branch, which the check
+            // before the merge pushes: a commit named only to be run, such as one that shows a new test red on the code
+            // before the change, must not land on the work's branch.
+            let trying = trial_branch(branch, asking);
+            (self.push_to(&commit, &format!("refs/heads/{trying}"), false).await)
+                .map_err(crate::acts::failing::told_by_its_words)?;
+            let request = fast::Request {
+                work: branch.work,
+                commit: &commit,
+                asking,
+            };
+            // The fast workflow first, then the measure workflow, which times the commit against the one the work's
+            // change began from: the newest commit main and the work's commit have in common, a commit of main's, so
+            // that what is timed is the change alone and not what other works merged into main since.
+            if let Some(role) = fast {
+                match self.run_role(role, request, named, stop).await? {
+                    Some(one) => said.push(one),
+                    None => return Ok(None),
+                }
             }
-        }
-        if let Some(measure) = measure {
-            let base = git::git(repo, &["merge-base", &self.kept_main(), &commit]).await?;
-            match self
-                .run_role(Role::Measure(measure, &base), request, named, stop)
-                .await?
-            {
-                Some(one) => said.push(one),
-                None => return Ok(None),
+            if let Some(measure) = measure {
+                let base = git::git(repo, &["merge-base", &self.kept_main(), &commit]).await?;
+                match self
+                    .run_role(Role::Measure(measure, &base), request, named, stop)
+                    .await?
+                {
+                    Some(one) => said.push(one),
+                    None => return Ok(None),
+                }
             }
+            // The branch is kept until the run has ended and its result is read: a run the engine stopped waiting for
+            // returned above, and is found again by the same call, which checks the commit out when it starts. One that
+            // could not be deleted is deleted as the work ends ([`Host::end`]).
+            let _ = self.api.delete(&trying).await;
         }
-        let said = said.join("\n\n");
-        // The branch is kept until the run has ended and its result is read: a run the engine stopped waiting for
-        // returned above, and is found again by the same call, which checks the commit out when it starts. One that
-        // could not be deleted is deleted as the work ends ([`Host::end`]).
-        let _ = self.api.delete(&trying).await;
-        Ok(Some(match untracked.is_empty() {
-            true => said,
-            false => format!("{}\n\n{said}", fill(&words.untracked, &[("files", &untracked)])),
-        }))
+        let untracked = (!untracked.is_empty()).then(|| fill(&words.untracked, &[("files", &untracked)]));
+        let said = (!said.is_empty()).then(|| said.join("\n\n"));
+        let parts: Vec<String> = [published, untracked, said].into_iter().flatten().collect();
+        Ok(Some(parts.join("\n\n")))
     }
 
     /// The title of the work's pull request: the name of its merge, made [`neutral`] as what the work writes is, cut

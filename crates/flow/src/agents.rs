@@ -1446,6 +1446,8 @@ pub struct GithubWords {
     pub runner_missing: String,
     /// Measurements are named and the project declares no measure workflow.
     pub no_measure: String,
+    /// The commit is left on GitHub: `{commit}`, and `{branch}` the branch it is on. Said before what the request ran.
+    pub published: String,
 }
 
 /// What `run_tests` says where the host is the local repository.
@@ -1465,6 +1467,8 @@ pub struct LocalWords {
     pub no_commit: String,
     /// Measurements are named, and the command runs the tests alone: nothing was run.
     pub no_measure: String,
+    /// A commit is to be published, and there is no host to leave it on: nothing was run.
+    pub no_publish: String,
 }
 
 /// How much of a tool's result a round is given: the result is kept whole, and given cut where it is longer.
