@@ -764,6 +764,9 @@ impl Inner {
                     // the run guard judges each call as the stream tells it, halting the program at a signal past its
                     // lines.
                     let mut kept = Keeping::to(&stream_at)?;
+                    // A call the program reports no cost of is priced at what its earlier reports of the work's calls
+                    // on the model tell.
+                    kept.stream.learned = driver::prices::learned_all(&round.flow, &round.kept);
                     // What the engine gave the round in its session: its message, and the return before it, which the
                     // session has held only since its last call, so that a short message after a long return is no
                     // jump.
@@ -802,8 +805,10 @@ impl Inner {
                             // of the calls.
                             if changed {
                                 let calls = kept.calls();
-                                let going =
-                                    Going::of(&round.lines, calls.count, calls.last, calls.added, kept.stream.cost().0);
+                                // What the calls cost so far is not known where some are of a model no earlier
+                                // report prices.
+                                let usd = (!kept.stream.unpriced()).then(|| kept.stream.cost().0);
+                                let going = Going::of(&round.lines, calls.count, calls.last, calls.added, usd);
                                 if going != told_going {
                                     told_going = going;
                                     teller.going(round.number, going);
@@ -1218,9 +1223,10 @@ impl Inner {
     async fn left(&self, round: &Round, teller: Option<&Teller>) -> Result<Option<Left>, String> {
         let (flow, work) = (&*round.flow, &*round.kept);
         let base = self.kept(round);
-        let Some((n, stream)) = left_try(&base).await else {
+        let Some((n, mut stream)) = left_try(&base).await else {
             return Ok(None);
         };
+        stream.learned = driver::prices::learned_all(flow, work);
         let line = (round.cell.line.as_deref()).ok_or_else(|| format!("the cell {} names no line", round.cell.id))?;
         let of = crate::projects::of(&self.projects, &round.item).ok();
         // What the try ran on, as the records say it began on it or else as the try kept it, and the account it ran
@@ -1410,11 +1416,11 @@ impl Inner {
         }
     }
 
-    /// Why the work is to wait for the owner as the round ends, where it does: the round took it over its budget, or
-    /// its spend or time since it last waited for the owner is past what the flow's other works explain; both where
-    /// both hold.
+    /// Why the work is to wait for the owner as the round ends, where it does: the round took it over its budget, what
+    /// some of its spend cost is not known, or its spend or time since it last waited for the owner is past what the
+    /// flow's other works explain; each that holds.
     fn to_wait(&self, round: &Round, spent: &Spent) -> Option<String> {
-        let reasons: Vec<String> = [self.over_budget(round, spent)]
+        let reasons: Vec<String> = [self.over_budget(round, spent), self.unpriced(round, spent)]
             .into_iter()
             .chain(self.past_history(round, spent))
             .flatten()
@@ -1485,6 +1491,22 @@ impl Inner {
         vec![spent_past, time_past]
     }
 
+    /// Why the work is to wait for the owner, where what some of what it spent since it started, or was last let on
+    /// after the engine paused it, cost is not known: of the round, or of a keep-warm ping or fork that ended since,
+    /// calls the program reported no cost of, of a model no earlier report of the work prices. What the work has spent
+    /// then cannot be held to its budget or its history, so it goes on only where the owner lets it; in the project's
+    /// words, which a work whose project the settings no longer have, and whose rounds do not run, has none of.
+    fn unpriced(&self, round: &Round, spent: &Spent) -> Option<String> {
+        let work = &round.kept;
+        let since = stretch(work);
+        let beside = (work.spent_beside_rounds().iter()).any(|call| call.at > since && call.spent.unpriced);
+        if !spent.unpriced && !beside {
+            return None;
+        }
+        let of = crate::projects::of(&self.projects, &round.item).ok()?;
+        Some(of.beside.cost.work.unpriced.clone())
+    }
+
     /// Why the work is to wait for the owner, where the round took it over what it may spend: everything its rounds
     /// have spent, this one with them, is more than the bar its budget sets it, which each letting-on after a pause
     /// for the budget raises (`driver::budget`); in the project's words, which a work whose project the settings no
@@ -1496,7 +1518,7 @@ impl Inner {
         let bar = budget.bar(&round.kept);
         // No other round of the work ended while this one was under way: a work has one round under way at a time. The
         // pings of its other lines that ended meanwhile are not in what the round was given, and count at the next
-        // round's judgment: at most each other session's `warm.most` pings.
+        // round's judgment: at most as many as a wait of each other session is worth.
         let beside = (round.kept.spent_beside_rounds().iter())
             .map(|call| call.spent.usd_micros)
             .sum::<u64>();
@@ -1642,6 +1664,7 @@ impl Inner {
             let _ = halt.send(());
         });
         let mut stream = cli::Stream::default();
+        stream.learned = driver::prices::learned_all(flow, work);
         let mut lines = Vec::new();
         let mut each = |line: &[u8]| {
             stream.line(line);
@@ -1670,7 +1693,7 @@ impl Inner {
             return Err((fill(&said.stopped, &[("minutes", &minutes)]), priced()));
         };
         *left_running = stopped;
-        let spent = cli::took(&lines).unwrap_or_else(priced);
+        let spent = cli::took(&lines, stream.learned.clone()).unwrap_or_else(priced);
         let spent = Spent {
             compactions: marks,
             ..spent
@@ -2156,10 +2179,12 @@ fn limit_met(lines: &[u8], report: Option<String>, words: &flow::agents::Program
     failure::of(&report, &no.said, no.spent.as_ref()) == Failure::UsageLimit
 }
 
-/// What two calls of a program took together: their costs and tokens added, and the context the second ended with.
+/// What two calls of a program took together: their costs and tokens added, some of the cost not known where some of
+/// either's is, and the context the second ended with.
 fn plus(first: Spent, second: Spent) -> Spent {
     Spent {
         usd_micros: first.usd_micros + second.usd_micros,
+        unpriced: first.unpriced || second.unpriced,
         uncached_tokens: first.uncached_tokens + second.uncached_tokens,
         cache_written_tokens: match (first.cache_written_tokens, second.cache_written_tokens) {
             (Some(a), Some(b)) => Some(a + b),
@@ -3462,6 +3487,7 @@ mod tests {
             failed.spent,
             Some(Spent {
                 usd_micros: 400_000,
+                unpriced: false,
                 uncached_tokens: 120,
                 cache_written_tokens: Some(0),
                 cached_tokens: 18_100,
@@ -4049,6 +4075,7 @@ mod tests {
             run: RunId(7),
             round: 1,
             usd_micros: 6_000_000,
+            unpriced: false,
             uncached_tokens: 0,
             cache_written_tokens: None,
             cached_tokens: 0,
@@ -4090,6 +4117,7 @@ mod tests {
                     run: RunId(7),
                     round: 1,
                     usd_micros: 3_000_000,
+                    unpriced: false,
                     uncached_tokens: 0,
                     cache_written_tokens: None,
                     cached_tokens: 0,
@@ -4267,10 +4295,10 @@ mod tests {
         let Carried::Failed(_, failure, _, spent) = carried else {
             panic!("the round did not fail");
         };
-        // Opus 5.5: 100 × 4 + 1,000 × 0.2 + 10 × 20 millionths of a dollar.
+        // No report of the work prices its call's model: what the call cost is not known, and said so, never nothing.
         assert_eq!(
-            (failure, spent.usd_micros, spent.compactions),
-            (Failure::Passing, 800, 2)
+            (failure, spent.usd_micros, spent.unpriced, spent.compactions),
+            (Failure::Passing, 0, true, 2)
         );
     }
 
@@ -4335,7 +4363,11 @@ mod tests {
         let Carried::Failed(_, _, _, spent) = carried else {
             panic!("the round did not fail");
         };
-        assert_eq!(spent.usd_micros, 800);
+        assert_eq!(
+            (spent.usd_micros, spent.unpriced),
+            (0, true),
+            "no report prices its call's model"
+        );
     }
 
     // A round stopped after the process of the engine that gave it ended takes what the try that process left took,
@@ -4368,7 +4400,11 @@ mod tests {
             }
         };
         assert!(measured, "its measures are told");
-        assert_eq!(spent.usd_micros, 800);
+        assert_eq!(
+            (spent.usd_micros, spent.unpriced),
+            (0, true),
+            "no report prices its call's model"
+        );
     }
 
     // A round this process gave, whose carrying ended and told what came of its try while its reply still waits, is
@@ -4405,7 +4441,7 @@ mod tests {
             }
         };
         assert_eq!(told, 0, "what came of its try was told again");
-        assert_eq!((spent.usd_micros, spent.compactions), (800, 1));
+        assert_eq!((spent.usd_micros, spent.unpriced, spent.compactions), (0, true, 1));
     }
 
     /// What the loop is told of the round, until it is told one of these.
@@ -4443,8 +4479,8 @@ mod tests {
             _ => None,
         })
         .await;
-        // What the result says it spent, $0.03, whatever the session cost in all; its call at its price is 800.
-        assert_eq!(spent.usd_micros, 30_000);
+        // What the result says it spent, $0.03, whatever the session cost in all, and all of it known.
+        assert_eq!((spent.usd_micros, spent.unpriced), (30_000, false));
     }
 
     // The kind of a failed round and when its usage limit resets are told by what the program reported, and no word of

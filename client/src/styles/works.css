@@ -371,8 +371,12 @@
 }
 
 .history .divider-line {
-  background: repeating-linear-gradient(to right, var(--accent) 0 6px, transparent 6px 10px) center / 100%
-    var(--hairline) no-repeat;
+  background: repeating-linear-gradient(
+      to right,
+      var(--accent) 0 var(--divider-dash),
+      transparent var(--divider-dash) var(--divider-period)
+    )
+    center / 100% var(--hairline) no-repeat;
 }
 
 .history .divider-words {
@@ -405,7 +409,7 @@
    column of its own, the model taking what is left and cut short where it is longer. */
 .run-facts {
   display: grid;
-  grid-template-columns: 6em 3em 4em minmax(0, 1fr);
+  grid-template-columns: var(--run-took) var(--run-level) var(--run-effort) minmax(0, 1fr);
   column-gap: var(--space-8);
   align-items: baseline;
   font-size: var(--size-small);

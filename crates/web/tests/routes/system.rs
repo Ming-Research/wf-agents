@@ -337,7 +337,7 @@ fn what_went_past_the_lines_of_its_history_and_what_is_under_way_are_given_again
         cost: Some(history_line(400_000.0)),
         ..driver::history::Lines::default()
     };
-    let says = driver::Going::of(&lines, 3, Some(12_000), 4_000, 250_000);
+    let says = driver::Going::of(&lines, 3, Some(12_000), 4_000, Some(250_000));
     let (run, round) = (last["run"].as_u64().unwrap(), last["round"].as_u64().unwrap() as usize);
     let under = driver::Under::Round {
         run: decide::RunId(run),

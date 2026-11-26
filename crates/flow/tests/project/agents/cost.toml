@@ -66,16 +66,17 @@ flow = "of its flow"
 works = "of the flow's other works"
 line = "of its line"
 
-# Why the engine paused a work whose spend or time, since it started or was last let on after the engine paused it,
-# is past the line the flow's other works give, `spent` and `time`; or whose spend is over the budget the settings
-# give, `budget`; each a sentence, said beside its work. Filled in a run: `{value}` its spend in dollars or its time in
-# minutes, `{line}` the line, `{works}` how many works gave it, `{since}` the words below of since when, `{budget}`
-# the budget in dollars, `{more}` what letting the work on allows it beyond that, in dollars; `between` between two
-# reasons it waits for, or a reason and why its round failed.
+# Why the engine paused a work whose spend or time, since it started or was last let on after the engine paused it, is
+# past the line the flow's other works give, `spent` and `time`; whose spend is over the budget the settings give,
+# `budget`; or some of whose spend since then is not known, `unpriced`; each a sentence, said beside its work. Filled in
+# a run: `{value}` its spend in dollars or its time in minutes, `{line}` the line, `{works}` how many works gave it,
+# `{since}` the words below of since when, `{budget}` the budget in dollars, `{more}` what letting the work on allows it
+# beyond that, in dollars; `between` between two reasons it waits for, or a reason and why its round failed.
 [work]
 spent = "It has spent ${value} since {since}, past the line of ${line} that {works} other works of its flow give."
 time = "It has taken {value} minutes in its rounds since {since}, past the line of {line} that {works} other works of its flow give."
 budget = "It has spent ${value}, over its budget of ${budget}: let it on and it may spend ${more} more."
+unpriced = "What some of its calls cost is not known: the program did not report it, and no earlier report prices their model."
 started = "it started"
 let_on = "it was last let on"
 between = " "

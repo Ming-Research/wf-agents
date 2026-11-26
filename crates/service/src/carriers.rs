@@ -211,6 +211,11 @@ impl std::fmt::Display for ForkFailed {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.why)?;
         match &self.spent {
+            Some(spent) if spent.unpriced => write!(
+                f,
+                " It cost more than ${:.4}: what some of its calls cost is not known.",
+                spent.usd_micros as f64 / 1e6
+            ),
             Some(spent) => write!(f, " It cost ${:.4}.", spent.usd_micros as f64 / 1e6),
             None => Ok(()),
         }
