@@ -41,7 +41,8 @@
 //!
 //! A person's act is, in about equal shares of a tenth: a write of a block people may write (a choice with one of its
 //! values); a write that must be refused (of a block people may not write, of a choice with a wrong value, of a block
-//! the flow does not have); the outside writing main, mattering or not; letting a random cell go on; pausing or
+//! the flow does not have); the outside writing main, mattering or not; letting a cell go on, the one the work waits at
+//! past its limit where it waits so, a random cell otherwise, which is refused; pausing or
 //! resuming, a resume letting on a work the engine paused for a failed round as well as one the owner paused; the
 //! owner's word at the merge, a choice the merge's named test reads, written the other way; a result of a call that
 //! has one already or of no call, or the return of a run that has no round under way; and, in one act in fifty,
@@ -64,7 +65,7 @@ use std::panic::{self, AssertUnwindSafe};
 use decide::{CallId, Decision, Outsider, Pauser, RunId, decide};
 use engine::{Ask, Came, Effect, Event, Handed, Spent, Work, pending};
 use flow::{Compiled, Has, Source, compile};
-use support::{Driver, Part, Rng, Seen};
+use support::{Driver, Part, Rng, Seen, waits_at_its_limit};
 
 /// How many histories are run.
 const SEEDS: u64 = 200;
@@ -267,9 +268,12 @@ impl Part for Shape {
             26..=37 => wrote("main", Outsider::Outside, d.rng.chance(50), None),
             38..=49 => {
                 let cells = d.flow.flow.cells();
-                Event::LetGo {
-                    cell: cells[d.rng.below(cells.len())].id.clone(),
-                }
+                let cell = cells[d.rng.below(cells.len())].id.clone();
+                let cell = match decide(&d.flow.flow, &d.work.records) {
+                    Decision::Wait { at, .. } if waits_at_its_limit(&d.flow, &d.work.records, &at) => at,
+                    _ => cell,
+                };
+                Event::LetGo { cell }
             }
             50..=61 => {
                 if d.paused {
@@ -481,6 +485,8 @@ fn whole_works_keep_the_engines_properties_with_and_without_stops() {
                 seen.lacking += s.lacking;
                 seen.bound_finished += s.bound_finished;
                 seen.released += s.released;
+                seen.let_go += s.let_go;
+                seen.let_go_refused += s.let_go_refused;
             }
             Err(e) => {
                 let message = (e.downcast_ref::<String>().cloned())
@@ -514,7 +520,9 @@ fn whole_works_keep_the_engines_properties_with_and_without_stops() {
         && seen.retried > 0
         && seen.rested_unpaused > 0
         && seen.paused_rounds > 0
-        && seen.released > 0;
+        && seen.released > 0
+        && seen.let_go > 0
+        && seen.let_go_refused > 0;
     // What the histories reached, said whatever comes of the test: written to the standard error itself, which the
     // test harness does not hold back as it holds back what a test prints.
     let _ = writeln!(std::io::stderr(), "the engine's histories reached: {seen:?}");

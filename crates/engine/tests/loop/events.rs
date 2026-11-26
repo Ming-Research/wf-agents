@@ -114,9 +114,8 @@ fn a_return_that_deals_with_nothing_and_asks_for_nothing_is_sent_back() {
 }
 
 #[test]
-fn the_owner_letting_a_cell_go_on_pausing_resuming_and_cancelling_are_each_recorded() {
+fn the_owner_pausing_resuming_and_cancelling_are_each_recorded() {
     let mut w = W::new();
-    w.on(Event::LetGo { cell: "judge".into() });
     w.on(Event::Paused {
         by: Pauser::Owner,
         why: None,
@@ -125,10 +124,6 @@ fn the_owner_letting_a_cell_go_on_pausing_resuming_and_cancelling_are_each_recor
     w.on(Event::Resumed);
     w.on(Event::Cancelled { why: None });
     let r = &w.work.records;
-    assert_eq!(
-        r.let_go.iter().map(|l| l.cell.as_str()).collect::<Vec<_>>(),
-        vec!["judge"]
-    );
     assert_eq!(r.pauses.iter().map(|p| p.paused).collect::<Vec<_>>(), vec![true, false]);
     assert!(r.cancelled().is_some());
 }

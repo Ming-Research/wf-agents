@@ -6,8 +6,8 @@ use std::collections::BTreeMap;
 use decide::run::{self, Answer, Failure, Pausing, Requires, Step, Told, Unmet};
 use decide::{
     Abandoned, BlockId, CallId, Called, CellId, Decision, Done, End, Finished, Held, LetGo, Obstacle, Outsider, Pause,
-    Pauser, PutIn, Retry, Returned, Room, Round, RunId, Seq, Started, Who, Write, Written, decide, decide_in, hold_in,
-    told,
+    Pauser, PutIn, Retry, Returned, Room, Round, RunId, Seq, Started, Waited, Who, Write, Written, decide, decide_in,
+    hold_in, told,
 };
 use flow::{Compiled, Kind};
 
@@ -409,6 +409,16 @@ fn take(flow: &Compiled, work: &mut Work, now: Time, event: Event, effects: &mut
         Event::LetGo { cell } => {
             if flow.flow.place(&cell).is_none() {
                 return Err(Refused::NoSuchCell(cell));
+            }
+            // A cell is let go on only where the work waits at it past its limit.
+            let at_its_limit = match decide(&flow.flow, &work.records) {
+                Decision::Wait { at, on } => {
+                    at == cell && (on.iter()).any(|w| matches!(w, Waited::Limit { .. } | Waited::Calls { .. }))
+                }
+                _ => false,
+            };
+            if !at_its_limit {
+                return Err(Refused::NotAtItsLimit(cell));
             }
             let at = work.tick();
             work.records.let_go.push(LetGo { cell, at });

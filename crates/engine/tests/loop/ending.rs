@@ -25,7 +25,10 @@ fn as_the_merge_finishes_what_the_work_holds_is_let_go_and_nothing_more_is_given
     assert_eq!(pending(&w.flow, &w.work), vec![MERGED]);
     assert_eq!(w.on(wrote("request", Outsider::Person, true, None)), vec![]);
     assert_eq!(w.on(wrote("opinions", Outsider::Person, true, None)), vec![]);
-    assert_eq!(w.on(Event::LetGo { cell: "write".into() }), vec![]);
+    assert_eq!(
+        w.refused(Event::LetGo { cell: "write".into() }),
+        Refused::NotAtItsLimit("write".into())
+    );
     assert_eq!(w.on(Event::Look), vec![]);
     assert_eq!(
         pending(&w.flow, &w.work),

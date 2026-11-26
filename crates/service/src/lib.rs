@@ -220,7 +220,8 @@ pub enum Act {
         content: String,
         value: Option<String>,
     },
-    /// Lets the cell go on at its limit.
+    /// Lets the cell go on at its limit: the work waits at the cell for the owner past the cell's limit. Any other cell
+    /// is refused.
     LetGo {
         cell: CellId,
     },
