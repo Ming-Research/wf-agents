@@ -3722,6 +3722,43 @@ mod tests {
         assert_eq!(waited(&items), "the items it depends on to merge: #5 and #7");
     }
 
+    // A call the host could not carry out for now is said with the time its wait is until, how many times in a row it was
+    // held and what kept the host, and a call not held as it was.
+    #[test]
+    fn a_call_held_is_said_with_the_time_of_its_wait_and_what_kept_the_host() {
+        let call = |held| Waited::Call {
+            call: 2,
+            who: None,
+            what: Call::Tool {
+                name: "run_tests".to_string(),
+                input: "x".to_string(),
+            },
+            made: 1,
+            at: None,
+            queued_for: None,
+            held,
+        };
+        let held = |obstacle| {
+            Some(web::works::HeldCall {
+                until: 1_700_000_000_000,
+                failed: 2,
+                obstacle,
+            })
+        };
+        let said = |obstacle| waited(&call(held(obstacle)));
+        let until = utc(1_700_000_000_000);
+        assert_eq!(
+            said(web::works::Obstacle::Limit),
+            format!(
+                "call 2, the tool run_tests on \"x\", held until {until} (2 in a row): GitHub's limit on its requests"
+            )
+        );
+        assert!(said(web::works::Obstacle::Fault).ends_with(": GitHub failed"));
+        assert!(said(web::works::Obstacle::NoRunner).ends_with(": no machine took the run"));
+        assert!(said(web::works::Obstacle::Network).ends_with(": the network failed"));
+        assert_eq!(waited(&call(None)), "call 2, the tool run_tests on \"x\"");
+    }
+
     // A dependency on a cancelled item holds nothing, and the words for it say so; one on an item that has not ended
     // is waited for.
     #[test]
