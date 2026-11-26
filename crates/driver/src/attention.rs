@@ -12,7 +12,8 @@
 //! its own line about no work, under which every work is read as if it did not hold: a work held by it alone goes on,
 //! and is no reason for another to be idle. A wait for a slot is going on. Another line is about no work either: the
 //! main branch of a project is red on a test ([`crate::red_main`]), which is given once for each time it came to be so,
-//! whether a work waits for main or none does.
+//! whether a work waits for main or none does; a red that comes back after main moved on, with no test having passed on
+//! it between, is the same red.
 //!
 //! Everything here is read from the records (principle state-from-records). How a work stands is what the deciding
 //! code decides on its records; since when it stands so is the first of the moments after which it has stood so
@@ -111,7 +112,8 @@ pub enum Stuck {
 /// which its records were read. A work up to the highest that is not named had ended, and its records were read whole;
 /// a work after it is unread from its start. Where the pause of everything held and was read, the time it began, which
 /// tells that pause from any later one; and for each project whose main was red and was read so, the time its red
-/// began, which tells that red from any later one. Written as the highest work, then each work named with its place,
+/// began, which tells that red from any later one, and which is kept while main is not known to be red after it moved
+/// on. Written as the highest work, then each work named with its place,
 /// then `e.` and the time of the pause read, then `r.`, the time and the name of each project, `%` and `,` in the name
 /// as `%25` and `%2C`, such as `12,3.41,7.118,e.1800000000000,r.1700000000000.Firn-wf`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -267,7 +269,8 @@ impl Driver {
                 )
             });
         // A project's red main is given by when its red began: once for each time it came to be so, and a later one again.
-        let reds = self.red_main();
+        let mains = self.mains_red();
+        let reds = mains.red;
         let red_lines = (reds.iter())
             .filter(|red| since.is_none_or(|mark| mark.red.get(&red.project).is_none_or(|read| *read < red.since)))
             .map(|red| {
@@ -304,10 +307,17 @@ impl Driver {
             })
             .collect();
         // A project's red whose line is left out is written unread, so that it comes again.
-        let red: BTreeMap<String, Time> = (reds.iter())
+        let mut red: BTreeMap<String, Time> = (reds.iter())
             .filter(|red| !red_left.contains(&red.project))
             .map(|red| (red.project.clone(), red.since))
             .collect();
+        // A project whose main is not known to be red, since it moved on and no run on it has said, keeps what it was
+        // read as: a red that comes back with the streak it had is the one that was given.
+        for project in &mains.unknown {
+            if let Some(read) = since.and_then(|mark| mark.red.get(project)) {
+                red.entry(project.clone()).or_insert(*read);
+            }
+        }
         let lines: Vec<Line> = lines.into_iter().take(LINES).map(|(_, line)| line).collect();
         // A work whose line is left out is written unread from its start, so that whatever it stands in comes again;
         // a work that ended is left out of the mark once it is read; every other work is read up to its last entry.

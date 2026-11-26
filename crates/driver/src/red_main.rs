@@ -14,7 +14,8 @@
 //! the engine writes into each of them each time the head changes ([`crate::Driver::outside`]): a version of it that
 //! says other than the version before it in the same work, with the work not put on another version of its flow
 //! between the two, as the words of the block may differ from one version of a flow to another. Once main moved, what
-//! the project's main is is not known until a check runs the test on it again, and it is not said to be red or green.
+//! the project's main is is not known until a check runs the test on it again, and it is not said to be red or green;
+//! that it is not known is given beside it, so that a red that comes back as the same one is not told again.
 //!
 //! The works of a project that wait for main to pass are given beside it, as what the planner may look at first; main
 //! is red whether any work waits or not.
@@ -47,6 +48,26 @@ pub struct Red {
     pub tests: Vec<RedTest>,
     /// The works of the project that have not ended and wait for main to pass, in the order of their numbers.
     pub waiting: Vec<WorkNumber>,
+}
+
+/// What is known of the main branch of a project.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Main {
+    /// Where main is red.
+    pub red: Option<Red>,
+    /// Whether a test last failed on a head of main that has moved on since, with no run on the new head to say whether
+    /// it still fails: main is then neither red nor green as far as is known, and a red that comes back with the streak
+    /// it had is the same red as before.
+    pub unknown: bool,
+}
+
+/// The projects whose main is red, and the projects whose main is not known to be.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Mains {
+    /// The projects whose main is red, in the order of their names.
+    pub red: Vec<Red>,
+    /// The names of the projects whose main is not known to be red or green, having been red.
+    pub unknown: BTreeSet<String>,
 }
 
 /// A work of a project, as far as whether main is red is read from it.
@@ -117,12 +138,15 @@ fn moves(member: &Member<'_>) -> Vec<Time> {
     moved
 }
 
-/// Whether main is red in the project, and where: of its works, with how each waits given by `waiting`. None where no
-/// work of it has not ended, since then nothing tells whether main moved, and where no test is red now.
-pub fn of_project(project: &str, members: &[Member<'_>], waiting: impl Fn(WorkNumber) -> bool) -> Option<Red> {
+/// Whether main is red in the project, and where: of its works, with how each waits given by `waiting`. Nothing is
+/// known where no work of it has not ended, since then nothing tells whether main moved.
+pub fn of_project(project: &str, members: &[Member<'_>], waiting: impl Fn(WorkNumber) -> bool) -> Main {
     let going: Vec<&Member<'_>> = members.iter().filter(|m| !m.ended && m.main.is_some()).collect();
     if going.is_empty() {
-        return None;
+        return Main {
+            red: None,
+            unknown: false,
+        };
     }
     let moved = going.iter().flat_map(|m| moves(m)).max();
     let mut seen: BTreeMap<(&str, &str), Vec<Seen>> = BTreeMap::new();
@@ -144,6 +168,7 @@ pub fn of_project(project: &str, members: &[Member<'_>], waiting: impl Fn(WorkNu
     }
     let mut tests = Vec::new();
     let mut since: Option<Time> = None;
+    let mut unknown = false;
     for ((unit, name), mut list) in seen {
         list.sort_by_key(|s| (s.time, s.work));
         let Some(last) = list.last() else {
@@ -151,7 +176,11 @@ pub fn of_project(project: &str, members: &[Member<'_>], waiting: impl Fn(WorkNu
         };
         // A test that passed on the head of main last is not red; one whose last failure came before main moved is not
         // known to be, since main is not what it was.
-        if last.passed || moved.is_some_and(|moved| last.time <= moved) {
+        if last.passed {
+            continue;
+        }
+        if moved.is_some_and(|moved| last.time <= moved) {
+            unknown = true;
             continue;
         }
         let from = list.iter().rposition(|s| s.passed).map_or(0, |passed| passed + 1);
@@ -162,22 +191,32 @@ pub fn of_project(project: &str, members: &[Member<'_>], waiting: impl Fn(WorkNu
             head: last.head.clone(),
         });
     }
-    let since = since?;
+    let Some(since) = since else {
+        return Main { red: None, unknown };
+    };
     let waiting = (going.iter())
         .map(|m| m.number)
         .filter(|number| waiting(*number))
         .collect();
-    Some(Red {
-        project: project.to_string(),
-        since,
-        tests,
-        waiting,
-    })
+    Main {
+        red: Some(Red {
+            project: project.to_string(),
+            since,
+            tests,
+            waiting,
+        }),
+        unknown,
+    }
 }
 
 impl Driver {
     /// Each project whose main is red, in the order of the projects' names.
     pub fn red_main(&self) -> Vec<Red> {
+        self.red_in(None).red
+    }
+
+    /// Each project whose main is red, and each whose main is not known to be.
+    pub fn mains_red(&self) -> Mains {
         self.red_in(None)
     }
 
@@ -187,13 +226,13 @@ impl Driver {
         let Some(project) = (self.works.get(&work)).and_then(|held| held.item.project.as_deref()) else {
             return Vec::new();
         };
-        (self.red_in(Some(project)).into_iter())
+        (self.red_in(Some(project)).red.into_iter())
             .flat_map(|red| red.tests)
             .collect()
     }
 
     /// The projects whose main is red, only the project named where one is.
-    fn red_in(&self, only: Option<&str>) -> Vec<Red> {
+    fn red_in(&self, only: Option<&str>) -> Mains {
         let mut by_project: BTreeMap<&str, Vec<Member<'_>>> = BTreeMap::new();
         for held in self.shown() {
             let Some(project) = held
@@ -216,9 +255,15 @@ impl Driver {
                 ended: held.standing != Standing::Going,
             });
         }
-        (by_project.into_iter())
-            .filter_map(|(project, members)| of_project(project, &members, |number| self.waits_for_main(number)))
-            .collect()
+        let mut mains = Mains::default();
+        for (project, members) in by_project {
+            let main = of_project(project, &members, |number| self.waits_for_main(number));
+            mains.red.extend(main.red);
+            if main.unknown {
+                mains.unknown.insert(project.to_string());
+            }
+        }
+        mains
     }
 
     /// Whether the work waits for the head of main to change, as the check before the merge found a test it failed to
@@ -308,7 +353,7 @@ mod tests {
     }
 
     fn red_of(members: &[Member<'_>]) -> Option<Red> {
-        of_project("project", members, |_| false)
+        of_project("project", members, |_| false).red
     }
 
     fn member<'a>(number: u64, work: &'a Work, block: &'a BlockId, ended: bool) -> Member<'a> {
@@ -418,7 +463,13 @@ mod tests {
         says(&mut work, 1, "main at A");
         check(&mut work, 5, "1", "C", "A", &[("t", false)], &[("t", false)]);
         says(&mut work, 10, "main at B");
-        assert_eq!(red_of(&[member(1, &work, &block, false)]), None);
+        let main = of_project("project", &[member(1, &work, &block, false)], |_| false);
+        assert_eq!(main.red, None);
+        assert!(main.unknown, "a test last failed on a head that main has left");
+        // A run on the new head that passes says where main stands: it is not red, and it is not unknown either.
+        check(&mut work, 15, "2", "D", "B", &[("t", false)], &[("t", true)]);
+        let main = of_project("project", &[member(1, &work, &block, false)], |_| false);
+        assert_eq!((main.red, main.unknown), (None, false));
     }
 
     // A work added after main went red is told the head of main as its first version, which is no move.
@@ -459,7 +510,9 @@ mod tests {
         let mut work = work_of(20);
         says(&mut work, 1, "main at A");
         check(&mut work, 5, "1", "C", "A", &[("t", false)], &[("t", false)]);
-        let red = of_project("project", &[member(7, &work, &block, false)], |n| n == WorkNumber(7)).unwrap();
+        let red = of_project("project", &[member(7, &work, &block, false)], |n| n == WorkNumber(7))
+            .red
+            .unwrap();
         assert_eq!(red.waiting, [WorkNumber(7)]);
     }
 }

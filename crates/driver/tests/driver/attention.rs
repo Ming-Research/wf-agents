@@ -782,12 +782,13 @@ fn comes_to_its_check(h: &mut H, work: WorkNumber) {
     assert_eq!(h.round(work).1, "check");
 }
 
-/// The check of the work, in its round asked as `asking`, finds the test failing on the commit `own` and on the head of
-/// main `head`, so that the work waits for main; gives when the failure on main was read.
-fn finds_main_red(h: &mut H, work: WorkNumber, asking: &str, own: &str, head: &str) -> Time {
+/// The check of the work, in its round asked as `asking`, finds the test failing on the commit `own`, and failing on the
+/// head of main `head` where `fails_on_main`, passing there where not; the work waits for main as the check says. Gives
+/// when the run on main was read.
+fn checks(h: &mut H, work: WorkNumber, asking: &str, own: &str, head: &str, fails_on_main: bool) -> Time {
     read_test(h, work, asking, work::Source::Full, own, false);
     read_test(h, work, asking, work::Source::Fast, own, false);
-    read_test(h, work, asking, work::Source::Fast, head, false);
+    read_test(h, work, asking, work::Source::Fast, head, !fails_on_main);
     let read = Time(h.clock);
     let held = hands_in(&[("checked", Some("no"))]);
     h.returns(
@@ -800,6 +801,12 @@ fn finds_main_red(h: &mut H, work: WorkNumber, asking: &str, own: &str, head: &s
     read
 }
 
+/// The check of the work finds the test failing on the commit `own` and on the head of main `head`, so that the work
+/// waits for main; gives when the failure on main was read.
+fn finds_main_red(h: &mut H, work: WorkNumber, asking: &str, own: &str, head: &str) -> Time {
+    checks(h, work, asking, own, head, true)
+}
+
 fn red_tests(head: &str) -> Vec<driver::red_main::RedTest> {
     vec![driver::red_main::RedTest {
         unit: "carry".to_string(),
@@ -810,10 +817,11 @@ fn red_tests(head: &str) -> Vec<driver::red_main::RedTest> {
 
 // The check before a merge found a test failing on the head of main: the project's main is red, which the planner is
 // told once for each time it came to be so, at rank 0 ahead of every work, with the works that wait for it; main moving
-// on makes it not known to be red, and its coming again is a new line. Under a second alone, a store on disk; no other
-// test holds the line, its mark and what makes it new.
+// on makes it not known to be red, and where the check finds it red on the new head too, with no pass between, that is
+// the red already given; a pass on main ends it, and a failure after that is a new line. Under a second alone, a store
+// on disk; no other test holds the line, its mark and what makes it new.
 #[test]
-fn a_red_main_is_a_line_once_for_each_time_it_came_to_be_and_main_moving_on_ends_it() {
+fn a_red_main_is_a_line_once_for_each_time_it_came_to_be_and_a_pass_on_main_ends_it() {
     let mut h = H::with(vec![checked()]);
     let (_, w) = h.add(new_item("a", &[], "checked"));
     h.outside("main", "Main is at m1.");
@@ -845,24 +853,42 @@ fn a_red_main_is_a_line_once_for_each_time_it_came_to_be_and_main_moving_on_ends
         answer.lines,
         "with no mark, what stands now is given"
     );
-    // Main moves on: what it is, is not known until a check reads it, so it is not said to be red.
+    // Main moves on: what it is, is not known until a check reads it, so it is not said to be red, and what was read is
+    // kept in the mark.
+    let red_in_mark = format!(",r.{}.{PROJECT}", read.0);
     h.outside("main", "Main is at m2.");
     let moved = since(&h, Some(&answer.mark));
     assert_eq!(heeds(&moved), vec![]);
-    assert!(!moved.mark.to_string().contains(",r."), "{}", moved.mark);
-    // The check reads the test failing on the new head: main is red again, and the planner is told again.
+    assert!(moved.mark.to_string().ends_with(&red_in_mark), "{}", moved.mark);
+    // The check reads the test failing on the new head as well: it is the red that was given, and is not given again.
     assert_eq!(h.round(w).1, "check");
     finds_main_red(&mut h, w, "run/1/round/2", "own2", "m2");
     let again = since(&h, Some(&moved.mark));
+    assert_eq!(heeds(&again), vec![], "no test passed between, so it is the same red");
+    assert!(again.mark.to_string().ends_with(&red_in_mark), "{}", again.mark);
+    // The test passes on the next head of main: the red is over, and the mark no longer holds it.
+    h.outside("main", "Main is at m3.");
+    assert_eq!(h.round(w).1, "check");
+    checks(&mut h, w, "run/1/round/3", "own3", "m3", false);
+    let over = since(&h, Some(&again.mark));
+    assert_eq!(heeds(&over), vec![]);
+    assert!(!over.mark.to_string().contains(",r."), "{}", over.mark);
+    assert_eq!(since(&h, None).lines, vec![], "nothing is red now");
+    // It fails on the head after that: main is red again, which is told again, since the time it began.
+    h.outside("main", "Main is at m4.");
+    assert_eq!(h.round(w).1, "check");
+    let began = finds_main_red(&mut h, w, "run/1/round/4", "own4", "m4");
     assert_eq!(
-        heeds(&again),
-        vec![Heed::MainRed {
-            project: PROJECT.to_string(),
-            tests: red_tests("m2"),
-            works: vec![w],
+        since(&h, Some(&over.mark)).lines,
+        vec![Line {
+            heed: Heed::MainRed {
+                project: PROJECT.to_string(),
+                tests: red_tests("m4"),
+                works: vec![w],
+            },
+            since: began,
         }]
     );
-    assert_eq!(heeds(&since(&h, Some(&again.mark))), vec![]);
 }
 
 // A project's main is its own: each project whose main is red is a line of its own, naming the tests that failed on its
