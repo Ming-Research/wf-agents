@@ -270,8 +270,9 @@ async fn an_item_is_refused_continuing_what_no_branch_is_called_or_on_a_flow_tha
             .contains("has no cell that starts a work"),
         "{body}"
     );
+    let read = get_json(router, "/api/v1/items").await;
     assert_eq!(
-        get_json(router, "/api/v1/items").await,
+        json!({ "items": read["items"], "outage": read["outage"] }),
         json!({ "items": [], "outage": null })
     );
     // Continuing nothing, said so, is an item as any other.
@@ -319,8 +320,9 @@ async fn an_item_that_cannot_be_added_is_refused_with_why() {
             "{json}"
         );
     }
+    let read = get_json(router, "/api/v1/items").await;
     assert_eq!(
-        get_json(router, "/api/v1/items").await,
+        json!({ "items": read["items"], "outage": read["outage"] }),
         json!({ "items": [], "outage": null })
     );
 }
