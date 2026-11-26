@@ -1989,7 +1989,7 @@ impl Inner {
                 &profile,
                 crate::programs::engine().iter().cloned(),
                 &of.declaration.environment,
-                &of.beside.refused.environment,
+                &BTreeMap::new(),
                 token,
             ))
             .current_dir(dir);
@@ -2854,14 +2854,16 @@ mod tests {
     ];
 
     /// The stand-in program of the fork tests in this directory: it keeps its arguments, where it ran and what it found
-    /// there, the token and the directory it was given, and what it was sent on its input, and prints `stream`.
+    /// there, the token, the directory and the git transports' variable it was given, and what it was sent on its
+    /// input, and prints `stream`.
     fn write_program(data: &Path, stream: &[&str]) -> PathBuf {
         let program = data.join("program.sh");
         let printed: String = stream.iter().map(|line| format!("printf '%s\\n' '{line}'\n")).collect();
         let script = format!(
             "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{0}/args'\npwd > '{0}/cwd'\nls > '{0}/listed'\n\
              printf '%s' \"${{CLAUDE_CODE_OAUTH_TOKEN:-none}}\" > '{0}/token'\n\
-             printf '%s' \"$CLAUDE_CONFIG_DIR\" > '{0}/directory'\ncat > '{0}/input'\n\
+             printf '%s' \"$CLAUDE_CONFIG_DIR\" > '{0}/directory'\n\
+             printf '%s' \"${{GIT_ALLOW_PROTOCOL-unset}}\" > '{0}/protocol'\ncat > '{0}/input'\n\
              if [ -f '{0}/leave' ]; then sleep 30 >/dev/null 2>&1 & echo $! > '{0}/left'; fi\n{printed}",
             data.display()
         );
@@ -2962,8 +2964,8 @@ mod tests {
     // A fork runs under the account its session's last try ran under, whose cache holds the session, given its token
     // and the engine's directory; where that account was removed, or the try ran under none, under the account in use,
     // and it says why; with none in use, such a fork runs nothing and fails, saying none is. What its stream says of
-    // the usage of the account it ran under comes with it. Three forks of a stand-in program: a few tens of
-    // milliseconds.
+    // the usage of the account it ran under comes with it; it is given the variable the flows give every agent's
+    // program, as a round is. Three forks of a stand-in program: a few tens of milliseconds.
     #[tokio::test]
     async fn a_fork_runs_under_its_sessions_account_or_the_one_in_use_saying_why_and_none_with_none_in_use() {
         let dir = tempfile::tempdir().expect("a directory");
@@ -2978,6 +2980,11 @@ mod tests {
         );
         let profile = std::fs::read_to_string(data.join("directory")).expect("its directory");
         assert_eq!(profile, data.join("profile").display().to_string());
+        // It is given the variable the flows give every agent's program, which has git refuse every transport.
+        assert_eq!(
+            std::fs::read_to_string(data.join("protocol")).expect("what it was given"),
+            "none"
+        );
         assert_eq!(
             forked.usage,
             Some(driver::Said::Windows(vec![driver::Window {
