@@ -64,7 +64,8 @@ of each part.
    each script, run again, carries out a round in the same situation, the message the page shows for it is what the
    engine sent, and every line a round of the histories stood in, on the small flow of its tests, is one a written
    situation stands in; for that flow the search has bounds of its own, wider than the tool's, since the tool's end
-   it before it has found all its histories reach (research/situations-search-measured.md, section 9). On the
+   it before it has found all its histories reach (decision the-small-flows-search-test-has-bounds-of-its-own;
+   research/situations-search-measured.md, section 9). On the
    engineer's flow the lines a round stood in and the search left out are printed by cell,
    with the steps before the first round that stood in each, and do not fail the test: some need two passes through the
    flow, which the search does not reach in the 30 s the tool has (decision
