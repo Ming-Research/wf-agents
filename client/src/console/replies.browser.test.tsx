@@ -96,7 +96,7 @@ function repliesSource(): { source: Source; acts: [number, Act][] } {
       const page = await base.loadWork(work);
       return { ...page, flow: SPOKEN, outline: outlineOf(SPOKEN), blocks: [{ name: 'research_words', versions: versionsOf(work) }] };
     },
-    loadVersion: (work, block, number) => Promise.resolve({ block, number, content: CONTENT(number) }),
+    loadVersion: (_work, block, number) => Promise.resolve({ block, number, content: CONTENT(number) }),
     act: (work, what) => {
       if (what.kind !== 'read') return base.act(work, what);
       acts.push([work, what]);
@@ -140,7 +140,8 @@ describe('the replies the owner has not read, in the console', () => {
   const key = (k: string) =>
     document.body.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
   const inAddress = () => Number(/#\/console\/items\/(\d+)/.exec(window.location.hash)?.[1] ?? Number.NaN);
-  const pane = () => container.querySelector<HTMLElement>('.cw-item .drawer-body');
+  /// What scrolls the item's window on the console.
+  const pane = () => container.querySelector<HTMLElement>('.cw-inner');
   const replies = () => [...container.querySelectorAll<HTMLElement>('.cw-message[data-reply]')];
   const unread = () => replies().filter((r) => r.hasAttribute('data-unread'));
   const strip = () => container.querySelector('.cw-fresh span')?.textContent ?? null;

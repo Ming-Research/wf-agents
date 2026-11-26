@@ -374,7 +374,10 @@ fn a_file_of_version_36_is_migrated_with_every_version_read_but_the_cells_replie
         "the migrated file has other tables than a new one"
     );
     let loaded = store.load(WorkNumber(1)).expect("the work loads");
+    // A file of version 36 holds no read, whatever the history the work was made from has: what it holds is what the
+    // migration writes.
     let mut expected = ran_on_it.work.clone();
+    expected.records.owner_reads.clear();
     let at = expected.tick();
     let read: Vec<(BlockId, Seq)> = (expected.contents.keys())
         .filter(|version| !replies.contains(*version))

@@ -1131,7 +1131,7 @@ describe('what the owner has not read, in the window', () => {
     const base = pageOf(i);
     return {
       item: { ...i, work: { ...i.work, fresh } },
-      page: 'page' in base ? { page: { ...base.page, blocks: [{ name: 'research_words', versions }] } } : base,
+      page: base !== null && 'page' in base ? { page: { ...base.page, blocks: [{ name: 'research_words', versions }] } } : base,
     };
   };
   const VERSIONS = [

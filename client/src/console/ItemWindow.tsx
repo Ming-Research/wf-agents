@@ -356,6 +356,21 @@ export const READ_AFTER_MS = 1000;
 /// What names a reply among the item's, as the engine does: its block and the number of its version.
 const replyKey = (r: { block: string; version: number }): string => `${r.block}/${r.version}`;
 
+/// What of the page shows an element drawn in the window: the nearest ancestor that scrolls, that is, whose content is
+/// taller than it and which scrolls it, else the page's own view, each cut to the screen. The window stands in the
+/// console's panel, which scrolls it, and on a work's page, where the page does.
+function viewOf(el: HTMLElement): { top: number; bottom: number } {
+  const screen = { top: 0, bottom: window.innerHeight };
+  for (let up = el.parentElement; up !== null; up = up.parentElement) {
+    const flow = getComputedStyle(up).overflowY;
+    if ((flow === 'auto' || flow === 'scroll') && up.scrollHeight > up.clientHeight) {
+      const box = up.getBoundingClientRect();
+      return { top: Math.max(box.top, screen.top), bottom: Math.min(box.bottom, screen.bottom) };
+    }
+  }
+  return screen;
+}
+
 /// The block and the version a reply's key names.
 const replyOf = (key: string): ReadVersion => ({
   block: key.slice(0, key.lastIndexOf('/')),
@@ -628,8 +643,8 @@ function ItemView({
   // (`replySeen`); one that leaves the view, or a page that is hidden, begins its moment again.
   const discussion = useRef<HTMLElement>(null);
   useEffect(() => {
-    const pane = inner.current?.querySelector<HTMLElement>('.drawer-body');
-    if (!open || tab !== 'item' || pane === null || pane === undefined) return;
+    const root = inner.current;
+    if (!open || tab !== 'item' || root === null) return;
     const timers = new Map<HTMLElement, number>();
     const gathered: ReadVersion[] = [];
     let flush: number | undefined;
@@ -643,9 +658,9 @@ function ItemView({
       }, 0);
     };
     const check = () => {
-      const view = document.visibilityState === 'visible' ? pane.getBoundingClientRect() : null;
-      for (const el of pane.querySelectorAll<HTMLElement>('[data-reply][data-unread]')) {
-        const seen = view !== null && replySeen(el.getBoundingClientRect(), view);
+      const looked = document.visibilityState === 'visible';
+      for (const el of root.querySelectorAll<HTMLElement>('[data-reply][data-unread]')) {
+        const seen = looked && replySeen(el.getBoundingClientRect(), viewOf(el));
         const timer = timers.get(el);
         if (seen && timer === undefined) timers.set(el, window.setTimeout(() => done(el), READ_AFTER_MS));
         else if (!seen && timer !== undefined) {
@@ -661,14 +676,15 @@ function ItemView({
       }
     };
     const drawing = new MutationObserver(check);
-    drawing.observe(pane, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-unread'] });
-    pane.addEventListener('scroll', check, { passive: true });
+    drawing.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-unread'] });
+    // A scroll does not bubble, and what scrolls the window is not the same element everywhere.
+    document.addEventListener('scroll', check, { capture: true, passive: true });
     window.addEventListener('resize', check);
     document.addEventListener('visibilitychange', check);
     check();
     return () => {
       drawing.disconnect();
-      pane.removeEventListener('scroll', check);
+      document.removeEventListener('scroll', check, { capture: true });
       window.removeEventListener('resize', check);
       document.removeEventListener('visibilitychange', check);
       timers.forEach((timer) => window.clearTimeout(timer));
@@ -708,9 +724,9 @@ function ItemView({
       return;
     }
     lastReply.current = to;
-    const pane = inner.current?.querySelector<HTMLElement>('.drawer-body');
     const el = all[to];
-    el.scrollIntoView({ block: el.getBoundingClientRect().height > (pane?.clientHeight ?? Infinity) ? 'start' : 'center' });
+    const view = viewOf(el);
+    el.scrollIntoView({ block: el.getBoundingClientRect().height > view.bottom - view.top ? 'start' : 'center' });
     onReply?.(true);
   }, [reply, tab, chosenTab, setOwnTab, bodyRead, unreadReplies, redrawn, onReply]);
   // The sections the card of the version the work runs on names: as read, or, until the body is read, each with nothing

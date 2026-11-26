@@ -186,6 +186,9 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                         "saidTo": null,
                         "chars": 42,
                         "empty": false,
+                        // Neither is a cell's reply to the owner, and the owner has read neither.
+                        "reply": false,
+                        "read": false,
                     }],
                 },
                 {
@@ -200,6 +203,9 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                         "saidTo": null,
                         "chars": 23,
                         "empty": false,
+                        // Neither is a cell's reply to the owner, and the owner has read neither.
+                        "reply": false,
+                        "read": false,
                     }],
                 },
             ],

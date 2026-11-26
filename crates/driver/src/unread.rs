@@ -329,7 +329,6 @@ mod tests {
         let text = r#"
             name = "asking"
             order = ["write", "merge"]
-            card = ["text"]
             [limits]
             runs = 3
             returns = 2
@@ -389,7 +388,11 @@ mod tests {
             acts: ["merge".to_string()].into(),
             ..Has::default()
         };
-        compile(&source, &has).expect("the definition compiles")
+        // A definition in one file names no card; the flow that is laid out one thing to a file does, and the card is set
+        // as that does.
+        let mut flow = compile(&source, &has).expect("the definition compiles");
+        flow.card = vec![block("text")];
+        flow
     }
 
     // The flow says which block is a cell's words and which blocks its card shows, and the owner's reading follows it: a
