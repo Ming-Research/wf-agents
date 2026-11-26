@@ -99,7 +99,8 @@ describe('a second reading of the page’s stylesheets by the browser’s own pa
   it('finds a raw colour, length or line size in the oracle’s sample of every kind, in every place a rule can be', () => {
     const found = rawInSheet(`
       a { --c: #123456; color: #654321; background: rgb(1 2 3); border-color: red; width: 5px; margin: 0 -.5em; }
-      a { stroke-width: 2; line-height: 1.5; font-weight: 600; font: 600 var(--s) x; box-shadow: 0 0 1Q var(--x); }
+      a { stroke-width: 2; font-weight: 600; font: 600 var(--s) x; box-shadow: 0 0 1Q var(--x); }
+      a { line-height: 1.5; }
       a { padding: var(--a, 12px); font-weight: bold; font-size: small; border: thin solid var(--l); }
       @media (width < 700px) { b { top: 3ch } }
       @container (min-width: 30em) { b { top: 0 } }

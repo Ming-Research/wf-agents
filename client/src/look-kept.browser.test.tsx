@@ -87,19 +87,19 @@ describe.each(['light', 'dark'] as const)('what the named values leave as it was
 
   it('keeps a size a token writes in em in the em of the part that takes it, not of the root that holds the token', () => {
     const part = draw(
-      <div style={{ fontSize: '10px', width: '800px' }}>
+      <div style={{ width: '800px' }}>
         <div className="run-facts" />
         <div className="cw-choice-few" />
       </div>,
     );
     // Reference: CSS Custom Properties Level 1 (an unregistered custom property is a stream of tokens, and an `em` in it
-    // is worked out where the property is used).
-    expect(getComputedStyle(part.querySelector('.run-facts') as HTMLElement).gridTemplateColumns).toMatch(/^60px 30px 40px /);
+    // is worked out where the property is used, so by the font size of the part that takes it).
+    const facts = part.querySelector('.run-facts') as HTMLElement;
+    const em = Number.parseFloat(getComputedStyle(facts).fontSize);
+    expect(getComputedStyle(facts).gridTemplateColumns).toMatch(new RegExp(`^${6 * em}px ${3 * em}px ${4 * em}px `));
+    const folded = part.querySelector('.cw-choice-few') as HTMLElement;
     const line = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--line-height'));
-    expect(Number.parseFloat(getComputedStyle(part.querySelector('.cw-choice-few') as HTMLElement).maxHeight)).toBeCloseTo(
-      3 * line * 10,
-      3,
-    );
+    expect(Number.parseFloat(getComputedStyle(folded).maxHeight)).toBeCloseTo(3 * line * Number.parseFloat(getComputedStyle(folded).fontSize), 3);
   });
 
   it('keeps the card opaque, which the fade of a folded question is masked by (a mask reads the alpha of its image)', () => {
