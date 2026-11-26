@@ -2,6 +2,8 @@
 //! and with none named, run by nothing: a workflow run by hand on main's file with the commit given, whose JUnit
 //! results say each test's own result and time, and whose jobs' logs say why a job failed that no test of its own says.
 
+use driver::red_main::RedTest;
+
 use super::super::api::{Check, Outcome};
 use super::*;
 use crate::host::Named;
@@ -238,6 +240,10 @@ async fn the_tests_named_run_by_the_fast_workflow_and_each_is_said_with_its_resu
         )),
         "{said}"
     );
+    assert!(
+        !said.contains("also failed on"),
+        "no test is known to be red on main: {said}"
+    );
     for line in [
         "The tests that passed:\n- tools::tests::a: passed in 0.12 s",
         "The tests that did not pass:\n- tools::tests::b: failed in 0.3 s\n  What it said:\n```\nthread 'tools::tests::b' panicked at \
@@ -255,6 +261,61 @@ async fn the_tests_named_run_by_the_fast_workflow_and_each_is_said_with_its_resu
         }]
     );
     assert_eq!(hub.opened(), 0, "no pull request is opened for a run");
+}
+
+// A test that failed and is red on the head of main as the engine knows it is said so beneath its own lines, with main's
+// name and the head it failed on; one that failed and is not red there, and one that passed, are not. The one test of
+// what a result says of main, and of which tests it says it for. Milliseconds alone, a repository on disk and GitHub in
+// memory.
+#[tokio::test]
+async fn a_failed_test_that_is_red_on_main_is_said_to_have_failed_there_too_and_no_other_is() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    let xml = r#"<testsuites><testsuite name="carry">
+  <testcase name="tools::tests::a" time="0.12"/>
+  <testcase name="tools::tests::b" time="0.3"><failure message="assertion failed">b panicked</failure></testcase>
+  <testcase name="tools::tests::c" time="0.2"><failure message="assertion failed">c panicked</failure></testcase>
+</testsuite></testsuites>"#;
+    let results = vec![("test.xml".to_string(), xml.as_bytes().to_vec())];
+    hub.github().fast(
+        &head,
+        vec![job("test", Outcome::Failed("failure".into()), 5)],
+        Some(("test-results", results)),
+    );
+    let red = |unit: &str, name: &str| RedTest {
+        unit: unit.to_string(),
+        name: name.to_string(),
+        head: "9f8e7d6c5b4a".to_string(),
+    };
+    // A test that passed is never said to have failed, whatever the engine knows of main; and `tools::tests::c` is red
+    // on main in another unit, so it is another test than the one of this result.
+    let known = vec![
+        red("carry", "tools::tests::b"),
+        red("carry", "tools::tests::a"),
+        red("db", "tools::tests::c"),
+    ];
+    let place = hub.place();
+    let mut stop = Stop::never().red_on_main(known);
+    let said = (hub.host)
+        .run_tests(
+            &branch(&place),
+            &named(&["tools::tests::a", "tools::tests::b", "tools::tests::c"], &[]),
+            hub.call(),
+            &mut stop,
+        )
+        .await
+        .expect("run")
+        .expect("nothing stopped it");
+    let also = "  This test also failed on main, at its head 9f8e7d6c5b4a.";
+    assert_eq!(said.matches(also).count(), 1, "{said}");
+    assert!(
+        said.contains(&format!(
+            "- tools::tests::b: failed in 0.3 s\n{also}\n  What it said:\n```\nb panicked\n```"
+        )),
+        "{said}"
+    );
+    let c = said.split("- tools::tests::c").nth(1).expect("the test is said");
+    assert!(!c.contains("also failed on main"), "{said}");
 }
 
 // A run whose results hold more tests than the call named: the result lists each test named once with its time, and

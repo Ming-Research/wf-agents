@@ -46,6 +46,11 @@ async fn all_time_gives_the_merge_and_what_was_spent_on_each_cell_and_model() {
     let work = get_json(router, "/api/v1/works/1").await;
     let spent = work["summary"]["spent"].clone();
     assert_eq!(system["from"], Value::Null);
+    assert_eq!(
+        system["redMain"],
+        json!([]),
+        "no check read a failed test on main: {system}"
+    );
     assert_eq!(system["spent"], spent, "every round ended in all time: {system}");
     assert_eq!(system["byWork"], json!([{ "work": 1, "item": 1, "spent": spent }]));
     assert_eq!(system["byProject"], json!([{ "project": "trial", "spent": spent }]));

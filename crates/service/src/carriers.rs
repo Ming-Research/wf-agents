@@ -881,6 +881,9 @@ pub struct ToolCall {
     /// For a call of the tool that runs the project's tests: how long one test may run before it is stopped, in
     /// milliseconds, as the history of the project's merged checks says it (crate `driver`, module `timed`).
     pub test_time: Option<f64>,
+    /// For a call of the tool that runs the project's tests: the tests that are red on the main of the work's project,
+    /// which a failed test of the result is said to be among (crate `driver`, module `red_main`).
+    pub red_on_main: Vec<driver::red_main::RedTest>,
 }
 
 /// The way to say once that a round ended, or that it failed.

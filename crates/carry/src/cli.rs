@@ -460,12 +460,15 @@ pub const PROGRAM: [&str; 2] = ["CLAUDE_", "ANTHROPIC_"];
 /// The environment a command of the program's is given, in place of the engine's own: of the engine's variables,
 /// those [`KEPT`], every `LC_*`, and those the settings name; then the carrier's own, [`ENVIRONMENT`]; the variables the
 /// project's declaration names, `declared`; the program's directory of settings and sessions, the engine's `profile`;
-/// and the token of the account the command runs under, which is given nowhere else.
+/// the token of the account the command runs under, which is given nowhere else; and last, the variables every agent's
+/// program has beside the flows, `refused` (`agents/refused.toml`), which nothing before it can change. Every start of
+/// the program is given its environment here, so that each has them.
 pub fn environment(
     agents: &Agents,
     profile: &Path,
     engine: impl IntoIterator<Item = (String, String)>,
     declared: &BTreeMap<String, String>,
+    refused: &BTreeMap<String, String>,
     token: &Token,
 ) -> Vec<(String, String)> {
     let kept =
@@ -479,15 +482,21 @@ pub fn environment(
         profile.to_string_lossy().into_owned(),
     ));
     env.push((crate::account::TOKEN.to_string(), token.secret().to_string()));
+    env.extend(refused.iter().map(|(name, value)| (name.clone(), value.clone())));
     env
 }
 
 /// What is wrong with the variables a project's declaration names for every round's command line, each said with where
 /// it is written: a name that is no name of a variable; one the engine owns, which it keeps of its environment, sets
-/// itself or gives the program; one the installation's settings name to keep (`agents.env`: `named`), which a declared
-/// value would silently override; one the agents' program reads itself ([`PROGRAM`]); and a value that holds a NUL, which
-/// ends a string of a process's environment, so that no program can be started with it. Any other value is none.
-pub fn environment_faults(declared: &BTreeMap<String, String>, named: &[String]) -> Vec<String> {
+/// itself or gives the program, among them what every agent's program has beside the flows (`refused`); one the
+/// installation's settings name to keep (`agents.env`: `named`), which a declared value would silently override; one
+/// the agents' program reads itself ([`PROGRAM`]); and a value that holds a NUL, which ends a string of a process's
+/// environment, so that no program can be started with it. Any other value is none.
+pub fn environment_faults(
+    declared: &BTreeMap<String, String>,
+    named: &[String],
+    refused: &BTreeMap<String, String>,
+) -> Vec<String> {
     let at = format!("{} [environment]", flow::agents::DECLARATION);
     let mut faults = Vec::new();
     for (name, value) in declared {
@@ -503,6 +512,7 @@ pub fn environment_faults(declared: &BTreeMap<String, String>, named: &[String])
         } else if KEPT.contains(&name.as_str())
             || name.starts_with("LC_")
             || ENVIRONMENT.iter().any(|(own, _)| own == name)
+            || refused.contains_key(name)
         {
             faults.push(format!(
                 "{at}: {name} is the engine's own, which it gives every round itself"
@@ -518,6 +528,22 @@ pub fn environment_faults(declared: &BTreeMap<String, String>, named: &[String])
         }
     }
     faults
+}
+
+/// What is wrong with the variables the installation's settings keep of the engine's environment for the agents'
+/// program (`agents.env`: `named`) where one is a variable every agent's program has beside the flows (`refused`): the
+/// program would be given the flow's value, not the engine's, so the setting would say what is not so. Each is said
+/// with where it is written.
+pub fn kept_faults(named: &[String], refused: &BTreeMap<String, String>) -> Vec<String> {
+    (named.iter())
+        .filter(|name| refused.contains_key(*name))
+        .map(|name| {
+            format!(
+                "agents.env: {name} is one the flows give every agent's program (agents/refused.toml), which a kept \
+                 value would not be"
+            )
+        })
+        .collect()
 }
 
 /// The session a round runs in, as the records say: which of its line's sessions, and whether the round begins it.
@@ -2791,7 +2817,7 @@ mod tests {
         let profile = Path::new("/data/profile");
         let none = BTreeMap::new();
         assert_eq!(
-            environment(&agents(), profile, engine, &none, &token),
+            environment(&agents(), profile, engine, &none, &none, &token),
             [
                 ("HOME", "/home/someone"),
                 ("LC_ALL", "C"),
@@ -2809,7 +2835,7 @@ mod tests {
         let mut configured = agents();
         configured.env = vec!["LANGUAGE".to_string()];
         let engine = [("LANGUAGE", "en"), ("OTHER", "x")].map(|(n, v)| (n.to_string(), v.to_string()));
-        let given = environment(&configured, profile, engine, &none, &token);
+        let given = environment(&configured, profile, engine, &none, &none, &token);
         assert!(given.contains(&("LANGUAGE".to_string(), "en".to_string())), "named");
         assert!(!given.iter().any(|(n, _)| n == "OTHER"));
         assert_eq!(
@@ -2826,7 +2852,14 @@ mod tests {
     fn the_variables_a_declaration_names_come_after_the_carriers_own_and_before_the_token() {
         let token = Token::new("sk-ant-oat01-secret".to_string());
         let declared = BTreeMap::from([("RUSTUP_AUTO_INSTALL".to_string(), "0".to_string())]);
-        let given = environment(&agents(), Path::new("/data/profile"), [], &declared, &token);
+        let given = environment(
+            &agents(),
+            Path::new("/data/profile"),
+            [],
+            &declared,
+            &BTreeMap::new(),
+            &token,
+        );
         let names: Vec<&str> = given.iter().map(|(n, _)| n.as_str()).collect();
         assert_eq!(
             names,
@@ -2843,6 +2876,51 @@ mod tests {
         assert!(given.contains(&("RUSTUP_AUTO_INSTALL".to_string(), "0".to_string())));
     }
 
+    // What every agent's program has beside the flows comes last of all, whatever the engine's environment, the
+    // installation's `agents.env` and the declaration hold, so that nothing before it changes it; and the same names
+    // are refused where a declaration or `agents.env` writes one. Well under a millisecond alone; no other test holds
+    // the environment's last place or the faults of these names, which the real git test of the work (tests/real) takes
+    // as given.
+    #[test]
+    fn the_variables_every_agents_program_has_come_last_and_no_declaration_or_setting_names_one() {
+        let token = Token::new("sk-ant-oat01-secret".to_string());
+        let refused = BTreeMap::from([("GIT_ALLOW_PROTOCOL".to_string(), "none".to_string())]);
+        let engine = [("GIT_ALLOW_PROTOCOL", "always")].map(|(n, v)| (n.to_string(), v.to_string()));
+        let mut configured = agents();
+        configured.env = vec!["GIT_ALLOW_PROTOCOL".to_string()];
+        let given = environment(
+            &configured,
+            Path::new("/data/profile"),
+            engine,
+            &BTreeMap::new(),
+            &refused,
+            &token,
+        );
+        assert_eq!(
+            given.last(),
+            Some(&("GIT_ALLOW_PROTOCOL".to_string(), "none".to_string()))
+        );
+        // A command takes the last value of a name it is given twice, so what is kept or declared cannot change it.
+        let last = |name: &str| given.iter().rev().find(|(n, _)| n == name).map(|(_, v)| v.as_str());
+        assert_eq!(last("GIT_ALLOW_PROTOCOL"), Some("none"));
+        let mut command = std::process::Command::new("sh");
+        command
+            .args(["-c", "printf %s \"$GIT_ALLOW_PROTOCOL\""])
+            .env_clear()
+            .envs(given);
+        assert_eq!(command.output().unwrap().stdout, b"none");
+        let declared = BTreeMap::from([("GIT_ALLOW_PROTOCOL".to_string(), "always".to_string())]);
+        let said = environment_faults(&declared, &[], &refused);
+        assert_eq!(
+            said,
+            ["wf-agents.toml [environment]: GIT_ALLOW_PROTOCOL is the engine's own, which it gives every round itself"]
+        );
+        let said = kept_faults(&["LANGUAGE".to_string(), "GIT_ALLOW_PROTOCOL".to_string()], &refused);
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(said[0].starts_with("agents.env: GIT_ALLOW_PROTOCOL"), "{said:?}");
+        assert!(kept_faults(&["LANGUAGE".to_string()], &refused).is_empty());
+    }
+
     // A declaration may name no variable the engine owns, none the installation keeps by name, none the agents' program
     // reads itself, and none that is no name of a variable. Well under a millisecond alone; no other test holds what a
     // declaration may name for the command line, one case for each rule.
@@ -2851,7 +2929,7 @@ mod tests {
         let faults = |name: &str, named: &[&str]| {
             let declared = BTreeMap::from([(name.to_string(), "1".to_string())]);
             let named: Vec<String> = named.iter().map(|n| n.to_string()).collect();
-            environment_faults(&declared, &named)
+            environment_faults(&declared, &named, &BTreeMap::new())
         };
         assert_eq!(faults("RUSTUP_AUTO_INSTALL", &[]), Vec::<String>::new());
         assert_eq!(faults("RUSTUP_AUTO_INSTALL", &["LANGUAGE"]), Vec::<String>::new());

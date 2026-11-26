@@ -169,7 +169,7 @@ impl<H: Host> Acts<H> {
 }
 
 /// The source outside the works whose block the watch of main writes.
-pub const MAIN: &str = "main";
+pub const MAIN: &str = driver::MAIN;
 
 /// How often the watch of main looks at its head: within a minute of another work's merge, the works whose check had
 /// passed are checked again before they merge, and a look costs one fetch.
@@ -820,18 +820,27 @@ fn main_at<'a>(flow: &'a Compiled, main: &'a str) -> impl Fn(&str) -> Option<(Bl
 }
 
 /// What is wrong with the flow for the watch of main, each in words with the file that says what is written there: the
-/// block of [`MAIN`] gives in its `writes` the `text` the watch fills, so that none is written empty. A flow with any of
-/// these is not run, whatever carries its works out.
+/// block of [`MAIN`] gives in its `writes` the `text` the watch fills, so that none is written empty, and that text
+/// holds the head (`{head}`), which is how the driver tells whether a run of the tests was on the head main has now
+/// ([`driver::red_main`]). A flow with any of these is not run, whatever carries its works out.
 pub fn main_faults(flow: &Compiled) -> Vec<String> {
-    (flow.blocks.iter())
-        .filter(|(_, block)| block.writers.outside.as_deref() == Some(MAIN) && block.writes.get("text").is_none())
-        .map(|(name, block)| {
+    let mut faults = Vec::new();
+    for (name, block) in (flow.blocks.iter()).filter(|(_, block)| block.writers.outside.as_deref() == Some(MAIN)) {
+        let fault = |what: &str| {
             format!(
-                "the flow {}, {}: the block {name} (from {MAIN}): its writes must give text",
+                "the flow {}, {}: the block {name} (from {MAIN}): {what}",
                 flow.name, block.file
             )
-        })
-        .collect()
+        };
+        match block.writes.get("text") {
+            None => faults.push(fault("its writes must give text")),
+            Some(text) if !text.contains("{head}") => {
+                faults.push(fault("its text must say the head of main, as {head}"));
+            }
+            Some(_) => {}
+        }
+    }
+    faults
 }
 
 /// What is wrong with the flow for the acts, each in words with the cell: the cell of `check` has one choice among its
@@ -1132,36 +1141,67 @@ mod tests {
         }
     }
 
+    /// A flow that watches main, its block of main given as the TOML after `[blocks.main]`'s own line.
+    fn watched(main: &str) -> Compiled {
+        let source = flow::Source {
+            flow: format!(
+                "name = \"watched\"\norder = [\"merge\"]\n[limits]\nruns = 1\nreturns = 1\ncalls = 1\n\
+                 [blocks.main]\noutside = \"main\"\n{main}[blocks.merged]\nshown = true\n"
+            ),
+            cells: [(
+                "merge".to_string(),
+                "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"main\"]\noutputs = [\"merged\"]\n"
+                    .to_string(),
+            )]
+            .into(),
+            ..Default::default()
+        };
+        let has = flow::Has {
+            sources: ["main".to_string()].into(),
+            acts: ["merge".to_string()].into(),
+            ..Default::default()
+        };
+        flow::compile(&source, &has).expect("the flow compiles")
+    }
+
     #[test]
     fn a_block_of_main_that_gives_no_words_for_the_watch_is_a_fault_of_its_file() {
-        let compiled = |main: &str| {
-            let source = flow::Source {
-                flow: format!(
-                    "name = \"watched\"\norder = [\"merge\"]\n[limits]\nruns = 1\nreturns = 1\ncalls = 1\n\
-                     [blocks.main]\noutside = \"main\"\n{main}[blocks.merged]\nshown = true\n"
-                ),
-                cells: [(
-                    "merge".to_string(),
-                    "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"main\"]\noutputs = [\"merged\"]\n"
-                        .to_string(),
-                )]
-                .into(),
-                ..Default::default()
-            };
-            let has = flow::Has {
-                sources: ["main".to_string()].into(),
-                acts: ["merge".to_string()].into(),
-                ..Default::default()
-            };
-            flow::compile(&source, &has).expect("the flow compiles")
-        };
-        let given = compiled("writes = { text = \"Main is at {head}.\" }\n");
+        let given = watched("writes = { text = \"Main is at {head}.\" }\n");
         assert_eq!(main_faults(&given), Vec::<String>::new());
-        let faults = main_faults(&compiled(""));
+        let faults = main_faults(&watched(""));
         assert_eq!(
             faults,
             ["the flow watched, flow.toml: the block main (from main): its writes must give text"]
         );
+        // Words that do not say the head leave the driver unable to tell which head a run of the tests was on.
+        let faults = main_faults(&watched("writes = { text = \"Main moved.\" }\n"));
+        assert_eq!(
+            faults,
+            ["the flow watched, flow.toml: the block main (from main): its text must say the head of main, as {head}"]
+        );
+    }
+
+    // The head the host reads, whole, is the one the block of main says in the words the flow's data give: the engine
+    // tells a run of the tests on main's head from another by whether the block holds the run's commit, so a head
+    // shortened or left out of the words would leave every red main unseen.
+    #[tokio::test]
+    async fn the_block_of_main_says_the_head_the_host_reads_whole_in_the_words_the_flow_gives() {
+        let repo = Repo::new("true");
+        let host = Local::new(repo.project.clone(), repo.check.clone());
+        let head = host.main().await.expect("main is read");
+        assert!(
+            head.len() == 40 && head.bytes().all(|b| b.is_ascii_hexdigit()),
+            "{head}"
+        );
+        let data: toml::Value = toml::from_str(include_str!("../../../flow/data/main.toml")).expect("the data read");
+        let words = data["writes"]["text"].as_str().expect("the words are text");
+        let flow = watched(&format!(
+            "writes = {{ text = {} }}\n",
+            toml::Value::String(words.to_string())
+        ));
+        assert_eq!(main_faults(&flow), Vec::<String>::new());
+        let (_, said) = main_at(&flow, &repo.project.main)(&head).expect("the flow says it");
+        assert!(said.contains(&head), "{said}");
     }
 
     #[test]

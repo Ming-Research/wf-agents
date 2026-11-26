@@ -14,14 +14,14 @@ use hyper::{Method, Request, StatusCode, header};
 use hyper_util::rt::TokioIo;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use web::attention::{Attention, Line, Stuck};
+use web::attention::{Attention, Line, Of, Stuck};
 use web::observations::{
     NewObservation, Observation, ObservationAdded, ObservationChangeAsked, ObservationChanges, ObservationsChanged,
     ObservationsPage, TagsPage,
 };
 use web::plan::{Candidates, Field, Graph, Hits, Node, PlanChange, PlanChanges, Row, Standing, Tags};
 use web::pulls::{OpenPull, Pulls};
-use web::system::{Figure, Going, LeftOf, Past, Rest, System, UnderWay};
+use web::system::{Figure, Going, LeftOf, Past, RedTest, Rest, System, UnderWay};
 use web::works::{
     Act, Added, Against, Back, Call, CellState, ChangeAsked, Checked, Continues, Engine, EngineAct, Failure, ForkAsked,
     ForkInstead, ForkPage, Found, ItemChanged, ItemChanges, ItemHistory, Items, ItemsChanged, Limit, Maker, NewItem,
@@ -1997,6 +1997,14 @@ fn heed(line: &Line, now: u64) -> String {
         } => {
             return format!("{STARTED_HELD}, for {}.", duration(now.saturating_sub(*since)));
         }
+        Line::MainRed {
+            since,
+            project,
+            tests,
+            works,
+        } => {
+            return main_red(project, tests, works, duration(now.saturating_sub(*since)));
+        }
         // The shared wait, and where the agents' command line cannot run, what the owner does, said here alone.
         Line::Agents { since, outage: o, mend } => {
             let held = duration(now.saturating_sub(*since));
@@ -2079,6 +2087,41 @@ fn heed(line: &Line, now: u64) -> String {
         "Item {item} \"{}\", work {work}: {}",
         cut_title(&of.title),
         sentence(&said)
+    )
+}
+
+/// How many of the tests that are red on main a line of `wait` names.
+const RED_TESTS: usize = 5;
+
+/// That the main branch of a project fails these tests on its head, since when, and which works wait for it to pass.
+fn main_red(project: &str, tests: &[RedTest], works: &[Of], red_for: String) -> String {
+    let named: Vec<String> = (tests.iter().take(RED_TESTS))
+        .map(|test| format!("`{}`", test.name))
+        .collect();
+    let more = match tests.len().saturating_sub(RED_TESTS) {
+        0 => String::new(),
+        left => format!(" and {left} more"),
+    };
+    let mut heads: Vec<&str> = tests.iter().map(|test| test.head.as_str()).collect();
+    heads.sort_unstable();
+    heads.dedup();
+    let heads: Vec<String> = heads.iter().map(|head| head.chars().take(12).collect()).collect();
+    let waiting = if works.is_empty() {
+        "No work waits for it.".to_string()
+    } else {
+        let waiting: Vec<String> = (works.iter())
+            .map(|of| {
+                let (work, item) = (work_number(of.work), item_number(of.item));
+                format!("{work} for item {item}")
+            })
+            .collect();
+        format!("Waiting for it to pass: {}.", waiting.join(", "))
+    };
+    format!(
+        "The main branch of {project} is red: {}{more} fail{} on its head {}, for {red_for}. {waiting}",
+        named.join(", "),
+        if tests.len() == 1 { "s" } else { "" },
+        heads.join(", ")
     )
 }
 
@@ -3625,6 +3668,7 @@ mod tests {
                 ),
             ],
             stopping: None,
+            red_main: Vec::new(),
         };
         let said = system_said(&system, &[], 7, 10);
         assert!(
@@ -3746,6 +3790,45 @@ mod tests {
             "{said}"
         );
         assert_eq!(said.matches("Choose an account").count(), 1, "{said}");
+    }
+
+    #[test]
+    fn wait_says_a_red_main_with_its_tests_the_head_and_the_works_that_wait_for_it() {
+        let hour = 3_600_000;
+        let test = |name: &str, head: &str| RedTest {
+            unit: "carry".to_string(),
+            name: name.to_string(),
+            head: head.to_string(),
+        };
+        let of = |work, item| Of {
+            work,
+            item,
+            title: "Greet".to_string(),
+        };
+        let line = |tests: Vec<RedTest>, works: Vec<Of>| Line::MainRed {
+            since: hour,
+            project: "Firn-wf".to_string(),
+            tests,
+            works,
+        };
+        assert_eq!(
+            heed(
+                &line(
+                    vec![test("tools::a", "0123456789abcdef0123")],
+                    vec![of(184, 90), of(185, 91)]
+                ),
+                3 * hour
+            ),
+            "The main branch of Firn-wf is red: `tools::a` fails on its head 0123456789ab, for 2h 00m. Waiting for it \
+             to pass: W184 for item #90, W185 for item #91."
+        );
+        // Many tests are named by the first few and counted; no work waiting is said so.
+        let many: Vec<RedTest> = (1..=7).map(|n| test(&format!("t{n}"), "abc")).collect();
+        assert_eq!(
+            heed(&line(many, vec![]), 2 * hour),
+            "The main branch of Firn-wf is red: `t1`, `t2`, `t3`, `t4`, `t5` and 2 more fail on its head abc, for 1h \
+             00m. No work waits for it."
+        );
     }
 
     #[test]
@@ -4570,6 +4653,7 @@ mod tests {
             tests: Vec::new(),
             left_behind: Vec::new(),
             stopping: None,
+            red_main: Vec::new(),
         };
         let said = system_said(&system, &[], 7, 10);
         let lines: Vec<&str> = said.lines().collect();
@@ -4707,6 +4791,7 @@ mod tests {
             tests: Vec::new(),
             left_behind: Vec::new(),
             stopping: None,
+            red_main: Vec::new(),
         };
         let going = [Going {
             work: 3,
@@ -4775,6 +4860,7 @@ mod tests {
             tests: Vec::new(),
             left_behind: Vec::new(),
             stopping: None,
+            red_main: Vec::new(),
         };
         let listed =
             "  W1 of #11 at I1: 10m 00s so far, about 2m 00s more\n  W2 of #12 at I1: 1m 00s so far, about 5m 00s more";
@@ -4875,6 +4961,7 @@ mod tests {
             tests: Vec::new(),
             left_behind: Vec::new(),
             stopping: None,
+            red_main: Vec::new(),
         };
         let said = system_said(&system, &[], 7, 10);
         let lines: Vec<&str> = said.lines().collect();
