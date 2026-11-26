@@ -20,6 +20,12 @@ The engine's tools are `query` and `run_tests`; an agent does everything else wi
 A request of `run_tests` may name measurements: the project's measure workflow times them in one run, on the commit the work began from and on the work's commit, and the result gives each timing.
 - rejected: an agent proposed no new capability, with performance measured by the project's own tests, which `run_tests` runs once on main's commit and once on the work's; the owner rejected it, because before and after would be two separate runs, not compared fairly on one machine in one run.
 
+### decision a-commit-is-published-by-a-request-of-run-tests
+A request of `run_tests` may ask to publish a commit: the engine pushes it to a branch of the work's own on GitHub, one for each commit, which stays until the work ends.
+- rejected: an agent proposed leaving the branch of every call of `run_tests` until the work ends, with no new field; the owner rejected it, because each call would leave a branch, an agent would make a useless call to get one, and their number would follow the calls, not the commits published.
+- rejected: an agent proposed a tool `publish` that only pushes; the owner rejected it, because every round of every session would carry one more tool's words and one more shape of request and result.
+- rejected: an agent proposed letting an agent push to the branches under a prefix of its work's own, swept when the work ends; the owner rejected it, because pushing is the engine's alone, and an agent allowed a prefix could push more than a commit.
+
 ### decision the-flow-names-its-tools
 The tools a cell may ask for are those its flow names in `flow.toml`, the same for every cell of the flow.
 - replaced: Giving tools cell by cell, in each cell's file, was on main; the owner changed it, because then the part of what a session is sent that every cell shares no longer varies with the cell.
