@@ -484,6 +484,9 @@ struct Held {
     samples: Vec<history::Sample>,
     /// How the work stands as to the turn of its project to check and merge. Worked out again each time the work grows.
     turned: Turned,
+    /// The work's rounds as the waits every work shares read them, on the version it is on ([`outage::Rounds`]). Worked
+    /// out again each time the work grows.
+    rounds: outage::Rounds,
 }
 
 /// How a work stands, for the driver: whether it is still to be written to and looked at.
@@ -890,7 +893,7 @@ impl Driver {
                     continue;
                 };
                 match step(store.as_mut(), held, policy.as_ref(), now, event, room, gate) {
-                    Ok(effects) => todos.extend(effects.into_iter().map(|effect| held.todo(effect))),
+                    Ok((effects, _)) => todos.extend(effects.into_iter().map(|effect| held.todo(effect))),
                     Err(Halt::Store(fault)) => return Err(Fault::Store(fault)),
                     Err(Halt::Refused(refused)) => return Err(Fault::Refused { work: number, refused }),
                 }
@@ -1308,7 +1311,7 @@ impl Driver {
         let item = held.head.item;
         let mut todos = Vec::new();
         match step(self.store.as_mut(), held, self.policy.as_ref(), now, event, room, gate) {
-            Ok(effects) => todos.extend(effects.into_iter().map(|effect| held.todo(effect))),
+            Ok((effects, _)) => todos.extend(effects.into_iter().map(|effect| held.todo(effect))),
             Err(Halt::Refused(refused)) => return Err(Failed::Refused(refused)),
             Err(Halt::Store(fault)) => return Err(self.stop(Fault::Store(fault), false)),
         }
@@ -1660,7 +1663,7 @@ impl Driver {
 
     /// The usage limit of each account that stands, by the account's name, whether or not it is in use ([`outage`]).
     pub fn limits(&self) -> BTreeMap<String, Limit> {
-        outage::limits(self.outlined(), &self.answered)
+        outage::limits(self.rounds(), &self.answered)
     }
 
     /// The history of the rounds of every work on the flow of this name ([`history`]).
@@ -1768,7 +1771,7 @@ impl Driver {
     /// The wait of the service every work shares, if one stands, with what the outside said of it since it began.
     fn outage_of(&self, service: Service) -> Option<Outage> {
         let in_use = self.accounts.in_use();
-        let mut outage = outage::outage(service, self.outlined(), &self.answered, in_use)?;
+        let mut outage = outage::outage(service, self.rounds(), &self.answered, in_use)?;
         match service {
             Service::Agents => {
                 outage.checked = (self.checked.get(&in_use.map(str::to_string)))
@@ -1785,13 +1788,12 @@ impl Driver {
         Some(outage)
     }
 
-    /// Each work on a version kept, with that version's outline and the work's records: what a wait every work shares
-    /// is read from, each round served as the version it ran on has its cell, so that a work that met a wait and ended
-    /// since, on whatever version, still says it. A work on none kept is left out: which of its cells an agent ran its
+    /// Each work's rounds as the waits every work shares read them ([`outage::Rounds`]): what a wait is worked out
+    /// from, each round served as the version its work is on has its cell, so that a work that met a wait and ended
+    /// since, on whatever version, still says it. A work on none kept has none: which of its cells an agent ran its
     /// version does not say, and it ended before versions were kept.
-    fn outlined(&self) -> impl Iterator<Item = (WorkNumber, &flow::Outline, &Work)> {
-        (self.works.values())
-            .filter_map(|held| held.on.outline().map(|outline| (held.head.number, outline, &held.work)))
+    fn rounds(&self) -> impl Iterator<Item = &outage::Rounds> + Clone {
+        self.works.values().map(|held| &held.rounds)
     }
 
     /// The waits of every service, as they stand.
@@ -1962,7 +1964,7 @@ impl Driver {
             return Err(fault.clone());
         }
         if let Some((under, found)) = found
-            && let Some(outage) = outage::outage(Service::Agents, self.outlined(), &self.answered, under.as_deref())
+            && let Some(outage) = outage::outage(Service::Agents, self.rounds(), &self.answered, under.as_deref())
         {
             let before = (self.checked.get(&under)).filter(|(of, _)| *of == outage.since);
             let taken = before.map_or(0, |(_, checked)| checked.taken) + 1;
@@ -2094,8 +2096,14 @@ impl Driver {
     /// once the ping has ended, after whatever the ping did to the session, and is filled as it then stands. The
     /// rounds of the work's other lines begin as they would without the ping.
     pub fn gate_of(&self, work: WorkNumber) -> Hold {
+        self.hold_with(work, self.holding())
+    }
+
+    /// The rounds a work is stepped with held back ([`Driver::gate_of`]), the waits every work shares and the stop of the
+    /// engine holding those `holding` says.
+    fn hold_with(&self, work: WorkNumber, holding: Gate) -> Hold {
         Hold {
-            gate: self.holding(),
+            gate: holding,
             lines: (self.pinging.iter())
                 .filter(|(w, _)| *w == work)
                 .map(|(_, line)| line.clone())
@@ -2126,6 +2134,10 @@ impl Driver {
     /// Looks at every work that has not ended, in the order of their numbers, each with the gate as it is then and
     /// given no slot, so that the free slots go to the works in the engine's order once all have been looked at. Where
     /// a wait every work shares lets one round go first, the work whose round met it first is looked at first.
+    ///
+    /// The gate is worked out once, and again after each work that changed as it was looked at: the waits every work
+    /// shares are worked out from the rounds of every work, which a look changes only in the work it changes, and from
+    /// nothing else a look changes. So a look at many works that change nothing works them out once, not once a work.
     fn look(&mut self, now: Time) -> Result<Vec<Todo>, Fault> {
         let mut todos = Vec::new();
         let first = first_turns(self.agents_wait().as_ref(), self.host_outage().as_ref());
@@ -2134,8 +2146,11 @@ impl Driver {
             .map(|(number, _)| *number)
             .collect();
         numbers.sort_by_key(|number| (!first.contains(number), *number));
+        let mut holding = self.holding();
         for number in numbers {
-            self.step_one(now, number, Event::Look, false, &mut todos)?;
+            if self.step_with(now, number, Event::Look, false, holding, &mut todos)? {
+                holding = self.holding();
+            }
         }
         Ok(todos)
     }
@@ -2150,18 +2165,34 @@ impl Driver {
         slot: bool,
         todos: &mut Vec<Todo>,
     ) -> Result<(), Fault> {
-        let (room, gate) = (self.room(Some(number), slot), self.gate_of(number));
+        let holding = self.holding();
+        self.step_with(now, number, event, slot, holding, todos).map(|_| ())
+    }
+
+    /// Gives one thing that happened to a work that has not ended to the engine's loop, as [`Driver::step_one`] does,
+    /// the waits every work shares and the stop of the engine holding those `holding` says. Gives whether the work
+    /// changed as the driver holds it.
+    fn step_with(
+        &mut self,
+        now: Time,
+        number: WorkNumber,
+        event: Event,
+        slot: bool,
+        holding: Gate,
+        todos: &mut Vec<Todo>,
+    ) -> Result<bool, Fault> {
+        let (room, gate) = (self.room(Some(number), slot), self.hold_with(number, holding));
         let Some(held) = self
             .works
             .get_mut(&number)
             .filter(|held| held.standing == Standing::Going)
         else {
-            return Ok(());
+            return Ok(false);
         };
         match step(self.store.as_mut(), held, self.policy.as_ref(), now, event, room, gate) {
-            Ok(effects) => {
+            Ok((effects, changed)) => {
                 todos.extend(effects.into_iter().map(|effect| held.todo(effect)));
-                Ok(())
+                Ok(changed)
             }
             Err(Halt::Store(fault)) => Err(Fault::Store(fault)),
             Err(Halt::Refused(refused)) => Err(Fault::Refused { work: number, refused }),
@@ -2183,7 +2214,9 @@ impl Driver {
         }
         let mut todos = Vec::new();
         let (mut failed, mut written) = (None, false);
-        let gates: BTreeMap<WorkNumber, Hold> = (self.works.keys()).map(|n| (*n, self.gate_of(*n))).collect();
+        let holding = self.holding();
+        let gates: BTreeMap<WorkNumber, Hold> =
+            (self.works.keys()).map(|n| (*n, self.hold_with(*n, holding))).collect();
         let numbers: Vec<WorkNumber> = self.works.keys().copied().collect();
         for number in &numbers {
             // The turn is the work's as the works written before it left it, so that where several are due to check at
@@ -2215,7 +2248,7 @@ impl Driver {
                 value: None,
             };
             match step(self.store.as_mut(), held, self.policy.as_ref(), now, event, room, gate) {
-                Ok(effects) => {
+                Ok((effects, _)) => {
                     written = true;
                     todos.extend(effects.into_iter().map(|effect| held.todo(effect)));
                 }
@@ -2359,7 +2392,7 @@ impl Driver {
     /// worked out from the records of every work, and the one that stands now, where one does, from what every work
     /// reads alike ([`AtOnce::cannot_run`]).
     pub fn cannot_runs(&self, at_once: &AtOnce) -> Vec<CannotRun> {
-        let mut waits = outage::cannot_run_spans(self.outlined());
+        let mut waits = outage::cannot_run_spans(self.rounds());
         waits.extend(at_once.cannot_run().map(|(since, why)| CannotRun {
             from: since,
             until: None,
@@ -2607,7 +2640,7 @@ impl Driver {
                 room,
                 gate,
             ) {
-                Ok(effects) => todos.extend(effects.into_iter().map(|effect| held.todo(effect))),
+                Ok((effects, _)) => todos.extend(effects.into_iter().map(|effect| held.todo(effect))),
                 Err(Halt::Store(fault)) => return Err(Halt::Store(fault)),
                 Err(Halt::Refused(refused)) => return Err(Halt::Refused(Fault::Refused { work: number, refused })),
             }
@@ -2655,7 +2688,7 @@ impl Driver {
                 room,
                 gate,
             ) {
-                Ok(effects) => todos.extend(effects.into_iter().map(|effect| held.todo(effect))),
+                Ok((effects, _)) => todos.extend(effects.into_iter().map(|effect| held.todo(effect))),
                 Err(Halt::Store(fault)) => return Err(Halt::Store(fault)),
                 Err(Halt::Refused(refused)) => return Err(Halt::Refused(Fault::Refused { work: number, refused })),
             }
@@ -2733,27 +2766,31 @@ impl Held {
             standing: Standing::Going,
             samples: Vec::new(),
             turned: Turned::default(),
+            rounds: outage::Rounds::default(),
         };
         held.update();
         held
     }
 
     /// The work as the store keeps it, held at fault by the driver: nothing more is decided of it, so it no longer holds
-    /// the turn of its project and wants none, and the works that wait for the turn go on.
+    /// the turn of its project and wants none, and the works that wait for the turn go on. Its rounds are read as the
+    /// store keeps them.
     fn hold_at_fault(&mut self, kept: Work) {
         self.work = kept;
         self.standing = Standing::AtFault;
         self.turned.clear();
+        self.rounds = outage::Rounds::of(self.head.number, self.on.outline(), &self.work);
     }
 
-    /// Works out again how the work stands and its rounds that are history, as it grew: by its end alone where no flow
-    /// decides it now.
+    /// Works out again how the work stands, its rounds that are history and its rounds as the waits every work shares
+    /// read them, as it grew: how it stands by its end alone where no flow decides it now.
     fn update(&mut self) {
         self.standing = match self.on.end() {
             Some(end) => Standing::Ended(end),
             None => standing_of(&self.flow, &self.work),
         };
         self.samples = samples_of(&self.flow, &self.on, &self.work);
+        self.rounds = outage::Rounds::of(self.head.number, self.on.outline(), &self.work);
         if self.on.installed() {
             self.turned
                 .update(&self.flow.flow, &self.work, self.standing == Standing::Going);
@@ -2836,7 +2873,8 @@ impl Held {
 
 /// Gives one thing that happened to the engine's loop for the work, in the room the engine leaves it and with the gate
 /// of the wait every work shares, with what follows from it for the sessions of its lines, and keeps what the loop
-/// added before giving back what is to be done.
+/// added before giving back what is to be done, with whether the work changed as the driver holds it: it grew, or is
+/// held at fault.
 fn step(
     store: &mut dyn Storage,
     held: &mut Held,
@@ -2845,17 +2883,18 @@ fn step(
     event: Event,
     room: Room,
     gate: Hold,
-) -> Result<Vec<Effect>, Halt> {
+) -> Result<(Vec<Effect>, bool), Halt> {
     let before = held.work.tick();
     // A work that ended on a version not installed, or on none kept, takes what no flow decides, by its end alone.
     if let Some(end) = held.on.end() {
         let let_go = &held.flow.waits.paused.let_go;
         let effects = engine::handle_ended(end, let_go, &mut held.work, now, event).map_err(Halt::Refused)?;
-        if held.work.tick() != before {
+        let grew = held.work.tick() != before;
+        if grew {
             store.save(held.head.number, &held.work).map_err(Halt::Store)?;
             held.update();
         }
-        return Ok(effects);
+        return Ok((effects, grew));
     }
     let (number, item) = (held.head.number, &held.item);
     let then = |flow: &Compiled, work: &Work| {
@@ -2871,15 +2910,16 @@ fn step(
             let mut kept = store.load(held.head.number).map_err(Halt::Store)?;
             kept.read_through(&held.work.readings);
             held.hold_at_fault(kept);
-            return Ok(Vec::new());
+            return Ok((Vec::new(), true));
         }
         Err(refused) => return Err(Halt::Refused(refused)),
     };
-    if held.work.tick() != before {
+    let grew = held.work.tick() != before;
+    if grew {
         store.save(held.head.number, &held.work).map_err(Halt::Store)?;
         held.update();
     }
-    Ok(effects)
+    Ok((effects, grew))
 }
 
 /// Whether the work, going and not paused, has an agent's cell whose round runs on the model, as the policy says.
@@ -2983,5 +3023,96 @@ fn standing_of(flow: &Compiled, work: &Work) -> Standing {
         Decision::Ended(end) => Standing::Ended(end),
         Decision::Fault(_) => Standing::AtFault,
         _ => Standing::Going,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! What a tick of the driver costs as the works grow in number.
+
+    use flow::{Has, Source, compile};
+    use store::Store;
+
+    use super::*;
+
+    /// A writer that the owner's start runs, and the merge.
+    fn flow() -> Compiled {
+        let text = r#"
+            name = "small"
+            order = ["write", "merge"]
+            [limits]
+            runs = 2
+            returns = 2
+            calls = 3
+            [lines.main]
+            [blocks.text]
+            [blocks.merged]
+            shown = true
+            [blocks.start]
+            outside = "start"
+            writes = { text = "The owner started the work." }
+        "#;
+        let write = "title = \"Write\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Write.\"\n\
+                     watches = [\"start\"]\noutputs = [\"text\"]\n[kinds]\nstart = \"last_and_latest\"\n";
+        let merge =
+            "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"text\"]\noutputs = [\"merged\"]\n";
+        let source = Source {
+            flow: text.to_string(),
+            cells: [("write", write), ("merge", merge)]
+                .iter()
+                .map(|(id, text)| (id.to_string(), text.to_string()))
+                .collect(),
+            files: [(
+                flow::waits_file(),
+                include_str!("../../../flow/agents/waits.toml").to_string(),
+            )]
+            .into(),
+            ..Source::default()
+        };
+        let has = Has {
+            sources: [START.to_string()].into(),
+            acts: ["merge".to_string()].into(),
+            ..Has::default()
+        };
+        compile(&source, &has).expect("the definition compiles")
+    }
+
+    /// How many times a tick works out a wait every work shares, with this many works let on, all but the first
+    /// waiting for the one slot, as a tick before it left them.
+    fn worked_out_in_a_tick(works: usize) -> usize {
+        let dir = tempfile::tempdir().expect("a directory for the store");
+        let store = Store::open(dir.path().join("store.db")).expect("the store opens");
+        let mut now = Time(1_800_000_000_000);
+        let (mut driver, _) = Driver::open(Box::new(store), vec![flow()], 1, None, now).expect("the driver opens");
+        for i in 0..works {
+            now.0 += 1_000;
+            let new = NewItem {
+                title: format!("Work {i}"),
+                level: "1".to_string(),
+                project: "small".to_string(),
+                depends_on: Vec::new(),
+                tags: Vec::new(),
+                continues: None,
+                flow: "small".to_string(),
+                writes: Vec::new(),
+                why: None,
+                waits_for: Vec::new(),
+            };
+            let (_, work, _) = driver.add(now, new).expect("the item is added");
+            (driver.happened(now, work, Event::Resumed)).expect("the work is let on");
+        }
+        now.0 += 1_000;
+        driver.tick(now, None, None).expect("the tick is taken");
+        now.0 += 1_000;
+        outage::WORKED_OUT.with(|worked_out| worked_out.set(0));
+        driver.tick(now, None, None).expect("the tick is taken");
+        outage::WORKED_OUT.with(|worked_out| worked_out.get())
+    }
+
+    // The store's writes for thirty-three works, nothing run: a tick looks at every work, and works out the waits every
+    // work shares as often with thirty works as with three. Fails where the step of each work works them out again.
+    #[test]
+    fn a_tick_works_out_the_shared_waits_as_often_for_many_works_as_for_few() {
+        assert_eq!(worked_out_in_a_tick(30), worked_out_in_a_tick(3));
     }
 }
