@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Puts together `AGENTS.md` beside this script, which an architect session started in this directory reads: the
-architect's rules and what it reports, the installation's settings an architect works by, the project's constitution
-and the rules of its design tree, and the rules every agent of the engine works by.
+architect's rules and what it reports, the installation's settings an architect works by, the project's constitution,
+the principles of its design tree and the tree's rules, and the rules every agent of the engine works by.
 
 The architect's own files are read as they stand beside this script. What the engine gives its agents is read as the
 project's main branch holds it, the branch the engine takes its flows from, so that the architect is given what the
@@ -25,6 +25,8 @@ SETTINGS = ["owner.", "agents.slots", "agents.work_budget_usd", "agents.levels."
 PROJECT_SETTINGS = ["main", "github.repository"]
 # The rules of the design tree, which the engine gives every agent as words of its own (`agents/session.toml`).
 TREE_RULES = "flow/agents/tree_rules.md"
+# The design tree's format, which names the directory of the principles within the tree (`agents/tree.toml`).
+TREE_FORMAT = "flow/agents/tree.toml"
 
 
 def fail(why: str) -> None:
@@ -112,10 +114,14 @@ def main() -> None:
 
     general = f"flow/agents/rules/{rule_sets['general']['file']}"
     constitution = declaration["files"]["constitution"]["path"]
+    kinds = tomllib.loads(on_main(root, ref, TREE_FORMAT))["format"]["kinds"]
+    principles = declaration["tree"] + next(k["dir"] for k in kinds if k["kind"] == "principle")
+    listed = run(["git", "-C", str(root), "ls-tree", "-r", "--name-only", ref, principles]).split()
     parts = [
         *(part(str(own.relative_to(root)), named(own.read_text(), names, values)) for own in OWN),
         installation(values, project),
         part(constitution, on_main(root, ref, constitution)),
+        *(part(path, on_main(root, ref, path)) for path in sorted(listed) if path.endswith(".md")),
         part(TREE_RULES, on_main(root, ref, TREE_RULES)),
         part(general, named(on_main(root, ref, general), names, values)),
     ]
