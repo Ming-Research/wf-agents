@@ -1242,7 +1242,12 @@ fn a_research_that_says_no_deeper_look_and_hands_in_no_plan_is_sent_back_naming_
         Came::hands_in(vec![handed("deep_needed", "", Some("no"))]),
         0,
     );
-    let again = sim.round().expect("the research is entered again");
+    let again = sim.round().unwrap_or_else(|| {
+        panic!(
+            "the research is entered again: {:?}",
+            decide::decide(&sim.flow.flow, &sim.work.records)
+        )
+    });
     assert_eq!((again.cell.as_str(), again.run, again.number), ("R1", research.run, 2));
     assert!(
         sim.versions("deep_needed").is_empty(),
@@ -1272,7 +1277,12 @@ fn a_deep_research_that_hands_in_no_plan_is_sent_back_naming_the_plan() {
     let (mut sim, deep) = deeply_until("D1");
     tried(&mut sim, &deep);
     sim.returns(&deep, Came::hands_in(vec![]), 0);
-    let again = sim.round().expect("the deep research is entered again");
+    let again = sim.round().unwrap_or_else(|| {
+        panic!(
+            "the deep research is entered again: {:?}",
+            decide::decide(&sim.flow.flow, &sim.work.records)
+        )
+    });
     assert_eq!((again.cell.as_str(), again.run, again.number), ("D1", deep.run, 2));
     let entered = sim.enter(&again, sim.begins(&again));
     let said = "`plan_owner`, `plan_agent`, `acceptance`";
