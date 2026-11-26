@@ -195,6 +195,7 @@ impl Records {
             .chain(self.answers.iter().map(|e| e.at))
             .chain(self.let_go.iter().map(|e| e.at))
             .chain(self.pauses.iter().map(|e| e.at))
+            .chain(self.owner_reads.iter().map(|e| e.at))
             .chain(self.cancels.iter().copied())
             .chain(self.reopens.iter().copied())
             .chain(self.releases.iter().copied())

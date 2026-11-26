@@ -110,10 +110,11 @@ export async function readBody(page: WorkPage, load: LoadVersion): Promise<Body>
   };
   // A section for each datum the card of the version the work runs on names, in its order and by its name.
   const sections = await Promise.all(page.outline.card.map(async (title) => ({ title, parts: await current(title) })));
-  // What reading the item marks read: the latest version a run wrote of each datum the card names, where it is not read.
+  // What reading the item marks read: the latest version with something in it that a run wrote of each datum the card
+  // names, where it is not read, as the engine counts what is new.
   const toRead = page.outline.card.flatMap((block): ReadVersion[] => {
     const latest = versionsOf(page, block)
-      .filter((v) => v.by.kind === 'run')
+      .filter((v) => v.by.kind === 'run' && !v.empty)
       .at(-1);
     return latest === undefined || latest.read === true ? [] : [{ block, version: latest.number }];
   });

@@ -336,13 +336,16 @@ describe('what the owner has not read, read from what the engine says of each ve
         { name: 'how', versions: [version(3, 1, by, 16, null, { read: true }), version(6, 2, by, 20)] },
         { name: 'why', versions: [version(4, 1, by, 8, null, { read: true })] },
         { name: 'plan', versions: [version(5, 1, by, 8), version(7, 2, { kind: 'owner' }, 8)] },
+        // A run's latest version holds nothing: the engine counts the one before it, which has something in it.
+        { name: 'last', versions: [version(8, 1, by, 10), version(9, 2, by, 0)] },
       ],
-      ['how', 'why', 'plan', 'later'],
+      ['how', 'why', 'plan', 'last', 'later'],
     );
     const body = await readBody(page, loading({}));
     expect(body.toRead).toEqual([
       { block: 'how', version: 2 },
       { block: 'plan', version: 1 },
+      { block: 'last', version: 1 },
     ]);
   });
 });

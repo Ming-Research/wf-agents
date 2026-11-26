@@ -107,6 +107,36 @@ fn two_entries_at_one_place_are_a_fault() {
     assert_eq!(w.decide(), Decision::Fault(RecordFault::PlaceTwice(at)));
 }
 
+// What the owner read takes a place of its own like every other entry of the records.
+#[test]
+fn a_read_at_the_place_of_another_entry_or_of_another_read_is_a_fault() {
+    let mut w = World::with_gate(vec![cell("a", &["p"], &[])]);
+    let at = w.person_writes("p");
+    w.records.owner_reads.push(decide::OwnerRead {
+        versions: vec![("p".into(), at)],
+        at,
+    });
+    assert_eq!(w.decide(), Decision::Fault(RecordFault::PlaceTwice(at)));
+    let moved = w.tick();
+    w.records.owner_reads[0].at = moved;
+    let again = w.records.owner_reads[0].clone();
+    w.records.owner_reads.push(again);
+    let twice = w.records.owner_reads[0].at;
+    assert_eq!(w.decide(), Decision::Fault(RecordFault::PlaceTwice(twice)));
+}
+
+#[test]
+fn the_place_after_the_last_read_is_the_next_place() {
+    let mut w = World::with_gate(vec![cell("a", &["p"], &[])]);
+    let version = w.person_writes("p");
+    let at = w.tick();
+    w.records.owner_reads.push(decide::OwnerRead {
+        versions: vec![("p".into(), version)],
+        at,
+    });
+    assert_eq!(w.records.next_place(), Seq(at.0 + 1));
+}
+
 /// A version of `p` put into the round of `a` under way: `a` reads `p`, a person writes it while the round is under
 /// way, and it is put in after. The records hold no fault.
 fn put_in_while_under_way() -> (World, RunId, Seq) {
