@@ -350,8 +350,9 @@ pub struct Summary {
     /// ran most of the cell, `t` where an engine cell's rounds or the tools' calls did; where less than half of it was
     /// run by either, what the work waited for at the cell's middle, on the records as they stood then: `o` where it
     /// waited on the owner, as the one definition of that says ([`driver::owner`]), `p` where a pause held it, its own
-    /// or the owner's pause of everything, `w` where it waited for the items its item depends on, and `.` anything
-    /// else, a stalled work among it; empty for a work with no round or a span with no length.
+    /// or the owner's pause of everything, `w` where it waited for the items its item depends on, `q` where it waited
+    /// for its project's turn to check and merge, `s` where it waited for a slot, and `.` anything else, a stalled work
+    /// among it; empty for a work with no round or a span with no length.
     #[serde(default)]
     pub bar: String,
     /// How many of its rounds were given back what the round before handed in, sent back as it did not do.
@@ -2558,28 +2559,31 @@ fn levels_of(
 /// What holds every work at once, as the bar reads it at a moment: each stretch the pause of everything held, from the
 /// store's record of every pause set and lifted; each stretch a stop of the engine stood, from its record of each stop
 /// and each start after one; each wait in which the agents' command line could not run, from the rounds that failed so
-/// and the next round of an agent that began, and the one that stands now, from when it began; and each stretch each
-/// work of a project held the turn to check and merge, by the project and the work, as the work kept it or as it is
-/// worked out.
-struct HeldAll {
-    everything: Vec<driver::Span>,
-    stops: Vec<driver::StopSpan>,
-    cannot_run: Vec<driver::CannotRun>,
-    turns: Vec<(Option<String>, store::WorkNumber, Vec<work::TurnSpan>)>,
+/// and the next round of an agent that began, and the one that stands now, from when it began; each stretch a cause
+/// every work shares held the rounds of agents, read the same way; and each stretch each work of a project held the
+/// turn to check and merge, by the project and the work, as the work kept it or as it is worked out.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct HeldAll {
+    pub(crate) everything: Vec<driver::Span>,
+    pub(crate) stops: Vec<driver::StopSpan>,
+    pub(crate) cannot_run: Vec<driver::CannotRun>,
+    pub(crate) down: Vec<driver::Down>,
+    pub(crate) turns: Vec<(Option<String>, store::WorkNumber, Vec<work::TurnSpan>)>,
 }
 
 impl HeldAll {
-    fn of(driver: &Driver, at_once: &driver::AtOnce) -> HeldAll {
+    pub(crate) fn of(driver: &Driver, at_once: &driver::AtOnce) -> HeldAll {
         HeldAll {
             everything: driver.everything_spans().to_vec(),
             stops: driver.stop_spans(),
             cannot_run: driver.cannot_runs(at_once),
+            down: driver.downs(at_once),
             turns: driver.turn_spans(),
         }
     }
 
     /// Each stretch another work of the work's project held the turn, which the work's own bar is read by.
-    fn turns_of_others(&self, kept: &Kept<'_>) -> Vec<work::TurnSpan> {
+    pub(crate) fn turns_of_others(&self, kept: &Kept<'_>) -> Vec<work::TurnSpan> {
         let (project, number) = (kept.item.project.as_ref(), kept.head.number);
         (self.turns.iter())
             .filter(|(of, work, _)| of.as_ref() == project && *work != number)
@@ -2612,6 +2616,7 @@ impl<'a> TimeOf<'a> {
                 &all.everything,
                 &all.stops,
                 &all.cannot_run,
+                &all.down,
                 all.turns_of_others(&kept),
                 now,
             )));
@@ -2654,6 +2659,9 @@ fn mark(went: Went) -> char {
         Went::Paused | Went::Stopping => 'p',
         Went::Items => 'w',
         Went::Turn => 'q',
+        // A wait for a slot has a character of its own, which the page draws as it draws what nothing says, saying on
+        // pointing at it what it is.
+        Went::Slot => 's',
         Went::Other => '.',
     }
 }
@@ -4780,6 +4788,7 @@ pub(crate) mod tests {
             everything: Vec::new(),
             stops: Vec::new(),
             cannot_run: Vec::new(),
+            down: Vec::new(),
             turns: Vec::new(),
         };
         let third = (BAR_CELLS / 3) as usize;
@@ -5096,6 +5105,7 @@ pub(crate) mod tests {
             everything,
             stops: Vec::new(),
             cannot_run: Vec::new(),
+            down: Vec::new(),
             turns: Vec::new(),
         };
         let stored = Stored::new(&flow.name);
@@ -5106,6 +5116,7 @@ pub(crate) mod tests {
             &all.everything,
             &all.stops,
             &[],
+            &[],
             Vec::new(),
             now,
         );
@@ -5114,17 +5125,18 @@ pub(crate) mod tests {
             at: work.tick(),
             stretches,
             turn: Some(Vec::new()),
+            separated: true,
         });
         assert_eq!(live, bar(stored.kept(&flow, &on, &ended), &all, now));
-        for went in ['m', 'o', 'p', '.'] {
+        for went in ['m', 'o', 'p', 's'] {
             assert!(live.contains(went), "{live}");
         }
     }
 
     // The bar draws the wait for the turn to check and merge, `q`, where another work of the work's project held the
     // turn while the work would have begun a round of a cell that takes it, and draws it alike live and from what the
-    // work kept as it ended; where none held it, the same time is `.`. The work is paused from 1000 to 3000, let on
-    // then, and begins its round at 6000. Milliseconds.
+    // work kept as it ended; where none held it, the same time is `s`, the work waiting for a slot. The work is paused
+    // from 1000 to 3000, let on then, and begins its round at 6000. Milliseconds.
     #[test]
     fn the_bar_draws_the_wait_for_the_turn_live_and_as_kept_and_nothing_where_none_held_it() {
         use decide::run::Failure;
@@ -5163,6 +5175,7 @@ pub(crate) mod tests {
             everything: Vec::new(),
             stops: Vec::new(),
             cannot_run: Vec::new(),
+            down: Vec::new(),
             turns,
         };
         // Another work of the same project (an item of no project), and one of another project.
@@ -5183,17 +5196,18 @@ pub(crate) mod tests {
         let now = Time(9000);
         let live = bar(stored.kept(&flow, &on, &work), &all, now);
         assert_eq!(shape(live.clone()), "moqm");
-        // Held by no other work of its project, only by the work itself and one of another project: nothing says what it
-        // waited for.
+        // Held by no other work of its project, only by the work itself and one of another project: the turn was free,
+        // and the round that did not begin is the slots'.
         let none = bar(stored.kept(&flow, &on, &work), &held(vec![elsewhere, own]), now);
-        assert_eq!(shape(none), "mo.m");
+        assert_eq!(shape(none), "mosm");
         let kept = stored.kept(&flow, &on, &work);
-        let stretches = driver::time::stretches(&kept, &[], &[], &[], all.turns_of_others(&kept), now);
+        let stretches = driver::time::stretches(&kept, &[], &[], &[], &[], all.turns_of_others(&kept), now);
         let mut ended = work.clone();
         ended.kept_time.push(work::KeptTime {
             at: work.tick(),
             stretches,
             turn: Some(Vec::new()),
+            separated: true,
         });
         assert_eq!(live, bar(stored.kept(&flow, &on, &ended), &all, now));
     }

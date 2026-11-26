@@ -579,10 +579,12 @@ fn history(d: &mut Driver) {
             work::timed::Job {
                 name: "test 1 of 3".to_string(),
                 millis: 61_000,
+                queued_millis: Some(4_000),
             },
             work::timed::Job {
                 name: "lint".to_string(),
                 millis: 7_000,
+                queued_millis: None,
             },
         ],
         tests: vec![
@@ -607,6 +609,7 @@ fn history(d: &mut Driver) {
         jobs: vec![work::timed::Job {
             name: "slow".to_string(),
             millis: 90_000,
+            queued_millis: None,
         }],
         tests: Vec::new(),
         ..reading.clone()

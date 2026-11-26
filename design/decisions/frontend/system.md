@@ -19,6 +19,11 @@ The wait every work shares is described by what is down and since when, what the
 - rejected: an agent proposed six sentences, among them the round that met the wait and the command line's own words; the owner rejected it, because the last two sentences and the words saying it was not signed in said one thing three times.
 - replaced: The same last sentence for every cause, that no round begins until the command line runs again, was on main; the owner changed it, because it did not fit a limit, the network or the service, so each cause says what ends it.
 
+### decision the-waited-part-stands-after-produced
+The System view's Waited part, after Produced, counts the works' stops by cause, what CI took and the slots held, over the span and by week, and says what the engine does not know.
+- rejected: an agent proposed counting the stops in Produced and the slots held in Spent, with no part of its own; the owner rejected it, because Produced and Spent would each hold a meaning that is not theirs, and the week table would grow wider.
+- rejected: an agent proposed giving these figures only in the System data and by `wf-agents system`, and drawing them later with the monitoring of what is past its line; the owner rejected it, because the owner would still not see the numbers on the page.
+
 ### decision the-page-changes-what-is-tuned-while-the-engine-runs
 The Settings view changes the language, each level's model, the highest level of an item and of a round, the context past which a line starts a new session, and the slots; the rest only in the file.
 - replaced: Four settings from the installation's file, shown but not changeable on the page, was on main; the owner changed it, because the page showed too little, and what is tuned while works go on should be changed there.

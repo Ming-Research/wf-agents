@@ -26,7 +26,11 @@ pub enum Went {
     Items,
     /// The work waited for its turn to check and merge: another work of its project held the turn.
     Turn,
-    /// Anything else, a stalled work among it.
+    /// The work would begin a round that takes a slot, and no round of it began: the engine had no slot free for it.
+    /// The walk, asked in a room with every slot free, says the round would begin; that it did not is the slots'.
+    Slot,
+    /// Anything else, a stalled work among it. In what was kept before `Slot` was told apart ([`KeptTime::separated`]) a
+    /// wait for a slot is here too.
     Other,
 }
 
@@ -56,4 +60,8 @@ pub struct KeptTime {
     /// Each stretch the work held the turn, in order, as the flow it ended on decided it. None for a work that kept its
     /// time before the turn was worked out from records: it is read as one that never held it.
     pub turn: Option<Vec<TurnSpan>>,
+    /// Whether the stretches tell a wait for a slot apart from the other waits ([`Went::Slot`]): what was kept before
+    /// that was told apart has such waits among its `Other`, and they cannot be told again, the version it ended on no
+    /// longer being compiled.
+    pub separated: bool,
 }

@@ -141,6 +141,7 @@ async fn the_check_says_how_long_the_jobs_and_tests_of_its_run_took_as_the_full_
     let job = |name: &str| work::timed::Job {
         name: name.to_string(),
         millis: 60_000,
+        queued_millis: Some(5_000),
     };
     assert_eq!(
         timed(&mut said),

@@ -288,9 +288,10 @@ fn branch(place: &Place) -> Branch<'_> {
 }
 
 /// A check, at its own link, with an id made of its name, so that jobs of two names never share one; one that ran to a
-/// conclusion took a minute, as GitHub's job would say, and any other has no time.
+/// conclusion took a minute and waited five seconds for a runner, as GitHub's job would say, and any other has no time.
 fn check(name: &str, outcome: Outcome) -> Check {
     let took = matches!(outcome, Outcome::Passed | Outcome::Failed(_)).then_some(60);
+    let queued = took.map(|_| 5);
     let id = (name.bytes()).fold(0u64, |id, b| id.wrapping_mul(257).wrapping_add(u64::from(b)));
     Check {
         id,
@@ -298,6 +299,7 @@ fn check(name: &str, outcome: Outcome) -> Check {
         outcome,
         url: Some(format!("https://github.example/checks/{name}")),
         took,
+        queued,
     }
 }
 
@@ -617,11 +619,13 @@ async fn a_skipped_job_fails_nothing_and_every_job_of_a_passing_check_is_given_w
     let jobs = vec![
         Check {
             took: Some(192),
+            queued: None,
             ..passed("page")
         },
         check("docs", Outcome::Skipped),
         Check {
             took: None,
+            queued: None,
             ..passed("lint")
         },
     ];

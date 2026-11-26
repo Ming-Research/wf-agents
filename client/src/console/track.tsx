@@ -13,33 +13,40 @@ import { STATE } from '../works/words';
 /// not having been kept.
 export type TrackKind = 'model' | 'tool' | 'owner' | 'paused' | 'items' | 'turn' | 'gap' | 'unknown';
 
-/// Every kind a track draws, in the order its legend lists them.
+/// What a block of a track may be: any of the kinds the legend lists, and a wait for a slot, which is drawn as the gap is,
+/// in the colour of nothing having run, and says what it is only on pointing at it, so that it has no entry of its own
+/// in the legend.
+export type BarKind = TrackKind | 'slot';
+
+/// Every kind a track draws a colour for, in the order its legend lists them.
 export const TRACK_KINDS: TrackKind[] = ['model', 'tool', 'owner', 'paused', 'items', 'turn', 'gap', 'unknown'];
 
 /// One stretch of a track, from `left` for `width`, both in percent of the track.
-export type TrackSpan = { key: string; kind: TrackKind; left: number; width: number };
+export type TrackSpan = { key: string; kind: BarKind; left: number; width: number };
 
 /// The kind of each character of the engine's bar (`Summary.bar`).
-export const BAR_KINDS: Record<string, TrackKind> = {
+export const BAR_KINDS: Record<string, BarKind> = {
   m: 'model',
   t: 'tool',
   o: 'owner',
   p: 'paused',
   w: 'items',
   q: 'turn',
+  s: 'slot',
   '.': 'gap',
   '?': 'unknown',
 };
 
 /// What each kind of stretch is, said on pointing at it: where nothing ran, the state the work stood in, in the words
 /// every view names a state by.
-export const TRACK_WORDS: Record<TrackKind, string> = {
+export const TRACK_WORDS: Record<BarKind, string> = {
   model: 'A model ran',
   tool: "The tools or the engine's acts ran",
   owner: STATE.owner,
   paused: STATE.paused,
   items: STATE.items,
   turn: STATE.turn,
+  slot: 'Waiting for a slot: the engine would have begun a round, and every slot was taken',
   gap: 'Nothing ran',
   unknown: 'Nothing ran; what the work waited for is not known, the version of the flow it ran on not having been kept',
 };
@@ -48,7 +55,7 @@ const pct = (part: number, whole: number) => (whole > 0 ? (part / whole) * 100 :
 
 /// One block of a track, in the colour of what it was, saying what it is on pointing at it: the track draws it where
 /// the time was, and the legend draws it as a sample of the colour.
-export function TrackBlock({ kind, style }: { kind: TrackKind; style?: CSSProperties }) {
+export function TrackBlock({ kind, style }: { kind: BarKind; style?: CSSProperties }) {
   return <span className={`us-block us-${kind}`} title={TRACK_WORDS[kind]} style={style} />;
 }
 
@@ -66,8 +73,8 @@ export function TimeTrack({ spans }: { spans: TrackSpan[] }) {
 
 /// The stretches of a track from the bar the engine lays a work's time out in (`Summary.bar`): one character for each
 /// cell of equal width, `m` where a model worked, `t` where the tools did, and where neither did what the work waited
-/// for, `o` the owner, `p` a pause, `w` the items it depends on, `q` its project's turn to check and merge, `.` anything
-/// else, `?` not known. A run of the same character is one block; the ends before the first block that is not `.` and
+/// for, `o` the owner, `p` a pause, `w` the items it depends on, `q` its project's turn to check and merge, `s` a slot,
+/// `.` anything else, `?` not known. A run of the same character is one block; the ends before the first block that is not `.` and
 /// after the last are left bare.
 export function barSpans(bar: string): TrackSpan[] {
   const cells = [...bar];

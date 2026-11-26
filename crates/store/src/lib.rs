@@ -64,7 +64,7 @@ pub const SCHEMA: &str = include_str!("../../../db/schema.sql");
 
 /// The version of [`SCHEMA`]. A database made with an earlier one is migrated to it as it is opened; one made with
 /// any other is not opened.
-pub const SCHEMA_VERSION: u32 = 37;
+pub const SCHEMA_VERSION: u32 = 38;
 
 /// A step of the store after a migration's SQL.
 type Step = fn(&Connection) -> Result<(), Fault>;
@@ -194,6 +194,9 @@ const MIGRATIONS: &[Migration] = &[
         sql: include_str!("../../../db/migrations/202611261400-keep-what-the-owner-read.sql"),
         then: Some(tables::fill_owner_read),
     },
+    Migration::sql(include_str!(
+        "../../../db/migrations/202611261500-keep-the-slots-and-how-long-jobs-waited-for-a-runner.sql"
+    )),
 ];
 
 // The migrations bring a database of every earlier version to this one.
@@ -251,6 +254,13 @@ pub enum AccountAct {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StopRecord {
     pub what: StopAct,
+    pub at: Time,
+}
+
+/// The slots were set to this number at this time: what the store keeps of it, every one in order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SlotsRecord {
+    pub slots: usize,
     pub at: Time,
 }
 
@@ -403,6 +413,12 @@ pub trait Storage {
 
     /// Keeps that the engine was asked to stop, or started again after a stop.
     fn keep_stop(&mut self, record: &StopRecord) -> Result<(), Fault>;
+
+    /// Every number the slots were set to, in the order they were kept; none in a store that never kept one.
+    fn slots_set(&self) -> Result<Vec<SlotsRecord>, Fault>;
+
+    /// Keeps that the slots were set to this number at this time.
+    fn keep_slots(&mut self, record: &SlotsRecord) -> Result<(), Fault>;
 }
 
 impl Store {
@@ -663,6 +679,25 @@ impl Storage for Store {
         (self.db).execute(
             "INSERT INTO stops (what, time) VALUES (?1, ?2)",
             rusqlite::params![what, record.at.0],
+        )?;
+        Ok(())
+    }
+
+    fn slots_set(&self) -> Result<Vec<SlotsRecord>, Fault> {
+        let mut query = (self.db).prepare("SELECT slots, time FROM slots_set ORDER BY n")?;
+        let rows = query.query_map([], |row| Ok((row.get::<_, usize>(0)?, row.get::<_, u64>(1)?)))?;
+        let mut records = Vec::new();
+        for row in rows {
+            let (slots, time) = row?;
+            records.push(SlotsRecord { slots, at: Time(time) });
+        }
+        Ok(records)
+    }
+
+    fn keep_slots(&mut self, record: &SlotsRecord) -> Result<(), Fault> {
+        (self.db).execute(
+            "INSERT INTO slots_set (slots, time) VALUES (?1, ?2)",
+            rusqlite::params![record.slots, record.at.0],
         )?;
         Ok(())
     }

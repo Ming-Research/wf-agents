@@ -16,10 +16,21 @@ describe("a work's time track", () => {
   });
 
   it('knows every character the engine writes, and says what each kind is on pointing at it', () => {
-    expect(Object.keys(BAR_KINDS).sort()).toEqual(['.', '?', 'm', 'o', 'p', 'q', 't', 'w']);
-    expect([...TRACK_KINDS].sort()).toEqual([...new Set(Object.values(BAR_KINDS))].sort());
+    expect(Object.keys(BAR_KINDS).sort()).toEqual(['.', '?', 'm', 'o', 'p', 'q', 's', 't', 'w']);
+    // Every kind but a wait for a slot, which is drawn as nothing having run, has its colour in the legend.
+    expect([...TRACK_KINDS].sort()).toEqual([...new Set(Object.values(BAR_KINDS))].filter((k) => k !== 'slot').sort());
     for (const kind of Object.values(BAR_KINDS)) expect(TRACK_WORDS[kind]).toBeTruthy();
     expect(barSpans('....')).toEqual([]);
+  });
+
+  it('draws a wait for a slot as a block of its own that says so on pointing at it, and not as the stretch nothing says', () => {
+    const spans = barSpans('mmsssm');
+    expect(spans.map((s) => s.kind)).toEqual(['model', 'slot', 'model']);
+    expect(spans[1]).toMatchObject({ left: (2 / 6) * 100, width: (3 / 6) * 100 });
+    expect(TRACK_WORDS.slot).toContain('Waiting for a slot');
+    expect(TRACK_WORDS.slot).not.toBe(TRACK_WORDS.gap);
+    // It is no colour of the legend: it is drawn in the colour of nothing having run.
+    expect(TRACK_KINDS).not.toContain('slot');
   });
 
   it('draws a stretch whose wait is not known, of a work that kept no time, as a block of its own that says so', () => {

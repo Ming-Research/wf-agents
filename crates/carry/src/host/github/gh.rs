@@ -692,12 +692,22 @@ fn job(job: &Value) -> Option<Check> {
             .and_then(|(from, to)| seconds_between(from, to)),
         _ => None,
     };
+    // A job that a runner took has waited from when GitHub created it to when it started; one that did not run, or has
+    // not been taken, has not.
+    let queued = match outcome {
+        Outcome::Passed | Outcome::Failed(_) | Outcome::Pending | Outcome::Broken(_) => job["created_at"]
+            .as_str()
+            .zip(job["started_at"].as_str())
+            .and_then(|(from, to)| seconds_between(from, to)),
+        _ => None,
+    };
     Some(Check {
         id: job["id"].as_u64()?,
         name: job["name"].as_str()?.to_string(),
         outcome,
         url: job["html_url"].as_str().map(str::to_string),
         took,
+        queued,
     })
 }
 

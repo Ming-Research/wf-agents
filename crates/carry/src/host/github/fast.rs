@@ -317,6 +317,7 @@ fn reading(ran: &Ran, source: Source, workflow: &str, request: Request<'_>) -> R
             job.took.map(|seconds| Job {
                 name: job.name.clone(),
                 millis: seconds * 1000,
+                queued_millis: job.queued.map(|seconds| seconds * 1000),
             })
         })
         .collect();

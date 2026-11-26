@@ -5,6 +5,13 @@
 //! `judged`), and how often the budget of each project's fast workflow kept tests from their end, day by day. What else
 //! goes on now the view reads from the items and the engine, as the bar and the works do.
 //!
+//! What the works waited for is in `waited`: each stretch a work stopped for, by the cause the engine keeps what a work's
+//! time went to by (the owner, the items its item depends on, a slot, the turn to check and merge, a pause), how often
+//! and how long over the span and in each week; how long the calls and rounds that waited for a run of the project's CI
+//! took, and how long its jobs waited for a runner; and how many works held a slot and how many ran, against how many
+//! slots there were. A work that ended is read from what it kept as it ended, one going on from the flow it runs on,
+//! with what holds every work at once. No threshold is applied: what is past its own line is for the judgments to say.
+//!
 //! `GET /api/v1/system/under-way` gives, apart from it and light to read, what the calls of each agent's round under way
 //! have come to so far against the lines the run guard judges the round by ([`Going`]): it changes with every call, which
 //! no record of a work holds, and the page reads it each time the engine's stream of changes says `going`.
@@ -32,6 +39,7 @@ use store::WorkNumber;
 use work::Time;
 
 use crate::interface::{fail, refused};
+use crate::works::HeldAll;
 use crate::works::{
     Against, Back, Beside, Broken, Call, Failure, Given, Judged, Line, Run, RunEnd, Spent, runs, time, viewed_at,
 };
@@ -120,6 +128,9 @@ pub struct System {
     /// order of their names.
     #[serde(default)]
     pub red_main: Vec<RedMain>,
+    /// What the works waited for over the span, how long CI took them, and how many slots they held.
+    #[serde(default)]
+    pub waited: Waited,
 }
 
 /// The main branch of a project is red: its tests that fail on its head, since when, and the works that wait for it.
@@ -334,6 +345,117 @@ pub struct Week {
     pub added: usize,
     pub sent_back: usize,
     pub failed: usize,
+    /// What the works waited for in it, how long CI took them, and how many slots they held.
+    #[serde(default)]
+    pub waited: WeekWaited,
+}
+
+/// What the works waited for, as the System view counts it: why a work stopped for a time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum WaitReason {
+    /// For the owner, as the one definition of what waits on the owner reads it.
+    Owner,
+    /// For the items its item depends on.
+    Items,
+    /// For a slot: the walk would have begun a round of an agent's cell, and no round began.
+    Slot,
+    /// For the turn of its project to check and merge.
+    Turn,
+    /// For a pause: the work's own, the pause of everything, or a stop of the engine.
+    Paused,
+}
+
+impl WaitReason {
+    /// Every cause, in the order the view lists them.
+    const ALL: [WaitReason; 5] = [
+        WaitReason::Owner,
+        WaitReason::Items,
+        WaitReason::Slot,
+        WaitReason::Turn,
+        WaitReason::Paused,
+    ];
+}
+
+/// What the works waited for over the span ([`System::waited`]).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Waited {
+    /// By each cause, in the order of [`WaitReason`]: how many stops of the works ended in the span, and how long they
+    /// took, those still going on counted up to now.
+    pub by: Vec<WaitedBy>,
+    /// The waits that works which ended before a wait for a slot was told apart kept as anything else: which of them
+    /// were for a slot is not known, so they are in none of `by`.
+    pub unseparated: Stopped,
+    /// How long the calls and rounds that waited for a run of the project's CI took, and how long its jobs waited for a
+    /// runner.
+    pub ci: CiWaited,
+    /// How many works held a slot and how many ran, on average and at most, against how many slots there were.
+    pub occupancy: Occupancy,
+    /// How many works the waits and the slots are not known of: those that ended on a version of their flow that is no
+    /// longer installed and kept nothing of what they waited for, or that are on no version kept.
+    pub uncounted: usize,
+}
+
+/// How many stops of one cause ended in a stretch of time, and how long they took.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WaitedBy {
+    pub reason: WaitReason,
+    #[serde(flatten)]
+    pub stopped: Stopped,
+}
+
+/// How often and how long works stopped: the stops that ended in the stretch, and the time they took within it, a stop
+/// still going on counted up to now but not as one.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Stopped {
+    pub stops: usize,
+    pub total_ms: u64,
+    /// The median and the longest of the stops that ended, in full; none where none ended.
+    pub median_ms: Option<u64>,
+    pub longest_ms: Option<u64>,
+}
+
+/// How long the works waited for the project's CI.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CiWaited {
+    /// The calls and rounds that waited for a run and ended in the stretch, and the time they took within it.
+    #[serde(flatten)]
+    pub waited: Stopped,
+    /// How many jobs of those runs said how long they waited for a runner, and the median and the longest of it; none
+    /// where none said.
+    pub jobs: usize,
+    pub queued_median_ms: Option<u64>,
+    pub queued_longest_ms: Option<u64>,
+}
+
+/// How many works held a slot and how many ran, over a stretch of time: the average, in thousandths of a work, weighted
+/// by time, and the most at once; against the slots there were.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Occupancy {
+    pub taking_avg: u64,
+    pub taking_peak: usize,
+    pub running_avg: u64,
+    pub running_peak: usize,
+    /// The most slots there were in the stretch, as the engine kept them; none where it kept none in the stretch.
+    pub slots: Option<usize>,
+    /// Whether the engine kept the slots from before the stretch began: where it did not, `slots` is what is known of it.
+    pub recorded: bool,
+}
+
+/// What the works waited for in a week.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WeekWaited {
+    /// How long the works stopped in the week for each cause, in the order of [`WaitReason`].
+    pub total_ms: [u64; 5],
+    /// How long the calls and rounds that waited for CI took in the week.
+    pub ci_ms: u64,
+    pub occupancy: Occupancy,
 }
 
 /// What the works of one project's items took: the project by the name the installation's settings give it, none for
@@ -677,6 +799,39 @@ struct Part {
     runs: Vec<PartRun>,
     /// How it ended, where it has.
     ending: Option<Ended>,
+    /// What it stopped for, in order; none where that is not known ([`stops_of`]).
+    stops: Option<Vec<Stop>>,
+    /// Whether `stops` are read from the flow its work is on and what holds every work at once, rather than from what the
+    /// work kept as it ended: they are read again as that changes.
+    live: bool,
+    /// Each call and round that waited for a run of the project's CI and ended, from when it was made to when it ended.
+    ci: Vec<(u64, u64)>,
+    /// How long each job of a run of the project's CI waited for a runner, with when the run was read.
+    queued: Vec<(u64, u64)>,
+    /// Each stretch it held a slot, as the version its work is on says which cells take one, and each stretch a round or
+    /// a call of a tool of it was under way, merged; the end none while it is under way. None where that version is
+    /// not known.
+    taking: Option<Vec<(u64, Option<u64>)>>,
+    running: Option<Vec<(u64, Option<u64>)>>,
+}
+
+/// A stretch of time a work stopped for one cause.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Stop {
+    from: u64,
+    /// Where it has not ended, the time it was worked out to.
+    until: u64,
+    cause: Cause,
+    /// Whether it has not ended: its end is now, whenever it is read.
+    open: bool,
+}
+
+/// What a work stopped for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Cause {
+    Wait(WaitReason),
+    /// What a work that ended before a wait for a slot was told apart kept as anything else.
+    Unseparated,
 }
 
 /// A run of a work, as the System view reads it.
@@ -736,7 +891,13 @@ enum Ended {
 impl Part {
     /// What the work adds to the System view, as the driver holds it, in the room what holds every work at once leaves
     /// it.
-    fn of(driver: &Driver, kept: Kept<'_>, at_once: &driver::AtOnce) -> Result<Part, Broken> {
+    fn of(
+        driver: &Driver,
+        kept: Kept<'_>,
+        at_once: &driver::AtOnce,
+        held: &HeldAll,
+        now: Time,
+    ) -> Result<Part, Broken> {
         let runs = runs(kept)?;
         let models = models(kept);
         let mut left_behind = Vec::new();
@@ -808,6 +969,25 @@ impl Part {
             }),
             None => None,
         };
+        let (stops, live) = stops_of(kept, held, ending.is_none(), now);
+        let (taking, running) = held_slots(kept, &runs);
+        let ci = (driver::time::ci_waits(kept.work, now).into_iter())
+            .filter(|(_, ended)| *ended)
+            .map(|(stretch, _)| (stretch.from.0, stretch.until.0))
+            .collect();
+        let queued = (kept.work.timed.iter())
+            .filter_map(|timed| {
+                let at = kept.work.time_of(timed.at)?.0;
+                Some(
+                    timed
+                        .reading
+                        .jobs
+                        .iter()
+                        .filter_map(move |job| Some((at, job.queued_millis?))),
+                )
+            })
+            .flatten()
+            .collect();
         let runs = (runs.iter())
             .map(|run| PartRun {
                 run: run.run,
@@ -851,8 +1031,125 @@ impl Part {
             short_of_time,
             runs,
             ending,
+            stops,
+            live,
+            ci,
+            queued,
+            taking,
+            running,
         })
     }
+}
+
+/// What a work stopped for, in order, from what it kept as it ended where it kept it since it was last reopened, else
+/// from the flow installed where the work is on it, with what holds every work at once ([`driver::time::stretches_to`]):
+/// a work that has not ended is read up to `now`. Each stop is a stretch of one cause, where the stretches that follow
+/// one another of the same cause are one. A stretch of what the work ran in is no stop. None where the work ended on a
+/// version no longer installed and kept nothing: what it waited for is not known. Whether it was read from the flow
+/// installed is the second.
+fn stops_of(kept: Kept<'_>, held: &HeldAll, going: bool, now: Time) -> (Option<Vec<Stop>>, bool) {
+    let work = kept.work;
+    let kept_time = (work.kept_time.last()).filter(|k| !work.records.reopens.iter().any(|reopen| *reopen > k.at));
+    let (stretches, separated, live) = match kept_time {
+        Some(kept_time) => (kept_time.stretches.clone(), kept_time.separated, false),
+        None if kept.on.installed() => {
+            let stretches = driver::time::stretches_to(
+                &kept,
+                &held.everything,
+                &held.stops,
+                &held.cannot_run,
+                &held.down,
+                held.turns_of_others(&kept),
+                now,
+                going.then_some(now),
+            );
+            (stretches, true, true)
+        }
+        None => return (None, false),
+    };
+    let mut waits: Vec<(u64, u64, Cause)> = (stretches.iter())
+        .filter_map(|s| {
+            let cause = match s.went {
+                work::Went::Model | work::Went::Tools => return None,
+                work::Went::Owner => Cause::Wait(WaitReason::Owner),
+                work::Went::Items => Cause::Wait(WaitReason::Items),
+                work::Went::Slot => Cause::Wait(WaitReason::Slot),
+                work::Went::Turn => Cause::Wait(WaitReason::Turn),
+                work::Went::Paused | work::Went::Stopping => Cause::Wait(WaitReason::Paused),
+                // What nothing says: no cause the view counts, but where it was kept before a wait for a slot was told
+                // apart, it holds such waits.
+                work::Went::Other if separated => return None,
+                work::Went::Other => Cause::Unseparated,
+            };
+            (s.until > s.from).then_some((s.from.0, s.until.0, cause))
+        })
+        .collect();
+    waits.sort();
+    let mut stops: Vec<Stop> = Vec::new();
+    for (from, until, cause) in waits {
+        match stops.last_mut() {
+            Some(last) if last.until == from && last.cause == cause => last.until = until,
+            _ => stops.push(Stop {
+                from,
+                until,
+                cause,
+                open: false,
+            }),
+        }
+    }
+    if live && going {
+        if let Some(last) = stops.last_mut() {
+            last.open = last.until >= now.0;
+        }
+    }
+    (Some(stops), live)
+}
+
+/// Each stretch the work held a slot, and each stretch a round or a call of a tool of it was under way, as the version
+/// the work is on says which of its cells an agent runs, and so takes a slot; none of both for a work on none kept, whose
+/// cells that version does not tell.
+#[allow(clippy::type_complexity)]
+fn held_slots(kept: Kept<'_>, runs: &[Run]) -> (Option<Vec<(u64, Option<u64>)>>, Option<Vec<(u64, Option<u64>)>>) {
+    if kept.on.outline().is_none() {
+        return (None, None);
+    }
+    let mut taking: Vec<(u64, Option<u64>)> = Vec::new();
+    let mut running: Vec<(u64, Option<u64>)> = Vec::new();
+    for run in runs {
+        let agent = kept
+            .cell(&CellId::from(run.cell.as_str()))
+            .is_some_and(|cell| cell.agent);
+        for round in &run.rounds {
+            running.push((round.began, round.ended));
+            if agent {
+                taking.push((round.began, round.ended));
+            }
+        }
+        for call in &run.calls {
+            if matches!(call.what, Call::Tool { .. }) {
+                running.push((call.made, call.done));
+            }
+        }
+    }
+    (Some(joined(taking)), Some(joined(running)))
+}
+
+/// The stretches, joined where they overlap or touch, in order; an end of none is a stretch still going on.
+fn joined(mut stretches: Vec<(u64, Option<u64>)>) -> Vec<(u64, Option<u64>)> {
+    stretches.sort_by_key(|(from, until)| (*from, until.unwrap_or(u64::MAX)));
+    let mut out: Vec<(u64, Option<u64>)> = Vec::new();
+    for (from, until) in stretches {
+        match out.last_mut() {
+            Some(last) if last.1.is_none_or(|end| from <= end) => {
+                last.1 = match (last.1, until) {
+                    (Some(a), Some(b)) => Some(a.max(b)),
+                    _ => None,
+                };
+            }
+            _ => out.push((from, until)),
+        }
+    }
+    out
 }
 
 /// What each work adds to the System view, kept between reads with the revision of the work it was worked out from
@@ -860,7 +1157,13 @@ impl Part {
 /// reads no other work's records, and puts the parts together for its span.
 #[derive(Debug, Default)]
 pub struct Parts {
-    kept: BTreeMap<WorkNumber, (u64, Part)>,
+    /// Each work's part, with the revision of the work and the generation of what held every work at once that it was
+    /// worked out from: the latter matters only to a part read from the flow installed ([`Part::live`]).
+    kept: BTreeMap<WorkNumber, (u64, u64, Part)>,
+    /// What held every work at once as the latest read found it, and how many times it changed since the first: the
+    /// stops of a work going on, which it is read by, are worked out again as it changes.
+    held: Option<HeldAll>,
+    generation: u64,
     /// How many works' parts the latest read worked out again.
     worked_out: usize,
 }
@@ -873,23 +1176,30 @@ impl Parts {
 
     /// Brings the parts to every work the driver shows as it holds them now: a part kept of a work whose revision is
     /// not the one it was worked out from is worked out again, and one of a work the driver no longer shows dropped.
-    fn bring_up(&mut self, driver: &Driver) -> Result<(), Broken> {
+    fn bring_up(&mut self, driver: &Driver, now: Time) -> Result<(), Broken> {
         let mut kept = BTreeMap::new();
-        let mut at_once = None;
+        let at_once = driver.at_once();
+        let held = HeldAll::of(driver, &at_once);
+        if self.held.as_ref() != Some(&held) {
+            self.held = Some(held);
+            self.generation += 1;
+        }
+        let held = self.held.as_ref().expect("what held every work is kept above");
         self.worked_out = 0;
         for work in driver.works() {
             let number = work.head.number;
             let revision = driver.revision(number);
             match self.kept.remove(&number) {
-                Some((was, part)) if Some(was) == revision => {
-                    kept.insert(number, (was, part));
+                Some((was, generation, part))
+                    if Some(was) == revision && (!part.live || generation == self.generation) =>
+                {
+                    kept.insert(number, (was, generation, part));
                 }
                 _ => {
-                    let at_once = at_once.get_or_insert_with(|| driver.at_once());
-                    let part = Part::of(driver, work, at_once)?;
+                    let part = Part::of(driver, work, &at_once, held, now)?;
                     self.worked_out += 1;
                     // A work with no revision is worked out again at every read: no revision given is nought.
-                    kept.insert(number, (revision.unwrap_or_default(), part));
+                    kept.insert(number, (revision.unwrap_or_default(), self.generation, part));
                 }
             }
         }
@@ -908,7 +1218,7 @@ impl System {
     /// How the system went over these weeks ([`System::of`]), from what each work adds to it as these parts keep it,
     /// each brought up to the work as the driver holds it now.
     pub fn kept(driver: &Driver, now: Time, weeks: &[u64], parts: &mut Parts) -> Result<System, Broken> {
-        parts.bring_up(driver)?;
+        parts.bring_up(driver, now)?;
         let from = weeks.first().copied();
         let within = |at: u64| from.is_none_or(|from| at >= from);
         let mut system = System {
@@ -933,6 +1243,7 @@ impl System {
             short_of_time: Vec::new(),
             stopping: None,
             red_main: driver.red_main().iter().map(RedMain::of).collect(),
+            waited: Waited::default(),
         };
         let judged = driver.judged(None, now);
         let mut short_days: BTreeMap<(u64, Option<String>), ShortDay> = BTreeMap::new();
@@ -950,7 +1261,7 @@ impl System {
         let mut by_project: BTreeMap<Option<String>, Spent> = BTreeMap::new();
         let mut by_cell: BTreeMap<(String, String), Spent> = BTreeMap::new();
         let mut by_model: BTreeMap<RanOn, Spent> = BTreeMap::new();
-        for (number, (_, part)) in &parts.kept {
+        for (number, (_, _, part)) in &parts.kept {
             let (number, work, item) = (*number, part.work, part.item);
             if within(part.added) {
                 system.added.push(Added {
@@ -1151,6 +1462,16 @@ impl System {
             }
         }
         system.weeks = counted.into_values().rev().collect();
+        // What the works waited for, over the span and in each week: each week from when it begins to when the next does,
+        // the latest to now.
+        let held = || parts.kept.values().map(|(_, _, part)| part);
+        let slots = driver.slots_history();
+        system.waited = Waited::of(held(), from, now.0, slots);
+        let starts: Vec<u64> = weeks.to_vec();
+        for week in &mut system.weeks {
+            let next = starts.iter().find(|start| **start > week.start).copied();
+            week.waited = WeekWaited::of(held(), (week.start, next.unwrap_or(now.0)), now.0, slots);
+        }
         system.by_project = (by_project.into_iter())
             .map(|(project, spent)| ProjectSpent { project, spent })
             .collect();
@@ -1184,6 +1505,201 @@ impl System {
             rest: rest_of_rounds(&system.under_way),
         });
         Ok(system)
+    }
+}
+
+/// How many milliseconds of the stretch from `from` up to `until` fall in the window.
+fn within_window(from: u64, until: u64, window: (u64, u64)) -> u64 {
+    until.min(window.1).saturating_sub(from.max(window.0))
+}
+
+/// The median of the values, the mean of the two in the middle where there are two; none where there are none.
+fn median_of(mut values: Vec<u64>) -> Option<u64> {
+    values.sort_unstable();
+    let n = values.len();
+    match n {
+        0 => None,
+        _ if n % 2 == 1 => Some(values[n / 2]),
+        _ => Some((values[n / 2 - 1] + values[n / 2]) / 2),
+    }
+}
+
+/// What came of the stops of one cause in a window: those that ended in it, each in full, and how much of every stop's
+/// time, those going on counted to `now`, lies in it.
+#[derive(Default)]
+struct Tally {
+    total: u64,
+    ended: Vec<u64>,
+}
+
+impl Tally {
+    fn add(&mut self, from: u64, until: u64, open: bool, window: (u64, u64)) {
+        self.total += within_window(from, until, window);
+        if !open && until >= window.0 && until < window.1 {
+            self.ended.push(until - from);
+        }
+    }
+
+    fn stopped(self) -> Stopped {
+        Stopped {
+            stops: self.ended.len(),
+            total_ms: self.total,
+            longest_ms: self.ended.iter().max().copied(),
+            median_ms: median_of(self.ended),
+        }
+    }
+}
+
+/// What every work stopped for, by cause, in the window: where a stop is still going on its end is `now`. The stops
+/// that works which ended before a wait for a slot was told apart kept as anything else are told apart as `Cause`.
+fn tallies<'p>(parts: impl Iterator<Item = &'p Part>, window: (u64, u64), now: u64) -> BTreeMap<Cause, Tally> {
+    let mut by: BTreeMap<Cause, Tally> = BTreeMap::new();
+    for stop in parts.filter_map(|part| part.stops.as_ref()).flatten() {
+        let until = if stop.open { now.max(stop.until) } else { stop.until };
+        by.entry(stop.cause)
+            .or_default()
+            .add(stop.from, until, stop.open, window);
+    }
+    by
+}
+
+/// How long the calls and rounds that waited for a run of the project's CI took in the window, as `tallies` counts a
+/// stop: those that ended in it, and the time they took within it.
+fn ci_tally<'p>(parts: impl Iterator<Item = &'p Part>, window: (u64, u64)) -> Tally {
+    let mut tally = Tally::default();
+    for &(from, until) in parts.flat_map(|part| &part.ci) {
+        tally.add(from, until, false, window);
+    }
+    tally
+}
+
+/// How many slots there were in the window at most, and whether the engine kept them from before it began.
+fn slots_in(history: &[store::SlotsRecord], window: (u64, u64)) -> (Option<usize>, bool) {
+    let mut most = None;
+    for (i, record) in history.iter().enumerate() {
+        let until = history.get(i + 1).map_or(u64::MAX, |next| next.at.0);
+        if record.at.0 < window.1 && until > window.0 {
+            most = most.max(Some(record.slots));
+        }
+    }
+    (most, history.first().is_some_and(|first| first.at.0 <= window.0))
+}
+
+/// How many of these stretches, each from a time to its end (none while under way, which is `now`), overlapped at a
+/// time, in the window: the average by time, in thousandths of a stretch, and the most at once.
+fn crowd(stretches: impl Iterator<Item = (u64, Option<u64>)>, window: (u64, u64), now: u64) -> (u64, usize) {
+    let mut moves: Vec<(u64, i64)> = Vec::new();
+    for (from, until) in stretches {
+        let (from, until) = (from.max(window.0), until.unwrap_or(now).min(window.1));
+        if until > from {
+            moves.push((from, 1));
+            moves.push((until, -1));
+        }
+    }
+    // Where one ends and another begins at one time, the end counts first, so that nothing is counted twice at once.
+    moves.sort();
+    let (mut level, mut peak, mut area, mut at) = (0_i64, 0_i64, 0_u128, window.0);
+    for (time, step) in moves {
+        area += (level as u128) * u128::from(time.saturating_sub(at));
+        (level, at) = (level + step, time);
+        peak = peak.max(level);
+    }
+    let length = u128::from(window.1.saturating_sub(window.0));
+    let average = if length == 0 { 0 } else { (area * 1000 / length) as u64 };
+    (average, peak as usize)
+}
+
+impl Occupancy {
+    /// How many works held a slot and how many ran in the window, from the stretches of the works that kept them.
+    fn of<'p>(
+        parts: impl Iterator<Item = &'p Part> + Clone,
+        window: (u64, u64),
+        now: u64,
+        history: &[store::SlotsRecord],
+    ) -> Occupancy {
+        let stretches = |pick: fn(&Part) -> &Option<Vec<(u64, Option<u64>)>>| {
+            parts.clone().flat_map(move |part| pick(part).iter().flatten().copied())
+        };
+        let (taking_avg, taking_peak) = crowd(stretches(|part| &part.taking), window, now);
+        let (running_avg, running_peak) = crowd(stretches(|part| &part.running), window, now);
+        let (slots, recorded) = slots_in(history, window);
+        Occupancy {
+            taking_avg,
+            taking_peak,
+            running_avg,
+            running_peak,
+            slots,
+            recorded,
+        }
+    }
+}
+
+impl Waited {
+    /// What the works waited for from the span's first week, or from the earliest of what they did where it has none,
+    /// up to now.
+    fn of<'p>(
+        parts: impl Iterator<Item = &'p Part> + Clone,
+        from: Option<u64>,
+        now: u64,
+        history: &[store::SlotsRecord],
+    ) -> Waited {
+        let begins = (parts.clone())
+            .flat_map(|part| part.stops.iter().flatten().map(|stop| stop.from))
+            .chain(
+                parts
+                    .clone()
+                    .flat_map(|part| part.running.iter().flatten().map(|(from, _)| *from)),
+            )
+            .min();
+        let window = (from.or(begins).unwrap_or(now), now);
+        let mut by = tallies(parts.clone(), window, now);
+        let ci_parts = ci_tally(parts.clone(), window).stopped();
+        let queued: Vec<u64> = (parts.clone())
+            .flat_map(|part| part.queued.iter())
+            .filter(|(at, _)| *at >= window.0 && *at < window.1.saturating_add(1))
+            .map(|(_, millis)| *millis)
+            .collect();
+        Waited {
+            by: WaitReason::ALL
+                .iter()
+                .map(|reason| WaitedBy {
+                    reason: *reason,
+                    stopped: by.remove(&Cause::Wait(*reason)).unwrap_or_default().stopped(),
+                })
+                .collect(),
+            unseparated: by.remove(&Cause::Unseparated).unwrap_or_default().stopped(),
+            ci: CiWaited {
+                waited: ci_parts,
+                jobs: queued.len(),
+                queued_longest_ms: queued.iter().max().copied(),
+                queued_median_ms: median_of(queued),
+            },
+            occupancy: Occupancy::of(parts.clone(), window, now, history),
+            uncounted: parts
+                .filter(|part| part.stops.is_none() || part.taking.is_none())
+                .count(),
+        }
+    }
+}
+
+impl WeekWaited {
+    /// What the works waited for in the week, from when it begins to when the next does, or to now.
+    fn of<'p>(
+        parts: impl Iterator<Item = &'p Part> + Clone,
+        window: (u64, u64),
+        now: u64,
+        history: &[store::SlotsRecord],
+    ) -> WeekWaited {
+        let mut by = tallies(parts.clone(), window, now);
+        let mut total_ms = [0; 5];
+        for (i, reason) in WaitReason::ALL.iter().enumerate() {
+            total_ms[i] = by.remove(&Cause::Wait(*reason)).map_or(0, |tally| tally.total);
+        }
+        WeekWaited {
+            total_ms,
+            ci_ms: ci_tally(parts.clone(), window).total,
+            occupancy: Occupancy::of(parts, window, now, history),
+        }
     }
 }
 

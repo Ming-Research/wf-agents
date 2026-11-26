@@ -58,6 +58,9 @@ pub struct Check {
     /// How long it took, in whole seconds, from its start to its end as GitHub records them; only for a job that ran to
     /// a conclusion of passed or failed, and none where GitHub gives no usable start or end.
     pub took: Option<u64>,
+    /// How long it waited for a runner, in whole seconds, from when GitHub created it to when it started, as GitHub
+    /// records them; only for a job that started, and none where GitHub gives no usable time of either.
+    pub queued: Option<u64>,
 }
 
 /// What came of a check.

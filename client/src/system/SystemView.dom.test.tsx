@@ -620,6 +620,93 @@ describe('the System view', () => {
     expect(empty.querySelector('.tile-value')?.textContent).toBe('none');
   });
 
+  it('says what the works waited for after Produced: each cause with how long, how often and the median, what CI took, the slots held, and each week by itself', async () => {
+    const s = sources();
+    const { container } = draw(<SystemView period="4w" />, s);
+    await settle();
+    const labels = [...container.querySelectorAll('section.panel-part .panel-part-label')].map((l) => l.textContent?.trim());
+    const at = (label: string) => labels.findIndex((l) => l?.startsWith(label));
+    expect(at('Waited')).toBe(at('Produced') + 1);
+    expect(at('Spent')).toBe(at('Waited') + 1);
+    const waited = part(container, 'Waited');
+    const tiles = [...waited.querySelectorAll('.tile')].map((t) => ({
+      label: t.querySelector('.label')?.textContent,
+      value: t.querySelector('.tile-value')?.firstChild?.textContent,
+      more: t.querySelector('.tile-more')?.textContent?.trim(),
+    }));
+    expect(tiles).toEqual([
+      { label: 'For you', value: '2h 0m', more: '6 stops · median 20m 0s, longest 50m 0s' },
+      { label: 'For items', value: '30m 0s', more: '2 stops · median 15m 0s, longest 20m 0s' },
+      { label: 'For a slot', value: '15m 0s', more: '9 stops · median 1m 0s, longest 5m 0s' },
+      { label: 'For its turn', value: '10m 0s', more: '1 stop · median 10m 0s, longest 10m 0s' },
+      { label: 'Paused', value: '1h 0m', more: '3 stops · median 20m 0s, longest 40m 0s' },
+      { label: 'For CI', value: '25m 0s', more: '5 calls · median 4m 0s, longest 9m 0s' },
+      { label: 'Job in the queue', value: '20s', more: 'longest 3m 0s · 12 jobs' },
+      { label: 'Slots taken', value: '2.4', more: '3 at most, of 3' },
+      { label: 'Works running', value: '2.9', more: '4 at most' },
+    ]);
+    // What the engine does not know is said, never shown as nothing: the works whose waits are not known, and the waits
+    // that were kept before a wait for a slot was told apart.
+    const notes = texts(waited, 'p.small');
+    expect(notes).toEqual([
+      '20m 0s Waits of works that ended before a wait for a slot was told apart are in none of these: they are kept as anything else.',
+      '1 works are not counted: their flow was not kept.',
+    ]);
+    // Over more than one week, each week has a row: how long each cause held the works, CI, and the slots taken.
+    const week = tableUnder(waited, 'Week by week');
+    expect(texts(week, 'th')).toEqual([
+      'Week of',
+      'For you',
+      'For items',
+      'For a slot',
+      'For its turn',
+      'Paused',
+      'For CI',
+      'Slots taken',
+      'Works running',
+    ]);
+    const rows = [...week.querySelectorAll('tbody tr')];
+    expect(rows).toHaveLength(4);
+    expect(texts(rows[0], 'td').slice(1)).toEqual([
+      '2h 0m',
+      '30m 0s',
+      '15m 0s',
+      '10m 0s',
+      '1h 0m',
+      '25m 0s',
+      '2.4 avg, 3 at most, of 3',
+      '2.9 avg, 4 at most',
+    ]);
+    expect(texts(rows[1], 'td').slice(1, 7)).toEqual(['none', 'none', 'none', 'none', 'none', 'none']);
+  });
+
+  it('says that no slots were kept where the engine kept none, and that no job said how long it waited, never as nothing', async () => {
+    const s = sources();
+    s.system.loadSystem = async (weeks) => {
+      const system = fixtureSystem(weeks);
+      const waited = system.waited!;
+      return {
+        ...system,
+        waited: {
+          ...waited,
+          unseparated: { stops: 0, totalMs: 0, medianMs: null, longestMs: null },
+          uncounted: 0,
+          ci: { ...waited.ci, jobs: 0, queuedMedianMs: null, queuedLongestMs: null },
+          occupancy: { ...waited.occupancy, slots: null, recorded: false },
+        },
+      };
+    };
+    const { container } = draw(<SystemView period="week" />, s);
+    await settle();
+    const waited = part(container, 'Waited');
+    const tile = (label: string) =>
+      [...waited.querySelectorAll('.tile')].find((t) => t.querySelector('.label')?.textContent === label) as HTMLElement;
+    expect(tile('Job in the queue').querySelector('.tile-value')?.textContent?.trim()).toBe('not kept');
+    expect(tile('Slots taken').querySelector('.tile-more')?.textContent?.trim()).toBe('3 at most, of not kept');
+    expect(tile('Slots taken').getAttribute('title')).toContain('only from the time it began to');
+    expect(texts(waited, 'p.small')).toEqual([]);
+  });
+
   it("shows what each project spent before the cells and the models, the costliest first as given, each project's share of the totals, which count every project", async () => {
     const s = sources();
     const byProject: ProjectSpent[] = [

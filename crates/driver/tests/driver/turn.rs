@@ -385,6 +385,7 @@ fn a_work_that_waited_for_a_work_that_ended_still_draws_the_wait_once_another_ve
             driver.everything_spans(),
             &driver.stop_spans(),
             &driver.cannot_runs(&driver.at_once()),
+            &driver.downs(&driver.at_once()),
             turns,
             Time(h.clock),
         );

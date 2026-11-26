@@ -579,7 +579,7 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
     let mut jobs: BTreeMap<Seq, Vec<Job>> = BTreeMap::new();
     for (at, job) in rows(
         db,
-        "SELECT at, name, millis FROM timed_jobs WHERE work = ?1 ORDER BY at, name",
+        "SELECT at, name, millis, queued_millis FROM timed_jobs WHERE work = ?1 ORDER BY at, name",
         w,
         |row| {
             Ok((
@@ -587,6 +587,7 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
                 Job {
                     name: row.get(1)?,
                     millis: row.get(2)?,
+                    queued_millis: row.get(3)?,
                 },
             ))
         },
@@ -679,21 +680,23 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
     )?;
     let kept_time = rows(
         db,
-        "SELECT at, stretches, turn FROM kept_time WHERE work = ?1 ORDER BY at",
+        "SELECT at, stretches, turn, separated FROM kept_time WHERE work = ?1 ORDER BY at",
         w,
         |row| {
             Ok((
                 Seq(row.get(0)?),
                 row.get::<_, String>(1)?,
                 row.get::<_, Option<String>>(2)?,
+                row.get::<_, bool>(3)?,
             ))
         },
     )?;
-    for (at, stretches, turn) in kept_time {
+    for (at, stretches, turn, separated) in kept_time {
         out.kept_time.push(KeptTime {
             at,
             stretches: parse("kept_time", &stretches)?,
             turn: turn.map(|turn| parse("kept_time", &turn)).transpose()?,
+            separated,
         });
     }
 
@@ -1135,8 +1138,8 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
         )?;
         for job in &r.jobs {
             db.execute(
-                "INSERT INTO timed_jobs (work, at, name, millis) VALUES (?1, ?2, ?3, ?4)",
-                params![w, t.at.0, job.name, job.millis],
+                "INSERT INTO timed_jobs (work, at, name, millis, queued_millis) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![w, t.at.0, job.name, job.millis, job.queued_millis],
             )?;
         }
         for test in &r.tests {
@@ -1172,12 +1175,13 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     }
     for k in kept_time {
         db.execute(
-            "INSERT INTO kept_time (work, at, stretches, turn) VALUES (?1, ?2, ?3, ?4)",
+            "INSERT INTO kept_time (work, at, stretches, turn, separated) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![
                 w,
                 k.at.0,
                 json("kept_time", &k.stretches)?,
-                k.turn.as_ref().map(|turn| json("kept_time", turn)).transpose()?
+                k.turn.as_ref().map(|turn| json("kept_time", turn)).transpose()?,
+                k.separated
             ],
         )?;
     }
