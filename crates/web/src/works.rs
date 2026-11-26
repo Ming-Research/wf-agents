@@ -134,6 +134,8 @@ pub enum Until {
 pub enum Failure {
     /// In passing: tried again after a wait.
     Passing,
+    /// The host only kept the engine's act from running for now: waited out, counted as no failure.
+    Held,
     /// What came back could not be read: sent back.
     Unread,
     /// The service's safety check flagged it: tried again in a new session of its line.
@@ -711,9 +713,13 @@ pub enum Call {
     Question { who: Person, question: String },
     /// The run reached a limit: the owner lets it go on or cancels the work.
     AtLimit { limit: Limit },
-    /// The engine waits until this time before the run's last round, which failed in passing, the `failed`th time in
-    /// a row, is tried again.
-    Wait { until: u64, failed: u32 },
+    /// The engine waits until this time before the run's last round, which failed in passing or which the host only
+    /// kept from running for now, the `failed`th time in a row, is tried again; in the second case, what kept it.
+    Wait {
+        until: u64,
+        failed: u32,
+        obstacle: Option<Obstacle>,
+    },
 }
 
 /// The limit a run reached.
@@ -3600,6 +3606,22 @@ fn held_call(work: &Work, call: CallId) -> Option<HeldCall> {
     })
 }
 
+/// What kept the host from running the act's round that the engine's wait is for, where the round the wait follows was
+/// one it only kept from running for now.
+fn wait_obstacle(work: &Work, wait: CallId) -> Option<Obstacle> {
+    let called = work.records.called.iter().find(|called| called.call == wait)?;
+    let ended = (work.records.returned.iter())
+        .filter(|returned| returned.run == called.run && returned.at < called.at)
+        .count();
+    match work.back.get(&(called.run, ended)) {
+        Some(BackOf::Failed {
+            failure: FailureOf::Held(hindrance),
+            ..
+        }) => Some(Obstacle::of(hindrance.obstacle)),
+        _ => None,
+    }
+}
+
 /// What the call is.
 fn call_of(work: &Work, call: CallId) -> Result<Call, Broken> {
     Ok(match work.calls.get(&call) {
@@ -3616,6 +3638,7 @@ fn call_of(work: &Work, call: CallId) -> Result<Call, Broken> {
         Some(CallOf::Wait { until, failed }) => Call::Wait {
             until: until.0,
             failed: *failed,
+            obstacle: wait_obstacle(work, call),
         },
         None => return Err(Broken(format!("call {} is not held", call.0))),
     })
@@ -3965,6 +3988,7 @@ impl Failure {
     fn of(failure: FailureOf) -> Failure {
         match failure {
             FailureOf::Passing => Failure::Passing,
+            FailureOf::Held(_) => Failure::Held,
             FailureOf::Unread => Failure::Unread,
             FailureOf::Flagged => Failure::Flagged,
             FailureOf::Guarded => Failure::Guarded,

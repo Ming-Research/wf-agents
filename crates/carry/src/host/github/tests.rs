@@ -693,11 +693,11 @@ fn cancelled(hub: &Hub) -> Vec<u64> {
         .collect()
 }
 
-// A full run no runner took is the engine's own to cancel, and fails the round in passing: what stops it is no work's,
+// A full run no runner took is the engine's own to cancel, and is held, not failed: what stops it is no work's,
 // and asked for again after a wait it may start. A project that declares no workflows has no check, which only its
 // owner mends.
 #[tokio::test]
-async fn a_full_run_no_runner_took_is_cancelled_and_fails_in_passing_and_a_project_with_no_workflows_has_no_check() {
+async fn a_full_run_no_runner_took_is_cancelled_and_held_and_a_project_with_no_workflows_has_no_check() {
     let hub = queued::on_14900k(Hub::new());
     let head = hub.committed().await;
     hub.github().queue_runs();
@@ -714,7 +714,13 @@ async fn a_full_run_no_runner_took_is_cancelled_and_fails_in_passing_and_a_proje
             .ends_with("none of 14900k is online, and the engine cancelled the run"),
         "{failed}"
     );
-    assert_eq!(failed.kind, Some(Failure::Passing));
+    assert_eq!(
+        failed.kind,
+        Some(Failure::Held(decide::Hindrance {
+            obstacle: decide::Obstacle::NoRunner,
+            retry: None
+        }))
+    );
     assert_eq!(cancelled(&hub), [1000], "the run asked for is cancelled");
     let hub = Hub::new().with(|config| config.ci = None);
     let head = hub.committed().await;
@@ -967,7 +973,13 @@ async fn the_merge_refuses_a_main_that_moved_on_github_since_the_check() {
 #[tokio::test]
 async fn a_merge_github_fails_in_passing_or_refuses_is_of_the_kind_its_answer_tells() {
     for (said, kind) in [
-        ("HTTP 502: Bad Gateway", Failure::Passing),
+        (
+            "HTTP 502: Bad Gateway",
+            Failure::Held(decide::Hindrance {
+                obstacle: decide::Obstacle::Fault,
+                retry: None,
+            }),
+        ),
         ("HTTP 405: At least 1 approving review is required", Failure::Other),
     ] {
         let hub = Hub::new();

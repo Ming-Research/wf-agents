@@ -248,6 +248,14 @@ pub enum Retry {
     At(u64),
 }
 
+/// What keeps the host from carrying out what it was asked for now, and when it may be asked again where it says: the
+/// host's refusal of a call or of an act's round that passes by itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Hindrance {
+    pub obstacle: Obstacle,
+    pub retry: Option<Retry>,
+}
+
 /// A call was held: the host could not carry it out for now, for this reason, and the engine made the call `wait`,
 /// which has its result once the time has come. The call is asked for again once it has.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

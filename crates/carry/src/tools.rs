@@ -60,7 +60,7 @@ enum Answer {
     Result(String),
     Withdrawn,
     /// The host could not carry it out for now: it is held, and asked again after a wait.
-    Held(crate::host::Held),
+    Held(decide::Hindrance),
 }
 
 /// What the tools say in the words beside the flows, beside what each tool's own file says.
@@ -353,8 +353,10 @@ async fn answer(
                 .map_or(why.clone(), |words| fill(words, &[("error", &why)])),
         )),
         Ok(named) => match run_tests(host, project, branch, &named, Asking::Call(call.id), stop).await {
-            Err(Failed { held: Some(held), .. }) => return Answer::Held(held),
-            Err(failed) => Err(fill(&told.said.could_not, &[("why", &failed.why)])),
+            Err(failed) => match failed.hindrance() {
+                Some(hindrance) => return Answer::Held(hindrance),
+                None => Err(fill(&told.said.could_not, &[("why", &failed.why)])),
+            },
             Ok(found) => Ok(found),
         },
     };

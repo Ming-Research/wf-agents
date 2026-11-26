@@ -502,6 +502,53 @@ async fn an_act_tells_its_round_once_the_host_answers_it_while_it_is_still_under
     assert_eq!(again, 0, "the round is told once");
 }
 
+// GitHub's limit on its requests, met by the check's round, only keeps the check from running for now: the round ends as
+// one the host kept from running, with what kept it and when it may be asked again as GitHub said, so that the engine
+// waits out the reset and counts it toward no pause; a refusal no wait mends is still a failure the owner is told of.
+#[tokio::test]
+async fn a_check_the_hosts_limit_keeps_from_running_ends_its_round_as_held_with_the_hosts_retry() {
+    let repo = Repo::new("true");
+    started(&repo).await;
+    let main = run(&repo.project.repo, &["rev-parse", "main"]);
+    let head = run(&repo.project.repo, &["rev-parse", &repo.place(WORK).reference()]);
+    let limit = decide::Hindrance {
+        obstacle: decide::Obstacle::Limit,
+        retry: Some(decide::Retry::In(3600)),
+    };
+    let refused = Failed::refused("GitHub did not run the check: HTTP 422");
+    for (answer, expected) in [
+        (
+            Failed::held("HTTP 429: rate limit", limit.obstacle, limit.retry),
+            decide::run::Failure::Held(limit),
+        ),
+        (refused, decide::run::Failure::Other),
+    ] {
+        let acts = acts(&repo, Fake::new(&main).judges(Err(answer)));
+        let code = format!("Greets the user, in commit {head}.");
+        let round = checking(item("Greet the user"), written(&[("code", code.as_str())]));
+        let (to, mut told) = tokio::sync::mpsc::unbounded_channel();
+        acts.give(round, RoundReply::new(WORK, RunId(4), to));
+        let failure = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match told.recv().await.expect("the round ends") {
+                    service::Message::Happened {
+                        event: engine::Event::Failed { failure, .. },
+                        ..
+                    } => break failure,
+                    service::Message::Happened {
+                        event: engine::Event::Returned { .. },
+                        ..
+                    } => panic!("the round returned"),
+                    _ => {}
+                }
+            }
+        })
+        .await
+        .expect("the round fails");
+        assert_eq!(failure, expected);
+    }
+}
+
 #[test]
 fn what_the_host_says_beside_its_verdict_is_written_with_the_check() {
     let checked = Checked {

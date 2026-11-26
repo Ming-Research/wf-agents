@@ -434,8 +434,9 @@ pub enum Call {
     Asked(Ask),
     /// The run reached a limit: the owner lets it go on or cancels the work.
     AtLimit(Limit),
-    /// The engine waits until this time before the run's last round, which failed in passing, the `failed`th time in
-    /// a row, is tried again. Its result comes from the clock, once the time has come.
+    /// The engine waits until this time before the run's last round, which failed in passing or which the host only
+    /// kept from running for now, the `failed`th time in a row of its kind, is tried again. Its result comes from the
+    /// clock, once the time has come.
     Wait { until: Time, failed: u32 },
 }
 

@@ -26,7 +26,7 @@ use std::future::Future;
 use std::sync::Arc;
 
 use decide::run::Failure;
-use decide::{CallId, Obstacle, Retry, RunId};
+use decide::{CallId, Hindrance, Obstacle, Retry, RunId};
 use service::OpenPull;
 use store::{Continues, ItemNumber, WorkNumber};
 use tokio::sync::Mutex;
@@ -90,23 +90,13 @@ impl Asking {
 }
 
 /// Why the host did not do what it was asked, with the kind of its cause where the host's answer, or what the host
-/// found, tells it: a fault of the host that passes by itself, or a refusal no wait mends. Where nothing tells it, as
-/// where a command gave no answer, the act's words are read for the network's.
+/// found, tells it: a fault of the host that passes by itself, a hindrance that only keeps it from doing what it was
+/// asked for now ([`Failure::Held`]), or a refusal no wait mends. Where nothing tells it, as where a command gave no
+/// answer, the act's words are read for the network's.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Failed {
     pub why: String,
     pub kind: Option<Failure>,
-    /// Where the failure only keeps the host from doing what it was asked for now, what keeps it and when it may be
-    /// asked again where the host says: a call that asks for it is held, and asked again, instead of being answered
-    /// with the failure.
-    pub held: Option<Held>,
-}
-
-/// What keeps the host from carrying out what it was asked for now, and when it may be asked again.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Held {
-    pub obstacle: Obstacle,
-    pub retry: Option<Retry>,
 }
 
 impl Failed {
@@ -115,17 +105,24 @@ impl Failed {
         Failed {
             why: why.into(),
             kind: Some(Failure::Passing),
-            held: None,
         }
     }
 
-    /// A failure that passes by itself and only keeps the host from doing what it was asked for now: what asked for it
-    /// is held, not failed, and asked again after a wait.
+    /// A failure that passes by itself and only keeps the host from doing what it was asked for now: a call that asked
+    /// for it is held, and a round of an act is waited out, each asked for again after a wait, counted as no failure.
     pub fn held(why: impl Into<String>, obstacle: Obstacle, retry: Option<Retry>) -> Failed {
         Failed {
             why: why.into(),
-            kind: Some(Failure::Passing),
-            held: Some(Held { obstacle, retry }),
+            kind: Some(Failure::Held(Hindrance { obstacle, retry })),
+        }
+    }
+
+    /// What keeps the host from doing what it was asked for now, where the failure only does, and when it may be asked
+    /// again where the host says.
+    pub fn hindrance(&self) -> Option<Hindrance> {
+        match self.kind {
+            Some(Failure::Held(hindrance)) => Some(hindrance),
+            _ => None,
         }
     }
 
@@ -135,7 +132,6 @@ impl Failed {
         Failed {
             why: why.into(),
             kind: Some(Failure::Other),
-            held: None,
         }
     }
 
@@ -144,18 +140,13 @@ impl Failed {
         Failed {
             why: words(self.why),
             kind: self.kind,
-            held: self.held,
         }
     }
 }
 
 impl From<String> for Failed {
     fn from(why: String) -> Self {
-        Failed {
-            why,
-            kind: None,
-            held: None,
-        }
+        Failed { why, kind: None }
     }
 }
 

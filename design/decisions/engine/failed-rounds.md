@@ -7,6 +7,10 @@ A failed round is handled by the kind of its failure, and sent back only if what
 - replaced: Counting a failed round as a return sent back was on main; the owner changed it, because every error of the agents' command line, not only the usage limit, should be handled correctly and shown.
 - rejected: an agent proposed one way for every failure, trying the round twice and then pausing its work for the owner; the owner rejected it, because when a limit is spent or the network is lost, every work would then use up its tries and ask the owner on its own.
 
+### decision a-round-the-host-keeps-from-running-is-waited-out
+A round of an act that the host only keeps from running for now is waited out until the reset it names and counts toward no pause; a lost network is first looked at, as the acts' host is.
+- replaced: A round of an act that met GitHub's limit counted as a failure in passing, and the ninth in a row paused the work, was on main; the owner changed it, because the waits total 20 minutes, a limit lasts up to an hour, and a pause the owner lifts changes nothing.
+
 ### decision the-fields-tell-the-kind-before-the-words
 The kind of a failed round, and when a usage limit resets, are read from the fields in which the command line reports its failure; its words decide only what the fields leave open.
 - rejected: an agent proposed adding the weekly limit's words to those the engine looks for, and reading the day from "resets Fri 5pm"; the owner rejected it, because what had been lost was the ability to tell the errors apart, not the weekly limit.

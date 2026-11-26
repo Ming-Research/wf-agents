@@ -30,9 +30,9 @@ pub mod walk;
 pub use flow::{BlockId, Cell, CellId, Condition, Flow, FlowFault, Outsiders, Test, TestKind, TestName, Verdict};
 pub use reading::Reading;
 pub use records::{
-    Abandoned, Answered, CallId, Called, Cause, Done, Finished, Held, Hurried, LetGo, Obstacle, Outsider, Pause,
-    Pauser, PutIn, Questioned, RecordFault, Records, Retry, Returned, Round, RunId, Seq, Started, Who, Write, Written,
-    holds_nothing,
+    Abandoned, Answered, CallId, Called, Cause, Done, Finished, Held, Hindrance, Hurried, LetGo, Obstacle, Outsider,
+    Pause, Pauser, PutIn, Questioned, RecordFault, Records, Retry, Returned, Round, RunId, Seq, Started, Who, Write,
+    Written, holds_nothing,
 };
 pub use room::{Holder, Room, begun, comes_to_turn, keeps_turn, taking_slot};
 pub use view::{CellView, InputView, OpenRun, VersionView, View, Writer, ruled_versions, versions, view, view_in};

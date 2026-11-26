@@ -935,8 +935,9 @@ fn step(flow: &Compiled, work: &mut Work, run: RunId, at: At<'_>, effects: &mut 
                 .collect();
             Given::SentBack(unmet)
         }
-        Step::Wait { failed, ms } => {
-            // The wait is counted from the end of the round that failed.
+        Step::Wait { failed, ms, not_before } => {
+            // The wait is counted from the end of the round that failed, and where the host named a time, ends not
+            // before it.
             let ended_at = (work.records.returned.iter())
                 .filter(|r| r.run == run)
                 .map(|r| r.at)
@@ -944,7 +945,7 @@ fn step(flow: &Compiled, work: &mut Work, run: RunId, at: At<'_>, effects: &mut 
             let Some(ended_at) = ended_at else {
                 return false;
             };
-            let until = Time(at.time_of(work, ended_at).0.saturating_add(ms));
+            let until = Time((at.time_of(work, ended_at).0.saturating_add(ms)).max(not_before.unwrap_or(0)));
             call(work, run, None, Call::Wait { until, failed }, effects);
             return true;
         }
@@ -1355,8 +1356,8 @@ pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run:
     run::Log { rounds, let_go, let_on }
 }
 
-/// The waits the engine made after the run's round at this place, counted from none, which failed in passing: those
-/// made after the round ended and before the next began.
+/// The waits the engine made after the run's round at this place, counted from none, which failed in passing or which
+/// the host only kept from running for now: those made after the round ended and before the next began.
 fn waits(work: &Work, run: RunId, round: usize) -> Vec<CallId> {
     let r = &work.records;
     let ended = r.returned.iter().filter(|e| e.run == run).map(|e| e.at).nth(round);

@@ -4,6 +4,7 @@
 //! nothing, and holds the agents' rounds only through the gate whatever drives the engine gives it.
 
 use decide::run::{FIRST_WAIT, Failure, PASSING};
+use decide::{Hindrance, Obstacle, Retry};
 use engine::{Back, Gate, handle_with};
 
 use super::*;
@@ -264,4 +265,52 @@ fn a_notes_round_that_failed_in_passing_over_its_budget_waits_and_is_then_held_f
         "the round after it was given though the engine paused the work for it"
     );
     assert_eq!(w.on(Event::Resumed), vec![round_effect(note, "write", 2, Given::Task)]);
+}
+
+/// What keeps the host from the round's act: its limit on requests, naming when it may be asked again as given.
+fn kept_by_limit(retry: Option<Retry>) -> Failure {
+    Failure::Held(Hindrance {
+        obstacle: Obstacle::Limit,
+        retry,
+    })
+}
+
+#[test]
+fn a_round_the_host_kept_from_running_waits_until_the_host_says_and_no_number_of_them_pauses_the_work() {
+    let (mut w, write, _) = W::requested();
+    let hour = kept_by_limit(Some(Retry::In(3600)));
+    for n in 1..=PASSING as usize + 12 {
+        let failed_at = w.clock;
+        let (call, until, failed) = wait_of(&w.on(failed_as(write, hour)));
+        assert!(!decide::paused(&w.work.records), "{n} in a row pause nothing");
+        assert_eq!(
+            (until, failed),
+            (Time(failed_at + 3_601_000), n as u32),
+            "{n} in a row wait for the host's hour"
+        );
+        assert_eq!(w.done(call), vec![round_effect(write, "write", n + 1, Given::Task)]);
+    }
+    // The failures in passing that follow are counted from the first.
+    let failed_at = w.clock;
+    let (_, until, failed) = wait_of(&w.on(failed_as(write, Failure::Passing)));
+    assert_eq!((until, failed), (Time(failed_at + FIRST_WAIT), 1));
+    assert!(!decide::paused(&w.work.records));
+}
+
+#[test]
+fn a_round_the_host_kept_from_running_until_a_time_waits_not_before_it_and_a_past_time_waits_the_backoff() {
+    let (mut w, write, _) = W::requested();
+    let failed_at = w.clock;
+    let reset = (failed_at + 3_600_000) / 1000;
+    let (call, until, _) = wait_of(&w.on(failed_as(write, kept_by_limit(Some(Retry::At(reset))))));
+    assert_eq!(until, Time(reset * 1000 + 1000));
+    assert_eq!(w.done(call), vec![round_effect(write, "write", 2, Given::Task)]);
+    // A reset that was a minute ago is no wait in the past: the round waits the first backoff.
+    let failed_at = w.clock;
+    let (call, until, _) = wait_of(&w.on(failed_as(write, kept_by_limit(Some(Retry::At(0))))));
+    assert_eq!(until, Time(failed_at + 2 * FIRST_WAIT));
+    assert_eq!(w.done(call), vec![round_effect(write, "write", 3, Given::Task)]);
+    // A word of forever does not overflow.
+    let (_, until, _) = wait_of(&w.on(failed_as(write, kept_by_limit(Some(Retry::In(u64::MAX))))));
+    assert_eq!(until, Time(u64::MAX));
 }

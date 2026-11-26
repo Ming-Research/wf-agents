@@ -2591,9 +2591,22 @@ fn called(call: &Call) -> String {
         Call::AtLimit {
             limit: Limit::Calls { made },
         } => format!("its run reached its limit, {made} calls having been made"),
-        Call::Wait { until, failed } => format!(
+        Call::Wait {
+            until,
+            failed,
+            obstacle: None,
+        } => format!(
             "the engine's wait until {}, before the round that failed in passing ({failed} in a row) is tried again",
             utc(*until)
+        ),
+        Call::Wait {
+            until,
+            failed,
+            obstacle: Some(why),
+        } => format!(
+            "the engine's wait until {}, before the round the host kept from running is tried again: {} ({failed} in a row)",
+            utc(*until),
+            obstacle(*why)
         ),
     }
 }
