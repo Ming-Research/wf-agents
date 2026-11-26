@@ -215,8 +215,7 @@ async fn a_cell_is_let_go_on_only_where_the_work_waits_at_it_past_its_limit() {
     trial.act(work, Act::LetGo { cell: "build".into() }).unwrap();
     assert!(matches!(trial.decision(work), Decision::Busy { cell, .. } if cell.as_str() == "build"));
     assert_eq!(trial.drive(work).await, Decision::Ended(End::Merged));
-    let let_go: Vec<&str> = (trial.work(work).records.let_go.iter())
-        .map(|l| l.cell.as_str())
-        .collect();
+    let kept = trial.work(work);
+    let let_go: Vec<&str> = kept.records.let_go.iter().map(|l| l.cell.as_str()).collect();
     assert_eq!(let_go, ["build"]);
 }
