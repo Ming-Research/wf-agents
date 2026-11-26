@@ -43,6 +43,7 @@ fn engineer() -> Compiled {
             "start",
             "head",
             "test_times",
+            "test_runs",
             "tree",
             "words",
         ]),

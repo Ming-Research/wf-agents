@@ -347,6 +347,7 @@ fn compiled(source: &Source) -> Compiled {
             "start",
             "head",
             "test_times",
+            "test_runs",
             "tree",
         ]),
         acts: names(&["start", "check", "merge"]),

@@ -1480,6 +1480,23 @@ pub struct ResultGiven {
     pub cut: String,
 }
 
+impl ResultGiven {
+    /// A result as it is given: its end of whitespace left off, and cut at the most bytes `bound` allows, at a whole
+    /// character, with what `note` says after it, given the bytes of the result kept and the bytes it is whole; as it
+    /// is where it is no longer than the bound. Whoever gives a result, a round or a datum, gives it this way.
+    pub fn cut_with(&self, result: &str, note: impl FnOnce(&str, &str) -> String) -> String {
+        if result.len() <= self.bound {
+            return result.trim_end().to_string();
+        }
+        let mut at = self.bound;
+        while !result.is_char_boundary(at) {
+            at -= 1;
+        }
+        let (kept, size) = (at.to_string(), result.len().to_string());
+        format!("{}\n\n{}", &result[..at], note(&kept, &size))
+    }
+}
+
 /// `agents/message/message.toml`: what the engine sends a cell's agent as it enters the cell, its parts in order.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]

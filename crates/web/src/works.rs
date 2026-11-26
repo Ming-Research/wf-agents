@@ -5214,7 +5214,8 @@ pub(crate) mod tests {
     fn a_summary_whose_state_cannot_be_worked_out_is_given_with_every_other_part_as_worked_out() {
         let flow = flow_with("takes_turn = true\n");
         let store = store::Store::in_memory().expect("the store is made");
-        let (mut driver, _) = Driver::open(Box::new(store), vec![flow], 2, None, Time(1000)).expect("the driver opens");
+        let (mut driver, _) =
+            Driver::open(Box::new(store), vec![flow], 2, None, None, Time(1000)).expect("the driver opens");
         let new = driver::NewItem {
             title: "A work".to_string(),
             level: "1".to_string(),

@@ -641,21 +641,26 @@ pub fn open_on_slots(
     slots: usize,
     now: Time,
 ) -> (Opened, Arc<Mutex<Calls>>) {
-    open_with_policy(db, plan, flows, slots, None, now)
+    open_with_policy(db, plan, flows, slots, None, None, now)
 }
 
-/// Opens a driver as [`open_on_slots`] does, with this policy of the lines' sessions.
+/// Opens a driver as [`open_on_slots`] does, with this policy of the lines' sessions and how much of a result of
+/// `run_tests` is given.
 pub fn open_with_policy(
     db: &Db,
     plan: Plan,
     flows: Vec<Compiled>,
     slots: usize,
     policy: Option<driver::Policy>,
+    tests_given: Option<flow::agents::ResultGiven>,
     now: Time,
 ) -> (Opened, Arc<Mutex<Calls>>) {
     let (store, calls) = Failing::new(db.open());
     calls.lock().expect("the calls are noted").plan = plan;
-    (Driver::open(Box::new(store), flows, slots, policy, now), calls)
+    (
+        Driver::open(Box::new(store), flows, slots, policy, tests_given, now),
+        calls,
+    )
 }
 
 /// The slots of the driver in the tests that do not count them: more than any of them has works.
@@ -746,6 +751,8 @@ pub struct H {
     pub begun: usize,
     /// What makes the policy of the lines' sessions the driver is opened with, each time; none for no policy.
     pub policy: Option<fn() -> driver::Policy>,
+    /// How much of a result of `run_tests` the driver is opened with as given, each time; none for a result whole.
+    pub tests_given: Option<flow::agents::ResultGiven>,
 }
 
 /// What the driver answered to a call that the store of the tests may have stopped.
@@ -777,7 +784,7 @@ impl H {
     pub fn with_policy(flows: Vec<Compiled>, slots: usize, policy: Option<fn() -> driver::Policy>) -> Self {
         let db = Db::new();
         let made = policy.map(|make| make());
-        let (opened, calls) = open_with_policy(&db, Plan::Never, flows.clone(), slots, made, Time(START));
+        let (opened, calls) = open_with_policy(&db, Plan::Never, flows.clone(), slots, made, None, Time(START));
         let (driver, todos) = opened.expect("the driver opens");
         assert_eq!(todos, vec![], "the driver has something to do on an empty store");
         let reader = db.open();
@@ -799,6 +806,7 @@ impl H {
             slots,
             begun: 0,
             policy,
+            tests_given: None,
         }
     }
 
@@ -1098,6 +1106,7 @@ impl H {
             self.flows.clone(),
             self.slots,
             policy,
+            self.tests_given.clone(),
             Time(self.clock),
         );
         let (driver, todos) = opened.expect("the driver opens on the flows installed");
@@ -1142,6 +1151,7 @@ impl H {
             self.flows.clone(),
             self.slots,
             policy,
+            self.tests_given.clone(),
             Time(self.clock),
         );
         let (driver, todos) = opened.expect("the driver opens again");

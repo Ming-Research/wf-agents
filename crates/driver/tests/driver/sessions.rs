@@ -222,8 +222,15 @@ fn on(model: &str) -> RanOn {
 /// of everything it made as it opened on the work going on: gives what both gave.
 fn reopened(s: &mut S, policy: Policy) -> Vec<Todo> {
     let now = Time(s.clock);
-    let (mut driver, mut todos) = Driver::open(Box::new(s.db.open()), vec![s.flow.clone()], SLOTS, Some(policy), now)
-        .expect("the driver opens again");
+    let (mut driver, mut todos) = Driver::open(
+        Box::new(s.db.open()),
+        vec![s.flow.clone()],
+        SLOTS,
+        Some(policy),
+        None,
+        now,
+    )
+    .expect("the driver opens again");
     if driver
         .everything_paused()
         .is_some_and(|paused| paused.by == Pauser::Engine)
@@ -296,6 +303,7 @@ impl S {
             vec![flow.clone()],
             SLOTS,
             Some(policy),
+            None,
             Time(START),
         )
         .unwrap();
@@ -1338,6 +1346,7 @@ fn opened_again(s: &mut S, policy: Policy) {
         vec![s.flow.clone()],
         SLOTS,
         Some(policy),
+        None,
         Time(s.clock),
     )
     .expect("the driver opens again");
