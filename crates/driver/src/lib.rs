@@ -168,20 +168,21 @@ pub const MERGED: &str = "merged";
 pub const START: &str = "start";
 
 /// What is wrong with the flow for what the engine writes, each in words with the file that says what it writes into
-/// the block: a block of [`DEPENDENCIES`], of [`START`], of [`timed::TEST_TIMES`], of [`engine::asked::ASKED`] or of
-/// [`engine::handed_in::HANDED_IN`], and each cell's own words and questions, which the sources of the owner's words
-/// and of the answers write and the cell writes too, gives in its `writes` each text the engine fills, so that none is
-/// written empty; and the words beside the flows ([`flow::waits_file`]) give every reason the engine says to the owner.
-/// A flow with any of these is not run.
+/// the block: a block of [`DEPENDENCIES`], of [`START`], of [`timed::TEST_TIMES`], of [`timed::TEST_RUNS`], of
+/// [`engine::asked::ASKED`] or of [`engine::handed_in::HANDED_IN`], and each cell's own words and questions, which the
+/// sources of the owner's words and of the answers write and the cell writes too, gives in its `writes` each text the
+/// engine fills, so that none is written empty; and the words beside the flows ([`flow::waits_file`]) give every reason
+/// the engine says to the owner. A flow with any of these is not run.
 pub fn faults(flow: &Compiled) -> Vec<String> {
     use engine::asked::{ANSWERED, ASKED, WAITING as UNANSWERED};
     use engine::handed_in::HANDED_IN;
-    let needs: [(&str, &[&str]); 5] = [
+    let needs: [(&str, &[&str]); 6] = [
         (DEPENDENCIES, &[MERGED, WAITING, "between"]),
         (START, &["text"]),
         (ASKED, &[ANSWERED, UNANSWERED, "between"]),
         (HANDED_IN, &["text"]),
         (timed::TEST_TIMES, &timed::WORDS),
+        (timed::TEST_RUNS, &timed::RUNS_WORDS),
     ];
     // The dialogues the sources of the owner's turning write versions of, each a cell's own: its words, the owner's
     // versions and the cell's answers; its questions, each kind of version.
@@ -1306,6 +1307,36 @@ impl Driver {
         self.step_one(now, number, event, false, todos)
     }
 
+    /// Writes the work's datum of [`timed::TEST_RUNS`]: a version for each call of `run_tests` that ended and has none yet,
+    /// in the order the calls ended, where the flow has one. The versions the datum already has are the first calls, so
+    /// that a call is written once however often the engine starts again.
+    fn write_test_runs(&mut self, now: Time, number: WorkNumber, todos: &mut Vec<Todo>) -> Result<(), Fault> {
+        let Some(held) = self.works.get(&number).filter(|held| held.standing == Standing::Going) else {
+            return Ok(());
+        };
+        let ours = (held.flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(timed::TEST_RUNS));
+        let Some((block, declared)) = ours else {
+            return Ok(());
+        };
+        let block = block.clone();
+        let had = decide::versions(&held.work.records).get(&block).map_or(0, Vec::len);
+        let missing: Vec<String> = timed::runs(&held.work, &declared.writes)
+            .into_iter()
+            .skip(had)
+            .collect();
+        for content in missing {
+            let event = Event::Wrote {
+                block: block.clone(),
+                by: Outsider::Outside,
+                content,
+                matters: true,
+                value: None,
+            };
+            self.step_one(now, number, event, false, todos)?;
+        }
+        Ok(())
+    }
+
     /// Keeps what the time of each work that ended on the installed version went to, and each stretch it held the turn
     /// of its project, where it has kept none since it last ended, at the time the caller's clock gives (decision
     /// `a-work-keeps-what-its-time-went-to`): as the work ends, while that version, which alone can read what it waited
@@ -1387,8 +1418,8 @@ impl Driver {
         if let Event::Pinged { line, .. } = &event {
             self.pinging.remove(&(work, line.clone()));
         }
-        // A call of the tool that runs the project's tests ended: what the work's runs said of the tests' times is
-        // told to the cells that read it, once the call's own record is kept.
+        // A call of the tool that runs the project's tests ended: what the work's runs said of the tests' times, and
+        // what the call asked for and gave, are told to the cells that read them, once the call's own record is kept.
         let tested = matches!(&event, Event::Done { call, .. } if self.runs_tests(work, *call));
         let gate = match begins_a_wait {
             Some(held) => self.gate_of(work).and(held),
@@ -1420,6 +1451,9 @@ impl Driver {
             }
         }
         if tested && let Err(fault) = self.write_test_times(now, work, &mut todos) {
+            return Err(self.stop(fault, true));
+        }
+        if tested && let Err(fault) = self.write_test_runs(now, work, &mut todos) {
             return Err(self.stop(fault, true));
         }
         // The round's own work is paused by its failure; every other that runs a round on the model is paused with it.

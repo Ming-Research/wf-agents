@@ -14,6 +14,8 @@
 //!   no step, they would be by chance less than one time in a thousand.
 //! - What the work's own runs say of the tests it added, for the work's reviewers: the facts of the datum `test_times`
 //!   ([`facts`], [`render`]). The engine judges no new test's time; the reviewer does, with these.
+//! - What each call of `run_tests` asked for and gave, for the work's test review: the datum `test_runs`, one version to
+//!   a call ([`runs`]). The engine reads nothing of a result.
 //!
 //! Nothing is judged where the history has fewer values than [`crate::history::HISTORY_SAMPLES`].
 
@@ -23,7 +25,7 @@ use flow::Texts;
 use flow::agents::fill;
 use store::WorkNumber;
 use work::timed::Source;
-use work::{Time, Work};
+use work::{Ask, Call, Time, Work};
 
 use crate::history::{line, median};
 
@@ -32,6 +34,12 @@ pub const RUN_TESTS: &str = "run_tests";
 
 /// The source of the datum that says what the work's runs took.
 pub const TEST_TIMES: &str = "test_times";
+
+/// The source of the datum that gives each call of `run_tests` of the work, with what it asked for and what it gave.
+pub const TEST_RUNS: &str = "test_runs";
+
+/// The words the datum `test_runs`' definition gives in its `writes`, each a text the engine fills.
+pub const RUNS_WORDS: [&str; 1] = ["call"];
 
 /// The words the datum's definition gives in its `writes`, each a text the engine fills.
 pub const WORDS: [&str; 15] = [
@@ -585,6 +593,32 @@ pub fn render(facts: &Facts, texts: &Texts) -> String {
     }
 }
 
+/// The versions of the datum `test_runs` as the work's records now say them: one for each call of `run_tests` that has
+/// a result, in the order the results were recorded, in the words of the datum's definition (`texts`), each filled with
+/// the call's number among them, what it asked for as the agent wrote it, and its result with its end of whitespace
+/// left off. The result is given whole: it is kept whole, and nothing of it is read here.
+pub fn runs(work: &Work, texts: &Texts) -> Vec<String> {
+    let says = texts.get("call").unwrap_or_default();
+    let asked = work
+        .records
+        .done
+        .iter()
+        .filter_map(|done| match work.calls.get(&done.call) {
+            Some(Call::Asked(Ask::Tool { name, input })) if name == RUN_TESTS => Some((done.call, input)),
+            _ => None,
+        });
+    asked
+        .enumerate()
+        .map(|(i, (call, input))| {
+            let result = work.results.get(&call).map(|r| r.trim_end()).unwrap_or_default();
+            fill(
+                says,
+                &[("n", &(i + 1).to_string()), ("request", input), ("result", result)],
+            )
+        })
+        .collect()
+}
+
 /// The slots a listed test fills its line with.
 fn test_slots(t: &Listed) -> Vec<(&'static str, String)> {
     let (before, line) = t.before.unzip();
@@ -884,5 +918,43 @@ mod tests {
         let said = render(&short, &words());
         assert!(said.contains("<not_compared:"), "it says no comparison is made: {said}");
         assert!(!said.contains("<sum:"), "no share of the suite is told: {said}");
+    }
+
+    // The calls of `run_tests` are written in the order their results were recorded, not the order they were asked in,
+    // each result whole however long and with no place in it filled again; a call of another tool, and a call with no
+    // result yet, are none of them.
+    #[test]
+    fn the_calls_of_the_tests_are_given_in_the_order_they_ended_whole_and_no_other_call_is() {
+        use decide::{CallId, Done};
+        let tool = |name: &str, input: &str| {
+            Call::Asked(Ask::Tool {
+                name: name.to_string(),
+                input: input.to_string(),
+            })
+        };
+        let mut work = Work::default();
+        work.calls.insert(CallId(4), tool(RUN_TESTS, "first asked"));
+        work.calls.insert(CallId(5), tool(RUN_TESTS, "second asked"));
+        work.calls.insert(CallId(6), tool("query", "other"));
+        work.calls.insert(CallId(7), tool(RUN_TESTS, "not ended"));
+        let long = "x".repeat(30_000);
+        for (n, (call, result)) in [(5, "ended first {n}\n"), (6, "q"), (4, long.as_str())]
+            .into_iter()
+            .enumerate()
+        {
+            work.records.done.push(Done {
+                call: CallId(call),
+                at: Seq(n as u64 + 1),
+            });
+            work.results.insert(CallId(call), result.to_string());
+        }
+        let texts = Texts(vec![("call".to_string(), "#{n} {request}: {result}".to_string())]);
+        assert_eq!(
+            runs(&work, &texts),
+            [
+                "#1 second asked: ended first {n}".to_string(),
+                format!("#2 first asked: {long}")
+            ]
+        );
     }
 }
