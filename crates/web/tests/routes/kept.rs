@@ -39,7 +39,10 @@ impl Rounds for Linking {
         let after = self.after;
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(after)).await;
-            saying.say(Some(Along::Runs { at: RUN.to_string() }));
+            saying.say(Some(Along::Runs {
+                at: RUN.to_string(),
+                queued_for: None,
+            }));
         });
         self.agents.give(round, reply);
     }

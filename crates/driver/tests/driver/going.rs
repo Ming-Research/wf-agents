@@ -69,9 +69,14 @@ fn what_a_round_has_come_to_is_let_go_of_once_the_round_has_ended() {
 fn a_round_that_says_where_it_waits_is_not_among_what_agents_rounds_have_come_to() {
     let (mut h, a, _) = two();
     let (run, _, round, _) = h.round(a);
-    let changed = h
-        .dm()
-        .along(a, Under::Round { run, round }, Some(Along::Runs { at: "link".into() }));
+    let changed = h.dm().along(
+        a,
+        Under::Round { run, round },
+        Some(Along::Runs {
+            at: "link".into(),
+            queued_for: None,
+        }),
+    );
     assert!(changed);
     assert!(h.d().rounds_come_to().is_empty());
 }

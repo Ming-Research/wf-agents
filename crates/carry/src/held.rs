@@ -295,9 +295,11 @@ mod tests {
         let mut stop = held.hold(1, reply).expect("held").saying(saying);
         let first = Along::Runs {
             at: "https://github.example/actions/runs/1".to_string(),
+            queued_for: None,
         };
         let runs = Along::Runs {
             at: "https://github.example/actions/runs/2".to_string(),
+            queued_for: None,
         };
         for along in [
             Some(first.clone()),
