@@ -10,7 +10,9 @@
 //! Neither the key nor a token is said in any words the engine gives. Where no token can be got, each call fails saying
 //! why, and no other credential is tried: the engine has none.
 
+use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
@@ -49,11 +51,18 @@ pub enum Credential {
     Given(String),
 }
 
+/// A token being got, of a type that names none of the calls it makes: the App gets its installation's token with a
+/// call of `gh` that is given a token itself, so the type of the one future would hold the other's.
+type Getting<'a> = Pin<Box<dyn Future<Output = Result<String, Failed>> + Send + 'a>>;
+
 impl Credential {
     /// The token for a call; or why none can be got.
     pub async fn token(&self) -> Result<String, Failed> {
         match self {
-            Credential::App(app) => app.token().await,
+            Credential::App(app) => {
+                let getting: Getting<'_> = Box::pin(app.token());
+                getting.await
+            }
             Credential::Given(token) => Ok(token.clone()),
         }
     }
