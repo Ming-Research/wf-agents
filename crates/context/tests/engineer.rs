@@ -1289,6 +1289,28 @@ fn a_deep_research_that_hands_in_no_plan_is_sent_back_naming_the_plan() {
     assert!(entered.text.contains(said), "{}", entered.text);
 }
 
+// Where the plan has a version, the research that answers a point of the plan's review without writing the plan again
+// leaves the work able to go on, the review running again on the point's answer, so its return is taken.
+#[test]
+fn a_research_that_answers_a_point_without_writing_the_plan_it_wrote_before_is_taken() {
+    let (mut sim, review) = until("P1");
+    tried(&mut sim, &review);
+    sim.hands_in(
+        &review,
+        &[("plan_ok", "", Some("no")), ("plan_review", "A: the name.", None)],
+    );
+    let research = sim.round().expect("the research is woken by the point");
+    assert_eq!(research.cell.as_str(), "R1");
+    tried(&mut sim, &research);
+    sim.hands_in(
+        &research,
+        &[("deep_needed", "", Some("no")), ("plan_review", "A: done.", None)],
+    );
+    assert_eq!(sim.versions("plan_review").len(), 2, "the answer was taken");
+    let next = sim.round().expect("the work goes on");
+    assert_ne!(next.run, research.run, "the return was sent back");
+}
+
 // What a return sent back said stands where the next return asks for calls, which ends the run (decision
 // a-sent-back-return-is-completed-by-what-is-missing): the engine wrote it, the deep research did not hand it in again.
 #[test]
