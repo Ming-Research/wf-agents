@@ -123,6 +123,18 @@ fn a_precondition_the_owner_may_also_make_hold_is_one_no_cell_will_make_hold_eit
     assert!(stuck_after(&mut w, &[("deep", Value("no")), ("plan", Matters)]).is_empty());
 }
 
+// The pause of the work holds back what a cell would run and nothing the walk says before that (a wait, a stall), so a
+// paused work is as stuck as one that is not, and one that a cell would go on with is not stuck for being paused.
+#[test]
+fn a_paused_work_is_stuck_where_it_would_be_if_it_were_not_and_not_where_a_cell_would_go_on() {
+    let mut w = research_to_merge(the_research());
+    w.pause();
+    assert_eq!(stuck_after(&mut w, &[("deep", Value("no"))]), ["plan".into()]);
+    let mut w = research_to_merge(the_research());
+    w.pause();
+    assert!(stuck_after(&mut w, &[("deep", Value("no")), ("plan", Matters)]).is_empty());
+}
+
 // A work that waits at its last cell for what only the owner writes is not waiting for what cells write: it is to be
 // woken by the owner, and no return of the research is held for it.
 #[test]
