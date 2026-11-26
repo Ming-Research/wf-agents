@@ -155,10 +155,7 @@ fn a_work_that_stalls_is_a_line_until_what_runs_a_cell_moves_it_on() {
     let stalled = Time(h.clock);
     let at_the_merge = Decision::Stalled {
         at: "merge".into(),
-        on: vec![decide::Condition::Is {
-            block: "checked".into(),
-            value: "yes".into(),
-        }],
+        on: vec![decide::Condition::Test("passed".into())],
         by: vec![decide::Stalling {
             cell: "check".into(),
             why: decide::Unrun::NothingNew,

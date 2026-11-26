@@ -260,8 +260,8 @@ fn unwanted(ended: bool, work: &Work) -> Vec<CallId> {
         .collect()
 }
 
-/// Whether what the work holds outside is being let go: it has ended, and the letting go is to be done or under way,
-/// and has not been said to be done or to have failed.
+/// Whether what the work holds outside is being let go: it has ended, and the letting go is to be done, once what is
+/// under way of the work has ended, or under way, and has not been said to be done or to have failed.
 pub fn letting_go(flow: &Compiled, work: &Work) -> bool {
     letting_go_after(end_of(flow, work), work)
 }
@@ -269,7 +269,7 @@ pub fn letting_go(flow: &Compiled, work: &Work) -> bool {
 /// Whether what the work holds outside is being let go, as [`letting_go`] says, the work having ended so where `end`
 /// says it has.
 pub fn letting_go_after(end: Option<End>, work: &Work) -> bool {
-    release(end, work).is_some()
+    to_let_go(end, work).is_some()
 }
 
 /// How the work ended, where it has (`end`) and what it holds outside is to be let go: nothing of it is under way, no
@@ -277,6 +277,13 @@ pub fn letting_go_after(end: Option<End>, work: &Work) -> bool {
 /// was last reopened; and no failure to let go waits for the owner, as the engine's pause of the work after its end
 /// that the owner has not let on from.
 fn release(end: Option<End>, work: &Work) -> Option<End> {
+    to_let_go(end, work).filter(|_| at_rest(work))
+}
+
+/// How the work ended, where it has (`end`) and what it holds outside is to be let go, whatever is under way of it
+/// still: the letting go has begun with its end, and a round or a call under way is stopped or withdrawn before it is
+/// done. It is not let go already since the work was last reopened, and no failure to let go waits for the owner.
+fn to_let_go(end: Option<End>, work: &Work) -> Option<End> {
     let r = &work.records;
     if r.released().is_some() {
         return None;
@@ -294,7 +301,7 @@ fn release(end: Option<End>, work: &Work) -> Option<End> {
     {
         return None;
     }
-    at_rest(work).then_some(end)
+    Some(end)
 }
 
 /// Whether nothing of the work is under way: every round of its runs has come back and every call has its result, so

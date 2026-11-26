@@ -1603,6 +1603,10 @@ impl History {
         for line in stood(cell, &entered.situation) {
             let example = format!("round {}, {:?}", round.number, entered.situation);
             reached.examples.entry(line.clone()).or_insert(example);
+            if !reached.real.contains(&line) {
+                let trail = self.trace.iter().rev().take(60).rev().cloned().collect::<Vec<_>>();
+                reached.trails.insert(line.clone(), trail.join(" | "));
+            }
             reached.real.insert(line);
         }
         // What the page shows for the situation, its places open, is what the engine sends in it.
