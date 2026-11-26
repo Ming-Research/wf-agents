@@ -122,7 +122,9 @@ impl Work {
     /// When the entry at this place was added: the time of the thing that happened it belongs to. A place after the
     /// last entry gives the time of the last thing that happened, and a place before the first gives none.
     pub fn time_of(&self, place: Seq) -> Option<Time> {
-        self.moments.iter().rev().find(|m| m.from <= place).map(|m| m.at)
+        // The moments are in the order of their places: the latest at or before this place is found by halving.
+        let after = self.moments.partition_point(|m| m.from <= place);
+        after.checked_sub(1).map(|i| self.moments[i].at)
     }
 
     /// What the work's calls beside its rounds took, in the order of what happened to it: each keep-warm ping and each
