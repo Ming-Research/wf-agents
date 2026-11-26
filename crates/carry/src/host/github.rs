@@ -15,20 +15,24 @@
 //!
 //! An agent's `run_tests` runs the tests and checks it names by the fast workflow (the module `fast`), on the commit it
 //! names or else the last commit of its work's branch, which is pushed to a branch of its own for the call and deleted
-//! once the run's result is read; the work's own branch and its pull request are the check's. Where no commit is
-//! named, what the worktree holds that is not committed is said, and nothing is pushed. The measurements it names are
-//! timed by the project's measure workflow, once, on that commit and on the one the work's change began from, after the
-//! fast workflow where tests or checks are named too; a workflow the project cannot run is refused before anything is
-//! pushed. A request may also ask to publish the commit: it is pushed to a branch of the work's own, one for each
-//! commit, which stays on GitHub until the work ends, so that a workflow the agent starts itself can be given it, and
-//! a request that asks for nothing else pushes nothing more and runs nothing. A request that names no test, no check, no
-//! measurement and no publishing runs nothing.
+//! once the run's result is read; the work's own branch and its pull request are the check's. Where no commit is named,
+//! what the worktree holds that is not committed is said, and nothing is pushed. Each measurement it names is run by
+//! the workflow the project declares for it, on that commit, with the one the work's change began from among its inputs
+//! where the declaration puts it, one after the other and after the fast workflow where tests or checks are named too;
+//! on a machine of the project's own each waits for its turn, one measurement at a time there across the projects
+//! (`machines`). A workflow the project cannot run, or a measurement it does not declare as named, is refused before
+//! anything is pushed. A request may also ask to publish the commit: it is pushed to a branch of the work's own, one
+//! for each commit, which stays on GitHub until the work ends, so that a workflow the agent starts itself can be given
+//! it, and a request that asks for nothing else pushes nothing more and runs nothing. A request that names no test, no
+//! check, no measurement and no publishing runs nothing.
 //!
 //! - `api`: what is asked of GitHub besides pushing and fetching, and `gh`, which asks it with the `gh` command line.
 //! - `output`: what a test said, as a reader wants it.
 //! - `log`: what a job's log says of the step that failed it, which is said of a job that failed with no failed test
 //!   of its own to say why.
 //! - `looks`: the looks at a workflow's runs, which every wait for a run of that workflow shares.
+//! - `machines`: the turns on the machines measurements run on, which every project's host shares.
+//! - `metrics`: what a measurement's run measured, as the CSV file it uploads holds it.
 //! - `fake`: GitHub for the tests, with a bare repository on disk to push to.
 
 mod api;
@@ -36,6 +40,8 @@ mod fast;
 mod gh;
 mod log;
 mod looks;
+pub mod machines;
+mod metrics;
 mod output;
 mod results;
 mod workflow;
@@ -45,7 +51,10 @@ mod fake;
 #[cfg(test)]
 mod tests;
 
+use std::future::Future;
 use std::path::Path;
+use std::pin::Pin;
+use std::sync::{Arc, Weak};
 
 use flow::agents::fill;
 use std::time::Duration;
@@ -54,12 +63,12 @@ use uuid::Uuid;
 
 pub use api::{Api, Pull, State};
 pub use gh::{Gh, GhOffsite, UPLOAD_RATE};
+pub use machines::Machines;
 
 use super::{Asking, Branch, Failed, Host, Named, NotMerged, Verdict, continuing};
 use crate::git::{self, With};
 use crate::held::Stop;
 use crate::settings::{self, Project};
-use fast::Role;
 
 /// How often GitHub is asked how the runs of a workflow go: a run takes from half a minute to some minutes, and is
 /// waited for while an agent or the check before a merge waits, so it is seen done within a few seconds. One look serves
@@ -108,6 +117,8 @@ pub struct Config {
     pub words: flow::agents::PullRequest,
     /// The installation's id, in whose namespace the value that finds a run of a workflow is worked out.
     pub installation: Uuid,
+    /// The machines the installation's measurements run on, which every project's host shares.
+    pub machines: Arc<Machines>,
 }
 
 impl std::fmt::Debug for Config {
@@ -126,6 +137,7 @@ impl std::fmt::Debug for Config {
             .field("withheld", &self.withheld)
             .field("words", &self.words)
             .field("installation", &self.installation)
+            .field("machines", &self.machines)
             .finish()
     }
 }
@@ -154,7 +166,7 @@ impl GitHub<Gh> {
         github: &settings::GitHub,
         project: &Project,
         data: &Path,
-        installation: Uuid,
+        (installation, machines): (Uuid, Arc<Machines>),
         env: impl Fn(&str) -> Option<String>,
         (ci, merging): (Option<flow::agents::Ci>, &flow::agents::Merging),
         (tool, check, words): (
@@ -186,6 +198,7 @@ impl GitHub<Gh> {
             withheld: withheld(data, &project.repo, env("HOME"), &words.withheld),
             words,
             installation,
+            machines,
         };
         let gh = Gh::new(&github.gh, &github.repository, &token, &dir);
         Ok(GitHub::new(gh, project.clone(), config))
@@ -199,6 +212,15 @@ impl<A: Api> GitHub<A> {
             project,
             config,
             looks: looks::Looks::default(),
+        }
+    }
+
+    /// Tells the machines this project's measurements run on that it measures there, so that the one whose turn it is
+    /// on such a machine waits while a run of this project's is not complete there, as of any project.
+    pub fn share_machines(host: &Arc<GitHub<A>>) {
+        for machine in host.measured_on() {
+            let busy: Weak<dyn machines::Busy> = Arc::downgrade(host);
+            host.config.machines.share(&machine, busy);
         }
     }
 
@@ -713,6 +735,12 @@ impl<A: Api> Host for GitHub<A> {
     }
 }
 
+impl<A: Api> machines::Busy for GitHub<A> {
+    fn going<'a>(&'a self, machine: &'a str) -> Pin<Box<dyn Future<Output = Result<Vec<String>, Failed>> + Send + 'a>> {
+        Box::pin(self.measuring_on(machine))
+    }
+}
+
 /// The pattern of git's that takes the name of every branch a call of `run_tests` of the work pushes a commit to, a place
 /// no work's own branch is in: `wf-try/<the work's branch>/` and anything after it, the branches of its calls and those
 /// of the commits it published.
@@ -855,9 +883,9 @@ impl<A: Api> GitHub<A> {
             },
         };
         let measure = match named.measure.is_empty() {
-            true => None,
-            false => match self.measure_role(ci)? {
-                Ok(measure) => Some(measure),
+            true => Vec::new(),
+            false => match self.measurements(ci, &named.measure)? {
+                Ok(measure) => measure,
                 Err(refused) => return Ok(Some(refused)),
             },
         };
@@ -906,7 +934,7 @@ impl<A: Api> GitHub<A> {
             }
         };
         let mut said: Vec<String> = Vec::new();
-        if fast.is_some() || measure.is_some() {
+        if fast.is_some() || !measure.is_empty() {
             // The commit is pushed to a branch of its own for this call, never to the work's branch, which the check
             // before the merge pushes: a commit named only to be run, such as one that shows a new test red on the code
             // before the change, must not land on the work's branch.
@@ -918,23 +946,23 @@ impl<A: Api> GitHub<A> {
                 commit: &commit,
                 asking,
             };
-            // The fast workflow first, then the measure workflow, which times the commit against the one the work's
-            // change began from: the newest commit main and the work's commit have in common, a commit of main's, so
-            // that what is timed is the change alone and not what other works merged into main since.
+            // The fast workflow first, then each measurement in the order named, each given the commit the work's
+            // change began from where its declaration says: the newest commit main and the work's commit have in
+            // common, a commit of main's, so that what is measured against it is the change alone and not what other
+            // works merged into main since.
             if let Some(role) = fast {
                 match self.run_role(role, request, named, stop).await? {
                     Some(one) => said.push(one),
                     None => return Ok(None),
                 }
             }
-            if let Some(measure) = measure {
+            if !measure.is_empty() {
                 let base = git::git(repo, &["merge-base", &self.kept_main(), &commit]).await?;
-                match self
-                    .run_role(Role::Measure(measure, &base), request, named, stop)
-                    .await?
-                {
-                    Some(one) => said.push(one),
-                    None => return Ok(None),
+                for measuring in &measure {
+                    match self.run_measurement(measuring, &base, request, stop).await? {
+                        Some(one) => said.push(one),
+                        None => return Ok(None),
+                    }
                 }
             }
             // The branch is kept until the run has ended and its result is read: a run the engine stopped waiting for

@@ -64,8 +64,10 @@ main = "main"
 # # The gh command line, or a path to it.
 # gh = "gh"
 # # The runners the project's repository has: `github` for GitHub's own machines, and the label of each self-hosted
-# # runner registered for it. A workflow of the project (its `ci.fast`, `ci.full` and `ci.measure` in wf-agents.toml)
-# # names the runner it runs on, and is not run where the repository lacks it.
+# # runner registered for it. A workflow of the project (its `ci.fast`, `ci.full` and each `ci.measure.<name>` in
+# # wf-agents.toml) names the runner it runs on, and is not run where the repository lacks it. A self-hosted runner's
+# # label names one machine for every project that has it: the engine runs one measurement at a time there, of whatever
+# # project, and a request waits for its turn, as the owner's page says.
 # runners = ["github"]
 
 [agents]

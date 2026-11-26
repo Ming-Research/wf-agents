@@ -2360,6 +2360,18 @@ fn waited(waited: &Waited) -> String {
             call,
             who: None,
             what,
+            machine: Some(machine),
+            ..
+        } => format!(
+            "call {call}, {}, waiting since {} for its turn on the machine {}, where one measurement runs at a time",
+            called(what),
+            utc(machine.since),
+            machine.machine,
+        ),
+        Waited::Call {
+            call,
+            who: None,
+            what,
             at,
             queued_for,
             ..
@@ -3941,6 +3953,7 @@ mod tests {
             made: 1,
             at: None,
             queued_for: None,
+            machine: None,
             held,
         };
         let held = |obstacle| {
@@ -3962,6 +3975,30 @@ mod tests {
         assert!(said(web::works::Obstacle::NoRunner).ends_with(": no machine took the run"));
         assert!(said(web::works::Obstacle::Network).ends_with(": the network failed"));
         assert_eq!(waited(&call(None)), "call 2, the tool run_tests on \"x\"");
+        // A call that waits for its turn on a machine says which and since when.
+        let waits = Waited::Call {
+            call: 2,
+            who: None,
+            what: Call::Tool {
+                name: "run_tests".to_string(),
+                input: "x".to_string(),
+            },
+            made: 1,
+            at: None,
+            queued_for: None,
+            machine: Some(web::works::MachineWait {
+                machine: "14900k".to_string(),
+                since: 1_700_000_000_000,
+            }),
+            held: None,
+        };
+        assert_eq!(
+            waited(&waits),
+            format!(
+                "call 2, the tool run_tests on \"x\", waiting since {until} for its turn on the machine 14900k, where \
+                 one measurement runs at a time"
+            )
+        );
     }
 
     // A dependency on a cancelled item holds nothing, and the words for it say so; one on an item that has not ended
