@@ -18,4 +18,4 @@ A question the owner is to answer shows only what it asks, and no line beside it
 
 ### decision the-engine-reports-a-red-main-and-fixes-nothing
 The engine reports that a project's main is red on tests, once for each time it came to be so, in `wf-agents wait` and on the System view; it makes no item to fix it and starts no agent.
-- rejected: an agent proposed that the engine make an item to fix a red main and start an architect agent for it; the owner rejected it, because the architect session decides, by section 2 of `architect/rules.md`, whether to fix or to roll back, and the engine only states the fact.
+- rejected: the owner proposed reading main's full CI every minute and stopping the merges while it is red, as the old system did; the owner rejected it, because pushes to main no longer run CI, so the check has to work as today's checks do.

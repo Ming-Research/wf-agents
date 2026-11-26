@@ -8,14 +8,16 @@
 //! the check (`run/...`), its source is the fast workflow, and its commit is not one the full workflows of the same
 //! asking ran on. A call of `run_tests` (`call/...`) and the check's own runs on the commit checked are not.
 //!
-//! A test is red on main of a project while the latest reading of it on the head of main, in any work of the project,
-//! failed, and the head of main has not moved since. What the readings say of the test is its streak: the readings
-//! since the last that passed. That main moved is read from the block of main of the works that have not ended, which
-//! the engine writes into each of them each time the head changes ([`crate::Driver::outside`]): a version of it that
-//! says other than the version before it in the same work, with the work not put on another version of its flow
-//! between the two, as the words of the block may differ from one version of a flow to another. Once main moved, what
-//! the project's main is is not known until a check runs the test on it again, and it is not said to be red or green;
-//! that it is not known is given beside it, so that a red that comes back as the same one is not told again.
+//! A test is red on main of a project while the latest reading of it on the current head of main, in any work of the
+//! project, failed. What the readings say of the test is its streak: the readings since the last that passed. A reading
+//! is on the current head where its commit, the whole id, is in the latest version of the block of main of a work that
+//! has not ended: the engine writes that block into each of them each time the head changes
+//! ([`crate::Driver::outside`]) with the head in its words, and every version of the words holds it. The comparison is
+//! of heads and not of times, so a reading kept after main moved on, of a run on the head it left, is not a reading of
+//! the head main has, and a move of main is a move whatever else happened to the work as it moved. Where the latest
+//! reading of a test failed on a head that main has left, what the project's main is is not known until a check runs the
+//! test on the new head, and it is not said to be red or green; that it is not known is given beside it, so that a red
+//! that comes back as the same one is not told again.
 //!
 //! The works of a project that wait for main to pass are given beside it, as what the planner may look at first; main
 //! is red whether any work waits or not.
@@ -85,6 +87,8 @@ struct Seen {
     time: Time,
     work: WorkNumber,
     passed: bool,
+    /// Whether the commit is the head of main that the works have been told last.
+    current: bool,
     head: String,
 }
 
@@ -115,31 +119,17 @@ fn on_main(work: &Work) -> Vec<(Time, &work::timed::Reading)> {
     found
 }
 
-/// The times main moved, as the block of main of a work that has not ended says it.
-fn moves(member: &Member<'_>) -> Vec<Time> {
-    let Some(block) = member.main else {
-        return Vec::new();
-    };
-    let work = member.work;
-    let mut says = work
-        .contents
-        .range((block.clone(), Seq(0))..=(block.clone(), Seq(u64::MAX)));
-    let Some(((_, mut before), mut was)) = says.next().map(|((b, at), text)| ((b, *at), text)) else {
-        return Vec::new();
-    };
-    let mut moved = Vec::new();
-    for ((_, at), text) in says {
-        let put_on_another = work.flows.iter().any(|on| on.at > before && on.at <= *at);
-        if text != was && !put_on_another {
-            moved.push(work.time_of(*at).unwrap_or_default());
-        }
-        (before, was) = (*at, text);
-    }
-    moved
+/// The latest version of the block of main of a work, which is where the head of main it was last told stands.
+fn latest_main<'a>(member: &Member<'a>) -> Option<&'a str> {
+    let block = member.main?;
+    let (_, text) = (member.work.contents)
+        .range((block.clone(), Seq(0))..=(block.clone(), Seq(u64::MAX)))
+        .next_back()?;
+    Some(text.as_str())
 }
 
 /// Whether main is red in the project, and where: of its works, with how each waits given by `waiting`. Nothing is
-/// known where no work of it has not ended, since then nothing tells whether main moved.
+/// known where no work of it has not ended, since then nothing tells what the head of main is.
 pub fn of_project(project: &str, members: &[Member<'_>], waiting: impl Fn(WorkNumber) -> bool) -> Main {
     let going: Vec<&Member<'_>> = members.iter().filter(|m| !m.ended && m.main.is_some()).collect();
     if going.is_empty() {
@@ -148,7 +138,8 @@ pub fn of_project(project: &str, members: &[Member<'_>], waiting: impl Fn(WorkNu
             unknown: false,
         };
     }
-    let moved = going.iter().flat_map(|m| moves(m)).max();
+    let heads: Vec<&str> = going.iter().filter_map(|m| latest_main(m)).collect();
+    let current = |commit: &str| !commit.is_empty() && heads.iter().any(|head| head.contains(commit));
     let mut seen: BTreeMap<(&str, &str), Vec<Seen>> = BTreeMap::new();
     let readings: Vec<(WorkNumber, Vec<(Time, &work::timed::Reading)>)> =
         members.iter().map(|m| (m.number, on_main(m.work))).collect();
@@ -161,6 +152,7 @@ pub fn of_project(project: &str, members: &[Member<'_>], waiting: impl Fn(WorkNu
                         time: *time,
                         work: *work,
                         passed: test.passed,
+                        current: current(&reading.commit),
                         head: reading.commit.clone(),
                     });
             }
@@ -171,19 +163,20 @@ pub fn of_project(project: &str, members: &[Member<'_>], waiting: impl Fn(WorkNu
     let mut unknown = false;
     for ((unit, name), mut list) in seen {
         list.sort_by_key(|s| (s.time, s.work));
-        let Some(last) = list.last() else {
+        // Of the readings on the head main has, the latest decides: a test that passed there is not red. Where none is
+        // on it, the test last failed on a head main has left, which is not known to be red, or last passed.
+        let Some(at) = list.iter().rposition(|s| s.current) else {
+            unknown |= list.last().is_some_and(|last| !last.passed);
             continue;
         };
-        // A test that passed on the head of main last is not red; one whose last failure came before main moved is not
-        // known to be, since main is not what it was.
-        if last.passed {
+        if list[at].passed {
             continue;
         }
-        if moved.is_some_and(|moved| last.time <= moved) {
-            unknown = true;
-            continue;
-        }
-        let from = list.iter().rposition(|s| s.passed).map_or(0, |passed| passed + 1);
+        let last = &list[at];
+        let from = list[..=at]
+            .iter()
+            .rposition(|s| s.passed)
+            .map_or(0, |passed| passed + 1);
         since = Some(since.map_or(list[from].time, |earliest| earliest.min(list[from].time)));
         tests.push(RedTest {
             unit: unit.to_string(),
@@ -472,9 +465,9 @@ mod tests {
         assert_eq!((main.red, main.unknown), (None, false));
     }
 
-    // A work added after main went red is told the head of main as its first version, which is no move.
+    // A work added after main went red is told the head of main as its first version, which is the head the readings ran on.
     #[test]
-    fn the_first_version_of_a_work_is_no_move() {
+    fn a_work_added_later_is_told_the_same_head_and_main_stays_red() {
         let block = BlockId(MAIN_BLOCK.to_string());
         let mut found = work_of(40);
         says(&mut found, 1, "main at A");
@@ -485,7 +478,7 @@ mod tests {
         assert!(red_of(&both).is_some());
     }
 
-    // Words of the block of main that another version of the flow gives are no move of main.
+    // Words of the block of main that another version of the flow gives hold the same head, so main stands.
     #[test]
     fn a_change_of_the_flows_words_is_no_move() {
         let block = BlockId(MAIN_BLOCK.to_string());
@@ -501,6 +494,47 @@ mod tests {
         // A real move after it is one.
         says(&mut work, 20, "The head of main is B.");
         assert_eq!(red_of(&[member(1, &work, &block, false)]), None);
+    }
+
+    // Main moving on while the work is put on another version of its flow is a move: the head the readings ran on is not
+    // the head the work was told, whatever words say it.
+    #[test]
+    fn a_move_together_with_a_change_of_the_flow_is_a_move() {
+        let block = BlockId(MAIN_BLOCK.to_string());
+        let mut work = work_of(40);
+        says(&mut work, 1, "main at A");
+        check(&mut work, 5, "1", "C", "A", &[("t", false)], &[("t", false)]);
+        work.flows.push(OnFlow {
+            at: Seq(10),
+            version: Some("v2".to_string()),
+        });
+        says(&mut work, 11, "The head of main is B.");
+        let main = of_project("project", &[member(1, &work, &block, false)], |_| false);
+        assert_eq!(main.red, None);
+        assert!(main.unknown, "the red was read on a head main has left");
+    }
+
+    // A reading kept after main moved on, of a run on the head main left, is not a reading of the head main has.
+    #[test]
+    fn a_failure_kept_after_main_moved_on_the_head_it_ran_on_is_not_red() {
+        let block = BlockId(MAIN_BLOCK.to_string());
+        let mut work = work_of(40);
+        says(&mut work, 1, "main at A");
+        says(&mut work, 5, "main at B");
+        check(&mut work, 10, "1", "C", "A", &[("t", false)], &[("t", false)]);
+        let main = of_project("project", &[member(1, &work, &block, false)], |_| false);
+        assert_eq!(main.red, None);
+        assert!(main.unknown);
+        // A run on the head main has says where it stands, and a late reading of the head it left does not hide that.
+        check(&mut work, 15, "2", "D", "B", &[("t", false)], &[("t", false)]);
+        check(&mut work, 20, "3", "E", "A", &[("t", false)], &[("t", true)]);
+        let red = red_of(&[member(1, &work, &block, false)]).expect("red on the head main has");
+        assert_eq!(red.tests[0].head, "B");
+        assert_eq!(
+            red.since,
+            Time(1000),
+            "the streak is of the readings up to the one on the current head"
+        );
     }
 
     // The works that wait are given beside it.
