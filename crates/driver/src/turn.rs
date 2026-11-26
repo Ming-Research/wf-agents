@@ -195,7 +195,7 @@ mod tests {
         };
         let item = Item::new(ItemNumber(1), Time(0), first, Vec::new());
         let on = On::installed_flow(&flow);
-        Held::new(head, item, Arc::new(flow), on, Vec::new(), work)
+        Held::new(head, item, Arc::new(flow), on, Vec::new(), work, None)
     }
 
     // A work the driver holds at fault, as it does where the deciding code goes round on its records without end, is
