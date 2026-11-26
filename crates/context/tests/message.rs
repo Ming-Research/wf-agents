@@ -571,6 +571,16 @@ fn a_round_told_to_give_a_return_whole_again_says_so_in_its_situation_and_the_pa
         ..entered.situation.clone()
     };
     ends_in(&page(&plain), ONLY_WHAT_IS_LISTED);
+    // The two endings are two lines the written situations are held to, and a situation stands in one of them, so that
+    // a situation is written for each.
+    let given = |situation: &context::Situation| -> Vec<String> {
+        (context::situations::stood(cell, situation).into_iter())
+            .filter(|line| line.contains("given why a return was sent back"))
+            .collect()
+    };
+    assert_eq!(given(&entered.situation).len(), 1, "{:?}", given(&entered.situation));
+    assert_eq!(given(&plain).len(), 1, "{:?}", given(&plain));
+    assert_ne!(given(&entered.situation), given(&plain));
     // The files' definition of the message shows both endings.
     let defined = context::defined(&sim.flow, &sim.words, cell);
     let reasons = (defined.iter().find(|d| d.part == flow::agents::Part::SentBack)).expect("the part is defined");
