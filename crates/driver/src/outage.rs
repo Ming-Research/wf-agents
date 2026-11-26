@@ -1181,7 +1181,8 @@ mod tests {
             .collect()
     }
 
-    /// The rounds the service answered while under way, as drawn: one round in four of these works, and one of no work.
+    /// The rounds their service answered while under way, as drawn: one round in four of these works, an act as an
+    /// agent's round, and one of no work.
     fn answered_of(
         draw: &mut Draw,
         works: &[(WorkNumber, Option<Outline>, Work)],
@@ -1404,9 +1405,10 @@ mod tests {
         waits
     }
 
-    // Milliseconds in all, nothing run: in each of 400 drawn histories of a few works, the wait of each service under
-    // each account in use, the usage limits that stand and the waits in which the command line could not run, worked out
-    // from what each work keeps of its rounds, are those the works' records define.
+    // Milliseconds in all, nothing run: in each of 400 drawn histories of a few works, with acts and agents' rounds that
+    // their service answered while under way, the wait of each service under each account in use, the usage limits that
+    // stand and the waits in which the command line could not run, worked out from what each work keeps of its rounds,
+    // are those the works' records define.
     #[test]
     fn the_waits_worked_out_from_what_each_work_keeps_are_those_its_records_define() {
         for seed in 0..400 {
@@ -1431,6 +1433,34 @@ mod tests {
                 "seed {seed}"
             );
             assert_eq!(cannot_run_spans(kept.iter()), plain_cannot_run(&works), "seed {seed}");
+        }
+    }
+
+    // Microseconds, nothing run: a round that its service answered while under way, after one that failed for want of
+    // the network, ends its service's wait, as the records define it: the host answering an act ends the acts' wait as
+    // the agents' service answering an agent's round ends theirs. Unanswered, the round is the one that goes first.
+    #[test]
+    fn an_act_the_host_answered_ends_the_acts_wait_as_an_answered_round_ends_the_agents() {
+        for (cell, service) in [("e", Service::Host), ("a", Service::Agents)] {
+            let mut growing = Growing::default();
+            let run = growing.start(cell, 1_000);
+            let round = growing.begin(run, &[None], 1_000);
+            let offline = Back::Failed {
+                why: "offline".to_string(),
+                failure: Failure::Offline,
+                resets: None,
+            };
+            growing.end(run, round, Some(offline), 1_001);
+            let round = growing.begin(run, &[None], 1_002);
+            let works = vec![(WorkNumber(1), Some(outline()), growing.work)];
+            let kept = [Rounds::of(WorkNumber(1), Some(&outline()), &works[0].2)];
+            for answered in [BTreeSet::new(), BTreeSet::from([(WorkNumber(1), run, round)])] {
+                let wait = outage(service, kept.iter(), &answered, None);
+                assert_eq!(wait, plain_outage(service, &works, &answered, None), "{service:?}");
+                let trying = wait.map(|wait| wait.trying);
+                let expected = answered.is_empty().then_some(Some(WorkNumber(1)));
+                assert_eq!(trying, expected, "{service:?}, answered: {answered:?}");
+            }
         }
     }
 
