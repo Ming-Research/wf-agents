@@ -507,9 +507,15 @@ impl Rounds for Agents {
 
 impl Inner {
     /// What the program is let run for a round of the cell, of the project.
-    fn permissions(&self, of: &Of, cell: &flow::CellSpec) -> Permissions {
+    fn permissions(&self, of: &Of, cell: &flow::CellSpec, worktree: &Path) -> Permissions {
         let refused = permissions::refused_commands(&of.beside, &of.declaration, &self.settings.agents.command);
-        Permissions::of(cell.reads_only, &of.beside.allowed.may, &std::env::temp_dir(), &refused)
+        Permissions::of(
+            cell.reads_only,
+            &of.beside.allowed.may,
+            worktree,
+            &std::env::temp_dir(),
+            &refused,
+        )
     }
 
     /// Whether the line of the cell, in the work, for the item, would begin a new session of it with another system
@@ -534,7 +540,7 @@ impl Inner {
         let Ok(dir) = git::worktree(&place) else {
             return false;
         };
-        let permissions = self.permissions(of, cell);
+        let permissions = self.permissions(of, cell, &dir);
         let session = session::session(self.installation, work, line, number);
         system::changed(&self.data, session, |what| {
             of.begins_with(flow, cell, &permissions, &dir, what)
@@ -623,7 +629,7 @@ impl Inner {
                 .await
                 .map_err(|e| format!("{}: {e}", parent.display()))?;
         }
-        let permissions = self.permissions(of, &round.cell);
+        let permissions = self.permissions(of, &round.cell, &dir);
         // One program at a time in a line's session: a keep-warm ping of the line under way ends first, so that what its
         // session holds and cost is worked out with the ping in.
         let lock = self.lock(round.work, line);
@@ -1734,6 +1740,7 @@ impl Inner {
                 .map_err(|e| NoLine::System(format!("{}: {e}", at.file_name().unwrap_or_default().to_string_lossy())))
         };
         let refused = permissions::refused_commands(&of.beside, &of.declaration, &self.settings.agents.command);
+        let worktree = git::place(&self.data, &git::tag(&self.installation), number).dir;
         Ok(SessionLine {
             session,
             run: last.run,
@@ -1741,7 +1748,13 @@ impl Inner {
             on: last.on.clone(),
             system: began(system::Begun::System)?,
             form: began(system::Begun::Form)?,
-            permissions: Permissions::of(reads_only, &of.beside.allowed.may, &std::env::temp_dir(), &refused),
+            permissions: Permissions::of(
+                reads_only,
+                &of.beside.allowed.may,
+                &worktree,
+                &std::env::temp_dir(),
+                &refused,
+            ),
         })
     }
 
@@ -3072,6 +3085,30 @@ mod tests {
         assert_eq!(after("--effort"), Some("high"));
         assert_eq!(after("--resume"), Some(session.to_string().as_str()));
         assert_eq!(args.last(), Some(&"--fork-session"));
+        // The session's line is given the worktree as a round of it is: its edits allowed by its absolute path, and
+        // the path a directory of its own.
+        let worktree_path = place.dir.to_string_lossy().trim_end_matches('/').to_string();
+        let given_after = |flag: &str| {
+            args.iter()
+                .enumerate()
+                .filter(|(_, a)| **a == flag)
+                .map(|(i, _)| args[i + 1])
+                .collect::<Vec<_>>()
+        };
+        assert!(given_after("--add-dir").contains(&worktree_path.as_str()), "{args:?}");
+        let rule = format!("Edit(/{worktree_path}/**)");
+        let allowed = args
+            .iter()
+            .position(|a| *a == "--allowedTools")
+            .expect("the allowed rules");
+        assert!(
+            args[allowed + 1..]
+                .iter()
+                .take_while(|a| !a.starts_with("--"))
+                .any(|a| *a == rule),
+            "{args:?}"
+        );
+        assert!(!args.contains(&"Edit(./**)"), "{args:?}");
         let cwd = std::fs::read_to_string(data.join("cwd")).expect("where it ran");
         let worktree = std::fs::canonicalize(&place.dir).expect("the worktree");
         assert_eq!(std::fs::canonicalize(cwd.trim()).expect("a directory"), worktree);
