@@ -480,7 +480,8 @@ impl Declaration {
 
     /// What is wrong with the declaration whatever the project's host is, each in words with its key: a format of the
     /// design tree that is not the flow's, a file the session names that it does not have, a merge method the host
-    /// does not take, a check that names no command, and a workflow's time limit that is not a time.
+    /// does not take, a check that names no command, a workflow's time limit that is not a time, and what is wrong with
+    /// a measurement ([`Measurement::faults`]).
     pub fn faults(&self, beside: &Agents) -> Vec<String> {
         let mut faults = Vec::new();
         if let Some(format) = &self.tree_format
@@ -513,20 +514,16 @@ impl Declaration {
             faults.push("local.check: names a command".to_string());
         }
         if let Some(ci) = &self.ci {
-            let measure = ci
-                .measure
-                .as_ref()
-                .map(|measure| ("ci.measure.too_long", &measure.too_long));
             for (key, text) in [
                 ("ci.fast.too_long", &ci.fast.too_long),
                 ("ci.full.too_long", &ci.full.too_long),
-            ]
-            .into_iter()
-            .chain(measure)
-            {
+            ] {
                 if let Err(why) = span(text) {
                     faults.push(format!("{key}: {why}"));
                 }
+            }
+            for (name, measurement) in &ci.measure {
+                faults.extend(measurement.faults(name));
             }
             if let Some(budget) = &ci.fast.budget
                 && let Err(why) = budget_of(budget)
@@ -791,49 +788,161 @@ pub struct Tests {
     pub expected: Vec<String>,
 }
 
-/// `[ci]` of the declaration: the project's two workflows, each with a role the engine relies on, and its measure
-/// workflow where it has one. All report each test, or each timing, as JUnit XML, named by the one name an agent asks for
-/// it by. A declaration that has `[ci]` has both the fast and the full: the fast one is all that `run_tests` runs for the
-/// tests and checks it is asked for, and the full ones are all that the check before a merge runs; the measure workflow
-/// is all that `run_tests` runs for the measurements it is asked for.
+/// `[ci]` of the declaration: the project's two workflows, each with a role the engine relies on, and the measurements
+/// it declares. The two report each test as JUnit XML, named by the one name an agent asks for it by. A declaration
+/// that has `[ci]` has both the fast and the full: the fast one is all that `run_tests` runs for the tests and checks
+/// it is asked for, and the full ones are all that the check before a merge runs; the measurements are all that
+/// `run_tests` runs for the measurements it is asked for.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Ci {
     pub fast: CiFast,
     pub full: CiFull,
-    /// The workflow that times what a request of `run_tests` names; none where the project has no measurements.
+    /// The measurements an agent may name to `run_tests`, each by its name; none where the project declares none.
     #[serde(default)]
-    pub measure: Option<CiMeasure>,
+    pub measure: BTreeMap<String, Measurement>,
 }
 
-/// The measure workflow: dispatched by hand on a commit and the commit the work's change began from, with the names of
-/// the measurements to time, and reports every timing as JUnit XML: a testcase named as the measurement is asked for,
-/// in a testsuite named for what was timed, with its time in seconds.
+/// What the engine fills in the inputs a measurement's declaration gives its workflow: the commit measured.
+pub const MEASURED_COMMIT: &str = "{commit}";
+/// What the engine fills in the inputs a measurement's declaration gives its workflow: the commit the work's change
+/// began from, the newest commit main and the work's commit have in common.
+pub const MEASURED_BASE: &str = "{base}";
+/// What the engine fills in the inputs a measurement's declaration gives its workflow: a value only the request that
+/// asks for the run knows, which the run's name must hold, so that the engine finds the run it asked for.
+pub const MEASURED_CALL: &str = "{call}";
+
+/// A measurement an agent may name to `run_tests` (`[ci.measure.<name>]` of the declaration): a workflow run by hand on
+/// its file on the main branch, given the inputs the declaration gives it and those of the inputs it leaves open that
+/// the agent sets, which uploads what it measured as a CSV file in an artifact: a header line naming the columns, then
+/// a row for each thing measured. The columns the declaration names as metrics each hold a number in every row; every
+/// other column says what the row measured. On a machine of the project's own, one measurement runs at a time, and the
+/// step of its workflow that times takes the machine's gate first (`runner/measure-gate.sh`, `docs/installing.md`).
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct CiMeasure {
+pub struct Measurement {
+    /// What it measures, which an agent is told beside its name.
+    pub about: String,
     /// The workflow, by its file's name, always run by its file on the main branch.
     pub workflow: String,
-    /// Where it runs, as for the fast workflow: the machine the project measures on.
+    /// Where it runs, as for the fast workflow: `github`, GitHub's own machines, where each run has a machine of its
+    /// own; or the label of a self-hosted runner, a machine on which the engine runs one measurement at a time, of
+    /// whatever project.
     pub runner: String,
-    /// How long a run may take, such as `30m`, the wait for the machine included: one not complete by then is
-    /// cancelled and said so.
+    /// How long a run may take once it has started, such as `3h`: one not complete by then is cancelled and said so.
+    /// The wait for the machine, and for a runner, is not counted.
     pub too_long: String,
-    /// The input that takes the commit to time.
-    #[serde(default = "commit_input")]
-    pub commit_input: String,
-    /// The input that takes the commit the work's change began from, to time it against.
-    #[serde(default = "base_input")]
-    pub base_input: String,
-    /// The input that takes a value only one request knows, which the run's name must hold.
-    #[serde(default = "call_input")]
-    pub call_input: String,
-    /// The input that takes the names of the measurements, each followed by a line break.
-    #[serde(default = "measure_input")]
-    pub measure_input: String,
-    /// The artifact a run uploads its JUnit files in.
-    #[serde(default = "results")]
-    pub results: String,
+    /// The inputs the workflow is always given, each by its name with its value: a text in which the engine fills
+    /// [`MEASURED_COMMIT`], [`MEASURED_BASE`] and [`MEASURED_CALL`], and nothing else. One of them holds the call.
+    pub inputs: BTreeMap<String, String>,
+    /// The inputs an agent may set, by their names as the workflow takes them; one it does not set takes the workflow's
+    /// own default.
+    #[serde(default)]
+    pub open: Vec<String>,
+    /// The artifact the run uploads what it measured in.
+    pub artifact: String,
+    /// The CSV file in the artifact that holds what it measured, by its path in the artifact.
+    pub file: String,
+    /// The columns of the file that hold a metric, each with its unit, such as `requests/s` or `ms`.
+    pub metrics: BTreeMap<String, String>,
+}
+
+impl Measurement {
+    /// What the workflow is given: each input the declaration gives, filled with the commit measured, the commit it is
+    /// measured against and the call, then each the agent set, as it set it; in the order of their names, each once.
+    pub fn inputs_of(
+        &self,
+        commit: &str,
+        base: &str,
+        call: &str,
+        set: &BTreeMap<String, String>,
+    ) -> Vec<(String, String)> {
+        let given = (self.inputs.iter()).map(|(name, value)| {
+            let value = (value.replace(MEASURED_COMMIT, commit))
+                .replace(MEASURED_BASE, base)
+                .replace(MEASURED_CALL, call);
+            (name.clone(), value)
+        });
+        let set = (set.iter()).map(|(name, value)| (name.clone(), value.clone()));
+        given.chain(set).collect()
+    }
+
+    /// What is wrong with the measurement of this name, each in words with its key: a name or an input's name that
+    /// holds other than letters, digits, `_` and `-`; a time limit that is no time; an input given that names a place
+    /// other than the three the engine fills; none that holds the call, by which the engine finds the run, or the
+    /// commit, which is what is measured; an input both given and left open; no metric; and a workflow, artifact or
+    /// file not named.
+    pub fn faults(&self, name: &str) -> Vec<String> {
+        let key = format!("ci.measure.{name}");
+        let mut faults = Vec::new();
+        if !is_a_name(name) {
+            faults.push(format!(
+                "{key}: a measurement's name holds only letters, digits, `_` and `-`"
+            ));
+        }
+        if let Err(why) = span(&self.too_long) {
+            faults.push(format!("{key}.too_long: {why}"));
+        }
+        for (what, value) in [
+            ("workflow", &self.workflow),
+            ("runner", &self.runner),
+            ("artifact", &self.artifact),
+            ("file", &self.file),
+        ] {
+            if value.trim().is_empty() {
+                faults.push(format!("{key}.{what}: names nothing"));
+            }
+        }
+        let filled = [MEASURED_COMMIT, MEASURED_BASE, MEASURED_CALL];
+        for (input, value) in &self.inputs {
+            if !is_a_name(input) {
+                faults.push(format!(
+                    "{key}.inputs.{input}: an input's name holds only letters, digits, `_` and `-`"
+                ));
+            }
+            let mut rest = value.clone();
+            for place in filled {
+                rest = rest.replace(place, "");
+            }
+            if rest.contains('{') || rest.contains('}') {
+                faults.push(format!(
+                    "{key}.inputs.{input}: a brace outside {}, {} and {}, which the engine fills",
+                    MEASURED_COMMIT, MEASURED_BASE, MEASURED_CALL
+                ));
+            }
+        }
+        for (place, why) in [
+            (MEASURED_CALL, "by which the engine finds the run it asked for"),
+            (MEASURED_COMMIT, "which is what is measured"),
+        ] {
+            if !self.inputs.values().any(|value| value.contains(place)) {
+                faults.push(format!("{key}.inputs: no input holds {place}, {why}"));
+            }
+        }
+        for input in &self.open {
+            if !is_a_name(input) {
+                faults.push(format!(
+                    "{key}.open: {input:?} is not an input's name: letters, digits, `_` and `-`"
+                ));
+            }
+            if self.inputs.contains_key(input) {
+                faults.push(format!("{key}.open: {input} is given in inputs as well"));
+            }
+        }
+        if self.metrics.is_empty() {
+            faults.push(format!("{key}.metrics: names no column that holds a metric"));
+        }
+        faults
+    }
+}
+
+/// Whether a text is a name a measurement, or an input of its workflow, may have: one or more letters, digits, `_` and
+/// `-`, which a shell treats as nothing special.
+pub fn is_a_name(text: &str) -> bool {
+    !text.is_empty()
+        && text
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-'))
 }
 
 /// The fast workflow: dispatched by hand on a commit with the tests and checks to run, builds and runs only those.
@@ -916,14 +1025,6 @@ fn commit_input() -> String {
 
 fn call_input() -> String {
     "call".to_string()
-}
-
-fn base_input() -> String {
-    "base".to_string()
-}
-
-fn measure_input() -> String {
-    "measure".to_string()
 }
 
 fn tests_input() -> String {
@@ -1382,6 +1483,8 @@ pub struct Tool {
     pub words_local: Option<String>,
     /// What it says of what a run found, whatever the host.
     pub result: Option<ResultWords>,
+    /// What it says of a measurement it ran.
+    pub measurement: Option<MeasurementWords>,
     /// What it says where the host is GitHub.
     pub github: Option<GithubWords>,
     /// What it says where the host is the local repository.
@@ -1409,23 +1512,17 @@ pub struct ResultWords {
     pub head: String,
     pub which_fast: String,
     pub which_full: String,
-    pub which_measure: String,
-    /// What it came to: `{passed}` of `{total}`, tests, measurements and checks, apart by `came_join`.
+    /// What it came to: `{passed}` of `{total}`, tests and checks, apart by `came_join`.
     pub came_tests: String,
-    pub came_measures: String,
     pub came_checks: String,
     pub came_join: String,
-    /// The title of the tests that did not pass, of those that passed, of the timings of the measurements that ran, and of
-    /// the jobs.
+    /// The title of the tests that did not pass, of those that passed, and of the jobs.
     pub tests_title: String,
     pub passed_title: String,
-    pub timings_title: String,
     pub jobs_title: String,
     /// A test: `{name}`, `{became}` one of the following, `{time}` as `time` says it where the results give one; the
     /// time of a job is said the same way.
     pub test: String,
-    /// A case of a measurement asked for: `{name}`, `{unit}` what was timed, `{became}`, `{time}` as for `test`.
-    pub measure_case: String,
     pub time: String,
     pub passed: String,
     pub failed: String,
@@ -1481,6 +1578,26 @@ pub struct ResultWords {
     pub not_started: String,
 }
 
+/// What a result of `run_tests` says of a measurement it ran: its run, how its jobs ended, as `[result]` says jobs, and
+/// what it measured, as the file it uploaded holds it. `{...}` are filled in a run.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MeasurementWords {
+    /// What opens it: `{name}` the measurement, `{workflow}` its workflow, `{commit}` the commit measured, `{base}` the
+    /// commit the work's change began from, `{url}` of the run, `{came}` how its jobs ended, one of the two following.
+    pub head: String,
+    pub came_passed: String,
+    pub came_failed: String,
+    /// What it measured: `{file}` the file, `{rows}` how many rows it holds, `{units}` each metric as `unit` says it,
+    /// joined by `units_join`, and `{table}` the file's lines as it holds them.
+    pub measured: String,
+    /// A metric: `{metric}` its column, `{unit}` its unit.
+    pub unit: String,
+    pub units_join: String,
+    /// Nothing it measured is known: `{why}`.
+    pub unread: String,
+}
+
 /// What `run_tests` says where the host is GitHub.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1502,8 +1619,14 @@ pub struct GithubWords {
     pub unknown_checks: String,
     /// The workflow's runner is not one this installation has: `{runner}`, `{have}`.
     pub runner_missing: String,
-    /// Measurements are named and the project declares no measure workflow.
+    /// Measurements are named and the project declares none.
     pub no_measure: String,
+    /// A measurement is named that the project does not declare: `{name}`, `{declared}` those it declares.
+    pub unknown_measure: String,
+    /// A measurement is named with inputs it does not let an agent set: `{name}`, `{inputs}` those, `{open}` those it
+    /// lets an agent set, or `none_open` where it lets none.
+    pub not_open: String,
+    pub none_open: String,
     /// The commit is left on GitHub: `{commit}`, and `{branch}` the branch it is on. Said before what the request ran.
     pub published: String,
     /// The tests named are known by their earlier fast runs to take longer than the budget, so nothing is run:

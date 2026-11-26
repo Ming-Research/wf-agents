@@ -880,10 +880,13 @@ mod tests {
         );
         assert_ne!(named, good, "the declaration names the variable that is replaced");
         with_project(&mut settings, dir.path(), "unsafe", Some(&named), false);
-        // The same declaration whose full and measure workflows' time limits are no times.
-        let slow = good
-            .replace("too_long = \"2h\"", "too_long = \"two hours\"")
-            .replace("too_long = \"30m\"", "too_long = \"30\"");
+        // The same declaration whose full workflow's time limit is no time, and with a measurement whose limit is none.
+        let slow = good.replace("too_long = \"2h\"", "too_long = \"two hours\"").replace(
+            "\n[pull_request]\n",
+            "\n[ci.measure.bench]\nabout = \"the commit\"\nworkflow = \"bench.yml\"\nrunner = \"14900k\"\n\
+             too_long = \"30\"\ninputs = { commit = \"{commit}\", call = \"{call}\" }\nartifact = \"measurement\"\n\
+             file = \"bench.csv\"\nmetrics = { seconds = \"s\" }\n\n[pull_request]\n",
+        );
         assert_ne!(slow, good, "the declaration names the limits that are replaced");
         with_project(&mut settings, dir.path(), "untimed", Some(&slow), false);
         let beside = beside(&[flows().join("engineer")], &[]).expect("the files beside the flows");
@@ -919,7 +922,7 @@ mod tests {
         let untimed = held("untimed");
         assert!(
             untimed.contains("ci.full.too_long: \"two hours\" is no time such as 90m or 2h")
-                && untimed.contains("ci.measure.too_long: \"30\" is no time such as 90m or 2h"),
+                && untimed.contains("ci.measure.bench.too_long: \"30\" is no time such as 90m or 2h"),
             "{untimed}"
         );
         // Two projects in one repository keep the engine from starting, and neither is held for it.
@@ -983,7 +986,7 @@ mod tests {
         );
         with_project(&mut settings, dir.path(), "unprotected", Some(&unprotected), false);
         // A GitHub project that declares no workflows is carried.
-        let no_ci = without(&good, &["[ci.fast]", "[ci.full]", "[ci.measure]"]);
+        let no_ci = without(&good, &["[ci.fast]", "[ci.full]"]);
         assert!(!no_ci.contains("[ci."), "{no_ci}");
         with_project(&mut settings, dir.path(), "noci", Some(&no_ci), true);
         // A fast workflow given less time than the CI is given to start (the settings' `github.start_minutes`, 10 for a

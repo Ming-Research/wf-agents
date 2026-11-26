@@ -1,6 +1,7 @@
 //! Where a round or a call the engine carries out stands as it goes, as what carries it out says: a tool or an act runs
-//! as a CI run, at its link. No record holds it: it is what the outside says at a moment, kept only in memory while the
-//! round or the call is under way, and said again by what carries it out once it is given again after a stop.
+//! as a CI run, at its link, or a tool waits for its turn on a machine. No record holds it: it is what the outside says
+//! at a moment, kept only in memory while the round or the call is under way, and said again by what carries it out
+//! once it is given again after a stop.
 
 use decide::{CallId, Records, RunId};
 
@@ -13,6 +14,9 @@ pub enum Along {
     /// It runs as the CI run at this link; where the run, or the jobs of it, wait for a runner, the runner they wait
     /// for.
     Runs { at: String, queued_for: Option<String> },
+    /// It waits for its turn on the machine of this runner's label, on which one measurement runs at a time, since this
+    /// time, in milliseconds since 1970.
+    WaitsForMachine { machine: String, since: u64 },
     /// An agent's round: what its calls to the model have come to so far.
     Going(Going),
 }
