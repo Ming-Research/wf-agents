@@ -38,6 +38,13 @@
 //! model, or of its latest ping that did not fail, and each ping is recorded as it ends, so that after a stop a ping
 //! is given again only where one is still due. Which pings are under way the driver keeps in memory, so that none is
 //! given twice while it runs.
+//!
+//! The driver keeps, for each work, the sessions its records keep warm ([`of_records`]), worked out again as the work
+//! grows or its item changes; a wake takes the earliest of what the works keep, as the engine's switch, the account in
+//! use and the time let it ([`as_of`]), and goes through no work's sessions. Whether a line is to begin a new session
+//! is read from the work's worktree too, which a round of another line can change before any record says so; the
+//! pings due are given after a look at every work, which records each new session a line is to begin
+//! ([`crate::Driver::tick`]), so they are given as the work then stands.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -60,20 +67,18 @@ pub struct Due {
     pub session: u32,
 }
 
-/// A line's session the work keeps warm: the ping it is due, when, and when the cache lets the session go.
+/// A line's session the work keeps warm: the ping it is due, when, when the cache lets the session go, and the account
+/// its last call ran under, none where it ran under none.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Kept {
     pub due: Due,
     pub at: Time,
     pub life: Time,
+    pub account: Option<String>,
 }
 
 /// Each line's session the work of this number keeps warm as of `now`, in the order of the walk, whoever holds the
-/// work: none where `keep_warm`, the engine's own state, says sessions are not kept warm; none for a work that has
-/// ended, one with no policy of keeping sessions warm, or one the engine paused for spending more than it may; none of a line with a round under way (`line_busy`), whatever the work's other lines run; none whose
-/// last call ran under another account than the one in use, or under none, and none while none is in use, as the
-/// accounts say; none of a line that is to begin a new session at its next round; and none whose cache has let it go
-/// by `now`, which a ping would write again whole, for nothing.
+/// work: those its records keep warm ([`of_records`]) that the engine's state and the time keep warm too ([`as_of`]).
 #[allow(clippy::too_many_arguments)]
 pub fn kept(
     flow: &Compiled,
@@ -85,7 +90,19 @@ pub fn kept(
     accounts: &Accounts,
     now: Time,
 ) -> Vec<Kept> {
-    let Some(warm) = policy.warm.as_ref().filter(|_| keep_warm) else {
+    let kept = of_records(flow, number, work, item, policy);
+    as_of(&kept, keep_warm, accounts, now).cloned().collect()
+}
+
+/// Each line's session the work of this number keeps warm as its records, its item and the policy say, in the order
+/// of the walk, whatever the time, the account in use and the engine's switch: none for a work that has ended, one
+/// with no policy of keeping sessions warm, or one the engine paused for spending more than it may; none of a line
+/// with a round under way (`line_busy`), whatever the work's other lines run; none of a line that is to begin a new
+/// session at its next round; and none past as many pings as a wait is worth. The driver keeps what this gives for
+/// each work, worked out again as the work grows or its item changes, so that a wake does not go through every work's
+/// sessions again.
+pub fn of_records(flow: &Compiled, number: WorkNumber, work: &Work, item: &Item, policy: &Policy) -> Vec<Kept> {
+    let Some(warm) = policy.warm.as_ref() else {
         return Vec::new();
     };
     let decision = decide(&flow.flow, &work.records);
@@ -96,9 +113,28 @@ pub fn kept(
     (lines(flow))
         .filter(|line| back.contains(*line))
         .filter(|line| !line_busy(flow, work, line))
-        .filter_map(|line| next(flow, number, work, item, line, policy, accounts))
-        .filter(|kept| now < kept.life)
+        .filter_map(|line| next(flow, number, work, item, line, policy))
         .collect()
+}
+
+/// Of the sessions a work's records keep warm ([`of_records`]), those kept warm as of `now`: none where `keep_warm`,
+/// the engine's own state, says sessions are not kept warm; none whose last call ran under another account than the
+/// one in use, or under none, and none while none is in use, as the accounts say; and none whose cache has let it go
+/// by `now`, which a ping would write again whole, for nothing.
+pub fn as_of<'a>(
+    kept: &'a [Kept],
+    keep_warm: bool,
+    accounts: &'a Accounts,
+    now: Time,
+) -> impl Iterator<Item = &'a Kept> {
+    (kept.iter())
+        .filter(move |_| keep_warm)
+        .filter(move |kept| {
+            accounts
+                .in_use()
+                .is_some_and(|in_use| kept.account.as_deref() == Some(in_use))
+        })
+        .filter(move |kept| now < kept.life)
 }
 
 /// The pings due for the work of this number at `now`: those [`kept`] whose time has come.
@@ -152,16 +188,9 @@ fn over_budget(work: &Work, warm: &Warm) -> bool {
 }
 
 /// How a line's session stands for keeping it warm: the session, when its next ping is due, whether or not that time
-/// has come, and when the cache lets the session go; none where it is not to be kept warm.
-fn next(
-    flow: &Compiled,
-    number: WorkNumber,
-    work: &Work,
-    item: &Item,
-    line: &str,
-    policy: &Policy,
-    accounts: &Accounts,
-) -> Option<Kept> {
+/// has come, when the cache lets the session go, and the account its last call ran under; none where it is not to be
+/// kept warm.
+fn next(flow: &Compiled, number: WorkNumber, work: &Work, item: &Item, line: &str, policy: &Policy) -> Option<Kept> {
     let warm = policy.warm.as_ref()?;
     let on_line = |run: RunId| line_of_run(flow, work, run) == Some(line);
     let session = work::sessions::number_at(work, line, work.tick());
@@ -192,11 +221,6 @@ fn next(
     let (last_round, run, k) = last_round?;
     // As many pings as the session's model makes worth it.
     let model = (work.ran.iter().rev()).find(|t| t.run == run && t.round == k)?;
-    // The session's cache is the account's its last call ran under, which a ping under the account in use must be;
-    // with none in use, a ping has none to run under.
-    if accounts.in_use().is_none() || model.on.account.as_deref() != accounts.in_use() {
-        return None;
-    }
     let most = warm.most.get(&model.on.model).copied().unwrap_or(0);
     let pings: Vec<&work::Pinged> = (work.pinged.iter())
         .filter(|p| p.line == line && p.session == session && p.at > last_round)
@@ -219,7 +243,10 @@ fn next(
         line: line.to_string(),
         session,
     };
-    (at < life).then_some(Kept { due, at, life })
+    // The session's cache is the account's its last call ran under, which a ping under the account in use must be
+    // ([`as_of`]).
+    let account = model.on.account.clone();
+    (at < life).then_some(Kept { due, at, life, account })
 }
 
 /// The lines the work can come back to from where it stands: the lines of the cells where it stands, those of its open
