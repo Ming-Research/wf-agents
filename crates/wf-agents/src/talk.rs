@@ -2052,6 +2052,31 @@ fn heed(line: &Line, now: u64) -> String {
                 self::now(is)
             ),
         ),
+        Line::Machine {
+            of,
+            since,
+            machine,
+            behind,
+            now: is,
+        } => {
+            let behind = match behind {
+                Some(holder) => format!(
+                    "behind item {} \"{}\", work {}",
+                    item_number(holder.item),
+                    cut_title(&holder.title),
+                    work_number(holder.work)
+                ),
+                None => "behind a run there the engine's turns do not hold".to_string(),
+            };
+            (
+                of,
+                format!(
+                    "its measurement has waited for its turn on the machine {machine} for {}, {behind}: {}",
+                    duration(now.saturating_sub(*since)),
+                    self::now(is)
+                ),
+            )
+        }
         Line::Ahead { of, questions, .. } => {
             let asked: Vec<String> = (questions.iter())
                 .map(|AskedAhead { name, since }| format!("{name} ({})", duration(now.saturating_sub(*since))))
@@ -2445,10 +2470,15 @@ fn waited(waited: &Waited) -> String {
             machine: Some(machine),
             ..
         } => format!(
-            "call {call}, {}, waiting since {} for its turn on the machine {}, where one measurement runs at a time",
+            "call {call}, {}, waiting since {} for its turn on the machine {}, where one measurement runs at a time, \
+             {}",
             called(what),
             utc(machine.since),
             machine.machine,
+            match machine.behind {
+                Some(work) => format!("behind work {}", work_number(work)),
+                None => "behind a run there the engine's turns do not hold".to_string(),
+            },
         ),
         Waited::Call {
             call,
@@ -4058,6 +4088,18 @@ mod tests {
             "Item #7 \"item 7\", work W7: has waited for the runner 14900k for 20m 00s: a round of merge is under way, \
              queued for 14900k, round 1 of run 3."
         );
+        let machine = Line::Machine {
+            of: of(4),
+            since: hour,
+            machine: "14900k".to_string(),
+            behind: Some(of(7)),
+            now: Now::Merged,
+        };
+        assert_eq!(
+            heed(&machine, 2 * hour + 5 * minute),
+            "Item #4 \"item 4\", work W4: its measurement has waited for its turn on the machine 14900k for 1h 05m, \
+             behind item #7 \"item 7\", work W7: merged."
+        );
         let ahead = Line::Ahead {
             of: of(3),
             since: hour,
@@ -4181,6 +4223,7 @@ mod tests {
             machine: Some(web::works::MachineWait {
                 machine: "14900k".to_string(),
                 since: 1_700_000_000_000,
+                behind: Some(33),
             }),
             held: None,
         };
@@ -4188,7 +4231,7 @@ mod tests {
             waited(&waits),
             format!(
                 "call 2, the tool run_tests on \"x\", waiting since {until} for its turn on the machine 14900k, where \
-                 one measurement runs at a time"
+                 one measurement runs at a time, behind work W33"
             )
         );
     }

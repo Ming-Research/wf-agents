@@ -8,8 +8,8 @@ use std::time::Duration;
 
 use axum::http::StatusCode;
 use serde_json::{Value, json};
-use service::{Along, Round, RoundReply, Rounds, Scripted};
-use store::Store;
+use service::{Along, CallReply, Round, RoundReply, Rounds, Scripted, ToolCall, Tools};
+use store::{Store, WorkNumber};
 
 use crate::{
     START, edit, get_json, greeted, pass, post, refused, running, running_flow, running_scripted, times, trial_dir,
@@ -384,6 +384,135 @@ async fn a_round_waiting_for_a_runner_and_a_turn_held_while_another_waits_are_gi
         }
     }
     assert!(queued && turned, "the round and the turn were each given");
+}
+
+/// The trial's tools, whose call of the first work is said to wait for its turn on the machine `14900k` behind the
+/// second work, from ten milliseconds after it was made, as a measurement's call does where another work's measurement
+/// has the turn; the second work's call is carried out as the script says.
+struct Measuring {
+    tools: Arc<dyn Tools>,
+    began: tokio::time::Instant,
+}
+
+impl Tools for Measuring {
+    fn call(&self, call: ToolCall, reply: CallReply) {
+        if call.work == WorkNumber(1) {
+            let saying = reply.saying();
+            let began = self.began;
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                saying.say(Some(Along::WaitsForMachine {
+                    machine: "14900k".to_string(),
+                    since: START + began.elapsed().as_millis() as u64,
+                    behind: Some(WorkNumber(2)),
+                }));
+            });
+        }
+        self.tools.call(call, reply);
+    }
+
+    fn withdraw(&self, call: ToolCall, reply: CallReply) {
+        self.tools.withdraw(call, reply);
+    }
+}
+
+// A measurement that waits for its turn on its machine is given once it has waited the set time, and not before, with
+// the machine, since when it waits and the work it waits behind, as the page's summary of the work says them; the work
+// waits for a machine, which the page does not count as waiting on the owner, and `wait` gives no line of it for the
+// owner either. Paused time, a minute at a step; the set time is an hour.
+#[tokio::test(start_paused = true)]
+async fn a_measurement_waiting_for_its_machine_is_given_once_it_has_waited_the_set_time_as_the_page_says_it() {
+    let mut script = trial_script();
+    script.tools.get_mut("ci").unwrap().ms = Some(3 * 3_600_000);
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path().join("store.sqlite")).unwrap();
+    let mut carriers = Scripted::new(script).carriers();
+    let began = tokio::time::Instant::now();
+    carriers.tools = Arc::new(Measuring {
+        tools: carriers.tools.clone(),
+        began,
+    });
+    let running = running_flow(Box::new(store), dir, carriers, &trial_flow());
+    let router = &running.router;
+    for title in ["First", "Second"] {
+        assert_eq!(
+            post(router, "/api/v1/items", &item(title, json!([]))).await.0,
+            StatusCode::OK
+        );
+    }
+    for work in 1..=2 {
+        let resume = json!({ "kind": "resume" });
+        assert_eq!(
+            post(router, &format!("/api/v1/works/{work}/acts"), &resume).await.0,
+            StatusCode::NO_CONTENT
+        );
+    }
+    pass(6000).await;
+    for work in 1..=2 {
+        let go_on = json!({ "kind": "goOn", "call": 2 });
+        assert_eq!(
+            post(router, &format!("/api/v1/works/{work}/acts"), &go_on).await.0,
+            StatusCode::NO_CONTENT
+        );
+    }
+    // Until the first work's call says it waits for the machine.
+    let mut summary = Value::Null;
+    for _ in 0..400 {
+        pass(250).await;
+        summary = get_json(router, "/api/v1/works/1").await["summary"].clone();
+        if !summary["now"]["on"][0]["machine"].is_null() {
+            break;
+        }
+    }
+    let wait = summary["now"]["on"][0]["machine"].clone();
+    assert_eq!(
+        (&wait["machine"], &wait["behind"]),
+        (&json!("14900k"), &json!(2)),
+        "{summary}"
+    );
+    assert_eq!(
+        summary["waits"],
+        json!([]),
+        "the page counts no wait on the owner: {summary}"
+    );
+    let since = wait["since"].as_u64().unwrap();
+    let mut given = false;
+    for _ in 0..70 {
+        pass(60_000).await;
+        let now = START + began.elapsed().as_millis() as u64;
+        let answer = get_json(router, "/api/v1/attention").await;
+        let of = |kind: &str| -> Vec<Value> {
+            (answer["lines"].as_array().unwrap().iter())
+                .filter(|line| line["kind"] == kind && line["of"]["work"] == 1)
+                .cloned()
+                .collect()
+        };
+        assert_eq!(of("forAPerson"), Vec::<Value>::new(), "{answer}");
+        let machine = of("machine");
+        if now < since + times().machine {
+            assert_eq!(machine, Vec::<Value>::new(), "given before its time, at {now}");
+            continue;
+        }
+        let page = get_json(router, "/api/v1/works/1").await["summary"].clone();
+        assert_eq!(
+            page["now"]["on"][0]["machine"], wait,
+            "the page says the same wait: {page}"
+        );
+        assert_eq!(machine.len(), 1, "{answer}");
+        assert_eq!(
+            (
+                &machine[0]["since"],
+                &machine[0]["machine"],
+                &machine[0]["behind"]["work"]
+            ),
+            (&json!(since), &json!("14900k"), &json!(2)),
+            "{answer}"
+        );
+        assert_eq!(machine[0]["now"], page["now"], "{answer}");
+        given = true;
+        break;
+    }
+    assert!(given, "the wait for the machine was given");
 }
 
 #[tokio::test(start_paused = true)]
