@@ -191,6 +191,7 @@ describe('the tokens', () => {
       'line',
       'step',
       'window-shadow',
+      'scrim',
       'on-colour',
       'track-ground',
       'track-gap',

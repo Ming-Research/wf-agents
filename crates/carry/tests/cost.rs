@@ -3,6 +3,8 @@
 //! (`model_usage_since_last_result`, and the `usage` of each call's `message_delta`), or the shape of a result the
 //! program printed in a real round, as each test says; none is the engine's own earlier output.
 
+use std::collections::BTreeMap;
+
 use carry::cli::Stream;
 use serde_json::{Value, json};
 
@@ -23,8 +25,20 @@ fn lines(text: &str) -> Vec<String> {
     text.lines().filter(|l| !l.is_empty()).map(str::to_string).collect()
 }
 
+/// What the program's earlier reports of a work's calls on Haiku 5.5, the model of the fixtures' calls, tell of its
+/// prices: what its own count makes them.
+fn haiku() -> BTreeMap<String, driver::prices::Prices> {
+    [(
+        "claude-haiku-5-5".to_string(),
+        driver::prices::Prices { input: 0.1, read: 0.01 },
+    )]
+    .into()
+}
+
+/// The lines read into a stream of a work whose earlier reports price Haiku 5.5.
 fn feed(lines: &[String]) -> Stream {
     let mut stream = Stream::default();
+    stream.learned = haiku();
     for line in lines {
         stream.line(line.as_bytes());
     }
@@ -194,8 +208,8 @@ fn a_result_of_a_round_that_made_no_call_and_says_nothing_of_cost_is_no_estimate
 }
 
 // A call's end that comes before its message, or whose start was not kept, still takes the model the message names: the
-// price of 100 tokens out, 1,000 read and 2 sent is $0.00006 at Haiku 5.5's prices and $0.00527 at the dearest, at which
-// a call of no model is priced. A few milliseconds, in memory; the engineer's tests give each call its start.
+// price of 100 tokens out, 1,000 read and 2 sent is $0.00006 at Haiku 5.5's prices, and a call of no model has a cost
+// that is not known. A few milliseconds, in memory; the engineer's tests give each call its start.
 #[test]
 fn a_calls_end_before_its_message_or_its_start_is_priced_at_the_model_its_message_names() {
     let end = r#"{"type":"stream_event","parent_tool_use_id":null,"api_message_id":"msg_x","event":{"type":"message_delta","usage":{"input_tokens":2,"cache_creation_input_tokens":0,"cache_read_input_tokens":1000,"output_tokens":100}}}"#;
@@ -205,5 +219,31 @@ fn a_calls_end_before_its_message_or_its_start_is_priced_at_the_model_its_messag
     for order in [[end, message], [end, start], [message, end], [start, end]] {
         let stream = feed(&order.map(str::to_string));
         assert_eq!(stream.cost(), (60, true), "{order:?}");
+        assert!(!stream.unpriced(), "{order:?}");
     }
+    assert!(feed(&[end.to_string()]).unpriced(), "a call of no model");
+}
+
+// A call the program reported no cost of, of a model no earlier report of the work prices, a model the code has never
+// been told of among them, has a cost that is not known: it adds nothing to what the stream cost, and the stream says
+// so, never that it cost nothing. A call of the same model in a work whose reports price it is priced at what they
+// tell. Fails where a call is priced from a table of models by their names. A few milliseconds, in memory.
+#[test]
+fn a_call_no_report_prices_has_a_cost_that_is_not_known() {
+    let message = r#"{"type":"assistant","parent_tool_use_id":null,"message":{"id":"msg_y","model":"claude-never-seen-9","usage":{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":1000,"output_tokens":10}}}"#;
+    let mut unknown = Stream::default();
+    unknown.line(message.as_bytes());
+    assert_eq!(unknown.cost(), (0, true));
+    assert!(unknown.unpriced());
+    assert_eq!(unknown.took().map(|s| (s.usd_micros, s.unpriced)), Some((0, true)));
+    let mut known = Stream::default();
+    known.learned = [(
+        "claude-never-seen-9".to_string(),
+        driver::prices::Prices { input: 4.0, read: 0.2 },
+    )]
+    .into();
+    known.line(message.as_bytes());
+    // 100 × 4 + 1,000 × 0.2 + 10 × 20 millionths.
+    assert_eq!(known.cost(), (800, true));
+    assert!(!known.unpriced());
 }

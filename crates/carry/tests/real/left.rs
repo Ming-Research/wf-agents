@@ -113,23 +113,24 @@ async fn a_round_whose_program_took_its_message_in_before_its_engine_ended_fails
         (1, Some(1_100)),
         "its call, as the start of it kept with its stream says"
     );
-    // Opus 5.5: 100 × 4 + 1,000 × 0.2 + 10 × 20 millionths of a dollar, its one call at its price.
-    assert_eq!(kept.spent[&(plan, 1)].usd_micros, 400 + 200 + 200);
+    // No earlier report of the work prices its one call's model: what it cost is not known, and the work waits for the
+    // owner, who lets it on.
+    let spent = kept.spent[&(plan, 1)];
+    assert_eq!((spent.usd_micros, spent.unpriced), (0, true));
+    assert!(decide::paused(&kept.records), "the work waits for the owner");
+    real.act(work, Act::Resume);
     let (first, next) = told_next(&mut real, work, plan).await;
     assert!(!first.contains(TASK_HELD), "{first}");
     assert!(
         next.contains(TASK_HELD),
         "the next round was told the whole message again:\n{next}"
     );
-    // The round after it costs what its own result says, $0.01, not that less what the cut-off round was priced at: the
-    // program's own count of the session began again with the program.
+    // The round after it costs what its own result says, $0.01: the program's own count of the session began again with
+    // the program.
     real.until(|real| real.work(work).spent.contains_key(&(plan, 2))).await;
     let kept = real.work(work);
     assert_eq!(kept.spent[&(plan, 2)].usd_micros, 10_000);
-    assert_eq!(
-        kept.spent[&(plan, 1)].usd_micros + kept.spent[&(plan, 2)].usd_micros,
-        800 + 10_000
-    );
+    assert!(!kept.spent[&(plan, 2)].unpriced, "all of it is known");
 }
 
 // A round whose program took its message in before its engine ended, and printed no return, fails as one whose program
@@ -160,9 +161,12 @@ async fn a_left_try_whose_round_now_fails_for_its_item_s_level_is_counted() {
     let kept = real.work(work);
     let measures = work::measured::of_round(&kept.measured, plan, 1).expect("the try is measured");
     assert!(measures.received, "its program took its message in");
-    // Opus 5.5: 100 × 4 + 1,000 × 0.2 + 10 × 20 millionths of a dollar, its one call at its price.
-    let spent = kept.spent.get(&(plan, 1)).map(|spent| spent.usd_micros);
-    assert_eq!(spent, Some(400 + 200 + 200), "what the try took");
+    // No earlier report of the work prices its one call's model: what the try took is not known, and said so.
+    let spent = kept
+        .spent
+        .get(&(plan, 1))
+        .map(|spent| (spent.usd_micros, spent.unpriced));
+    assert_eq!(spent, Some((0, true)), "what the try took");
 }
 
 // A return the program printed before its engine ended is the round's even where a new program could not run now, as
@@ -227,6 +231,10 @@ async fn a_left_try_whose_fill_its_engine_did_not_record_has_it_told_from_what_t
     let kept = real.work(work);
     let fills = (kept.filled.iter()).filter(|f| f.run == plan && f.round == 1).count();
     assert_eq!(fills, 1, "the try's fill is told once");
+    // What the left try's call cost is not known, no earlier report of the work pricing its model: the work waits for
+    // the owner, who lets it on.
+    assert!(decide::paused(&kept.records), "the work waits for the owner");
+    real.act(work, Act::Resume);
     let (first, next) = told_next(&mut real, work, plan).await;
     assert!(!first.contains(TASK_HELD), "{first}");
     assert!(
@@ -347,21 +355,26 @@ async fn a_return_written_before_its_engine_ended_with_no_result_is_not_taken_an
         }) => {}
         other => panic!("the round did not fail in passing: {other:?}"),
     }
+    // What the cut-off round's calls cost is not known, no earlier report of the work pricing their model: the work
+    // waits for the owner, who lets it on.
+    assert!(
+        kept.spent[&(plan, 1)].unpriced,
+        "what the cut-off round cost is not known"
+    );
+    assert!(decide::paused(&kept.records), "the work waits for the owner");
+    real.act(work, Act::Resume);
     let (first, next) = told_next(&mut real, work, plan).await;
     assert!(!first.contains(TASK_HELD), "{first}");
     assert!(
         next.contains(TASK_HELD),
         "the next round was told the whole message again:\n{next}"
     );
-    // The round after it costs what its own result says, $0.01, not that less what the cut-off round was priced at: the
-    // program's own count of the session began again with the program.
+    // The round after it costs what its own result says, $0.01: the program's own count of the session began again with
+    // the program.
     real.until(|real| real.work(work).spent.contains_key(&(plan, 2))).await;
     let kept = real.work(work);
     assert_eq!(kept.spent[&(plan, 2)].usd_micros, 10_000);
-    assert_eq!(
-        kept.spent[&(plan, 1)].usd_micros + kept.spent[&(plan, 2)].usd_micros,
-        800 + 10_000
-    );
+    assert!(!kept.spent[&(plan, 2)].unpriced, "all of it is known");
 }
 
 // A return the program printed before its engine ended, kept with the round's stream, is the round's: given again, the

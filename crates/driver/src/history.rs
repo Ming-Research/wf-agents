@@ -281,9 +281,11 @@ impl Lines {
         let whole = |f: &dyn Fn(&Sample) -> Option<f64>| {
             judged(&values(&own, f), &values(&every, f), least, Scope::Cell, Scope::Flow)
         };
+        // A round some of whose cost is not known tells no cost.
         let on_model = |of: &[&Sample]| -> Vec<f64> {
             (of.iter())
                 .filter(|s| s.model.as_deref().is_some_and(|m| same_model(m, model)))
+                .filter(|s| !s.spent.unpriced)
                 .map(|s| s.spent.usd_micros as f64)
                 .collect()
         };
@@ -488,6 +490,7 @@ mod tests {
             run: decide::RunId(1),
             round: 1,
             usd_micros: 300_000,
+            unpriced: false,
             uncached_tokens: 0,
             cache_written_tokens: None,
             cached_tokens: 0,

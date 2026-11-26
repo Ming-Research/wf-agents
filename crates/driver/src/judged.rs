@@ -384,7 +384,9 @@ fn values(number: WorkNumber, work: &Work, samples: &[Sample], cells: &BTreeMap<
                 kind: Kind::Agent {
                     cell: sample.cell.clone(),
                     ms: sample.ms.map(|ms| ms as f64),
+                    // A round some of whose cost is not known tells no cost.
                     cost: (sample.model.as_deref())
+                        .filter(|_| !sample.spent.unpriced)
                         .map(|model| (model_of(model).to_string(), sample.spent.usd_micros as f64)),
                 },
             })
@@ -445,7 +447,9 @@ fn judging(number: WorkNumber, work: &Work, cells: &BTreeMap<RunId, (CellId, boo
         let model = (work.ran.iter().rev())
             .find(|ran| ran.run == run && ran.round == number_in_run)
             .map(|ran| ran.on.model.clone());
-        let cost = (ended.and(work.spent.get(&(run, number_in_run)))).map(|spent| spent.usd_micros as f64);
+        let cost = (ended.and(work.spent.get(&(run, number_in_run))))
+            .filter(|spent| !spent.unpriced)
+            .map(|spent| spent.usd_micros as f64);
         out.push(Judging {
             began: began.0,
             work: number,

@@ -145,6 +145,7 @@ impl Work {
             kind: BesideKind::Fork,
             spent: Spent {
                 usd_micros: f.usd_micros,
+                unpriced: f.unpriced,
                 uncached_tokens: f.uncached_tokens,
                 cache_written_tokens: f.cache_written_tokens,
                 cached_tokens: f.cached_tokens,
@@ -217,8 +218,14 @@ pub struct Moment {
 /// takes none of these: its round is reported with all of them at nothing.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Spent {
-    /// Its cost, in millionths of a dollar.
+    /// Its cost, in millionths of a dollar: what the agents' program reported, and what the calls it reported no cost
+    /// of came to at their model's prices, as earlier reports of the model tell them ([`unpriced`](Spent::unpriced)).
     pub usd_micros: u64,
+    /// Whether some of its cost is not known: calls of it that the agents' program reported no cost of, of a model no
+    /// earlier report prices, of which `usd_micros` holds nothing. It cost more than `usd_micros`, by how much is not
+    /// known, and it is never taken as having cost nothing more.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unpriced: bool,
     /// The tokens sent that were not read from the cache: those sent fresh and those written to it.
     pub uncached_tokens: u64,
     /// Of `uncached_tokens`, those written to the cache. None where what the round took was kept before the
@@ -449,6 +456,7 @@ mod tests {
     fn cost(usd_micros: u64) -> Spent {
         Spent {
             usd_micros,
+            unpriced: false,
             uncached_tokens: 1,
             cache_written_tokens: Some(1),
             cached_tokens: 2,
@@ -475,6 +483,7 @@ mod tests {
             run: RunId(1),
             round: 1,
             usd_micros: usd,
+            unpriced: false,
             uncached_tokens: 1,
             cache_written_tokens: Some(1),
             cached_tokens: 2,
