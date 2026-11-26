@@ -247,7 +247,7 @@ fn a_return_that_asks_for_calls_and_writes_beside_them_is_still_sent_back_where_
     let beside = Round {
         returned: Some(Return::Came {
             dealt_with: vec![],
-            writes: vec![prose("verdict")],
+            writes: vec![valued("verdict", "no")],
             calls: 1,
             found: vec![],
             waits: false,
