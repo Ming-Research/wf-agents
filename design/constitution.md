@@ -1,8 +1,7 @@
 # The wf-agents constitution
 
 This constitution holds what wf-agents is for and its lasting values, and every decision in the project comes from them.
-The owner sets it and changes it. How every agent behaves is not here but in the rules agents are given; what to do
-first for a while is not here but in the owner's current policy.
+The owner sets it and changes it. How every agent behaves is not here but in the rules agents are given.
 
 ## What wf-agents is for
 
