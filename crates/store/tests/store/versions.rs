@@ -402,9 +402,11 @@ fn a_file_of_version_36_is_migrated_with_every_version_read_but_the_cells_replie
         count(&old.path, "owner_read") as usize,
         expected.records.owner_reads[0].versions.len() + other.records.owner_reads[0].versions.len()
     );
-    // The work that ran on no version that was kept has no outline: all it has is read.
-    assert_eq!(
-        store.load(WorkNumber(2)),
-        Ok(super::opening::after_reads_were_kept(ran_on_none.work))
-    );
+    // The work that ran on no version that was kept has no outline: all it has is read, in one entry after its last.
+    let mut everything = ran_on_none.work.clone();
+    everything.records.owner_reads.clear();
+    let at = everything.tick();
+    let versions: Vec<(BlockId, Seq)> = everything.contents.keys().cloned().collect();
+    everything.records.owner_reads.push(decide::OwnerRead { versions, at });
+    assert_eq!(store.load(WorkNumber(2)), Ok(everything));
 }

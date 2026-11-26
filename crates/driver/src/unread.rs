@@ -367,7 +367,7 @@ mod tests {
             title = "Merge"
             kind = "engine"
             act = "merge"
-            watches = ["text", "main"]
+            watches = ["text", "main", "notes"]
             outputs = ["merged"]
         "#;
         let source = Source {

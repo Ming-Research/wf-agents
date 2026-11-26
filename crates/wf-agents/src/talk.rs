@@ -4757,6 +4757,8 @@ mod tests {
                 said_to: None,
                 chars: 5,
                 empty: false,
+                reply: false,
+                read: false,
             }],
         };
         let mut page = work(0, 0, 0, 0, 0);
