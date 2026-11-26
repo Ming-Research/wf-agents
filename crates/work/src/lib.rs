@@ -93,6 +93,7 @@ impl Work {
             .chain(r.returned.iter().map(|e| e.at))
             .chain(r.called.iter().map(|e| e.at))
             .chain(r.done.iter().map(|e| e.at))
+            .chain(r.held.iter().map(|e| e.at))
             .chain(r.finished.iter().map(|e| e.at))
             .chain(r.abandoned.iter().map(|e| e.at))
             .chain(r.put_in.iter().map(|e| e.at))

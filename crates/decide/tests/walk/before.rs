@@ -3,7 +3,9 @@
 
 use std::collections::BTreeSet;
 
-use decide::{Answered, Called, Finished, Hurried, LetGo, Outsider, Pause, Questioned, Records, Started};
+use decide::{
+    Answered, Called, Finished, Held, Hurried, LetGo, Obstacle, Outsider, Pause, Questioned, Records, Started,
+};
 
 use super::*;
 
@@ -11,7 +13,7 @@ use super::*;
 /// that made a call, had its result, and in its next round was told of the owner's words, written while it was under
 /// way, then finished naming what it dealt with; the outside's write; one run abandoned; a cell let go; a pause and a
 /// letting on; a cancel; a question the finished run asked and the owner's answer to it; the release of what the work
-/// held; a round told to hand in what it has; and a reopen.
+/// held; a round told to hand in what it has; a call held until a wait of the engine's; and a reopen.
 fn every_kind() -> Records {
     let (a, b) = (RunId(1), RunId(2));
     Records {
@@ -33,11 +35,25 @@ fn every_kind() -> Records {
         ],
         rounds: vec![Round { run: a, at: Seq(3) }, Round { run: a, at: Seq(7) }],
         returned: vec![Returned { run: a, at: Seq(4) }, Returned { run: a, at: Seq(10) }],
-        called: vec![Called {
+        called: vec![
+            Called {
+                call: CallId(3),
+                run: a,
+                on: None,
+                at: Seq(5),
+            },
+            Called {
+                call: CallId(4),
+                run: a,
+                on: None,
+                at: Seq(23),
+            },
+        ],
+        held: vec![Held {
             call: CallId(3),
-            run: a,
-            on: None,
-            at: Seq(5),
+            wait: CallId(4),
+            at: Seq(24),
+            obstacle: Obstacle::Limit,
         }],
         done: vec![Done {
             call: CallId(3),
@@ -140,7 +156,7 @@ fn every_kind() -> Records {
 }
 
 /// The place of the last entry of [`every_kind`].
-const LAST: u64 = 23;
+const LAST: u64 = 25;
 
 /// The place of every entry of the records, with the list that holds it.
 fn places(r: &Records) -> BTreeSet<(&'static str, Seq)> {
@@ -152,6 +168,7 @@ fn places(r: &Records) -> BTreeSet<(&'static str, Seq)> {
         .chain(of("returned", &r.returned, |e| e.at))
         .chain(of("called", &r.called, |e| e.at))
         .chain(of("done", &r.done, |e| e.at))
+        .chain(of("held", &r.held, |e| e.at))
         .chain(of("finished", &r.finished, |e| e.at))
         .chain(of("abandoned", &r.abandoned, |e| e.at))
         .chain(of("put_in", &r.put_in, |e| e.at))

@@ -38,6 +38,12 @@ struct Kept {
     of_workflow: BTreeMap<(String, String), ByHand>,
     /// Why a run by hand is refused, where every one is.
     refuses_dispatch: Option<String>,
+    /// Why reading what a run uploaded is refused, where it is.
+    refuses_artifact: Option<String>,
+    /// Why reading the log of a job is refused, where it is.
+    refuses_log: Option<String>,
+    /// Whether GitHub lists none of the runs by hand, though it took them.
+    hides_runs: bool,
     /// Whether another request runs the workflow on the same branch and commit right after each one asked here, as
     /// another check of the same work may.
     another_call: bool,
@@ -184,6 +190,21 @@ impl Fake {
     /// Refuses every run by hand, with these words.
     pub(crate) fn refuse_dispatch(&self, why: &str) {
         self.kept().refuses_dispatch = Some(why.to_string());
+    }
+
+    /// Refuses to give what a run uploaded, with these words, until it is told otherwise.
+    pub(crate) fn refuse_artifact(&self, why: Option<&str>) {
+        self.kept().refuses_artifact = why.map(str::to_string);
+    }
+
+    /// Lists none of the runs by hand from now on, though GitHub took them.
+    pub(crate) fn hide_runs(&self) {
+        self.kept().hides_runs = true;
+    }
+
+    /// Refuses to give the log of any job, with these words, until it is told otherwise.
+    pub(crate) fn refuse_log(&self, why: Option<&str>) {
+        self.kept().refuses_log = why.map(str::to_string);
     }
 
     /// Keeps every run by hand asked for from now on queued, never started, as with every runner busy or offline.
@@ -393,14 +414,18 @@ impl Fake {
 }
 
 /// What GitHub answers in these words, which begin with its status, `HTTP 422: ...`, as its refusals are said: of the
-/// kind its status tells, as the host reads GitHub's own answers, a fault of GitHub's or its limit on requests passing.
+/// kind its status tells, as the host reads GitHub's own answers, a fault of GitHub's or its limit on requests passing,
+/// a limit that says nothing of when for a minute. Words that begin with no status are what `gh` says where GitHub gave
+/// no answer, which tell no kind.
 fn answered(why: &str) -> Failed {
     let status: Option<u16> = (why.strip_prefix("HTTP "))
         .and_then(|rest| rest.split(|c: char| !c.is_ascii_digit()).next())
         .and_then(|digits| digits.parse().ok());
     match status {
-        Some(status) if status >= 500 || status == 429 => Failed::passing(why),
-        _ => Failed::refused(why),
+        Some(status) if status >= 500 => Failed::held(why, decide::Obstacle::Fault, None),
+        Some(429) => Failed::held(why, decide::Obstacle::Limit, Some(decide::Retry::In(60))),
+        Some(_) => Failed::refused(why),
+        None => Failed::from(why),
     }
 }
 
@@ -542,13 +567,14 @@ impl Api for Fake {
             .output();
         dropped
             .map(|_| ())
-            .map_err(|why| answered(&format!("git did not run: {why}")))
+            .map_err(|why| Failed::refused(format!("git did not run: {why}")))
     }
 
     async fn runs(&self, workflow: &str, branch: &str, tag: Option<&str>) -> Result<Listed, Failed> {
         let mut kept = self.kept();
+        let hidden = kept.hides_runs;
         let runs: Vec<Run> = (kept.runs.iter().rev())
-            .filter(|d| d.workflow == workflow && d.branch == branch)
+            .filter(|d| !hidden && d.workflow == workflow && d.branch == branch)
             .map(|d| d.run.clone())
             .collect();
         // As GitHub's, the entity tag is the same for the same answer, and differs for any other.
@@ -666,6 +692,9 @@ impl Api for Fake {
 
     async fn artifact(&self, run: u64, name: &str) -> Result<Option<Vec<File>>, Failed> {
         let kept = self.kept();
+        if let Some(why) = &kept.refuses_artifact {
+            return Err(answered(why));
+        }
         let asked = (kept.runs.iter()).find(|d| d.run.id == run && !d.another && !d.run.cancelled);
         let artifact = asked.and_then(|d| kept.given(d).and_then(|(_, a)| a.clone()));
         Ok(artifact.filter(|(n, _)| n == name).map(|(_, files)| files))
@@ -674,6 +703,9 @@ impl Api for Fake {
     async fn log(&self, job: u64) -> Result<String, Failed> {
         let mut kept = self.kept();
         kept.asked.push(Asked::Log(job));
+        if let Some(why) = &kept.refuses_log {
+            return Err(answered(why));
+        }
         (kept.logs.get(&job).cloned()).ok_or_else(|| answered("HTTP 404: Not Found"))
     }
 

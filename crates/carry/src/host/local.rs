@@ -158,7 +158,7 @@ impl Host for Local {
         named: &Named,
         asking: Asking,
         stop: &mut Stop,
-    ) -> Result<Option<String>, String> {
+    ) -> Result<Option<String>, Failed> {
         let words = self.words()?;
         // The command runs the project's tests alone, so a measurement named is none that could be run.
         if !named.measure.is_empty() {
