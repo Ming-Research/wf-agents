@@ -1523,3 +1523,33 @@ fn a_red_main_is_not_given_again_when_one_of_its_failing_tests_passes_and_anothe
         "main was red all along; one of its tests passing begins no new red"
     );
 }
+
+// While no work of a project has not ended, nothing says whether its main is red, and the red that was given is kept in
+// the mark as it was: a work that comes to the same head finds the same red, which is not given again. Reference:
+// acceptance 3 (the same red is given once) and acceptance 5 (no current fact where no work has not ended). Under a
+// second alone, a store on disk.
+#[test]
+fn a_red_main_is_not_given_again_when_its_works_end_and_another_comes_to_the_same_head() {
+    let mut h = H::with(vec![checked()]);
+    let (_, w) = h.add(new_item("a", &[], "checked"));
+    h.outside("main", "Main is at m1.");
+    comes_to_its_check(&mut h, w);
+    let first = since(&h, None);
+    finds_main_red(&mut h, w, "run/1/round/1", "own1", "m1");
+    let given = since(&h, Some(&first.mark));
+    assert_eq!(given.lines.len(), 1);
+    h.on(w, Event::Cancelled { why: None });
+    let alone = since(&h, Some(&given.mark));
+    assert_eq!(
+        heeds(&alone),
+        vec![],
+        "no work says what main is: there is no red to give"
+    );
+    h.add(new_item("b", &[], "checked"));
+    h.outside("main", "Main is at m1.");
+    assert_eq!(
+        heeds(&since(&h, Some(&alone.mark))),
+        vec![],
+        "the same red, found again, is not given again"
+    );
+}

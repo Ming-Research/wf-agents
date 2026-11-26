@@ -9,15 +9,18 @@
 //! asking ran on. A call of `run_tests` (`call/...`) and the check's own runs on the commit checked are not.
 //!
 //! A test is red on main of a project while the latest reading of it on the current head of main, in any work of the
-//! project, failed. What the readings say of the test is its streak: the readings since the last that passed. A reading
-//! is on the current head where its commit, the whole id, is in the latest version of the block of main of a work that
-//! has not ended: the engine writes that block into each of them each time the head changes
+//! project, failed. What the readings say of the test is its spans of failure, each from a failure to the pass that
+//! ended it. Main has been red since the start of the run of such spans, of all the tests, that overlap or touch, up to
+//! the spans still open: one test passing while another goes on failing leaves main red, and a new red is one that
+//! begins after every span had ended. A reading is on the current head where its commit, the whole id, is in the latest
+//! version of the block of main of a work that has not ended: the engine writes that block into each of them each time the head changes
 //! ([`crate::Driver::outside`]) with the head in its words, and every version of the words holds it. The comparison is
 //! of heads and not of times, so a reading kept after main moved on, of a run on the head it left, is not a reading of
 //! the head main has, and a move of main is a move whatever else happened to the work as it moved. Where the latest
 //! reading of a test failed on a head that main has left, what the project's main is is not known until a check runs the
 //! test on the new head, and it is not said to be red or green; that it is not known is given beside it, so that a red
-//! that comes back as the same one is not told again.
+//! that comes back as the same one is not told again. The same holds where no work of the project has not ended, and so
+//! nothing tells which head main has.
 //!
 //! The works of a project that wait for main to pass are given beside it, as what the planner may look at first; main
 //! is red whether any work waits or not.
@@ -44,7 +47,9 @@ pub struct RedTest {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Red {
     pub project: String,
-    /// Since when: the earliest start, of the streaks of failures of the tests that are red now.
+    /// Since when main has been red without every failing test having passed between: the start of the run of spans in
+    /// which a test failed, overlapping or touching, that the spans still open end, so that a test recovering while
+    /// another goes on failing is no new red.
     pub since: Time,
     /// The tests that are red now, in the order of their units and names.
     pub tests: Vec<RedTest>,
@@ -58,8 +63,9 @@ pub struct Main {
     /// Where main is red.
     pub red: Option<Red>,
     /// Whether a test last failed on a head of main that has moved on since, with no run on the new head to say whether
-    /// it still fails: main is then neither red nor green as far as is known, and a red that comes back with the streak
-    /// it had is the same red as before.
+    /// it still fails, or with no work of the project that has not ended to say which head main has: main is then
+    /// neither red nor green as far as is known, and a red that comes back with the span it had is the same red as
+    /// before.
     pub unknown: bool,
 }
 
@@ -85,6 +91,8 @@ pub struct Member<'a> {
 /// What one reading of a test on the head of main said.
 struct Seen {
     time: Time,
+    /// The place of the entry that kept it, which orders the readings kept in one moment.
+    place: Seq,
     work: WorkNumber,
     passed: bool,
     /// Whether the commit is the head of main that the works have been told last.
@@ -92,8 +100,8 @@ struct Seen {
     head: String,
 }
 
-/// Each reading of the work that ran on the head of main, with the time it was kept at.
-fn on_main(work: &Work) -> Vec<(Time, &work::timed::Reading)> {
+/// Each reading of the work that ran on the head of main, with the time and the place it was kept at.
+fn on_main(work: &Work) -> Vec<(Time, Seq, &work::timed::Reading)> {
     let mut asked: BTreeMap<&str, Vec<&work::timed::Timed>> = BTreeMap::new();
     for timed in &work.timed {
         if timed.reading.asking.starts_with("run/") {
@@ -112,7 +120,7 @@ fn on_main(work: &Work) -> Vec<(Time, &work::timed::Reading)> {
         for timed in readings {
             let reading = &timed.reading;
             if reading.source == Source::Fast && !checked.contains(reading.commit.as_str()) {
-                found.push((work.time_of(timed.at).unwrap_or_default(), reading));
+                found.push((work.time_of(timed.at).unwrap_or_default(), timed.at, reading));
             }
         }
     }
@@ -128,30 +136,48 @@ fn latest_main<'a>(member: &Member<'a>) -> Option<&'a str> {
     Some(text.as_str())
 }
 
-/// Whether main is red in the project, and where: of its works, with how each waits given by `waiting`. Nothing is
-/// known where no work of it has not ended, since then nothing tells what the head of main is.
+/// When the red that goes on now began, from the spans of time in which a test failed, each from its first failure to
+/// the pass that ended it, or open where it has not: the start of the run of spans that overlap or touch and that the
+/// open ones end. A test that recovers while another goes on failing so leaves the start where it was, and main having
+/// been green between two spans, because every span before it had ended, makes the later one a start of its own.
+fn began(mut spans: Vec<(Time, Option<Time>)>) -> Time {
+    spans.sort_by_key(|(from, _)| *from);
+    let mut chain: Option<(Time, Option<Time>)> = None;
+    for (from, until) in spans {
+        chain = Some(match chain {
+            Some((start, end)) if end.is_none_or(|end| from <= end) => {
+                let ends = match (end, until) {
+                    (Some(end), Some(until)) => Some(end.max(until)),
+                    _ => None,
+                };
+                (start, ends)
+            }
+            _ => (from, until),
+        });
+    }
+    chain.map(|(start, _)| start).unwrap_or_default()
+}
+
+/// Whether main is red in the project, and where: of its works, with how each waits given by `waiting`. Where no work
+/// of it has not ended, nothing tells what the head of main is: no test is red then, and one that last failed is not
+/// known to be red or green.
 pub fn of_project(project: &str, members: &[Member<'_>], waiting: impl Fn(WorkNumber) -> bool) -> Main {
     let going: Vec<&Member<'_>> = members.iter().filter(|m| !m.ended && m.main.is_some()).collect();
-    if going.is_empty() {
-        return Main {
-            red: None,
-            unknown: false,
-        };
-    }
     // The works of a project are mostly told one head, so the readings are matched against the distinct words.
     let heads: BTreeSet<&str> = going.iter().filter_map(|m| latest_main(m)).collect();
     let current = |commit: &str| !commit.is_empty() && heads.iter().any(|head| head.contains(commit));
     let mut seen: BTreeMap<(&str, &str), Vec<Seen>> = BTreeMap::new();
-    let readings: Vec<(WorkNumber, Vec<(Time, &work::timed::Reading)>)> =
+    let readings: Vec<(WorkNumber, Vec<(Time, Seq, &work::timed::Reading)>)> =
         members.iter().map(|m| (m.number, on_main(m.work))).collect();
     for (work, readings) in &readings {
-        for (time, reading) in readings {
+        for (time, place, reading) in readings {
             let on_head = current(&reading.commit);
             for test in &reading.tests {
                 seen.entry((test.unit.as_str(), test.name.as_str()))
                     .or_default()
                     .push(Seen {
                         time: *time,
+                        place: *place,
                         work: *work,
                         passed: test.passed,
                         current: on_head,
@@ -161,34 +187,41 @@ pub fn of_project(project: &str, members: &[Member<'_>], waiting: impl Fn(WorkNu
         }
     }
     let mut tests = Vec::new();
-    let mut since: Option<Time> = None;
+    let mut spans: Vec<(Time, Option<Time>)> = Vec::new();
     let mut unknown = false;
     for ((unit, name), mut list) in seen {
-        list.sort_by_key(|s| (s.time, s.work));
+        list.sort_by_key(|s| (s.time, s.work, s.place));
         // Of the readings on the head main has, the latest decides: a test that passed there is not red. Where none is
         // on it, the test last failed on a head main has left, which is not known to be red, or last passed.
         let Some(at) = list.iter().rposition(|s| s.current) else {
             unknown |= list.last().is_some_and(|last| !last.passed);
             continue;
         };
-        if list[at].passed {
-            continue;
+        // The spans the test failed in up to that reading: each ended by the pass after it, the last open where the
+        // reading failed, which is the one that makes the test red.
+        let mut failing: Option<Time> = None;
+        for reading in &list[..=at] {
+            match (reading.passed, failing) {
+                (false, None) => failing = Some(reading.time),
+                (true, Some(from)) => {
+                    spans.push((from, Some(reading.time)));
+                    failing = None;
+                }
+                _ => {}
+            }
         }
-        let last = &list[at];
-        let from = list[..=at]
-            .iter()
-            .rposition(|s| s.passed)
-            .map_or(0, |passed| passed + 1);
-        since = Some(since.map_or(list[from].time, |earliest| earliest.min(list[from].time)));
-        tests.push(RedTest {
-            unit: unit.to_string(),
-            name: name.to_string(),
-            head: last.head.clone(),
-        });
+        if let Some(from) = failing {
+            spans.push((from, None));
+            tests.push(RedTest {
+                unit: unit.to_string(),
+                name: name.to_string(),
+                head: list[at].head.clone(),
+            });
+        }
     }
-    let Some(since) = since else {
+    if tests.is_empty() {
         return Main { red: None, unknown };
-    };
+    }
     let waiting = (going.iter())
         .map(|m| m.number)
         .filter(|number| waiting(*number))
@@ -196,7 +229,7 @@ pub fn of_project(project: &str, members: &[Member<'_>], waiting: impl Fn(WorkNu
     Main {
         red: Some(Red {
             project: project.to_string(),
-            since,
+            since: began(spans),
             tests,
             waiting,
         }),
@@ -425,12 +458,26 @@ mod tests {
 
     // Where every work of the project has ended, nothing tells whether main moved, and none is said red.
     #[test]
-    fn a_project_with_no_work_going_says_nothing() {
+    fn a_project_with_no_work_going_has_no_red_and_a_last_failure_is_not_known() {
         let block = BlockId(MAIN_BLOCK.to_string());
         let mut work = work_of(20);
         says(&mut work, 1, "main at A");
         check(&mut work, 5, "1", "C", "A", &[("t", false)], &[("t", false)]);
-        assert_eq!(red_of(&[member(1, &work, &block, true)]), None);
+        let main = of_project("project", &[member(1, &work, &block, true)], |_| false);
+        assert_eq!(main.red, None);
+        assert!(
+            main.unknown,
+            "nothing says which head main has, and the test last failed"
+        );
+        let mut passing = work_of(20);
+        says(&mut passing, 1, "main at A");
+        check(&mut passing, 5, "1", "C", "A", &[("t", false)], &[("t", true)]);
+        let main = of_project("project", &[member(1, &passing, &block, true)], |_| false);
+        assert_eq!(
+            (main.red, main.unknown),
+            (None, false),
+            "a test that last passed is not unknown"
+        );
     }
 
     // A later run of the test on main that passed ends the red, and one that failed again goes on with the same streak.
@@ -537,6 +584,72 @@ mod tests {
             Time(1200),
             "the streak begins with the first reading on main, the one on the head main left, and ends with the one on the current head"
         );
+    }
+
+    // A test recovering while another goes on failing leaves main red since the start: not every failing test had passed.
+    #[test]
+    fn a_test_recovering_while_another_goes_on_failing_leaves_main_red_since_the_start() {
+        let block = BlockId(MAIN_BLOCK.to_string());
+        let mut work = work_of(60);
+        says(&mut work, 1, "main at A");
+        check(&mut work, 5, "1", "C", "A", &[("a", false)], &[("a", false)]);
+        says(&mut work, 10, "main at B");
+        check(
+            &mut work,
+            15,
+            "2",
+            "D",
+            "B",
+            &[("a", false), ("b", false)],
+            &[("a", false), ("b", false)],
+        );
+        says(&mut work, 20, "main at E");
+        check(
+            &mut work,
+            25,
+            "3",
+            "F",
+            "E",
+            &[("a", false), ("b", false)],
+            &[("a", true), ("b", false)],
+        );
+        let red = red_of(&[member(1, &work, &block, false)]).expect("b is red");
+        let names: Vec<&str> = red.tests.iter().map(|test| test.name.as_str()).collect();
+        assert_eq!(names, ["b"], "a passed");
+        assert_eq!(red.since, Time(700), "main was red from the first failure of a");
+    }
+
+    // Main green between two failures, every test that failed having passed, makes the later failure a red of its own.
+    #[test]
+    fn main_green_between_two_failures_makes_the_later_a_red_of_its_own() {
+        let block = BlockId(MAIN_BLOCK.to_string());
+        let mut work = work_of(60);
+        says(&mut work, 1, "main at A");
+        check(&mut work, 5, "1", "C", "A", &[("a", false)], &[("a", false)]);
+        says(&mut work, 10, "main at B");
+        check(&mut work, 15, "2", "D", "B", &[("a", false)], &[("a", true)]);
+        says(&mut work, 20, "main at E");
+        check(&mut work, 25, "3", "F", "E", &[("b", false)], &[("b", false)]);
+        let red = red_of(&[member(1, &work, &block, false)]).expect("b is red");
+        assert_eq!(red.since, Time(2700), "the red of b began after a had passed");
+    }
+
+    // Readings kept in one moment are in the order they were kept, not the order of the words of their askings.
+    #[test]
+    fn readings_kept_in_one_moment_are_in_the_order_they_were_kept() {
+        let block = BlockId(MAIN_BLOCK.to_string());
+        let mut work = Work {
+            moments: vec![Moment {
+                from: Seq(1),
+                at: Time(100),
+            }],
+            ..Work::default()
+        };
+        says(&mut work, 1, "main at A");
+        check(&mut work, 5, "9", "C", "A", &[("t", true)], &[("t", true)]);
+        check(&mut work, 15, "10", "D", "A", &[("t", false)], &[("t", false)]);
+        let red = red_of(&[member(1, &work, &block, false)]).expect("the later check failed");
+        assert_eq!(red.since, Time(100));
     }
 
     // The works that wait are given beside it.

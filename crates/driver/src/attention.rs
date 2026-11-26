@@ -311,8 +311,9 @@ impl Driver {
             .filter(|red| !red_left.contains(&red.project))
             .map(|red| (red.project.clone(), red.since))
             .collect();
-        // A project whose main is not known to be red, since it moved on and no run on it has said, keeps what it was
-        // read as: a red that comes back with the streak it had is the one that was given.
+        // A project whose main is not known to be red, since it moved on and no run on it has said, or since no work of
+        // it has not ended, keeps what it was read as: a red that comes back with the span it had is the one that was
+        // given.
         for project in &mains.unknown {
             if let Some(read) = since.and_then(|mark| mark.red.get(project)) {
                 red.entry(project.clone()).or_insert(*read);
