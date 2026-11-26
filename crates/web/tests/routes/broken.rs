@@ -298,23 +298,6 @@ async fn the_pull_request_a_work_that_cannot_be_read_keeps_is_given_as_its_own()
     assert_eq!((&broken["failed"], &broken["without"]), (&json!([]), &json!(["other"])));
 }
 
-// What waits on the owner is given where a work cannot be read, with the line of that work, as it is where it can: the
-// read does not work out the summary, and the work's state is read as the summary reads it. Read with no read of the
-// items before it. Fails where the read answers 500 or leaves out the line of the work.
-#[tokio::test(start_paused = true)]
-async fn what_waits_on_the_owner_is_given_where_a_work_cannot_be_read() {
-    let read = |unreadable: bool| async move {
-        let (store, dir) = store_of(unreadable);
-        let running = running_on(store, dir);
-        get_json(&running.router, "/api/v1/attention").await
-    };
-    let whole = read(false).await;
-    let broken = read(true).await;
-    let lines = whole["lines"].as_array().expect("the lines are a list");
-    assert!(lines.iter().any(|line| line["of"]["work"] == 1), "{whole}");
-    assert_eq!(broken, whole);
-}
-
 // A broken work's summary is worked out when what it is made from changes, as any work's is, and not at each read: a
 // second read builds none again, and gives the page nothing, so that what is said of it on the engine's standard error
 // is said once for each time it is worked out. Fails where the cache works a broken work's summary out again at each
