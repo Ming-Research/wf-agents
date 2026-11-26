@@ -115,7 +115,7 @@ impl Model {
             (self.cancelled.contains(&item), other, made, item)
         };
         let by = self.dependents(on);
-        let best = key(by.iter().min_by_key(|dependency| key(*dependency))?);
+        let best = key(by.iter().min_by_key(|dependency| key(dependency))?);
         if (by.iter().map(key)).any(|k| k.0 == best.0 && k.1 && k.2 < best.2) {
             reached.own_project_first += 1;
         }
