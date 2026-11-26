@@ -805,6 +805,7 @@ impl History {
                     Back::Failed(failure) => Return::Failed {
                         failure: *failure,
                         why: "it failed".to_string(),
+                        hindrance: None,
                         waits: (r.called.iter())
                             .filter(|c| {
                                 c.run == run

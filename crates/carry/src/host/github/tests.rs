@@ -732,12 +732,13 @@ async fn a_full_run_no_runner_took_is_cancelled_and_held_and_a_project_with_no_w
             .ends_with("none of 14900k is online, and the engine cancelled the run"),
         "{failed}"
     );
+    assert_eq!(failed.kind, Some(Failure::Held));
     assert_eq!(
-        failed.kind,
-        Some(Failure::Held(decide::Hindrance {
+        failed.hindrance,
+        Some(decide::Hindrance {
             obstacle: decide::Obstacle::NoRunner,
             retry: None
-        }))
+        })
     );
     assert_eq!(cancelled(&hub), [1000], "the run asked for is cancelled");
     let hub = Hub::new().with(|config| config.ci = None);
@@ -991,13 +992,7 @@ async fn the_merge_refuses_a_main_that_moved_on_github_since_the_check() {
 #[tokio::test]
 async fn a_merge_github_fails_in_passing_or_refuses_is_of_the_kind_its_answer_tells() {
     for (said, kind) in [
-        (
-            "HTTP 502: Bad Gateway",
-            Failure::Held(decide::Hindrance {
-                obstacle: decide::Obstacle::Fault,
-                retry: None,
-            }),
-        ),
+        ("HTTP 502: Bad Gateway", Failure::Held),
         ("HTTP 405: At least 1 approving review is required", Failure::Other),
     ] {
         let hub = Hub::new();

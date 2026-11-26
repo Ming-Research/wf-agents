@@ -519,9 +519,9 @@ async fn a_check_the_hosts_limit_keeps_from_running_ends_its_round_as_held_with_
     for (answer, expected) in [
         (
             Failed::held("HTTP 429: rate limit", limit.obstacle, limit.retry),
-            decide::run::Failure::Held(limit),
+            (decide::run::Failure::Held, Some(limit)),
         ),
-        (refused, decide::run::Failure::Other),
+        (refused, (decide::run::Failure::Other, None)),
     ] {
         let acts = acts(&repo, Fake::new(&main).judges(Err(answer)));
         let code = format!("Greets the user, in commit {head}.");
@@ -532,9 +532,9 @@ async fn a_check_the_hosts_limit_keeps_from_running_ends_its_round_as_held_with_
             loop {
                 match told.recv().await.expect("the round ends") {
                     service::Message::Happened {
-                        event: engine::Event::Failed { failure, .. },
+                        event: engine::Event::Failed { failure, hindrance, .. },
                         ..
-                    } => break failure,
+                    } => break (failure, hindrance),
                     service::Message::Happened {
                         event: engine::Event::Returned { .. },
                         ..

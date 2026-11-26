@@ -353,10 +353,11 @@ async fn answer(
                 .map_or(why.clone(), |words| fill(words, &[("error", &why)])),
         )),
         Ok(named) => match run_tests(host, project, branch, &named, Asking::Call(call.id), stop).await {
-            Err(failed) => match failed.hindrance() {
-                Some(hindrance) => return Answer::Held(hindrance),
-                None => Err(fill(&told.said.could_not, &[("why", &failed.why)])),
-            },
+            Err(Failed {
+                hindrance: Some(hindrance),
+                ..
+            }) => return Answer::Held(hindrance),
+            Err(failed) => Err(fill(&told.said.could_not, &[("why", &failed.why)])),
             Ok(found) => Ok(found),
         },
     };

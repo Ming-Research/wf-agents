@@ -137,9 +137,10 @@ pub enum Failure {
     /// names another, so the work is paused, and so is every other work that runs a round on that model.
     NoModel,
     /// The host only kept the engine's act from running for now: its limit on requests, a fault of its own, no machine
-    /// taking the run, or a fault of the network it is reached over. It passes by itself, which no work's doing mends:
-    /// the round is tried again after a wait, until the time the host names where it does, and counts toward no pause.
-    Held(Hindrance),
+    /// taking the run, or a fault of the network it is reached over, which the act found its host to be reached despite.
+    /// It passes by itself, which no work's doing mends: the round is tried again after a wait, until the time the host
+    /// names where it does, and counts toward no pause. What kept it is the round's hindrance, beside the kind.
+    Held,
     /// A cause no other kind holds: a request the service refused, an error the command line reported of no kind its
     /// fields or its words tell, a refusal of the engine's act by its host or what only a person mends there, or a
     /// round that could not be carried out at all. Running again meets it again, and the work is paused. Rounds that
@@ -217,6 +218,9 @@ pub enum Return {
     Failed {
         failure: Failure,
         why: String,
+        /// What kept the host from running the engine's act for now, and when it may be asked again, where the failure
+        /// is [`Failure::Held`]; none otherwise.
+        hindrance: Option<Hindrance>,
         /// The waits the engine made as calls after it, before it is tried again: none until the engine makes one.
         waits: Vec<Call>,
     },
@@ -964,7 +968,8 @@ pub fn next(log: &Log, requires: Requires, hold: Hold) -> Step {
         // Kept from running by the host for now, the engine waits as it does for a call so kept ([`held_wait`]); the
         // rounds so kept in a row set how long, and none pauses the work.
         Return::Failed {
-            failure: Failure::Held(hindrance),
+            failure: Failure::Held,
+            hindrance,
             waits,
             ..
         } => {
@@ -973,7 +978,7 @@ pub fn next(log: &Log, requires: Requires, hold: Hold) -> Step {
                 return held(Step::Retry, hold);
             }
             if waits.is_empty() {
-                let waiting = held_wait(times, hindrance.retry);
+                let waiting = held_wait(times, hindrance.and_then(|hindrance| hindrance.retry));
                 return Step::Wait {
                     failed: times,
                     ms: waiting.ms,
@@ -1116,7 +1121,7 @@ fn passing_in_a_row(log: &Log) -> u32 {
 /// How many of the run's last rounds in a row the host kept from running for now ([`failures_in_a_row`]). Such a round
 /// is no failure of the work: it is in the row and breaks nothing, and counts toward no pause.
 fn held_in_a_row(log: &Log) -> u32 {
-    failures_in_a_row(log).filter(|f| matches!(f, Failure::Held(_))).count() as u32
+    failures_in_a_row(log).filter(|f| *f == Failure::Held).count() as u32
 }
 
 /// How many of the run's last rounds in a row failed for a cause outside every work ([`failures_in_a_row`]).
@@ -1148,7 +1153,7 @@ pub fn pausing(log: &Log) -> Option<Pausing> {
             let failed = outside_in_a_row(log);
             (failed > PASSING).then_some(Pausing::Outside { failed })
         }
-        Failure::Held(_) | Failure::Unread => None,
+        Failure::Held | Failure::Unread => None,
     }
 }
 

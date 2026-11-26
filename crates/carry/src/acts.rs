@@ -25,6 +25,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
+use decide::run::Failure;
 use decide::{BlockId, End, Finished, RunId};
 use engine::Came;
 use flow::Compiled;
@@ -248,9 +249,14 @@ impl<H: Host> Rounds for Acts<H> {
                         )
                     };
                     let kind = failing::kind(&failed, look).await;
+                    // What kept the host from the act is told only of a round kept from running, not of one that
+                    // waits with every work because the look found the host out of reach.
+                    let hindrance = failed.hindrance.filter(|_| kind == Failure::Held);
                     match inner.held.fail(key) {
                         // An act of the engine's takes no cost and no tokens, failed or not.
-                        Some(Failing::Fail(reply)) => reply.failed_as(kind, None, failed.why, Spent::default()),
+                        Some(Failing::Fail(reply)) => {
+                            reply.failed_as(kind, None, hindrance, failed.why, Spent::default())
+                        }
                         Some(Failing::End(reply)) => reply.ended(Came::hands_in(Vec::new()), Spent::default()),
                         None => {}
                     }

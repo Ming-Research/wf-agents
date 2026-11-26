@@ -273,16 +273,16 @@ fn so_many_failures_in_a_row_for_a_cause_outside_every_work_pause_the_work() {
 }
 
 /// What keeps the host from an act: its limit on requests, naming when it may be asked again as given.
-fn limit(retry: Option<Retry>) -> Failure {
-    Failure::Held(Hindrance {
+fn limit(retry: Option<Retry>) -> Hindrance {
+    Hindrance {
         obstacle: Obstacle::Limit,
         retry,
-    })
+    }
 }
 
 /// So many rounds in a row that the host kept from running for now, each tried again after its wait.
-fn held(n: usize, kept: Failure) -> Vec<Round> {
-    (0..n).map(|i| waited_after(kept, &[(i as u64 + 101, true)])).collect()
+fn held(n: usize, kept: Hindrance) -> Vec<Round> {
+    (0..n).map(|i| kept_by(kept, &[(i as u64 + 101, true)])).collect()
 }
 
 #[test]
@@ -290,7 +290,7 @@ fn a_round_the_host_kept_from_running_waits_for_the_host_however_many_times_and_
     let s = spec();
     let hour = limit(Some(Retry::In(3600)));
     for n in [1, 2, PASSING as usize, PASSING as usize + 1, 20, 50] {
-        let rounds = [held(n - 1, hour), vec![failed_as(hour)]].concat();
+        let rounds = [held(n - 1, hour), vec![kept_by(hour, &[])]].concat();
         assert_eq!(pausing(&let_on(rounds.clone(), 0)), None, "{n} in a row");
         assert_eq!(
             step(rounds, &s),
@@ -304,7 +304,7 @@ fn a_round_the_host_kept_from_running_waits_for_the_host_however_many_times_and_
     }
     // A limit that names no time waits as a round that failed in passing does.
     let silent = limit(None);
-    let third = [held(2, silent), vec![failed_as(silent)]].concat();
+    let third = [held(2, silent), vec![kept_by(silent, &[])]].concat();
     assert_eq!(
         step(third, &s),
         Step::Wait {
@@ -313,10 +313,19 @@ fn a_round_the_host_kept_from_running_waits_for_the_host_however_many_times_and_
             not_before: None
         }
     );
+    // A round of the kind whose record names no hindrance waits as a limit that names no time does.
+    assert_eq!(
+        step(vec![failed_with(Failure::Held, None, &[])], &s),
+        Step::Wait {
+            failed: 1,
+            ms: FIRST_WAIT,
+            not_before: None
+        }
+    );
     // A limit that names the time it resets waits not before it, and a second more.
     let at = limit(Some(Retry::At(1_764_000_000)));
     assert_eq!(
-        step(vec![failed_as(at)], &s),
+        step(vec![kept_by(at, &[])], &s),
         Step::Wait {
             failed: 1,
             ms: FIRST_WAIT,
@@ -330,14 +339,14 @@ fn a_round_the_host_kept_from_running_rests_at_its_wait_and_is_tried_again_once_
     let s = spec();
     let kept = limit(Some(Retry::In(60)));
     assert_eq!(
-        step(vec![waited_after(kept, &[(7, false)])], &s),
+        step(vec![kept_by(kept, &[(7, false)])], &s),
         Step::Rest { calls: vec![CallId(7)] }
     );
-    let over = waited_after(kept, &[(7, true)]);
+    let over = kept_by(kept, &[(7, true)]);
     assert_eq!(step(vec![over.clone()], &s), Step::Retry);
     // The wait is no round: a pause holds back the round after it, and not the wait.
     assert!(matches!(
-        step_paused(vec![failed_as(kept)], &s),
+        step_paused(vec![kept_by(kept, &[])], &s),
         Step::Wait { failed: 1, .. }
     ));
     assert_eq!(step_paused(vec![over.clone()], &s), Step::Held);

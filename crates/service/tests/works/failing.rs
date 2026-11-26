@@ -55,6 +55,7 @@ async fn a_round_that_fails_pauses_its_work_with_the_reason_and_hands_out_nothin
             why: WHY.to_string(),
             failure: decide::run::Failure::Other,
             resets: None,
+            hindrance: None,
         })
     );
     let pause = decide::pause(&kept.records).expect("the work is paused");

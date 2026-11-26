@@ -171,7 +171,7 @@ impl Rounds for Scripted {
 fn end(reply: RoundReply, planned: Planned) {
     match planned.ends {
         Ends::Came(came) => reply.ended(came, planned.spent),
-        Ends::Fails { why, failure, resets } => reply.failed_as(failure, resets, why, planned.spent),
+        Ends::Fails { why, failure, resets } => reply.failed_as(failure, resets, None, why, planned.spent),
     }
 }
 

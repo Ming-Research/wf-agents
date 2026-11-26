@@ -34,7 +34,7 @@ pub(crate) fn told(failed: Failed) -> Failed {
 /// one of this act's. `reached` looks, and gives none where the host is reached by no network.
 pub(crate) async fn kind(failed: &Failed, reached: impl AsyncFnOnce() -> Option<bool>) -> Failure {
     if let Some(kind) = failed.kind {
-        if let Some(hindrance) = failed.hindrance()
+        if let Some(hindrance) = failed.hindrance
             && hindrance.obstacle == Obstacle::Network
             && reached().await == Some(false)
         {
@@ -148,21 +148,15 @@ mod tests {
     fn a_failure_with_no_kind_is_held_only_where_its_words_are_the_networks() {
         let gone = told_by_its_words("fatal: unable to access: Connection timed out".to_string());
         assert_eq!(
-            gone.hindrance(),
+            gone.hindrance,
             Some(Hindrance {
                 obstacle: Obstacle::Network,
                 retry: None
             })
         );
-        assert_eq!(
-            gone.kind,
-            Some(Failure::Held(Hindrance {
-                obstacle: Obstacle::Network,
-                retry: None
-            }))
-        );
+        assert_eq!(gone.kind, Some(Failure::Held));
         let refused = told_by_its_words("fatal: couldn't find remote ref main".to_string());
-        assert_eq!((refused.hindrance(), refused.kind), (None, None));
+        assert_eq!((refused.hindrance, refused.kind), (None, None));
     }
 
     // A failure that says what it is, a fault of GitHub's own or a refusal, is left as it is though its words name what the
@@ -170,9 +164,9 @@ mod tests {
     #[test]
     fn a_failure_that_says_what_it_is_is_left_as_it_is_whatever_its_words() {
         let fault = told(Failed::held("HTTP 502: Bad Gateway", Obstacle::Fault, None));
-        assert_eq!(fault.hindrance().map(|held| held.obstacle), Some(Obstacle::Fault));
+        assert_eq!(fault.hindrance.map(|held| held.obstacle), Some(Obstacle::Fault));
         let refused = told(Failed::refused("HTTP 422: the request timed out"));
-        assert_eq!((refused.hindrance(), refused.kind), (None, Some(Failure::Other)));
+        assert_eq!((refused.hindrance, refused.kind), (None, Some(Failure::Other)));
     }
 
     // A round of an act that GitHub's limit, a fault of its own or no runner keeps from running is held at once, with
@@ -185,20 +179,15 @@ mod tests {
             retry: Some(decide::Retry::In(3600)),
         };
         let limited = Failed::held("HTTP 429: rate limit", limit.obstacle, limit.retry);
-        assert_eq!(kind(&limited, async || panic!("looked")).await, Failure::Held(limit));
+        assert_eq!(kind(&limited, async || panic!("looked")).await, Failure::Held);
         for obstacle in [Obstacle::Fault, Obstacle::NoRunner] {
             let held = Failed::held("kept", obstacle, None);
-            let hindrance = Hindrance { obstacle, retry: None };
-            assert_eq!(kind(&held, async || panic!("looked")).await, Failure::Held(hindrance));
+            assert_eq!(kind(&held, async || panic!("looked")).await, Failure::Held);
         }
-        let gone = Hindrance {
-            obstacle: Obstacle::Network,
-            retry: None,
-        };
-        let down = Failed::held("Connection timed out", gone.obstacle, None);
+        let down = Failed::held("Connection timed out", Obstacle::Network, None);
         assert_eq!(kind(&down, async || Some(false)).await, Failure::Offline);
-        assert_eq!(kind(&down, async || Some(true)).await, Failure::Held(gone));
-        assert_eq!(kind(&down, async || None).await, Failure::Held(gone));
+        assert_eq!(kind(&down, async || Some(true)).await, Failure::Held);
+        assert_eq!(kind(&down, async || None).await, Failure::Held);
     }
 
     #[tokio::test]

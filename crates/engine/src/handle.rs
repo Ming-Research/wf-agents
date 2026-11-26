@@ -463,6 +463,7 @@ fn take(flow: &Compiled, work: &mut Work, now: Time, event: Event, effects: &mut
                     why,
                     failure: Failure::Other,
                     resets: None,
+                    hindrance: None,
                     spent,
                 },
                 effects,
@@ -523,6 +524,7 @@ fn take(flow: &Compiled, work: &mut Work, now: Time, event: Event, effects: &mut
             why,
             failure,
             resets,
+            hindrance,
             spent,
         } => {
             if began(work, run) == ended(work, run) {
@@ -544,6 +546,7 @@ fn take(flow: &Compiled, work: &mut Work, now: Time, event: Event, effects: &mut
                         why: why.clone(),
                         failure,
                         resets,
+                        hindrance,
                     },
                 );
                 let told = told(&flow.flow, &work.records, run).unwrap_or_default();
@@ -1395,9 +1398,15 @@ pub(crate) fn log(flow: &Compiled, work: &Work, run: RunId, told: &Told) -> run:
             read: Vec::new(),
             protected: BTreeMap::new(),
         },
-        Back::Failed { why, failure, .. } => run::Return::Failed {
+        Back::Failed {
+            why,
+            failure,
+            hindrance,
+            ..
+        } => run::Return::Failed {
             failure: *failure,
             why: why.clone(),
+            hindrance: *hindrance,
             waits: (waits(work, run, i).into_iter())
                 .map(|call| run::Call {
                     call,

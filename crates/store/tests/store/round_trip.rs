@@ -392,6 +392,63 @@ fn a_reason_kept_before_it_named_its_blocks_reads_back_naming_none_and_one_kept_
     assert_eq!(serde_json::from_str::<Unmet>(&kept).expect("it reads"), named);
 }
 
+// A failed round that the host only kept from running for now is kept with what kept it and when it may be asked again,
+// beside its kind, which stays a plain word in the file; one kept before it said so has none and reads back as it was
+// (records are only added to, so those of before are read all the same).
+#[test]
+fn a_round_the_host_kept_from_running_keeps_what_kept_it_and_one_kept_before_reads_back_with_none() {
+    use decide::run::Failure;
+    use decide::{Hindrance, Obstacle, Retry};
+    let kept = Hindrance {
+        obstacle: Obstacle::Limit,
+        retry: Some(Retry::In(3600)),
+    };
+    let mut d = Driver::saved();
+    d.wrote("request", Outsider::Person, None);
+    let (run, _) = d.under_way();
+    let spent = d.spent();
+    // The work is saved after the event and must load back as it is, with the hindrance.
+    d.on(Event::Failed {
+        run,
+        why: "HTTP 429: rate limit".to_string(),
+        failure: Failure::Held,
+        resets: None,
+        hindrance: Some(kept),
+        spent,
+    });
+    d.answer();
+    assert!(
+        d.work.back.values().any(|b| matches!(
+            b,
+            Back::Failed { failure: Failure::Held, hindrance: Some(h), .. } if *h == kept
+        )),
+        "the round kept from running keeps what kept it"
+    );
+    // In the file, the kind stays a word that a query reads as one, and the hindrance has its own field.
+    let rows = dump(&d.saving.as_ref().expect("the work is saved").db.path);
+    let held: Vec<&String> = rows["back"]
+        .iter()
+        .flatten()
+        .filter(|v| v.contains("\\\"held\\\""))
+        .collect();
+    assert_eq!(held.len(), 1, "{:?}", rows["back"]);
+    assert!(held[0].contains("\\\"hindrance\\\""), "{}", held[0]);
+    // A round that failed before the field was kept reads with none, and one with none is kept as it was.
+    let old = r#"{"Failed":{"why":"it failed","failure":"passing","resets":null}}"#;
+    let read: Back = serde_json::from_str(old).expect("a return kept before reads");
+    assert_eq!(
+        read,
+        Back::Failed {
+            why: "it failed".to_string(),
+            failure: Failure::Passing,
+            resets: None,
+            hindrance: None,
+        }
+    );
+    let text = serde_json::to_string(&read).expect("it is JSON");
+    assert!(!text.contains("hindrance"), "{text}");
+}
+
 // A cause recorded before the version the cell last worked from was recorded in it has none and reads back as it was
 // kept; one recorded with it reads back as written (records are only added to, so those of before are read all the
 // same).

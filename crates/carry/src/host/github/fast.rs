@@ -1276,7 +1276,7 @@ impl<A: Api> GitHub<A> {
             Ok(Some(files)) => (reader.read(&files)).map_err(|why| format!("the artifact {}: {why}", plan.results)),
             Ok(None) => Err(format!("the run uploaded no artifact {}", plan.results)),
             // GitHub's limit, or its own fault, keeps the results from being read for now: not a run without results.
-            Err(failed) if failed.hindrance().is_some() => return Err(failed),
+            Err(failed) if failed.hindrance.is_some() => return Err(failed),
             Err(why) => Err(format!("the artifact {} could not be fetched: {why}", plan.results)),
         };
         let ends = self.step_ends(&jobs, &reader.unexplained(&jobs, &results)).await?;
@@ -1325,7 +1325,7 @@ impl<A: Api> GitHub<A> {
                 // GitHub's limit, its own fault or the network keeps the log from being read for now: the run is read
                 // again.
                 Err(failed) => match crate::acts::failing::told(failed) {
-                    failed if failed.hindrance().is_some() => return Err(failed),
+                    failed if failed.hindrance.is_some() => return Err(failed),
                     failed => Err(failed.why),
                 },
             };

@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 
 use decide::run::{Failure, Limit, Unmet};
-use decide::{BlockId, CallId, Records, RunId, Seq, Who};
+use decide::{BlockId, CallId, Hindrance, Records, RunId, Seq, Who};
 use serde::{Deserialize, Serialize};
 
 pub mod filled;
@@ -312,6 +312,11 @@ pub enum Back {
         /// otherwise.
         #[serde(default)]
         resets: Option<Time>,
+        /// What kept the host from running the engine's act for now, and when it may be asked again where the host
+        /// says, where the failure is [`Failure::Held`]; none otherwise. Records kept before the kind was told hold
+        /// none.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        hindrance: Option<Hindrance>,
     },
 }
 

@@ -18,6 +18,7 @@ fn failed(run: RunId) -> Event {
         why: WHY.to_string(),
         failure: Failure::Other,
         resets: None,
+        hindrance: None,
         spent: spent(1),
     }
 }
@@ -36,6 +37,7 @@ fn a_round_that_fails_ends_and_pauses_its_work_with_the_reason_in_one_moment() {
             why: WHY.to_string(),
             failure: Failure::Other,
             resets: None,
+            hindrance: None,
         })
     );
     assert_eq!(w.work.spent.get(&(write, 1)), Some(&spent(1)));

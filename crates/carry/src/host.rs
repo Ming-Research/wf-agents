@@ -97,6 +97,10 @@ impl Asking {
 pub struct Failed {
     pub why: String,
     pub kind: Option<Failure>,
+    /// Where the failure only keeps the host from doing what it was asked for now ([`Failure::Held`]), what keeps it
+    /// and when it may be asked again where the host says: a call that asks for it is held, and asked again, instead of
+    /// being answered with the failure, and a round of an act is waited out.
+    pub hindrance: Option<Hindrance>,
 }
 
 impl Failed {
@@ -105,6 +109,7 @@ impl Failed {
         Failed {
             why: why.into(),
             kind: Some(Failure::Passing),
+            hindrance: None,
         }
     }
 
@@ -113,16 +118,8 @@ impl Failed {
     pub fn held(why: impl Into<String>, obstacle: Obstacle, retry: Option<Retry>) -> Failed {
         Failed {
             why: why.into(),
-            kind: Some(Failure::Held(Hindrance { obstacle, retry })),
-        }
-    }
-
-    /// What keeps the host from doing what it was asked for now, where the failure only does, and when it may be asked
-    /// again where the host says.
-    pub fn hindrance(&self) -> Option<Hindrance> {
-        match self.kind {
-            Some(Failure::Held(hindrance)) => Some(hindrance),
-            _ => None,
+            kind: Some(Failure::Held),
+            hindrance: Some(Hindrance { obstacle, retry }),
         }
     }
 
@@ -132,6 +129,7 @@ impl Failed {
         Failed {
             why: why.into(),
             kind: Some(Failure::Other),
+            hindrance: None,
         }
     }
 
@@ -140,13 +138,18 @@ impl Failed {
         Failed {
             why: words(self.why),
             kind: self.kind,
+            hindrance: self.hindrance,
         }
     }
 }
 
 impl From<String> for Failed {
     fn from(why: String) -> Self {
-        Failed { why, kind: None }
+        Failed {
+            why,
+            kind: None,
+            hindrance: None,
+        }
     }
 }
 

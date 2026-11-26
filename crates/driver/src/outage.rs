@@ -689,7 +689,13 @@ fn standing<'r>(
     };
     (served.flat_map(|served| served.open.iter().map(move |round| (served, round))))
         .filter_map(|(served, round)| match &round.ended {
-            Some((time, at, Some(Back::Failed { why, failure, resets }))) if failure.shared() => Some(Met {
+            Some((
+                time,
+                at,
+                Some(Back::Failed {
+                    why, failure, resets, ..
+                }),
+            )) if failure.shared() => Some(Met {
                 served,
                 round,
                 time: *time,
@@ -1157,6 +1163,7 @@ mod tests {
                             why: format!("failed at {clock}"),
                             failure: draw.pick(&KINDS),
                             resets: (draw.below(2) == 0).then_some(Time(clock + 100)),
+                            hindrance: None,
                         }),
                     };
                     work.end(run, round, back, clock);
@@ -1279,7 +1286,13 @@ mod tests {
         };
         (rounds.iter())
             .filter_map(|round| match &round.ended {
-                Some((time, at, Some(Back::Failed { why, failure, resets }))) if failure.shared() => Some(PlainMet {
+                Some((
+                    time,
+                    at,
+                    Some(Back::Failed {
+                        why, failure, resets, ..
+                    }),
+                )) if failure.shared() => Some(PlainMet {
                     round,
                     time: *time,
                     at: *at,
@@ -1449,6 +1462,7 @@ mod tests {
                 why: "offline".to_string(),
                 failure: Failure::Offline,
                 resets: None,
+                hindrance: None,
             };
             growing.end(run, round, Some(offline), 1_001);
             let round = growing.begin(run, &[None], 1_002);
@@ -1480,6 +1494,7 @@ mod tests {
             why: "offline".to_string(),
             failure: Failure::Offline,
             resets: None,
+            hindrance: None,
         };
         growing.end(run, round, Some(failed.clone()), 3_001);
         let work = growing.work;
