@@ -2061,10 +2061,10 @@ fn heed(line: &Line, now: u64) -> String {
         } => {
             let behind = match behind {
                 Some(holder) => format!(
-                    "behind item {} \"{}\", work {}",
-                    item_number(holder.item),
-                    cut_title(&holder.title),
-                    work_number(holder.work)
+                    "behind item {item} \"{title}\", work {work}",
+                    item = item_number(holder.item),
+                    title = cut_title(&holder.title),
+                    work = work_number(holder.work)
                 ),
                 None => "behind a run there the engine's turns do not hold".to_string(),
             };
@@ -2476,7 +2476,7 @@ fn waited(waited: &Waited) -> String {
             utc(machine.since),
             machine.machine,
             match machine.behind {
-                Some(work) => format!("behind work {}", work_number(work)),
+                Some(work) => format!("behind work {work}", work = work_number(work)),
                 None => "behind a run there the engine's turns do not hold".to_string(),
             },
         ),
