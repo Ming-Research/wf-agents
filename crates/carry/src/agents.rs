@@ -2775,6 +2775,7 @@ mod tests {
                 "start",
                 "head",
                 "test_times",
+                "test_runs",
                 "tree",
                 "words",
             ]),
