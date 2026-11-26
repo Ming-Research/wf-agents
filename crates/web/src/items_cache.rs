@@ -28,7 +28,7 @@ use service::{Handle, Levels, OfWork, Refusal, Seen};
 use store::WorkNumber;
 use work::Time;
 
-use crate::works::{Broken, EveryWork, Item, Items, Others, Outages, Summary, asked};
+use crate::works::{Broken, EveryWork, Item, Items, Now, Others, Outages, Summary, asked};
 
 /// How long a summary of a work with something under way, and what git says of such a work, are kept before they
 /// are worked out again: the page reads again at this interval while such a work is on its screen.
@@ -196,7 +196,12 @@ impl ItemsCache {
             };
             if stale {
                 let every = every.get_or_insert_with(|| EveryWork::with(driver, at_once.clone()));
-                let base = Item::of(kept, driver, every, &self.levels, now)?;
+                let base = Item::of(kept, driver, every, &self.levels, now);
+                // A work whose state or summary cannot be worked out is given as such; saying why here, where the entry
+                // is worked out and not where it is read, says it once for each time it is worked out.
+                if let Now::Broken { words } = &base.work.now {
+                    eprintln!("{number} cannot be shown as it is: {words}");
+                }
                 self.built.fetch_add(1, Ordering::Relaxed);
                 let (looked, looking, rev, old) = match inner.entries.remove(&item) {
                     Some(entry) => (entry.looked, entry.looking, entry.rev, Some(entry.json)),

@@ -7,7 +7,9 @@ The engine, its interface and the owner's page are served by one process.
 - rejected: an agent proposed a separate process that serves the page and meets the engine only through the store; the owner rejected it, because the reasons for splitting them did not hold, and one process answers the owner at once and tells the page directly what happens.
 
 ### decision a-new-build-is-installed-by-hand
-A new build of the engine is installed and started by hand: the engine never installs a build or restarts itself.
+The program installed is the artifact CI builds for macOS arm64 at one commit, never compiled on the machine; it is installed and started by hand: the engine never installs a build or restarts itself.
+- replaced: Compiling the program on the machine that runs it at each install was on main; the owner changed it, because about 33 installs in ten days each compiled the whole repository on that machine and fought the running agents for the processor.
+- rejected: an agent proposed building only by hand at the install, for the one commit; the owner rejected it, because every install would wait for a whole build and a commit that does not build on macOS would show only then.
 - rejected: an agent proposed a deployment in which CI builds a package after a merge and the engine restarts on the new package when no round is running; the owner rejected it, because changing the engine by hand is fine once the system improves itself and passes acceptance on the test system.
 - rejected: an agent proposed that the engine install itself and restart on each green commit of main, as wf-board's deploy agent did; the owner rejected it, because a restart holds every work until the owner looks, so a redeploy at each merge would stop the night's works.
 

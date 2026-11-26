@@ -63,7 +63,7 @@ Every project meets one contract for its tests: JUnit results, one name for a te
 - replaced: A declaration that may leave out the fast or the full workflow was on main; the owner changed it, because `run_tests` runs only the fast workflow and the check before the merge only the full ones, so a project without one cannot have its tests run or its work checked.
 
 ### decision each-workflow-runs-where-the-project-says
-Each of a project's workflows runs on the runner its declaration names, and is not asked for when the installation has no such runner for the repository.
+Each workflow the engine runs for a project runs on the runner its declaration names, and is not asked for when the installation has no such runner for the repository.
 - replaced: The fast workflow running only on the owner's build machine was on main; the owner changed it, because GitHub's machines are now good enough as well.
 
 ### decision agents-read-the-records-by-one-query
@@ -88,3 +88,7 @@ What `query` tells agents about the store is made from the comments in `db/schem
 A tool's result is kept whole in the work's records; when a round is given it cut at the tool's limit, the cut names a file in the temporary directory that holds the whole result.
 - replaced: Keeping a result that was too large only in a file on the engine's machine, and giving its path, was on main; the owner changed it, because an agent on another machine cannot read the engine's file, and he asked that the agent be told the result was too large.
 - rejected: an agent proposed that an agent read the rest of a cut result from the records in parts by queries; the owner rejected it, because the results are hidden from agents and the store reads no value past 64 KB, while a file has no such limit.
+
+### decision a-call-the-host-cannot-carry-out-for-now-is-held-and-asked-again
+A `run_tests` call that GitHub's limit or fault, a run no machine takes or a network fault keeps from running stays open: the records hold it until a wait of the engine's ends, then it is asked again.
+- replaced: Giving the agent such a failure as the call's result, in the words for a check that could not run, was on main; the owner changed it, because none of these is the work's fault, and a cell given one could only stop and ask him.

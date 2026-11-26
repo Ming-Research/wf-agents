@@ -48,4 +48,6 @@ wf-agents runs coding agents through a defined flow.
   under way against its own.
 - `client/`: the owner's page, which the `wf-agents` binary carries: build it with `npm ci` and `npm run build` in
   `client/` before building the Rust. `npm run build` leaves `dist/source.sha256`, the files it read and their hashes,
-  and the Rust build refuses a page that is not made from the sources it finds.
+  and the Rust build refuses a page that is not made from the sources it finds. The program an installation runs is not
+  built that way on its machine: the workflow `build.yml` makes it for macOS on arm64 on each push to `main`, and
+  [docs/installing.md](docs/installing.md) says how to install that build.

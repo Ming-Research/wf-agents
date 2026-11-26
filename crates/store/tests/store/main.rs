@@ -504,6 +504,22 @@ fn history(d: &mut Driver) {
         waits_for: vec![12, 14],
     });
     d.end(Came::asks(vec![tool("f")]));
+    // The host could not carry the call out for now: it is held until a wait of the engine's, and asked for again.
+    let call = (pending(&d.flow, &d.work).into_iter())
+        .find_map(|e| match e {
+            Effect::Call {
+                call,
+                what: engine::Call::Asked(_),
+                ..
+            } => Some(call),
+            _ => None,
+        })
+        .expect("the tool is to be called");
+    d.on(Event::Held {
+        call,
+        obstacle: decide::Obstacle::Limit,
+        retry: Some(decide::Retry::In(60)),
+    });
     d.answer();
     d.on(Event::Resumed);
     // The judge's round given the tool's result fails, and the engine pauses the work; let on, the round is given

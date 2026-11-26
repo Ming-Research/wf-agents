@@ -8,9 +8,11 @@ import type {
   CallRow,
   Cause,
   Failure,
+  HeldCall,
   Limit,
   Line,
   Maker,
+  Obstacle,
   Outage,
   Person,
   RanOn,
@@ -318,6 +320,21 @@ export function outageWords(outage: Outage): string | null {
   return `${capital(failureWords(down.failure))} since ${clock(outage.since)}.${why} ${heldWords(outage.service, down.failure, outage.mayMove)}`;
 }
 
+/// What kept the host from carrying a call out for now, as a clause.
+const obstacleWords = (obstacle: Obstacle): string =>
+  ({
+    limit: "GitHub's limit on its requests",
+    fault: 'GitHub failed',
+    noRunner: 'no machine took the run',
+    network: 'the network failed',
+  })[obstacle];
+
+/// The engine's wait before a tool's call, which the host could not carry out for now, is asked for again, said as the
+/// wait before a round that failed in passing is, with why.
+export function heldCallWords(tool: string, held: HeldCall): string {
+  return `the engine's wait until ${clock(held.until)}, before the tool ${tool} is asked for again: ${obstacleWords(held.obstacle)} (${held.failed} in a row)`;
+}
+
 /// What a work waits for, in words; a question's own words are shown beside them, in full.
 export function waitedWords(waited: Waited): string {
   switch (waited.kind) {
@@ -326,6 +343,7 @@ export function waitedWords(waited: Waited): string {
       if (what.kind === 'question') return `${personWords(what.who)}'s answer to a question`;
       if (what.kind === 'atLimit') return `the owner to let the run go on: it reached its limit, ${limitWords(what.limit)}`;
       if (what.kind === 'wait') return callWords(what);
+      if (waited.held) return heldCallWords(what.name, waited.held);
       return `the result of the tool ${what.name}${waited.who ? ` from ${personWords(waited.who)}` : ''}`;
     }
     case 'precondition':
@@ -381,6 +399,8 @@ export function itemsWords(items: number[]): string {
 export const STATE = {
   owner: 'Waiting for you',
   halted: 'Halted',
+  /// The engine could not work the state out; the engine goes on with the work.
+  broken: 'Broken',
   paused: 'Paused',
   running: 'Running',
   merged: 'Merged',
@@ -551,7 +571,7 @@ export interface WorkState {
 }
 
 /// The state of a work. Whatever the engine's list of what waits on the owner holds waits for you; a fault and a stalled
-/// work are halted; the owner's own pause, and the owner's pause of everything, are a pause; an agent's round under way
+/// work are halted; a state the engine could not work out is broken; the owner's own pause, and the owner's pause of everything, are a pause; an agent's round under way
 /// is running; the calls of tools the engine carries out for a cell, and the act of an engine cell under way, which the
 /// engine carries out as it does a call and marks its cell so, are waited for, each by its tool and where it runs, in
 /// the yellow of a call, and are neither running nor done; anything else waits for whoever gives it.
@@ -583,6 +603,8 @@ export function stateOf(s: Pick<Summary, 'now' | 'cells' | 'waits'>): WorkState 
       return { tone: 'quiet', word: STATE.paused, cell: at };
     case 'fault':
       return { tone: 'failed', word: STATE.halted, cell: null };
+    case 'broken':
+      return { tone: 'failed', word: STATE.broken, cell: null };
     case 'stalled':
       return { tone: 'failed', word: STATE.halted, cell: at };
     case 'merged':
@@ -662,6 +684,13 @@ export const NO_LEVEL = {
   cellLevel: 'It stands at no cell an agent runs at, or the engine cannot say its level',
 } as const;
 
+/// What a figure of a work holds where the engine could not read the records it is made from (`Summary.unread`), and why,
+/// on pointing at it.
+export const UNREAD = {
+  shown: '–',
+  title: 'The engine could not read the records this is made from; the state says why',
+} as const;
+
 /// A work's state in a line: its state's word; how long it has waited, at `time`, for the calls of tools it waits for;
 /// and the cell where the state names one; as the Works list's column of states says it, `Paused · R0`, `Merged`,
 /// `Waiting for run_tests in CI · 4m 12s · I1`.
@@ -672,21 +701,25 @@ export function stateWords(s: Pick<Summary, 'now' | 'cells' | 'waits'>, time = D
 }
 
 /// What a work does now, in its view's line: its state's words, and why: for what waits on the owner, the engine's
-/// reasons, each a sentence; for a fault or a stall, what is wrong, a stall as the engine says it; for what waits on
-/// another, what it waits for, but the calls of tools, which its state's words say.
+/// reasons, each a sentence; for a fault, a state that cannot be worked out or a stall, what is wrong, a stall as the
+/// engine says it; for what waits on another, what it waits for, but the calls of tools, which its state's words say.
 export function nowWords(s: Pick<Summary, 'now' | 'cells' | 'waits'>, time = Date.now()): string {
   const now = s.now;
   const waits = waitsOf(s);
+  const asked = waits.map((w) => sentence(firstLine(w.why))).join(' ');
   const why =
-    waits.length > 0
-      ? waits.map((w) => sentence(firstLine(w.why))).join(' ')
-      : now.kind === 'fault'
-        ? now.words
-        : now.kind === 'stalled'
-          ? now.why
-          : now.kind === 'waits'
-            ? now.on.filter((w) => !engineToolCall(w)).map(waitedWords).join('; ')
-            : null;
+    // A state that cannot be worked out is said whatever else the work waits for.
+    now.kind === 'broken'
+      ? [asked, now.words].filter((x) => x !== '').join(' ')
+      : waits.length > 0
+        ? asked
+        : now.kind === 'fault'
+          ? now.words
+          : now.kind === 'stalled'
+            ? now.why
+            : now.kind === 'waits'
+              ? now.on.filter((w) => !engineToolCall(w)).map(waitedWords).join('; ')
+              : null;
   return [stateWords(s, time), why === null ? null : plain(why)].filter((x) => x !== null && x !== '').join(' · ');
 }
 

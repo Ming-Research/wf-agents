@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use decide::run::{Failure, Unmet};
-use decide::{BlockId, CallId, CellId, End, Outsider, Pauser, RunId, Seq};
+use decide::{BlockId, CallId, CellId, End, Obstacle, Outsider, Pauser, Retry, RunId, Seq};
 use flow::{Compiled, Kind};
 
 use work::{Ask, Call, Fill, Given, Handed, Left, Measures, Question, RanOn, Reading, Said, Spent, Time, Why};
@@ -67,6 +67,13 @@ pub enum Event {
     },
     /// The call has its result.
     Done { call: CallId, result: String },
+    /// The host could not carry the call out for now, for this reason, and says when it may be asked for again where it
+    /// knows: the call has no result yet, and the engine holds it until a wait of its own has (crate `decide`, `Held`).
+    Held {
+        call: CallId,
+        obstacle: Obstacle,
+        retry: Option<Retry>,
+    },
     /// The owner says these words to a cell of the work's flow, or to a line of it: to the cell the engine chooses
     /// (crate module `spoken`).
     Said { to: To, words: String },

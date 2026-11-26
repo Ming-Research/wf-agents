@@ -351,8 +351,8 @@ function levelOf(level: string | null | undefined): number | string | null {
   return /^\d+$/.test(level) ? Number(level) : level;
 }
 
-/// What a work is ordered by in a column: none where it has no value there, a work with no level; a work to which
-/// nothing has happened yet is the oldest.
+/// What a work is ordered by in a column: none where it has no value there, a work with no level or one whose records
+/// the engine could not read, which has no cost and no time; a work to which nothing has happened yet is the oldest.
 function keyOf({ item, work }: ListedWork, by: OrderBy): number | string | null {
   switch (by) {
     case 'item':
@@ -366,9 +366,9 @@ function keyOf({ item, work }: ListedWork, by: OrderBy): number | string | null 
     case 'cellLevel':
       return levelOf(work.cellLevel);
     case 'cost':
-      return work.spent.usdMicros;
+      return work.unread === true ? null : work.spent.usdMicros;
     case 'time':
-      return work.spent.workingMs;
+      return work.unread === true ? null : work.spent.workingMs;
     case 'last':
       return work.last ?? 0;
   }

@@ -7,9 +7,25 @@
 //! passing; any other pauses the work, as one the act cannot get past. An act of a host no network reaches, as the
 //! local repository, fails for no network.
 
+use decide::Obstacle;
 use decide::run::Failure;
 
 use crate::host::Failed;
+
+/// A failure of what a git command or `gh` gave no kind for: where its words are the network's, it only keeps the host
+/// from doing what it was asked for now, and what asked is held and asked again after a wait; any other is as it is.
+pub(crate) fn told_by_its_words(why: String) -> Failed {
+    told(Failed::from(why))
+}
+
+/// A failure as [`told_by_its_words`] reads it, where it has no kind and is not held already: a failure that says what
+/// it is is left as it is.
+pub(crate) fn told(failed: Failed) -> Failed {
+    if failed.kind.is_none() && failed.held.is_none() && network(&failed.why) {
+        return Failed::held(failed.why, Obstacle::Network, None);
+    }
+    failed
+}
 
 /// The kind of cause of a failed act: the one the act said, or by the words it failed with, the act's host being looked
 /// at only where they are the network's. `reached` looks, and gives none where the host is reached by no network.
@@ -113,6 +129,33 @@ mod tests {
             "GitHub did not merge the pull request: HTTP 405: At least 1 approving review is required"
         ));
         assert!(!network(""));
+    }
+
+    // A call whose command gave no kind and whose words are the network's only keeps the host from doing what it was
+    // asked for now: it is held, and asked again. Any other words are as they were, with no kind and nothing held.
+    #[test]
+    fn a_failure_with_no_kind_is_held_only_where_its_words_are_the_networks() {
+        let gone = told_by_its_words("fatal: unable to access: Connection timed out".to_string());
+        assert_eq!(
+            gone.held,
+            Some(crate::host::Held {
+                obstacle: Obstacle::Network,
+                retry: None
+            })
+        );
+        assert_eq!(gone.kind, Some(Failure::Passing));
+        let refused = told_by_its_words("fatal: couldn't find remote ref main".to_string());
+        assert_eq!((refused.held, refused.kind), (None, None));
+    }
+
+    // A failure that says what it is, a fault of GitHub's own or a refusal, is left as it is though its words name what the
+    // network's do.
+    #[test]
+    fn a_failure_that_says_what_it_is_is_left_as_it_is_whatever_its_words() {
+        let fault = told(Failed::held("HTTP 502: Bad Gateway", Obstacle::Fault, None));
+        assert_eq!(fault.held.map(|held| held.obstacle), Some(Obstacle::Fault));
+        let refused = told(Failed::refused("HTTP 422: the request timed out"));
+        assert_eq!((refused.held, refused.kind), (None, Some(Failure::Other)));
     }
 
     #[tokio::test]
