@@ -262,15 +262,8 @@ const NEVER: &[(&str, &str)] = &[
         "R2 ran back on plan, written by a cell after it",
         "R2 runs until it has handed in, r2_handed_in = no in its condition (decision \
          the-better-way-is-looked-for-once). The research's first plan runs it before any cell after it, whose \
-         plan-writing cells, the deep research and the implementation, come only past it, and its first run that deals \
-         with that plan has the engine write r2_handed_in = yes: no later version of the plan runs it.",
-    ),
-    (
-        "D2 ran back on plan, written by a cell after it",
-        "D2 runs until it has handed in, d2_handed_in = no in its condition (decision \
-         the-better-way-is-looked-for-once). The deep research's first plan runs it before the implementation, the one \
-         cell after it that writes the plan, can run, and its first run that deals with that plan has the engine write \
-         d2_handed_in = yes: no later version of the plan runs it.",
+         plan-writing cell, the deep research, comes only past it, and its first run that deals with that plan has the \
+         engine write r2_handed_in = yes: no later version of the plan runs it.",
     ),
     (
         "D1 ran on r1_questions",
