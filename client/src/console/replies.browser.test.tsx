@@ -16,6 +16,7 @@ import type { Block, Flow } from '../api';
 import type { Act, Changed } from '../works-api';
 import { FLOW, fixtureSource } from './fixtures';
 import { ConsolePage } from './index';
+import { READ_AFTER_MS } from './ItemWindow';
 import type { Source } from './source';
 
 /// The research's own words, which the engine's source of the owner's words writes and the research writes too.
@@ -150,6 +151,9 @@ describe('the replies the owner has not read, in the console', () => {
   const drawn = () =>
     expect.poll(() => (window as { consoleScene?: { stats: { items: number } } }).consoleScene?.stats.items ?? 0).toBeGreaterThan(0);
   const sleep = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
+  /// Each wait where a reply is to stay unread lasts the moment a reply must stand in view and a little over: shorter, the
+  /// reply would not have been read yet if it were going to be, and no check of staying unread could fail.
+  const moment = () => sleep(READ_AFTER_MS + 200);
 
   it('reads a reply that has stood in view for a moment while the page is seen, and none out of view or while it is hidden, a long one once its end is read to', async () => {
     await drawn();
@@ -159,19 +163,22 @@ describe('the replies the owner has not read, in the console', () => {
     await expect.poll(inAddress).toBe(1);
     await expect.poll(() => replies().length).toBe(2);
     await expect.poll(() => strip()).toBe('2 replies you have not read');
-    await sleep(1500);
+    await moment();
     expect(unread()).toHaveLength(2);
     expect(acts).toEqual([]);
-    // Seen again, the first, which stands in the window whole, is read after a moment; the second, longer than the
-    // window, of which only the top is in view, is not.
+    // Seen again, the moment begins then, not before: halfway through it the first is still unread. It is read once the
+    // moment is over; the second, longer than the window, of which only the top is in view, is not.
     hidden(false);
+    await sleep(READ_AFTER_MS / 2);
+    expect(unread()).toHaveLength(2);
+    expect(acts).toEqual([]);
     await expect.poll(() => unread().length, { timeout: 10_000 }).toBe(1);
     expect(acts).toEqual([[expect.any(Number), { kind: 'read', versions: [{ block: 'research_words', version: 2 }] }]]);
     expect(strip()).toBe('1 reply you have not read');
     // m brings the long one to the top of the window; with its end out of view, it stays unread.
     key('m');
     await expect.poll(() => Math.abs(below(unread()[0]))).toBeLessThan(4);
-    await sleep(1500);
+    await moment();
     expect(unread()).toHaveLength(1);
     expect(acts).toHaveLength(1);
     // Read to its end, it is read.

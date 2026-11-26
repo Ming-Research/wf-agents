@@ -574,6 +574,48 @@ describe('the tree in columns', () => {
     ]);
   });
 
+  it("draws the replies not read as a number on the card in the colour the map marks what is not read in, and marks on the map each item with something not read, a folded item for what is under it, whatever the item's `fresh` says", () => {
+    const unread = (id: number, fresh: Shown['fresh'], repliesUnread: number, children: Shown[] = []): Shown => ({
+      ...card(id, children),
+      fresh,
+      repliesUnread,
+    });
+    // 1 has two replies not read and is not new; 2 is new with none; 3 is changed with one; 4 is all read.
+    scene.show([unread(1, 'none', 2), unread(2, 'new', 0), unread(3, 'changed', 1), unread(4, 'none', 0)]);
+    settle(scene);
+    const { unseen } = themed();
+    expect([1, 2, 3, 4].map((id) => scene.drawnTags(id))).toEqual([
+      [{ text: '2', fill: unseen }],
+      [],
+      [{ text: '1', fill: unseen }],
+      [],
+    ]);
+    expect(scene.drawnMap().unread).toEqual([1, 2, 3]);
+    // A card with a reply not read among the tags of what waits on the owner draws it after them.
+    const waits = { ...running(5), waits: [{ key: 'answer-which', why: 'Which?', ends: { kind: 'resume' as const } }] };
+    scene.show([{ ...unread(5, 'none', 3), begun: true, asks: 1, work: waits }]);
+    settle(scene);
+    expect(scene.drawnTags(5)).toEqual([
+      { text: '1', fill: themed().red },
+      { text: '3', fill: unseen },
+    ]);
+    // Folded away, what is not read under an item marks the item; shown, it marks the item it is of.
+    const under = { open: 1, done: 0, cancelled: 0, elsewhere: 0 };
+    const tree = (folded: boolean) => [{ ...card(6, [unread(7, 'none', 1)]), fold: { folded, under } }];
+    scene.show(tree(true));
+    for (let k = 0; k <= FOLD_MS / 16; k += 1) scene.step();
+    settle(scene);
+    expect(scene.drawnMap().unread).toEqual([6]);
+    scene.show(tree(false));
+    settle(scene);
+    expect(scene.drawnMap().unread).toEqual([7]);
+    expect(scene.drawnTags(7)).toEqual([{ text: '1', fill: unseen }]);
+    // Read, the card is made again without the number and the map has no mark.
+    scene.show(tree(false).map((root) => ({ ...root, children: [unread(7, 'none', 0)] })));
+    settle(scene);
+    expect([scene.drawnTags(7), scene.drawnMap().unread]).toEqual([[], []]);
+  });
+
   it("frames on the map the part of the tree the screen shows, round the middle where each column's place is, after a scroll and a pan", () => {
     // Thirty roots in the first column, the first with an item under it and one under that: three columns.
     const roots = Array.from({ length: 30 }, (_, k) => card(k + 1, k === 0 ? [card(100, [card(101)])] : []));
