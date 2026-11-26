@@ -29,7 +29,8 @@
 //!
 //! A person's act is, about: a write of a block people may write, or a look where they may write none; a pause or a
 //! letting on; a cancel, of a work whose round is under way where there is one; letting a cell go on, at its limit
-//! where a work waits at one; the result of a limit; adding an item, depending on some of those
+//! where a work waits at one, and otherwise a random cell, which the driver must refuse; the result of a limit; adding
+//! an item, depending on some of those
 //! there; or something the driver must refuse, which must change nothing. An item is added on one of the small flows
 //! of the tests or on the deliver flow as the repository defines it, whose items are made of the items they depend on
 //! and wait for them at their one cell, so that items depending on a deliverable wait for it in turn. One item in five
@@ -794,14 +795,24 @@ impl History {
                 return;
             }
             33..=41 => match self.h.decision(work) {
-                Decision::Wait { at, on } if on.iter().any(|w| matches!(w, Waited::Limit { .. })) => {
+                Decision::Wait { at, on }
+                    if on
+                        .iter()
+                        .any(|w| matches!(w, Waited::Limit { .. } | Waited::Calls { .. })) =>
+                {
                     Event::LetGo { cell: at }
                 }
+                // A cell the work does not wait at past its limit is not let go on: the driver refuses it, leaving
+                // everything as it was.
                 _ => {
                     let cells = flow.flow.cells();
-                    Event::LetGo {
-                        cell: cells[self.rng.below(cells.len())].id.clone(),
-                    }
+                    let cell = cells[self.rng.below(cells.len())].id.clone();
+                    self.log
+                        .push(format!("{}: a let-go of {cell} of work {}, refused", self.step, work.0));
+                    self.h
+                        .refused(|d, now| d.happened(now, work, Event::LetGo { cell }).map(drop));
+                    self.seen.refused += 1;
+                    return;
                 }
             },
             42..=54 => {
