@@ -374,7 +374,15 @@ describe('how a run ended or stands', () => {
 /// An item whose work runs, last changed then, at this level and cell level, having cost this much.
 function listed(
   number: number,
-  o: { last?: number | null; level?: string | null; cellLevel?: string | null; cost?: number; title?: string } = {},
+  o: {
+    last?: number | null;
+    level?: string | null;
+    cellLevel?: string | null;
+    cost?: number;
+    time?: number;
+    title?: string;
+    unread?: boolean;
+  } = {},
 ): Item {
   const work: Summary = {
     ...summary({ kind: 'round', cell: 'plan', run: 1, round: 1, since: 0 }),
@@ -383,7 +391,8 @@ function listed(
     last: o.last ?? null,
     level: o.level,
     cellLevel: o.cellLevel,
-    spent: { ...SPENT, usdMicros: o.cost ?? 0 },
+    spent: { ...SPENT, usdMicros: o.cost ?? 0, workingMs: o.time ?? 0 },
+    ...(o.unread === true ? { unread: true, cells: [] } : {}),
   };
   return {
     number,
@@ -430,5 +439,18 @@ describe('the order of the list of works', () => {
     expect(order(items, { by: 'cost', turned: false })).toEqual([2, 3, 1]);
     expect(order(items, { by: 'title', turned: false })).toEqual([2, 1, 3]);
     expect(order(items, { by: 'item', turned: false })).toEqual([3, 2, 1]);
+  });
+
+  it('puts a work whose records the engine could not read last in the columns of cost and time, whichever way they run', () => {
+    // Its cost and time are not worked out: shown as nothing, they would put it first when the column ran upward.
+    const items = [
+      listed(1, { cost: 20, time: 200 }),
+      listed(2, { cost: 0, time: 0, unread: true }),
+      listed(3, { cost: 50, time: 100 }),
+    ];
+    expect(order(items, { by: 'cost', turned: false })).toEqual([3, 1, 2]);
+    expect(order(items, { by: 'cost', turned: true })).toEqual([1, 3, 2]);
+    expect(order(items, { by: 'time', turned: false })).toEqual([1, 3, 2]);
+    expect(order(items, { by: 'time', turned: true })).toEqual([3, 1, 2]);
   });
 });

@@ -10,6 +10,10 @@ The state of the database's copies is shown in the System view's section on what
 A project whose main is red is a row of the System view's section on what is going on now, in the colour of a failure; the console carries no mark of it.
 - rejected: an agent proposed a mark beside the project's name in the console's list as well; the owner rejected it, because the same fact would stand in two places, with one more mark to explain, and the list means what waits for the owner, while a red main waits for the architect.
 
+### decision a-work-whose-state-cannot-be-worked-out-has-a-tile-of-its-own
+The System view counts a work whose state the engine cannot work out in a tile named Broken, after Halted, and not in Halted; the tile says that the work's card tells why.
+- rejected: an agent proposed leaving it in the Halted tile and widening that tile's description to cover it; the owner rejected it, because Halted would then hold two meanings, and the tile's name would differ from the state word on the card (principle one-name-one-meaning).
+
 ### decision the-shared-wait-is-said-without-the-trace
 The wait every work shares is described by what is down and since when, what the engine's check found, and what the wait holds; never the round that met it, its error, or when the engine checks next.
 - rejected: an agent proposed six sentences, among them the round that met the wait and the command line's own words; the owner rejected it, because the last two sentences and the words saying it was not signed in said one thing three times.

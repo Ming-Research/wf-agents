@@ -28,7 +28,7 @@ use tokio::time::Instant;
 
 use crate::interface::{fail, refused};
 use crate::system::RedTest;
-use crate::works::{Broken, Now, Others, Outage, Outages, Pauser, Wait};
+use crate::works::{Broken, Now, Outage, Outages, Pauser, Wait};
 
 /// What needs the planner since the mark it gave, most pressing first.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -150,14 +150,7 @@ impl Attention {
                 item: kept.item.number.0,
                 title: kept.item.title.clone(),
             };
-            let now = Now::of(
-                kept,
-                &view.decision,
-                held,
-                &outages,
-                &driver.along_of(work),
-                &Others::of(driver, work, &at_once),
-            )?;
+            let now = Now::of_work(kept, &view, held, driver, &outages, &at_once);
             Ok((of, now, view, held))
         };
         let lines = (attention.lines.iter())

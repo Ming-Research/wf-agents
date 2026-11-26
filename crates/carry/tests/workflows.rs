@@ -1212,6 +1212,125 @@ fn a_build_of_the_tests_that_fails_leaves_no_results_of_an_earlier_run_to_be_upl
     );
 }
 
+// The build workflow makes the program the owner installs, for macOS on arm64, on each push to `main` and on nothing
+// else: a push is the only way a build of main's head comes to be, and a trigger by a pull request would build anyone's
+// code. A run still going when the next push comes is cancelled, so that the head's is the one that is not. Its one job
+// runs on GitHub's own macOS machine, of a label that is arm64 (the labels of macOS 13 and earlier, and those ending in
+// `-intel` or `-large`, are x86_64), and not on the owner's build machine, which is Linux. Under a millisecond alone; no
+// other test holds that the file says so.
+#[test]
+fn the_build_workflow_runs_on_each_push_to_main_on_a_hosted_macos_arm64_machine() {
+    let text = workflow("build.yml");
+    let on = block(&text, "on");
+    assert_eq!(children(&on), ["push"]);
+    let branches: Vec<&str> = (under(&on, "push").iter())
+        .filter_map(|l| l.trim().strip_prefix("- "))
+        .collect();
+    assert_eq!(branches, ["main"], "the branches of push");
+    let concurrency = block(&text, "concurrency");
+    assert!(
+        concurrency.iter().any(|l| l.trim() == "cancel-in-progress: true"),
+        "a run still going is cancelled by the next push: {concurrency:?}"
+    );
+    let jobs = block(&text, "jobs");
+    assert_eq!(children(&jobs), ["build"]);
+    let labels: Vec<&str> = (jobs.iter())
+        .filter_map(|l| l.trim().strip_prefix("runs-on:"))
+        .map(str::trim)
+        .collect();
+    assert_eq!(labels.len(), 1, "the machines of the jobs: {labels:?}");
+    let label = labels[0];
+    assert!(!label.contains("self-hosted"), "the owner's machine runs it: {label}");
+    let version: u32 = (label.strip_prefix("macos-"))
+        .and_then(|rest| rest.parse().ok())
+        .unwrap_or_else(|| panic!("{label} is no hosted arm64 macOS label of the form macos-<number>"));
+    assert!(version >= 14, "{label} is x86_64");
+    // It reads the repository and writes nothing of it.
+    let permissions = block(&text, "permissions");
+    assert_eq!(
+        permissions.iter().map(|l| l.trim()).collect::<Vec<_>>(),
+        ["contents: read"]
+    );
+}
+
+// Every action the build workflow uses is named by the 40 hex digits of a commit, as the other workflows name theirs,
+// so that a tag moved in an action's repository does not change what runs. Under a millisecond alone.
+#[test]
+fn every_action_of_the_build_workflow_is_pinned_by_a_commit() {
+    let text = workflow("build.yml");
+    let uses: Vec<&str> = (text.lines())
+        .filter_map(|l| l.trim().trim_start_matches("- ").strip_prefix("uses:"))
+        .map(str::trim)
+        .collect();
+    assert!(uses.len() >= 3, "only {} actions found: {uses:?}", uses.len());
+    for used in uses {
+        let digest = used
+            .split_whitespace()
+            .next()
+            .and_then(|u| u.rsplit_once('@'))
+            .map(|(_, d)| d);
+        assert!(
+            digest.is_some_and(|d| d.len() == 40 && d.bytes().all(|b| b.is_ascii_hexdigit())),
+            "{used} is not pinned by a commit"
+        );
+    }
+}
+
+// The step that checks the program names the commit fails for a program that says another, or none, or the commit
+// anywhere but where `--version` puts the one it was built from, and passes for the one it was given: a program built
+// from another source than the run is for is then never kept as that run's artifact. The step is run under bash in a
+// directory that holds a program standing in for the built one, which prints what each case says. A few milliseconds.
+#[test]
+fn the_build_step_that_checks_the_program_fails_for_a_program_that_names_another_commit() {
+    use std::os::unix::fs::PermissionsExt;
+    let script = script_of("build.yml", "--version");
+    let commit = "0123456789abcdef0123456789abcdef01234567";
+    let env = [("WF_BUILD_COMMIT", commit)];
+    for (says, passes) in [
+        (format!("wf-agents 0.1.0 ({commit})"), true),
+        (
+            "wf-agents 0.1.0 (fedcba9876543210fedcba9876543210fedcba98)".to_string(),
+            false,
+        ),
+        ("wf-agents 0.1.0 (unknown)".to_string(), false),
+        // The commit before a longer one that starts with it.
+        (format!("wf-agents 0.1.0 ({commit}0)"), false),
+        // The commit named where the built one is not.
+        (format!("wf-agents {commit} (unknown)"), false),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let program = dir.path().join("target/release/wf-agents");
+        std::fs::create_dir_all(program.parent().unwrap()).unwrap();
+        std::fs::write(&program, format!("#!/bin/sh\necho '{says}'\n")).unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let (ok, said) = try_script(&script, dir.path(), &env);
+        assert_eq!(ok, passes, "a program that says {says:?}: {said}");
+        if !passes {
+            assert!(
+                said.contains(commit) && said.contains(&says),
+                "the step says what differs: {said}"
+            );
+        }
+    }
+}
+
+// An install takes the artifact the build workflow names for the commit, and the guide says how: the guide and the
+// workflow must name it the same way, or an install looks for what is never made. Under a millisecond alone.
+#[test]
+fn the_install_guide_names_the_artifact_and_the_workflow_the_build_makes() {
+    let name = "wf-agents-macos-arm64-";
+    let built = workflow("build.yml");
+    assert!(
+        built.contains(&format!("name: {name}${{{{ github.sha }}}}")),
+        "build.yml does not name its artifact {name}<commit>"
+    );
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs/installing.md");
+    let guide = read(&path);
+    for held in [name, "build.yml", "git rev-parse origin/main", "gh run download"] {
+        assert!(guide.contains(held), "docs/installing.md does not hold {held:?}");
+    }
+}
+
 // A part of a script that no green run reaches is run for the first time when something has failed. The first time a
 // job was red, the step of `check` that copies the failed jobs' logs ended in a syntax error of its last lines, where
 // an apostrophe inside `${names:-...}` began a quoted string: `check` was red, but by the shell's error and without the
@@ -1219,7 +1338,7 @@ fn a_build_of_the_tests_that_fails_leaves_no_results_of_an_earlier_run_to_be_upl
 // none of it; each with the number of scripts it has, so that a reading that finds fewer is seen.
 #[test]
 fn every_script_of_the_workflows_parses() {
-    for (file, least) in [("ci.yml", 6), ("fast.yml", 6), ("measure.yml", 3)] {
+    for (file, least) in [("ci.yml", 6), ("fast.yml", 6), ("measure.yml", 3), ("build.yml", 4)] {
         let found = scripts(&workflow(file));
         assert!(found.len() >= least, "{file}: only {} scripts found", found.len());
         // The script this test was written for is among them.

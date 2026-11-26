@@ -289,6 +289,36 @@ describe('the System view', () => {
     expect(texts(now.querySelectorAll('table')[0], 'thead th')).toEqual(['Work', 'Item', 'Project', 'Cell', 'Since', ...CALLS]);
   });
 
+  it('counts a work whose state could not be worked out in a tile of its own and lists it there, not among the halted', async () => {
+    const s = sources();
+    const items = fixtureItems();
+    const first = items.items.find((i) => standingOf(i.work) === 'due' || standingOf(i.work) === 'paused') as Item;
+    const broken: Items = {
+      ...items,
+      items: items.items.map((i) =>
+        i === first
+          ? { ...i, work: { ...i.work, waits: [], now: { kind: 'broken', words: 'the driver names no turn' } as const } }
+          : i,
+      ),
+    };
+    s.works.loadItems = async () => broken;
+    const { container } = draw(<SystemView period="week" />, s);
+    await settle();
+    const now = part(container, 'Now');
+    const count = (name: string) =>
+      [...now.querySelectorAll('.tile')]
+        .find((t) => t.querySelector('.label')?.textContent === name)
+        ?.querySelector('.tile-value')?.textContent;
+    const among = (standing: string) => broken.items.filter((i) => standingOf(i.work) === standing).length;
+    expect(among('broken')).toBe(1);
+    expect(count(STANDING_WORDS.broken.name)).toBe('1');
+    expect(count(STANDING_WORDS.halted.name)).toBe(String(among('halted')));
+    const tile = [...now.querySelectorAll('button.tile')].find((t) => t.textContent?.includes('Broken')) as HTMLElement;
+    act(() => tile.click());
+    const list = now.querySelector('table[aria-label="Broken"]');
+    expect(texts(list!, 'tbody td:first-child')).toEqual([`W${first.work.number}`]);
+  });
+
   it('counts what waits for the owner by the one count, the things that wait, as the bar says it', async () => {
     const s = sources();
     const items = fixtureItems();
