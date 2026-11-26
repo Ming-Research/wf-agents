@@ -3154,7 +3154,7 @@ mod tests {
             words: "the driver says neither whose turn the work waits for nor since when".to_string(),
         };
         broken.work.unread = true;
-        let others = vec![item(1, false, &[], &[]), item(3, true, &[], &[])];
+        let others = [item(1, false, &[], &[]), item(3, true, &[], &[])];
         let said = list(
             &items(vec![others[0].clone(), broken, others[1].clone()]),
             &Listing::default(),
