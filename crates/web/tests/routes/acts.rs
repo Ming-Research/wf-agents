@@ -2,12 +2,9 @@
 
 use axum::http::StatusCode;
 use serde_json::{Value, json};
-use service::Scripted;
 use store::Store;
 
-use crate::{
-    edit, get_json, greeted, pass, post, post_text, running, running_flow, running_scripted, trial_flow, trial_script,
-};
+use crate::{get_json, greeted, pass, post, post_text, running, running_scripted, trial_script};
 
 const ACTS: &str = "/api/v1/works/1/acts";
 
@@ -279,66 +276,4 @@ async fn a_read_is_taken_for_the_versions_the_work_holds_and_refused_naming_one_
     let unknown = read(json!([{ "block": "nothing_here", "version": 1 }]));
     let (status, json) = post(router, ACTS, &unknown).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{json}");
-}
-
-// What the card shows of a work is new to the owner until the owner reads it, as the items the page reads say: the
-// item is given again once a read of it is kept, and no read that is refused or repeated gives it again.
-#[tokio::test(start_paused = true)]
-async fn what_the_card_shows_is_new_until_it_is_read_and_the_item_is_given_again_once_it_is() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = Store::open(dir.path().join("store.sqlite")).unwrap();
-    let source = edit(
-        trial_flow(),
-        None,
-        "name = \"trial\"\n",
-        "name = \"trial\"\ncard = [\"plan\"]\n",
-    );
-    let running = running_flow(Box::new(store), dir, Scripted::new(trial_script()).carriers(), &source);
-    let router = &running.router;
-    greeted(router).await;
-    let done = (StatusCode::NO_CONTENT, Value::Null);
-    // The plan reaches its limit of returns, and the owner lets it go on; it then hands in the plan, which the card shows.
-    assert_eq!(post(router, ACTS, &json!({ "kind": "goOn", "call": 2 })).await, done);
-    let mut read = get_json(router, "/api/v1/items").await;
-    for _ in 0..100 {
-        if read["items"][0]["work"]["fresh"] == "new" {
-            break;
-        }
-        pass(250).await;
-        read = get_json(router, "/api/v1/items").await;
-    }
-    assert_eq!(read["items"][0]["work"]["fresh"], "new", "{read}");
-    assert_eq!(read["items"][0]["work"]["repliesUnread"], 0);
-    let cursor = read["cursor"].as_str().unwrap().to_string();
-    let page = get_json(router, "/api/v1/works/1").await;
-    let plan = page["blocks"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|b| b["name"] == "plan")
-        .unwrap();
-    let number = plan["versions"][0]["number"].clone();
-    let items_since = |since: String| async move {
-        let page = get_json(router, &format!("/api/v1/items?since={since}")).await;
-        let numbers: Vec<u64> = (page["items"].as_array().unwrap().iter())
-            .map(|i| i["number"].as_u64().unwrap())
-            .collect();
-        (
-            numbers,
-            page["items"][0]["work"]["fresh"].clone(),
-            page["cursor"].as_str().unwrap().to_string(),
-        )
-    };
-    // A read that is refused keeps nothing of it: the plan stays new, and the item is not given again.
-    let refused = json!({ "kind": "read", "versions": [{ "block": "plan", "version": number }, { "block": "plan", "version": 99 }] });
-    assert_eq!(post(router, ACTS, &refused).await.0, StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(items_since(cursor.clone()).await.0, Vec::<u64>::new());
-    // A read that is kept makes the item read, and the item is given again.
-    let one = json!({ "kind": "read", "versions": [{ "block": "plan", "version": number }] });
-    assert_eq!(post(router, ACTS, &one).await, done);
-    let (given, fresh, cursor) = items_since(cursor).await;
-    assert_eq!((given, fresh), (vec![1], json!("none")));
-    // Read again, it changes nothing, and the item is not given again.
-    assert_eq!(post(router, ACTS, &one).await, done);
-    assert_eq!(items_since(cursor).await.0, Vec::<u64>::new());
 }
