@@ -125,6 +125,23 @@ mod tests {
         assert!(!network(""));
     }
 
+    // A call whose command gave no kind and whose words are the network's only keeps the host from doing what it was
+    // asked for now: it is held, and asked again. Any other words are as they were, with no kind and nothing held.
+    #[test]
+    fn a_failure_with_no_kind_is_held_only_where_its_words_are_the_networks() {
+        let gone = told_by_its_words("fatal: unable to access: Connection timed out".to_string());
+        assert_eq!(
+            gone.held,
+            Some(crate::host::Held {
+                obstacle: Obstacle::Network,
+                retry: None
+            })
+        );
+        assert_eq!(gone.kind, Some(Failure::Passing));
+        let refused = told_by_its_words("fatal: couldn't find remote ref main".to_string());
+        assert_eq!((refused.held, refused.kind), (None, None));
+    }
+
     #[tokio::test]
     async fn a_failure_of_the_network_waits_with_every_work_where_the_look_at_the_host_finds_it_gone() {
         let timed_out = Failed::from("fatal: unable to access: Connection timed out".to_string());
