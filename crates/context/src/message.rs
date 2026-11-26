@@ -77,6 +77,10 @@ pub struct Situation {
     pub results: Vec<String>,
     /// The round is given why what a round of its run returned was sent back, which its session lacks.
     pub sent_back: bool,
+    /// The return the round's own reasons are for holds nothing the round's return completes: it asked for calls, or it
+    /// could not be read, so the round is told to give it whole (`sent_back.toml`, `again_whole`). Only where
+    /// `sent_back`.
+    pub whole: bool,
 }
 
 /// What fills the places of a message filled in a run. Either way, each setting that the cell's task, what the cell
@@ -115,9 +119,6 @@ pub struct Run {
     /// Why what the rounds of the run returned was sent back, each with the number of an earlier round, or none for
     /// the round's own, in their order.
     pub sent_back: Vec<(Option<usize>, Vec<Unmet>)>,
-    /// What the return the round's own reasons are for holds itself stands for nothing of what the round gives: it
-    /// asked for calls, or it could not be read, so the round gives it whole (`sent_back.toml`, `again_whole`).
-    pub whole: bool,
     /// The number of each version a reason for sending back names, by its block and the place it was written at.
     pub numbers: BTreeMap<(BlockId, Seq), u64>,
     /// Each version the round's own return would have written over, of a block the cell is not given, which its
@@ -287,7 +288,8 @@ pub struct Defined {
     pub held: Vec<Piece>,
     /// Of a datum, what is sent in its place where the session holds it and the cell never worked from it.
     pub held_new: Vec<Piece>,
-    /// Of a datum, what is sent in place of its text where the session lacks what the text needs.
+    /// Of a datum, what is sent in place of its text where the session lacks what the text needs; of why a return was
+    /// sent back, what is sent where the return is given whole again.
     pub whole: Vec<Piece>,
     /// Of what is new to the cell, the line of each datum or group it watches, by its name, in the cell's order: the
     /// lines of those new to it come after `pieces`, and then `after`.
@@ -397,6 +399,22 @@ pub fn defined(flow: &Compiled, words: &Agents, cell: &CellSpec) -> Vec<Defined>
                     items,
                     after: part.after.as_deref().map_or_else(Vec::new, with_slots),
                     ..made(build.own(part))
+                });
+            }
+            // The reasons a return was sent back for, in the form a return given whole again is sent them in.
+            Part::SentBack => {
+                let whole = Situation {
+                    sent_back: true,
+                    whole: true,
+                    ..Situation::default()
+                };
+                let again_whole = Build {
+                    situation: Some(&whole),
+                    ..build
+                };
+                out.push(Defined {
+                    whole: again_whole.text(part).unwrap_or_default(),
+                    ..made(build.text(part).unwrap_or_default())
                 });
             }
             _ => out.push(made(build.text(part).unwrap_or_default())),
@@ -521,6 +539,7 @@ struct DatumForms {
     unread: Vec<Piece>,
 }
 
+#[derive(Clone, Copy)]
 struct Build<'a> {
     flow: &'a Compiled,
     words: &'a Agents,
@@ -782,11 +801,17 @@ impl Build<'_> {
     fn sent_back(&self) -> Vec<Piece> {
         let words = &self.words.sent_back;
         let slot = |name: &str| Piece::Slot { name: name.into() };
+        // The ending is the situation's: a return given whole again ends in its own words, on the page as in a round.
+        let again = if self.situation.is_some_and(|s| s.whole) {
+            &words.again_whole
+        } else {
+            &words.again
+        };
         let Some(run) = self.run() else {
             let mut pieces = vec![slot("earlier")];
             pieces.extend(written(&format!("{}\n\n", words.heading)));
             pieces.push(slot("sent_back"));
-            pieces.extend(written(&format!("\n\n{}", words.again)));
+            pieces.extend(written(&format!("\n\n{again}")));
             return join(pieces);
         };
         let reasons = |unmet: &[Unmet]| -> String {
@@ -803,7 +828,6 @@ impl Build<'_> {
                     text.push_str(&format!("{heading}\n\n{}\n\n", reasons(unmet)));
                 }
                 None => {
-                    let again = if run.whole { &words.again_whole } else { &words.again };
                     let heading = &words.heading;
                     text.push_str(&format!("{heading}\n\n{}\n\n", reasons(unmet)));
                     for (block, version) in &run.written_over {

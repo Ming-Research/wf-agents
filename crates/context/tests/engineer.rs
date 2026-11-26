@@ -1403,6 +1403,11 @@ fn a_return_that_asked_for_calls_or_could_not_be_read_is_told_to_be_given_whole_
     let entered = sim.enter(&again, sim.begins(&again));
     assert!(entered.text.contains(WHOLE_AGAIN), "{}", entered.text);
     assert!(!entered.text.contains(ONLY_WHAT_IS_LISTED), "{}", entered.text);
+    assert!(
+        entered.situation.whole,
+        "the situation says it: {:?}",
+        entered.situation
+    );
     sim.tries(&again, 1, entered.fills);
     // What could not be read stands for nothing either, and a return that did the cell's work after it is told so
     // again only where it is sent back.
@@ -1412,6 +1417,11 @@ fn a_return_that_asked_for_calls_or_could_not_be_read_is_told_to_be_given_whole_
     let entered = sim.enter(&third, sim.begins(&third));
     assert!(entered.text.contains(WHOLE_AGAIN), "{}", entered.text);
     assert!(!entered.text.contains(ONLY_WHAT_IS_LISTED), "{}", entered.text);
+    assert!(
+        entered.situation.whole,
+        "the situation says it: {:?}",
+        entered.situation
+    );
 }
 
 // The cell that takes charge from another watches that cell's questions (design document `data-and-context`, 28): the

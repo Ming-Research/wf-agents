@@ -325,7 +325,7 @@ fn entered(
                 // What a return that asked for calls or could not be read holds itself stands for nothing of what the next
                 // gives: the next gives it whole. What stood before it is carried on ([`decide::run::carried`]).
                 if k == number {
-                    values.whole = gives_whole(work, run, number);
+                    situation.whole = gives_whole(work, run, number);
                 }
                 for u in unmet {
                     if let Unmet::WrittenOver { block, version } = u {
