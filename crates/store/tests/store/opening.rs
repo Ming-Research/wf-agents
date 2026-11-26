@@ -180,10 +180,12 @@ pub(crate) fn before_unpriced(work: &mut Work) {
     }
 }
 
-/// A work as a file migrated from before version 37 holds it: the migration gave it one place of reads after its latest
-/// entry, holding every version it has, since no flow of these works declares a cell's words block, so that no version
-/// is left unread.
+/// A work as a file migrated from before version 37 holds it: such a file kept no read, whatever the history the work was
+/// made from has, so the work's own reads are dropped; the migration gave it one place of reads after its latest entry,
+/// holding every version it has, since no flow of these works declares a cell's words block, so that no version is left
+/// unread.
 pub(crate) fn after_reads_were_kept(mut work: Work) -> Work {
+    work.records.owner_reads.clear();
     let at = work.tick();
     let versions: Vec<(BlockId, Seq)> = work.contents.keys().cloned().collect();
     if !versions.is_empty() {
