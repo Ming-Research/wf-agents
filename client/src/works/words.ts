@@ -529,14 +529,15 @@ function whoGives(w: Waited): string | null {
 export type Tone = 'running' | 'calling' | 'owner' | 'failed' | 'quiet' | 'done';
 
 /// A call of a tool a work waits for the result of, which the engine carries out: the tool, by its name, none for the
-/// act of an engine cell, which no tool makes; the link of the CI run it runs as, where the engine gives one; the runner
-/// its run, or the jobs of it, wait for, none where they wait for none; the machine whose turn it waits for, and since
-/// when, none where it waits for none; and when it was made, none where the engine does not say.
+/// act of an engine cell, which no tool makes; the link of the CI run it runs as, where the engine gives one; the
+/// runner its run, or the jobs of it, wait for, none where they wait for none; the machine whose turn it waits for,
+/// since when, and the work it waits behind, none where it waits for none; and when it was made, none where the engine
+/// does not say.
 export interface CallWaited {
   tool: string | null;
   ci: string | null;
   queued: string | null;
-  machine: { name: string; since: number } | null;
+  machine: { name: string; since: number; behind: number | null } | null;
   made: number | null;
 }
 
@@ -558,7 +559,9 @@ export function callsWaited(s: Pick<Summary, 'now' | 'cells'>): CallWaited[] {
             tool: w.what.name,
             ci: w.at ?? null,
             queued: w.queuedFor ?? null,
-            machine: w.machine ? { name: w.machine.machine, since: w.machine.since } : null,
+            machine: w.machine
+              ? { name: w.machine.machine, since: w.machine.since, behind: w.machine.behind ?? null }
+              : null,
             made: w.made ? w.made : null,
           },
         ]
@@ -574,8 +577,9 @@ const engineToolCall = (w: Waited): w is Extract<Waited, { kind: 'call' }> & { w
 /// where it runs: in CI, a link to its run, where the engine gives the run's link, else by the engine. `Waiting for
 /// run_tests in CI`. An act, which no tool makes, is said by where it runs alone: `Waiting for CI`. Where its run, or
 /// the jobs of it, wait for a runner, it says which: `Waiting for run_tests in CI (queued for 14900k)`. Where it waits
-/// for its turn on a machine, it says which and how long it has waited, at `time`: `Waiting for run_tests by the
-/// engine (waiting 12m 5s for its turn on 14900k)`.
+/// for its turn on a machine, it says which, how long it has waited, at `time`, and behind which work: `Waiting for
+/// run_tests by the engine (waiting 12m 5s for its turn on 14900k, behind W33)`; behind a run there the engine's turns
+/// do not hold, it names no work.
 export function callWaitParts(calls: CallWaited[], time = Date.now()): Part[] {
   return [
     'Waiting for ',
@@ -587,7 +591,11 @@ export function callWaitParts(calls: CallWaited[], time = Date.now()): Part[] {
       ...(c.queued === null ? [] : [` (queued for ${c.queued})`]),
       ...(c.machine === null
         ? []
-        : [` (waiting ${duration(time - c.machine.since)} for its turn on ${c.machine.name})`]),
+        : [
+            ` (waiting ${duration(time - c.machine.since)} for its turn on ${c.machine.name}${
+              c.machine.behind === null ? '' : `, behind ${workName(c.machine.behind)}`
+            })`,
+          ]),
     ]),
   ];
 }

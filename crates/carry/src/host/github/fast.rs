@@ -706,7 +706,7 @@ impl<A: Api> GitHub<A> {
                 match asked.iter().any(|run| !run.cancelled) {
                     true => None,
                     false => match (self.config.machines)
-                        .turn(&declared.runner, self.config.fast_poll, stop)
+                        .turn(&declared.runner, request.work, self.config.fast_poll, stop)
                         .await?
                     {
                         Some(turn) => Some(turn),

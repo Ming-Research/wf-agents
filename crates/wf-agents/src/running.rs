@@ -161,11 +161,16 @@ pub fn run(data: &Path, flows: &Flows, with: With, port: u16, new: bool) -> Exit
         };
         // What `wf-agents wait` goes by: the settings' table, or, for a script, which has no settings, what the
         // settings take where the table is left out.
-        let (again, turn, queued) = match &with {
+        let (again, turn, queued, machine) = match &with {
             Read::Script(_) => carry::Wait::default().ms(),
             Read::Settings(settings, _) => settings.wait.ms(),
         };
-        let times = web::attention::Times { again, turn, queued };
+        let times = web::attention::Times {
+            again,
+            turn,
+            queued,
+            machine,
+        };
         // The projects an item may be added to: the settings'; a script's one, named as its file is.
         let projects = match &with {
             Read::Script(_) => scripted,

@@ -641,12 +641,15 @@ pub enum Unrun {
 }
 
 /// A call that waits for its turn on a machine, on which one measurement runs at a time: the machine, by its runner's
-/// label, and since when it waits, in milliseconds since 1970.
+/// label, and since when it waits, in milliseconds since 1970; and the work whose measurement has the turn, which it
+/// waits behind, where the engine's turns know one, none where it waits behind a run on the machine they do not know.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MachineWait {
     pub machine: String,
     pub since: u64,
+    #[serde(default)]
+    pub behind: Option<u64>,
 }
 
 /// A call the host could not carry out for now, and held: the engine asks for it again once its wait is over.
@@ -3615,9 +3618,10 @@ fn call_runs_at(held: Option<&HeldCall>, said: Option<&Along>) -> (Option<String
 /// call is held, as [`call_runs_at`] says.
 fn call_waits_for_machine(held: Option<&HeldCall>, said: Option<&Along>) -> Option<MachineWait> {
     match (held, said) {
-        (None, Some(Along::WaitsForMachine { machine, since })) => Some(MachineWait {
+        (None, Some(Along::WaitsForMachine { machine, since, behind })) => Some(MachineWait {
             machine: machine.clone(),
             since: *since,
+            behind: behind.map(|work| work.0),
         }),
         _ => None,
     }
@@ -5665,14 +5669,15 @@ pub(crate) mod tests {
         assert_eq!(said["queuedFor"], "14900k", "{said}");
     }
 
-    /// A call that waits for its turn on a machine says which and since when, as the page reads it, and has no run's
-    /// link yet; one held says none, as it is carried out nowhere; one that runs says none. Under a millisecond; the
-    /// one test of what the page is given of a wait for a machine.
+    /// A call that waits for its turn on a machine says which, since when and behind which work, as the page reads it,
+    /// and has no run's link yet; one held says none, as it is carried out nowhere; one that runs says none. Under a
+    /// millisecond; the one test of what the page is given of a wait for a machine.
     #[test]
     fn a_call_that_waits_for_its_turn_on_a_machine_says_which_and_since_when() {
         let waits = Along::WaitsForMachine {
             machine: "14900k".to_string(),
             since: 1_700_000_000_000,
+            behind: Some(WorkNumber(33)),
         };
         let wait = call_waits_for_machine(None, Some(&waits)).expect("it waits for the machine");
         assert_eq!(runs_at(Some(&waits)), (None, None), "no run is asked for yet");
@@ -5703,7 +5708,7 @@ pub(crate) mod tests {
         let said = serde_json::to_value(call).expect("it is JSON");
         assert_eq!(
             said["machine"],
-            serde_json::json!({ "machine": "14900k", "since": 1_700_000_000_000u64 }),
+            serde_json::json!({ "machine": "14900k", "since": 1_700_000_000_000u64, "behind": 33 }),
             "{said}"
         );
     }

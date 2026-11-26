@@ -136,7 +136,8 @@ export type Waited =
   /// The result of a call a run rests at: from this person, or from the engine where there is none; made at this time,
   /// and, for a tool that runs as a CI run, the run's link, as the tool says as it goes, and the runner its run, or the
   /// jobs of it, wait for where they wait for one; or, for a measurement, the machine whose turn it waits for, on which
-  /// one measurement runs at a time, and since when. Absent from an engine that does not give them yet.
+  /// one measurement runs at a time, since when, and the work whose measurement has the turn, none where it waits
+  /// behind a run there the engine's turns do not hold. Absent from an engine that does not give them yet.
   | {
       kind: 'call';
       call: number;
@@ -145,7 +146,7 @@ export type Waited =
       made?: number;
       at?: string | null;
       queuedFor?: string | null;
-      machine?: { machine: string; since: number } | null;
+      machine?: { machine: string; since: number; behind?: number | null } | null;
       /// Where the host could not carry the call out for now: the engine asks for it again once its wait is over.
       held?: HeldCall | null;
     }
