@@ -51,6 +51,10 @@ pub fn router(handle: Handle, levels: Levels, projects: Projects) -> Router {
     let work = move |handle: State<Handle>, path: Result<Path<u64>, PathRejection>| work(handle, to_show.clone(), path);
     let add = move |handle: State<Handle>, body: Bytes| add(handle, to_add.clone(), projects.clone(), body);
     let change = move |handle: State<Handle>, body: Bytes| change(handle, levels.clone(), body);
+    let parts = std::sync::Arc::new(std::sync::Mutex::new(crate::system::Parts::default()));
+    let system_now = move |handle: State<Handle>, span: Result<Query<crate::system::Span>, QueryRejection>| {
+        crate::system::system(handle, parts.clone(), span)
+    };
     Router::new()
         .route("/api/v1/items", get(items).post(add))
         .route("/api/v1/items/changes", post(change))
@@ -81,7 +85,7 @@ pub fn router(handle: Handle, levels: Levels, projects: Projects) -> Router {
         .route("/api/v1/works/{work}/acts", post(act))
         .route("/api/v1/works/{work}/runs/{run}/forks", post(fork))
         .route("/api/v1/attention", get(crate::attention::attention))
-        .route("/api/v1/system", get(crate::system::system))
+        .route("/api/v1/system", get(system_now))
         .route("/api/v1/system/under-way", get(crate::system::under_way))
         .route("/api/v1/engine", get(engine))
         .route("/api/v1/engine/acts", post(engine_act))

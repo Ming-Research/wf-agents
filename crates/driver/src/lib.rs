@@ -123,8 +123,10 @@ pub mod versions;
 
 pub mod warm;
 
+use std::cell::{RefCell, RefMut};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 pub mod outage;
 
@@ -315,6 +317,33 @@ pub struct Driver {
     /// outside says at a moment, kept only in memory and read by nothing that decides: lost in a stop, it is said again
     /// at the next call under each account, or the next look.
     usage: Usages,
+    /// The merged checks of each project as they were last worked out from the works' records, by the project's name
+    /// ([`Driver::checks`]): worked out again only once a work merged, or a merged work changed, since.
+    checks: RefCell<BTreeMap<Option<String>, Checks>>,
+}
+
+/// The merged checks of a project as they were last worked out ([`timed::history`]), with what they say once it was
+/// asked for.
+#[derive(Default)]
+struct Checks {
+    /// Each work of the project that merged, with its revision as it was then ([`Held::revision`]).
+    of: Vec<(WorkNumber, u64)>,
+    history: Arc<Vec<timed::Merge>>,
+    /// What they say ([`timed::tested`]), with how many values a history was judged from at least.
+    tested: Option<(usize, timed::Tested)>,
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How many times the merged checks of a project were worked out from the works' records on this thread
+    /// ([`Driver::checks`]): what a test of what a read of the tests' times costs reads.
+    static CHECKS_WORKED_OUT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// The next revision of a work as the driver holds it ([`Held::revision`]): one never given before in this process.
+fn next_revision() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
 }
 
 /// A stretch the pause of everything held: from when it was set and by whom, to when it was lifted; none while it
@@ -487,6 +516,13 @@ struct Held {
     /// The work's rounds as the waits every work shares read them, on the version it is on ([`outage::Rounds`]). Worked
     /// out again each time the work grows.
     rounds: outage::Rounds,
+    /// What the work adds to the judgments of the rounds and calls of its flow ([`judged::Part`]). Worked out again each
+    /// time the work grows.
+    part: judged::Part,
+    /// A number that changes each time anything the driver holds of the work changes, its records, its item or the
+    /// version of its flow it is on, and is never given twice in the process: what a reader that keeps what it worked
+    /// out of the work knows it by ([`Driver::revision`]).
+    revision: u64,
 }
 
 /// How a work stands, for the driver: whether it is still to be written to and looked at.
@@ -763,6 +799,7 @@ impl Driver {
             pinging: BTreeSet::new(),
             along: BTreeMap::new(),
             usage: Usages::default(),
+            checks: RefCell::default(),
         };
         let items = driver.store.items().map_err(Fault::Store)?;
         let heads = driver.store.works().map_err(Fault::Store)?;
@@ -1122,6 +1159,7 @@ impl Driver {
                     what: change,
                     why,
                 });
+                held.revision = next_revision();
             }
         }
         // What follows, the changes being kept by now whatever becomes of it: each work whose item depends on an item
@@ -1156,14 +1194,44 @@ impl Driver {
     }
 
     /// The merged checks of the works of the project that merged, in the order they were read.
-    fn merged_checks(&self, project: Option<&str>) -> Vec<timed::Merge> {
-        timed::history(
-            (self.works.iter())
-                .filter(|(_, held)| {
-                    held.standing == Standing::Ended(End::Merged) && held.item.project.as_deref() == project
-                })
-                .map(|(number, held)| (*number, &held.work)),
-        )
+    fn merged_checks(&self, project: Option<&str>) -> Arc<Vec<timed::Merge>> {
+        self.checks(project).history.clone()
+    }
+
+    /// The merged checks of the project as they were last worked out, worked out again from the records of the works of
+    /// the project that merged only where one of them changed since, or another merged: a read of them where nothing
+    /// changed reads no work's records.
+    fn checks(&self, project: Option<&str>) -> RefMut<'_, Checks> {
+        let of: Vec<(WorkNumber, u64)> = (self.works.iter())
+            .filter(|(_, held)| {
+                held.standing == Standing::Ended(End::Merged) && held.item.project.as_deref() == project
+            })
+            .map(|(number, held)| (*number, held.revision))
+            .collect();
+        RefMut::map(self.checks.borrow_mut(), |checks| {
+            let kept = checks.entry(project.map(str::to_string)).or_default();
+            if kept.of != of {
+                #[cfg(test)]
+                CHECKS_WORKED_OUT.with(|worked_out| worked_out.set(worked_out.get() + 1));
+                let merged =
+                    (of.iter()).filter_map(|(number, _)| self.works.get(number).map(|held| (*number, &held.work)));
+                *kept = Checks {
+                    history: Arc::new(timed::history(merged)),
+                    of,
+                    tested: None,
+                };
+            }
+            kept
+        })
+    }
+
+    /// The revision of the work as the driver holds it ([`Held::revision`]): it changes each time anything held of the
+    /// work changes, so a reader that keeps what it worked out of the work needs to work it out again only where its
+    /// revision changed since. None where the driver shows no such work.
+    pub fn revision(&self, number: WorkNumber) -> Option<u64> {
+        (self.works.get(&number))
+            .filter(|_| self.fault.is_none())
+            .map(|held| held.revision)
     }
 
     /// How many values a history is judged from at least, as the installation says; none where it says nothing.
@@ -1181,8 +1249,15 @@ impl Driver {
             .collect();
         (projects.into_iter())
             .map(|project| {
-                let history = self.merged_checks(project.as_deref());
-                timed::tested(project, &history, samples)
+                let mut checks = self.checks(project.as_deref());
+                match &checks.tested {
+                    Some((judged_by, tested)) if *judged_by == samples => tested.clone(),
+                    _ => {
+                        let tested = timed::tested(project, &checks.history, samples);
+                        checks.tested = Some((samples, tested.clone()));
+                        tested
+                    }
+                }
             })
             .filter(|tested| tested.checks > 0)
             .collect()
@@ -1248,6 +1323,7 @@ impl Driver {
                 turn: Some(turn),
             });
             held.work.moments.push(Moment { from: at, at: now });
+            held.revision = next_revision();
             self.store.save(number, &held.work).map_err(Fault::Store)?;
         }
         Ok(())
@@ -1697,10 +1773,7 @@ impl Driver {
             .map(|held| judged::Of {
                 number: held.head.number,
                 flow: &held.head.flow,
-                compiled: (!matches!(held.on, On::NotKept { .. })).then_some(&*held.flow),
-                reading: held.on.reading(),
-                work: &held.work,
-                samples: &held.samples,
+                part: &held.part,
             })
             .collect();
         judged::judged(&works, |number| work.is_none_or(|w| w == number), policy.samples, now)
@@ -2767,6 +2840,8 @@ impl Held {
             samples: Vec::new(),
             turned: Turned::default(),
             rounds: outage::Rounds::default(),
+            part: judged::Part::default(),
+            revision: 0,
         };
         held.update();
         held
@@ -2780,10 +2855,19 @@ impl Held {
         self.standing = Standing::AtFault;
         self.turned.clear();
         self.rounds = outage::Rounds::of(self.head.number, self.on.outline(), &self.work);
+        self.part = self.part_of();
+        self.revision = next_revision();
     }
 
-    /// Works out again how the work stands, its rounds that are history and its rounds as the waits every work shares
-    /// read them, as it grew: how it stands by its end alone where no flow decides it now.
+    /// What the work adds to the judgments of its flow, as it is held now ([`judged::Part::of`]).
+    fn part_of(&self) -> judged::Part {
+        let compiled = (!matches!(self.on, On::NotKept { .. })).then_some(&*self.flow);
+        judged::Part::of(self.head.number, compiled, self.on.reading(), &self.work, &self.samples)
+    }
+
+    /// Works out again how the work stands, its rounds that are history, its rounds as the waits every work shares read
+    /// them and what it adds to the judgments of its flow, as it grew, and gives it a new revision: how it stands by its
+    /// end alone where no flow decides it now.
     fn update(&mut self) {
         self.standing = match self.on.end() {
             Some(end) => Standing::Ended(end),
@@ -2797,6 +2881,8 @@ impl Held {
         } else {
             self.turned.clear();
         }
+        self.part = self.part_of();
+        self.revision = next_revision();
     }
 
     /// Whether what the work holds outside is being let go ([`engine::letting_go`]).
@@ -3028,7 +3114,7 @@ fn standing_of(flow: &Compiled, work: &Work) -> Standing {
 
 #[cfg(test)]
 mod tests {
-    //! What a tick of the driver costs as the works grow in number.
+    //! What a tick of the driver, and a read of what it keeps of every work, costs as the works grow in number.
 
     use flow::{Has, Source, compile};
     use store::Store;
@@ -3114,5 +3200,157 @@ mod tests {
     #[test]
     fn a_tick_works_out_the_shared_waits_as_often_for_many_works_as_for_few() {
         assert_eq!(worked_out_in_a_tick(30), worked_out_in_a_tick(3));
+    }
+
+    /// The round of the work given to be done.
+    fn round_of(driver: &Driver, work: WorkNumber) -> decide::RunId {
+        (driver.pending().into_iter())
+            .find_map(|todo| match todo.effect {
+                Effect::Round { run, .. } if todo.work == work => Some(run),
+                _ => None,
+            })
+            .expect("a round of the work is given")
+    }
+
+    /// The round of the work under way hands in the block, a second after the last thing happened: the writer's, whose
+    /// try ran on a model, or the merge's, an act's.
+    fn hands_in(driver: &mut Driver, now: &mut Time, work: WorkNumber, block: &str) {
+        now.0 += 1_000;
+        let run = round_of(driver, work);
+        if block == "text" {
+            let on = engine::RanOn {
+                level: "1".to_string(),
+                model: "opus".to_string(),
+                effort: None,
+                directory: None,
+                account: None,
+            };
+            let ran = Event::Ran { run, attempt: 1, on };
+            (driver.happened(*now, work, ran)).expect("the try is taken");
+        }
+        let handed = engine::Handed {
+            block: BlockId::from(block),
+            content: format!("The {block}."),
+            matters: true,
+            value: None,
+        };
+        let returned = Event::Returned {
+            run,
+            came: engine::Came::hands_in(vec![handed]),
+            spent: engine::Spent::default(),
+        };
+        (driver.happened(*now, work, returned)).expect("the return is taken");
+    }
+
+    /// What the work's CI read of its one test in a run of this source, asked for so.
+    fn reading(work: WorkNumber, asking: &str, source: work::Source) -> Event {
+        let reading = work::timed::Reading {
+            asking: asking.to_string(),
+            source,
+            commit: "c0ffee".to_string(),
+            workflow: "ci.yml".to_string(),
+            jobs: Vec::new(),
+            tests: vec![work::timed::Test {
+                unit: "unit".to_string(),
+                name: "a".to_string(),
+                passed: true,
+                millis: 100 + work.0,
+            }],
+        };
+        Event::Timed { reading }
+    }
+
+    /// A work added and let on whose writer hands in its text, the CI's full run on it having read its one test.
+    fn written(driver: &mut Driver, now: &mut Time) -> WorkNumber {
+        now.0 += 1_000;
+        let new = NewItem {
+            title: "Work".to_string(),
+            level: "1".to_string(),
+            project: "small".to_string(),
+            depends_on: Vec::new(),
+            tags: Vec::new(),
+            continues: None,
+            flow: "small".to_string(),
+            writes: Vec::new(),
+            why: None,
+            waits_for: Vec::new(),
+        };
+        let (_, work, _) = driver.add(*now, new).expect("the item is added");
+        (driver.happened(*now, work, Event::Resumed)).expect("the work is let on");
+        hands_in(driver, now, work, "text");
+        let full = reading(work, &format!("run/{}", work.0), work::Source::Full);
+        (driver.happened(*now, work, full)).expect("the reading is taken");
+        work
+    }
+
+    /// How many times what a work adds to the judgments, and the merged checks of a project, were worked out since this
+    /// was last asked.
+    fn worked_out() -> (usize, usize) {
+        let parts = judged::WORKED_OUT.with(|worked_out| worked_out.replace(0));
+        let checks = CHECKS_WORKED_OUT.with(|worked_out| worked_out.replace(0));
+        (parts, checks)
+    }
+
+    // A read of the judgments of every work, or of the tests' times of the merged checks, reads what the driver keeps of
+    // each work and works out nothing of it again where nothing changed: what a work adds to the judgments is worked
+    // out as it grows, that work's alone, and a project's merged checks once a work of it merged or a merged work
+    // changed. Fails where a read works out each work's part again, or the checks of a project none of whose works
+    // changed, as each read of the System view did with every work in the store.
+    #[test]
+    fn a_read_of_the_judgments_and_the_tests_times_works_out_nothing_again_where_nothing_changed() {
+        let dir = tempfile::tempdir().expect("a directory for the store");
+        let store = Store::open(dir.path().join("store.db")).expect("the store opens");
+        let mut now = Time(1_800_000_000_000);
+        let policy = Policy {
+            samples: 2,
+            model: Box::new(|_, _| Some("opus".to_string())),
+            changed: None,
+            warm: None,
+        };
+        let (mut driver, _) =
+            Driver::open(Box::new(store), vec![flow()], 10, Some(policy), now).expect("the driver opens");
+        let works: Vec<WorkNumber> = (0..3).map(|_| written(&mut driver, &mut now)).collect();
+        for work in &works {
+            hands_in(&mut driver, &mut now, *work, "merged");
+        }
+        let going = written(&mut driver, &mut now);
+        worked_out();
+        let (judged, tested) = (driver.judged(None, now), driver.tested());
+        assert_eq!(worked_out().0, 0, "no work's part is worked out by a read");
+        assert_eq!(tested.len(), 1);
+        assert_eq!(tested[0].checks, 3, "the three merged checks: {tested:?}");
+        assert_eq!((driver.judged(None, now), driver.tested()), (judged, tested.clone()));
+        assert_eq!(worked_out(), (0, 0), "a read again works out nothing");
+        // The going work grows: its part alone is worked out as it does, and the checks of its project, none of whose
+        // merged works changed, are not worked out again.
+        now.0 += 1_000;
+        let revisions = |driver: &Driver| works.iter().map(|work| driver.revision(*work)).collect::<Vec<_>>();
+        let (merged, was) = (revisions(&driver), driver.revision(going));
+        let fast = reading(going, "call/1", work::Source::Fast);
+        (driver.happened(now, going, fast)).expect("the reading is taken");
+        assert!(worked_out().0 > 0, "the work that grew has its part worked out");
+        assert_ne!(driver.revision(going), was, "the work that grew has a new revision");
+        assert_eq!(
+            revisions(&driver),
+            merged,
+            "the works that did not grow are held as they were"
+        );
+        driver.judged(None, now);
+        assert_eq!(driver.tested(), tested);
+        assert_eq!(
+            worked_out(),
+            (0, 0),
+            "a read after one work grew works out nothing of the others"
+        );
+        // It merges: the next read of the tests' times works out its project's checks once, with its own.
+        hands_in(&mut driver, &mut now, going, "merged");
+        worked_out();
+        assert_eq!(driver.tested()[0].checks, 4);
+        driver.tested();
+        assert_eq!(
+            worked_out(),
+            (0, 1),
+            "the project's checks are worked out once after a work of it merged"
+        );
     }
 }
