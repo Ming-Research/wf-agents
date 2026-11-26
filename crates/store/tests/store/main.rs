@@ -305,6 +305,7 @@ impl Driver {
             why,
             failure: decide::run::Failure::Other,
             resets: None,
+            hindrance: None,
             spent,
         })
     }

@@ -355,6 +355,7 @@ impl S {
                 why: "the agent could not go on".to_string(),
                 failure: decide::run::Failure::Other,
                 resets: None,
+                hindrance: None,
                 spent: Spent {
                     context_tokens: Some(500),
                     ..Default::default()
@@ -655,6 +656,7 @@ fn a_flagged_round_of_a_store_kept_before_sessions_were_recorded_has_its_line_be
         why: "the safeguards flagged this message".to_string(),
         failure: decide::run::Failure::Flagged,
         resets: None,
+        hindrance: None,
         spent,
     });
     assert_eq!(s.sessions(), [("review".to_string(), Why::Flagged)]);
@@ -707,6 +709,7 @@ fn a_round_under_way_as_a_store_kept_before_sessions_were_recorded_opens_goes_on
         why: "the safeguards flagged this message".to_string(),
         failure: decide::run::Failure::Flagged,
         resets: None,
+        hindrance: None,
         spent,
     });
     // The review is tried again in the session that followed its flag, asks for a tool there, and its next round has
@@ -887,6 +890,7 @@ fn a_flagged_round_whose_line_began_a_new_session_as_it_took_main_in_is_tried_ag
         why: "the safeguards flagged this message".to_string(),
         failure: decide::run::Failure::Flagged,
         resets: None,
+        hindrance: None,
         spent,
     });
     assert!(
@@ -1207,6 +1211,7 @@ fn a_model_the_service_does_not_have_pauses_every_work_whose_rounds_run_on_it() 
         why: "There's an issue with the selected model".to_string(),
         failure: decide::run::Failure::NoModel,
         resets: None,
+        hindrance: None,
         spent: Spent::default(),
     });
     let paused = |work: WorkNumber| decide::paused(&s.driver.work(work).expect("the work").work.records);
@@ -1238,6 +1243,7 @@ fn a_round_the_run_guard_stopped_is_tried_again_in_a_new_session_and_a_second_pa
             why: "the run guard stopped the round".to_string(),
             failure: decide::run::Failure::Guarded,
             resets: None,
+            hindrance: None,
             spent: Spent::default(),
         });
     };
@@ -2155,6 +2161,7 @@ fn the_wait_every_work_shares_stops_every_ping_until_a_check_finds_the_outside_w
         why: "the network cannot be reached".to_string(),
         failure: decide::run::Failure::Offline,
         resets: None,
+        hindrance: None,
         spent: Spent::default(),
     };
     s.driver

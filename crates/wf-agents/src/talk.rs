@@ -2716,9 +2716,22 @@ fn called(call: &Call) -> String {
         Call::AtLimit {
             limit: Limit::Calls { made },
         } => format!("its run reached its limit, {made} calls having been made"),
-        Call::Wait { until, failed } => format!(
+        Call::Wait {
+            until,
+            failed,
+            obstacle: None,
+        } => format!(
             "the engine's wait until {}, before the round that failed in passing ({failed} in a row) is tried again",
             utc(*until)
+        ),
+        Call::Wait {
+            until,
+            failed,
+            obstacle: Some(why),
+        } => format!(
+            "the engine's wait until {}, before the round the host kept from running is tried again: {} ({failed} in a row)",
+            utc(*until),
+            obstacle(*why)
         ),
     }
 }
@@ -4255,6 +4268,40 @@ mod tests {
     fn a_work_waiting_for_items_is_said_to_wait_for_them_to_merge() {
         let items = Waited::Items { items: vec![5, 7] };
         assert_eq!(waited(&items), "the items it depends on to merge: #5 and #7");
+    }
+
+    // The engine's wait before a round is tried again is said with the time it is until and how many times in a row, and,
+    // where the host only kept the round's act from running for now, what kept it.
+    #[test]
+    fn the_engines_wait_before_a_round_is_said_with_what_kept_the_host_where_the_host_did() {
+        use web::works::Obstacle;
+        let wait = |obstacle| {
+            called(&Call::Wait {
+                until: 1_700_000_000_000,
+                failed: 3,
+                obstacle,
+            })
+        };
+        let until = utc(1_700_000_000_000);
+        assert_eq!(
+            wait(None),
+            format!(
+                "the engine's wait until {until}, before the round that failed in passing (3 in a row) is tried again"
+            )
+        );
+        for (obstacle, why) in [
+            (Obstacle::Limit, "GitHub's limit on its requests"),
+            (Obstacle::Fault, "GitHub failed"),
+            (Obstacle::NoRunner, "no machine took the run"),
+            (Obstacle::Network, "the network failed"),
+        ] {
+            assert_eq!(
+                wait(Some(obstacle)),
+                format!(
+                    "the engine's wait until {until}, before the round the host kept from running is tried again: {why} (3 in a row)"
+                )
+            );
+        }
     }
 
     // A call the host could not carry out for now is said with the time its wait is until, how many times in a row it

@@ -234,6 +234,15 @@ export function limitWords(limit: Limit): string {
   return limit.of === 'returns' ? `${plural(limit.sentBack, 'return')} sent back` : `${plural(limit.made, 'call')} made`;
 }
 
+/// What kept the host from carrying a call out for now, as a clause.
+const obstacleWords = (obstacle: Obstacle): string =>
+  ({
+    limit: "GitHub's limit on its requests",
+    fault: 'GitHub failed',
+    noRunner: 'no machine took the run',
+    network: 'the network failed',
+  })[obstacle];
+
 /// What a call is, in a line.
 export function callWords(call: Call): string {
   switch (call.kind) {
@@ -244,7 +253,9 @@ export function callWords(call: Call): string {
     case 'atLimit':
       return `the owner letting the run go on at its limit (${limitWords(call.limit)})`;
     case 'wait':
-      return `the engine's wait until ${clock(call.until)}, before a round that failed in passing is tried again (${call.failed} in a row)`;
+      return call.obstacle
+        ? `the engine's wait until ${clock(call.until)}, before the round the host kept from running is tried again: ${obstacleWords(call.obstacle)} (${call.failed} in a row)`
+        : `the engine's wait until ${clock(call.until)}, before a round that failed in passing is tried again (${call.failed} in a row)`;
   }
 }
 
@@ -253,6 +264,8 @@ export function failureWords(failure: Failure): string {
   switch (failure) {
     case 'passing':
       return 'in passing';
+    case 'held':
+      return 'the host only kept it from running for now';
     case 'unread':
       return 'what came back could not be read';
     case 'flagged':
@@ -323,15 +336,6 @@ export function outageWords(outage: Outage): string | null {
   const why = outage.checked && found?.kind === 'down' ? ` At ${at(outage.checked.at)} the check found: ${sentence(found.why)}` : '';
   return `${capital(failureWords(down.failure))} since ${clock(outage.since)}.${why} ${heldWords(outage.service, down.failure, outage.mayMove)}`;
 }
-
-/// What kept the host from carrying a call out for now, as a clause.
-const obstacleWords = (obstacle: Obstacle): string =>
-  ({
-    limit: "GitHub's limit on its requests",
-    fault: 'GitHub failed',
-    noRunner: 'no machine took the run',
-    network: 'the network failed',
-  })[obstacle];
 
 /// The engine's wait before a tool's call, which the host could not carry out for now, is asked for again, said as the
 /// wait before a round that failed in passing is, with why.

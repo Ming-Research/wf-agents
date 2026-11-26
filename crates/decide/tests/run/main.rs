@@ -24,7 +24,7 @@ use std::collections::BTreeMap;
 use decide::run::{
     Answer, Asked, Asking, Call, Failure, Hold, Limit, Log, Requires, Return, Round, Standing, Step, Told, Unmet, next,
 };
-use decide::{BlockId, CallId, Seq, Verdict, Write};
+use decide::{BlockId, CallId, Hindrance, Seq, Verdict, Write};
 
 /// What the flow requires of a cell, owned so that tests can lend it as `Requires`.
 struct Spec {
@@ -200,10 +200,23 @@ fn failed_as(failure: Failure) -> Round {
 /// A round that failed for a cause of this kind, the engine having made these waits after it, each with its result or
 /// not.
 fn waited_after(failure: Failure, waits: &[(u64, bool)]) -> Round {
+    failed_with(failure, None, waits)
+}
+
+/// A round that the host only kept from running for now, for this reason, the engine having made these waits after it,
+/// each with its result or not.
+fn kept_by(hindrance: Hindrance, waits: &[(u64, bool)]) -> Round {
+    failed_with(Failure::Held, Some(hindrance), waits)
+}
+
+/// A round that failed for a cause of this kind, which the host's hindrance tells where it is `Held`, the engine having
+/// made these waits after it.
+fn failed_with(failure: Failure, hindrance: Option<Hindrance>, waits: &[(u64, bool)]) -> Round {
     Round {
         returned: Some(Return::Failed {
             failure,
             why: "it failed".to_string(),
+            hindrance,
             waits: (waits.iter())
                 .map(|&(call, done)| Call {
                     call: CallId(call),

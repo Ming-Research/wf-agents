@@ -24,6 +24,7 @@ pub(super) fn fails(h: &mut H, work: WorkNumber, failure: Failure, resets: Optio
         why: format!("it failed: {failure:?}"),
         failure,
         resets,
+        hindrance: None,
         spent,
     };
     h.on(work, event)
@@ -344,6 +345,7 @@ fn a_shared_failure_of_a_round_whose_work_was_cancelled_begins_no_wait() {
         why: "You've hit your limit".to_string(),
         failure: Failure::UsageLimit,
         resets: None,
+        hindrance: None,
         spent,
     };
     h.on(a, failed);
@@ -602,6 +604,7 @@ fn no_round_is_handed_out_under_an_account_whose_usage_limit_stands() {
                             why: "You've hit your limit".to_string(),
                             failure: Failure::UsageLimit,
                             resets,
+                            hindrance: None,
                             spent,
                         };
                         let todos = h.on(work, failed);

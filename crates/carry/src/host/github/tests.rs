@@ -715,11 +715,11 @@ fn cancelled(hub: &Hub) -> Vec<u64> {
         .collect()
 }
 
-// A full run no runner took is the engine's own to cancel, and fails the round in passing: what stops it is no work's,
+// A full run no runner took is the engine's own to cancel, and is held, not failed: what stops it is no work's,
 // and asked for again after a wait it may start. A project that declares no workflows has no check, which only its
 // owner mends.
 #[tokio::test]
-async fn a_full_run_no_runner_took_is_cancelled_and_fails_in_passing_and_a_project_with_no_workflows_has_no_check() {
+async fn a_full_run_no_runner_took_is_cancelled_and_held_and_a_project_with_no_workflows_has_no_check() {
     let hub = queued::on_14900k(Hub::new());
     let head = hub.committed().await;
     hub.github().queue_runs();
@@ -736,7 +736,14 @@ async fn a_full_run_no_runner_took_is_cancelled_and_fails_in_passing_and_a_proje
             .ends_with("none of 14900k is online, and the engine cancelled the run"),
         "{failed}"
     );
-    assert_eq!(failed.kind, Some(Failure::Passing));
+    assert_eq!(failed.kind, Some(Failure::Held));
+    assert_eq!(
+        failed.hindrance,
+        Some(decide::Hindrance {
+            obstacle: decide::Obstacle::NoRunner,
+            retry: None
+        })
+    );
     assert_eq!(cancelled(&hub), [1000], "the run asked for is cancelled");
     let hub = Hub::new().with(|config| config.ci = None);
     let head = hub.committed().await;
@@ -985,11 +992,35 @@ async fn the_merge_refuses_a_main_that_moved_on_github_since_the_check() {
     );
 }
 
+// GitHub's limit on its requests, met as the check asks for the project's full workflows, only keeps the check from
+// running for now: the round of the check is held, with what kept it and when GitHub says it may be asked again; a
+// refusal no wait mends is not held.
+#[tokio::test]
+async fn a_limit_met_as_the_full_workflows_are_asked_for_holds_the_check_with_the_time_github_says() {
+    for (said, kind, hindrance) in [
+        (
+            "HTTP 429: API rate limit exceeded",
+            Failure::Held,
+            Some(decide::Hindrance {
+                obstacle: decide::Obstacle::Limit,
+                retry: Some(decide::Retry::In(60)),
+            }),
+        ),
+        ("HTTP 422: No ref found for: main", Failure::Other, None),
+    ] {
+        let hub = Hub::new();
+        let head = hub.committed().await;
+        hub.github().refuse_dispatch(said);
+        let failed = hub.failing(&head).await.expect_err("the check does not run");
+        assert_eq!((failed.kind, failed.hindrance), (Some(kind), hindrance), "{said}");
+    }
+}
+
 // What GitHub's answer to a merge tells is its kind: a fault of GitHub's own passes, a refusal waits for the owner.
 #[tokio::test]
 async fn a_merge_github_fails_in_passing_or_refuses_is_of_the_kind_its_answer_tells() {
     for (said, kind) in [
-        ("HTTP 502: Bad Gateway", Failure::Passing),
+        ("HTTP 502: Bad Gateway", Failure::Held),
         ("HTTP 405: At least 1 approving review is required", Failure::Other),
     ] {
         let hub = Hub::new();

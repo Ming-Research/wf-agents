@@ -651,6 +651,7 @@ mod tests {
             why: "it broke".to_string(),
             failure: Failure::Other,
             resets: None,
+            hindrance: None,
             spent: Spent::default(),
         };
         engine::handle(&flow, &mut work, Time(1000), failed()).expect("the round fails");
@@ -1033,6 +1034,7 @@ mod tests {
             why: "it broke".to_string(),
             failure: Failure::Other,
             resets: None,
+            hindrance: None,
             spent: Spent::default(),
         };
         engine::handle(flow, &mut work, Time(1000), failed()).expect("the round fails");
