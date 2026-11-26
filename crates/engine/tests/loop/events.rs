@@ -291,6 +291,7 @@ fn a_fork_of_a_round_is_kept_with_what_it_took_for_a_work_under_way_and_for_one_
     let (mut w, write, _) = W::requested();
     let spent = Spent {
         usd_micros: 400_000,
+        unpriced: true,
         uncached_tokens: 120,
         cache_written_tokens: Some(100),
         cached_tokens: 18_100,
@@ -305,8 +306,8 @@ fn a_fork_of_a_round_is_kept_with_what_it_took_for_a_work_under_way_and_for_one_
     let first = w.work.tick().0 - 1;
     assert_eq!(w.work.moments.len(), moments + 1, "kept as a moment of its own");
     assert_eq!(w.work.records.started.len(), started, "no cell runs for it");
-    // What is kept of what it took is its cost and its counts of tokens: the rest of what a round keeps is not a
-    // fork's.
+    // What is kept of what it took is its cost, whether some of it is not known, and its counts of tokens: the rest of
+    // what a round keeps is not a fork's.
     assert_eq!(
         w.work.forked,
         [Forked {
@@ -314,6 +315,7 @@ fn a_fork_of_a_round_is_kept_with_what_it_took_for_a_work_under_way_and_for_one_
             run: write,
             round: 1,
             usd_micros: 400_000,
+            unpriced: true,
             uncached_tokens: 120,
             cache_written_tokens: Some(100),
             cached_tokens: 18_100,

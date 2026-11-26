@@ -271,10 +271,11 @@ async fn what_a_trys_program_leaves_running_holding_its_output_is_stopped_once_t
     assert_eq!(counted, [(of, 1)], "counted with the try");
 }
 
-// A result that does not say what the program spent since the result before it is charged what the round's calls cost at
-// their models' prices, and the try says it is priced so: not nothing, and not the session's whole cost.
+// A result that does not say what the program spent since the result before it, in a work whose earlier reports price
+// no model, leaves what the round's calls cost not known: the round says so, and the try says it is worked out from its
+// calls; it is not taken as nothing, nor as the session's whole cost, and the work waits for the owner.
 #[tokio::test]
-async fn a_round_whose_result_does_not_say_what_it_spent_is_charged_its_calls_at_their_prices_and_says_so() {
+async fn a_round_whose_result_does_not_say_what_it_spent_has_a_cost_not_known_where_no_report_prices_its_model() {
     let fake = Fake {
         omits_cost: true,
         cost: "9.99",
@@ -287,8 +288,10 @@ async fn a_round_whose_result_does_not_say_what_it_spent_is_charged_its_calls_at
         .await;
     let kept = real.work(work);
     let plan_run = kept.records.started[0].run;
-    // Opus 5.5: 100 × 4 + 1,000 × 0.2 + 10 × 20 millionths of a dollar, not the $9.99 the session's total says.
-    assert_eq!(kept.spent[&(plan_run, 1)].usd_micros, 400 + 200 + 200);
+    // Not the $9.99 the session's total says, and not nothing: not known.
+    let spent = kept.spent[&(plan_run, 1)];
+    assert_eq!((spent.usd_micros, spent.unpriced), (0, true));
     let measures = work::measured::of_round(&kept.measured, plan_run, 1).expect("the round's try is measured");
-    assert!(measures.priced, "what it took is priced from its calls");
+    assert!(measures.priced, "what it took is worked out from its calls");
+    real.until(|real| decide::paused(&real.work(work).records)).await;
 }

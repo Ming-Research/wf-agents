@@ -105,6 +105,9 @@ pub struct Forked {
     /// Which round of the run, the first being one.
     pub round: usize,
     pub usd_micros: u64,
+    /// Whether some of its cost is not known, as [`crate::Spent::unpriced`].
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unpriced: bool,
     /// The tokens sent that were not read from the cache, as [`crate::Spent::uncached_tokens`].
     pub uncached_tokens: u64,
     /// Of `uncached_tokens`, those written to the cache, as [`crate::Spent::cache_written_tokens`].

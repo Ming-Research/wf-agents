@@ -7,7 +7,7 @@ use store::{Divergence, Entry, KeptFlow, KeptOutline, SCHEMA_VERSION};
 use work::{KeptTime, OnFlow, Stretch, TurnSpan, Went};
 
 use super::diverged::{Change, refused};
-use super::opening::{before_held_calls, before_pauses_waited_for_items, columns, versions};
+use super::opening::{before_held_calls, before_pauses_waited_for_items, before_unpriced, columns, versions};
 use super::*;
 
 /// A version of the judged flow as the store is given it: these files, each with a digest of its own making, and an
@@ -128,6 +128,7 @@ fn a_file_of_version_21_is_migrated_with_no_version_kept_no_work_on_one_and_no_t
     let mut work = d.work;
     before_pauses_waited_for_items(&mut work);
     before_held_calls(&mut work);
+    before_unpriced(&mut work);
     let (old, new) = kept_in_21(&work);
     let store = old.open();
     // The file ends at the schema of this build, whichever migrations follow the one that makes the tables below.
@@ -159,6 +160,7 @@ fn a_file_of_version_32_is_migrated_with_its_kept_times_read_as_holding_no_turn(
     history(&mut d);
     let mut work = d.work;
     before_held_calls(&mut work);
+    before_unpriced(&mut work);
     let at = work.tick();
     work.kept_time.push(KeptTime {
         at,
@@ -188,6 +190,7 @@ fn a_file_of_version_23_is_migrated_with_no_fork_kept() {
     let mut work = d.work;
     before_pauses_waited_for_items(&mut work);
     before_held_calls(&mut work);
+    before_unpriced(&mut work);
     let (old, new) = super::opening::kept_in(23, &work);
     let store = old.open();
     assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
