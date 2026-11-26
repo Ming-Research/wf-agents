@@ -655,103 +655,9 @@ impl<A: Api> Host for GitHub<A> {
         named: &Named,
         asking: Asking,
         stop: &mut Stop,
-    ) -> Result<Option<String>, String> {
-        // What the check before the merge refuses, this refuses the same way: the repository's configuration and a
-        // worktree off the work's branch.
-        let place = branch.place;
-        let words = (self.config.tool.as_ref())
-            .and_then(|tool| tool.github.as_ref())
-            .ok_or("the words of run_tests (agents/tools/run_tests.toml) have no [github]")?;
-        let dir = git::worktree(place)?;
-        git::configuration(&self.project, place).await?;
-        git::on_branch(place).await?;
-        // Only what is named is run: a request that names nothing is the agent's to ask again, and the full workflows
-        // are the check before the merge's.
-        if named.is_empty() {
-            return Ok(Some(words.none_named.clone()));
-        }
-        // Each workflow the request needs is asked for before anything is pushed, so that one the project cannot run
-        // keeps the others from being run either: the fast workflow for the tests and checks named, the measure
-        // workflow for the measurements.
-        let ci = self.config.ci.as_ref();
-        let fast = match named.tests.is_empty() && named.checks.is_empty() {
-            true => None,
-            false => match self.role(ci, named)? {
-                Ok(role) => Some(role),
-                Err(refused) => return Ok(Some(refused)),
-            },
-        };
-        let measure = match named.measure.is_empty() {
-            true => None,
-            false => match self.measure_role(ci)? {
-                Ok(measure) => Some(measure),
-                Err(refused) => return Ok(Some(refused)),
-            },
-        };
-        let repo = &self.project.repo;
-        let (commit, untracked) = match &named.commit {
-            // The agent says which commit to run, so what the worktree holds besides it is of no concern.
-            Some(name) => {
-                let found = match self.named_commit(&dir, name).await? {
-                    Ok(found) => found,
-                    Err(why) => return Ok(Some(fill(&words.commit_unknown, &[("why", &why)]))),
-                };
-                (found, String::new())
-            }
-            None => {
-                if git::merging(&dir).await? {
-                    let changes = git::uncommitted(&dir).await?;
-                    return Ok(Some(fill(&words.merge_under_way, &[("changes", &changes)])));
-                }
-                let changes = git::uncommitted(&dir).await?;
-                if !changes.is_empty() {
-                    return Ok(Some(fill(&words.uncommitted, &[("changes", &changes)])));
-                }
-                // What git does not track is in no commit, so it is not in the run: it is said with the result, where a
-                // test an agent forgot to commit would otherwise be missing from it unseen.
-                let untracked = git::untracked(&dir).await?;
-                (git::git(repo, &["rev-parse", &place.reference()]).await?, untracked)
-            }
-        };
-        // The commit is pushed to a branch of its own for this call, never to the work's branch, which the check before
-        // the merge pushes: a commit named only to be run, such as one that shows a new test red on the code before the
-        // change, must not land on the work's branch.
-        let trying = trial_branch(branch, asking);
-        self.push_to(&commit, &format!("refs/heads/{trying}"), false).await?;
-        let request = fast::Request {
-            work: branch.work,
-            commit: &commit,
-            asking,
-        };
-        // The fast workflow first, then the measure workflow, which times the commit against the one the work's change
-        // began from: the newest commit main and the work's commit have in common, a commit of main's, so that what is
-        // timed is the change alone and not what other works merged into main since.
-        let mut said: Vec<String> = Vec::new();
-        if let Some(role) = fast {
-            match self.run_role(role, request, named, stop).await? {
-                Some(one) => said.push(one),
-                None => return Ok(None),
-            }
-        }
-        if let Some(measure) = measure {
-            let base = git::git(repo, &["merge-base", &self.kept_main(), &commit]).await?;
-            match self
-                .run_role(Role::Measure(measure, &base), request, named, stop)
-                .await?
-            {
-                Some(one) => said.push(one),
-                None => return Ok(None),
-            }
-        }
-        let said = said.join("\n\n");
-        // The branch is kept until the run has ended and its result is read: a run the engine stopped waiting for
-        // returned above, and is found again by the same call, which checks the commit out when it starts. One that
-        // could not be deleted is deleted as the work ends ([`Host::end`]).
-        let _ = self.api.delete(&trying).await;
-        Ok(Some(match untracked.is_empty() {
-            true => said,
-            false => format!("{}\n\n{said}", fill(&words.untracked, &[("files", &untracked)])),
-        }))
+    ) -> Result<Option<String>, Failed> {
+        // A failure no kind is told of, as `gh` or git gave it, is the network's where its words say so.
+        (self.tests(branch, named, asking, stop).await).map_err(crate::acts::failing::told)
     }
 
     async fn end(&self, branch: &Branch<'_>, merged: bool) -> Result<(), String> {
@@ -903,6 +809,114 @@ fn fence(text: &str) -> String {
 const TITLE: usize = 200;
 
 impl<A: Api> GitHub<A> {
+    /// What `run_tests` finds of the work, as [`Host::run_tests`] says; a failure is of the kind the host's answer
+    /// tells.
+    async fn tests(
+        &self,
+        branch: &Branch<'_>,
+        named: &Named,
+        asking: Asking,
+        stop: &mut Stop,
+    ) -> Result<Option<String>, Failed> {
+        // What the check before the merge refuses, this refuses the same way: the repository's configuration and a
+        // worktree off the work's branch.
+        let place = branch.place;
+        let words = (self.config.tool.as_ref())
+            .and_then(|tool| tool.github.as_ref())
+            .ok_or("the words of run_tests (agents/tools/run_tests.toml) have no [github]")?;
+        let dir = git::worktree(place)?;
+        git::configuration(&self.project, place).await?;
+        git::on_branch(place).await?;
+        // Only what is named is run: a request that names nothing is the agent's to ask again, and the full workflows
+        // are the check before the merge's.
+        if named.is_empty() {
+            return Ok(Some(words.none_named.clone()));
+        }
+        // Each workflow the request needs is asked for before anything is pushed, so that one the project cannot run
+        // keeps the others from being run either: the fast workflow for the tests and checks named, the measure
+        // workflow for the measurements.
+        let ci = self.config.ci.as_ref();
+        let fast = match named.tests.is_empty() && named.checks.is_empty() {
+            true => None,
+            false => match self.role(ci, named)? {
+                Ok(role) => Some(role),
+                Err(refused) => return Ok(Some(refused)),
+            },
+        };
+        let measure = match named.measure.is_empty() {
+            true => None,
+            false => match self.measure_role(ci)? {
+                Ok(measure) => Some(measure),
+                Err(refused) => return Ok(Some(refused)),
+            },
+        };
+        let repo = &self.project.repo;
+        let (commit, untracked) = match &named.commit {
+            // The agent says which commit to run, so what the worktree holds besides it is of no concern.
+            Some(name) => {
+                let found = match self.named_commit(&dir, name).await? {
+                    Ok(found) => found,
+                    Err(why) => return Ok(Some(fill(&words.commit_unknown, &[("why", &why)]))),
+                };
+                (found, String::new())
+            }
+            None => {
+                if git::merging(&dir).await? {
+                    let changes = git::uncommitted(&dir).await?;
+                    return Ok(Some(fill(&words.merge_under_way, &[("changes", &changes)])));
+                }
+                let changes = git::uncommitted(&dir).await?;
+                if !changes.is_empty() {
+                    return Ok(Some(fill(&words.uncommitted, &[("changes", &changes)])));
+                }
+                // What git does not track is in no commit, so it is not in the run: it is said with the result, where a
+                // test an agent forgot to commit would otherwise be missing from it unseen.
+                let untracked = git::untracked(&dir).await?;
+                (git::git(repo, &["rev-parse", &place.reference()]).await?, untracked)
+            }
+        };
+        // The commit is pushed to a branch of its own for this call, never to the work's branch, which the check before
+        // the merge pushes: a commit named only to be run, such as one that shows a new test red on the code before the
+        // change, must not land on the work's branch.
+        let trying = trial_branch(branch, asking);
+        (self.push_to(&commit, &format!("refs/heads/{trying}"), false).await)
+            .map_err(crate::acts::failing::told_by_its_words)?;
+        let request = fast::Request {
+            work: branch.work,
+            commit: &commit,
+            asking,
+        };
+        // The fast workflow first, then the measure workflow, which times the commit against the one the work's change
+        // began from: the newest commit main and the work's commit have in common, a commit of main's, so that what is
+        // timed is the change alone and not what other works merged into main since.
+        let mut said: Vec<String> = Vec::new();
+        if let Some(role) = fast {
+            match self.run_role(role, request, named, stop).await? {
+                Some(one) => said.push(one),
+                None => return Ok(None),
+            }
+        }
+        if let Some(measure) = measure {
+            let base = git::git(repo, &["merge-base", &self.kept_main(), &commit]).await?;
+            match self
+                .run_role(Role::Measure(measure, &base), request, named, stop)
+                .await?
+            {
+                Some(one) => said.push(one),
+                None => return Ok(None),
+            }
+        }
+        let said = said.join("\n\n");
+        // The branch is kept until the run has ended and its result is read: a run the engine stopped waiting for
+        // returned above, and is found again by the same call, which checks the commit out when it starts. One that
+        // could not be deleted is deleted as the work ends ([`Host::end`]).
+        let _ = self.api.delete(&trying).await;
+        Ok(Some(match untracked.is_empty() {
+            true => said,
+            false => format!("{}\n\n{said}", fill(&words.untracked, &[("files", &untracked)])),
+        }))
+    }
+
     /// The title of the work's pull request: the name of its merge, made [`neutral`] as what the work writes is, cut
     /// to [`TITLE`] characters, saying so.
     fn title(&self, branch: &Branch<'_>) -> String {

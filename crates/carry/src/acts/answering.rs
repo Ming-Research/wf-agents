@@ -84,7 +84,7 @@ impl<H: Host> Host for Answering<H> {
         named: &Named,
         asking: Asking,
         stop: &mut Stop,
-    ) -> Result<Option<String>, String> {
+    ) -> Result<Option<String>, Failed> {
         let ran = self.host.run_tests(branch, named, asking, stop).await;
         self.tell(matches!(ran, Ok(Some(_))));
         ran
