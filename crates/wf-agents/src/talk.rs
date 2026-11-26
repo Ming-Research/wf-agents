@@ -2110,7 +2110,10 @@ fn main_red(project: &str, tests: &[RedTest], works: &[Of], red_for: String) -> 
         "No work waits for it.".to_string()
     } else {
         let waiting: Vec<String> = (works.iter())
-            .map(|of| format!("{} for item {}", work_number(of.work), item_number(of.item)))
+            .map(|of| {
+                let (work, item) = (work_number(of.work), item_number(of.item));
+                format!("{work} for item {item}")
+            })
             .collect();
         format!("Waiting for it to pass: {}.", waiting.join(", "))
     };
