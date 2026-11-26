@@ -90,7 +90,8 @@ function keywordsOf(prop: string): Set<string> | undefined {
 // Blanks what is not style (comments, strings, the insides of `url()`), keeping every length and every line break, so
 // that an offset in the result is an offset in the text.
 function blank(css: string): string {
-  const noise = /\/\*[\s\S]*?\*\/|url\([^)]*\)|"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'/g;
+  const quoted = String.raw`"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'`;
+  const noise = new RegExp(String.raw`\/\*[\s\S]*?\*\/|url\(\s*(?:${quoted}|[^)]*)\s*\)|${quoted}`, 'g');
   return css.replace(noise, (m) => m.replace(/[^\n]/g, ' '));
 }
 
