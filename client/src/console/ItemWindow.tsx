@@ -681,7 +681,7 @@ function ItemView({
   const lastReply = useRef<number | null>(null);
   const shownReply = useRef(0);
   const opened = useRef(0);
-  const [asked, setAsked] = useState(0);
+  const [redrawn, setRedrawn] = useState(0);
   useEffect(() => {
     if (reply === undefined || shownReply.current === reply.seq) return;
     if (tab !== 'item') {
@@ -695,7 +695,7 @@ function ItemView({
       if (head !== null && head !== undefined && opened.current !== reply.seq) {
         opened.current = reply.seq;
         head.click();
-        setAsked((n) => n + 1);
+        setRedrawn((n) => n + 1);
         return;
       }
     }
@@ -712,7 +712,7 @@ function ItemView({
     const el = all[to];
     el.scrollIntoView({ block: el.getBoundingClientRect().height > (pane?.clientHeight ?? Infinity) ? 'start' : 'center' });
     onReply?.(true);
-  }, [reply, tab, chosenTab, setOwnTab, bodyRead, unreadReplies, asked, onReply]);
+  }, [reply, tab, chosenTab, setOwnTab, bodyRead, unreadReplies, redrawn, onReply]);
   // The sections the card of the version the work runs on names: as read, or, until the body is read, each with nothing
   // in it yet.
   const sections = bodyRead ? body.sections : (read?.outline.card ?? []).map((title) => ({ title, parts: [] }));
