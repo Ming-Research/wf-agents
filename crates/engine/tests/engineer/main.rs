@@ -144,13 +144,13 @@ use std::rc::Rc;
 use std::sync::{Mutex, PoisonError};
 
 use decide::questions::Standing;
-use decide::run::Failure;
+use decide::run::{Failure, Unmet};
 use decide::{
     BlockId, Cause, CellId, Condition, Decision, End, Flow, Outsider, Pauser, Records, RunId, Seq, TestKind, Waited,
     decide,
 };
 use engine::spoken::{self, To};
-use engine::{Ask, Came, Effect, Event, Handed, Question, Way};
+use engine::{Ask, Came, Effect, Event, Given, Handed, Question, Way};
 use flow::{Compiled, Has, Kind, Source, compile, read};
 use reading::{Reading, Writer};
 use support::{Driver, Part, Rng, lacking_a_must_write};
@@ -481,6 +481,7 @@ fn required(flow: &Compiled, roles: &Roles) -> Vec<String> {
             CONTENT_ON_A_REFUSAL,
             ENGINE_STOPPED,
             LACKING_SENT_BACK,
+            STUCK_SENT_BACK,
             LACKING_TAKEN_WITH_A_QUESTION,
             MERGED_A_REVIEWED_HEAD,
             CHECK_GATED,
@@ -560,6 +561,7 @@ const CONTENT_ON_A_REFUSAL: &str = "the content continuation began as a judge's 
 const OWNER_ASKED_A_CELL: &str = "the owner had a cell write again a choice a precondition waits on";
 const ENGINE_STOPPED: &str = "the engine stopped";
 const LACKING_SENT_BACK: &str = "a hand-in that lacked a block its cell must write was sent back";
+const STUCK_SENT_BACK: &str = "a hand-in that would have left the work stuck was sent back";
 const LACKING_TAKEN_WITH_A_QUESTION: &str =
     "a hand-in that lacked a block its cell must write was taken, with a question its cell waits for";
 const MERGED_A_REVIEWED_HEAD: &str = "the merge merged a head the work committed and the review dealt with";
@@ -1016,6 +1018,22 @@ fn next_word(d: &mut Driver, run: RunId, i: usize, cell: &str, handed_in: &mut V
     }
 }
 
+/// The blocks the round under way of this run was sent back for: a return that would have left the work stuck, which its
+/// cell is to hand in beside what it drew (`WouldStall`); none where it was sent back for nothing of the kind.
+fn stuck_for(d: &Driver, run: RunId) -> Vec<BlockId> {
+    let round = d.work.records.rounds.iter().filter(|r| r.run == run).count();
+    match d.work.given.get(&(run, round)) {
+        Some(Given::SentBack(unmet)) => (unmet.iter())
+            .filter_map(|u| match u {
+                Unmet::WouldStall { blocks } => Some(blocks.clone()),
+                _ => None,
+            })
+            .flatten()
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 /// The check, whose round ends now, passed the work's head as the branch holds it, or failed it.
 fn passes_at(branch: &Shared, passed: bool) {
     let mut b = branch.get();
@@ -1112,6 +1130,12 @@ impl Random {
                 let mut handed_in = self.valid(d, i, cell);
                 // Nine agents in ten owe nothing they leave out.
                 next_word(d, run, i, cell, &mut handed_in, 90);
+                // Nine agents in ten told that their return would leave the work stuck hand in the blocks named.
+                for block in stuck_for(d, run) {
+                    if !handed_in.iter().any(|h| h.block == block) && d.rng.chance(90) {
+                        handed_in.push(handed(&block, cell, true, None));
+                    }
+                }
                 let first = !d.work.records.questions.iter().any(|q| !q.engine);
                 let force = match self.steer {
                     Steer::FailCheckLeft if first => Some(false),
@@ -1936,6 +1960,13 @@ impl History {
         }
         if self.d.seen.lacking > 0 {
             reached.push(LACKING_SENT_BACK.to_string());
+        }
+        let stuck = (self.d.work.given.values()).any(|g| match g {
+            Given::SentBack(unmet) => unmet.iter().any(|u| matches!(u, Unmet::WouldStall { .. })),
+            _ => false,
+        });
+        if stuck {
+            reached.push(STUCK_SENT_BACK.to_string());
         }
         // A run that finished lacking a block its cell must write, which asked no call and asked a question its cell
         // waits for: the engine took it, as the decision allows.
