@@ -104,7 +104,8 @@ export type Shown = {
 };
 
 /// Whether the owner has something to read of an item: it is new or has changed, or a reply is not read. The one test of
-/// the line at a card's left, which says only that something is unread, and the number of replies says how many.
+/// what the map marks of an item, and of a folded item for what is under it; the card says only how many replies are not
+/// read.
 export const somethingUnread = (s: Pick<Shown, 'fresh' | 'repliesUnread'>): boolean =>
   s.fresh !== 'none' || s.repliesUnread > 0;
 

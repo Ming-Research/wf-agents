@@ -463,7 +463,7 @@ describe('what the owner has not read of an item', () => {
     ]);
   });
 
-  it('draws the line at the card where the item is new or changed, or any reply is not read, and not where both are read', () => {
+  it('has something unread where the item is new or changed, or any reply is not read, and not where both are read', () => {
     expect(shownTree({ items }).map((s) => [s.id, somethingUnread(s)])).toEqual([
       [1, false],
       [2, true],
