@@ -26,9 +26,16 @@ The tools a cell may ask for are those its flow names in `flow.toml`, the same f
 - rejected: an agent proposed one set of tools for every flow alike; the owner rejected it, because another flow beside the engineer's, such as a researcher's, would not have these tools.
 
 ### decision a-tools-result-is-no-datum
-A tool's result is not a datum: the run that asked for it goes on with it, and it runs no cell.
+A tool's result is not a datum for the cell that asked for it: the run that asked goes on with it, and it runs no cell.
 - rejected: an agent proposed treating a tool's result as a new datum for the cell that asked for it; the owner rejected it, because what the cell asked for comes back within the same run, which is not a new run and wakes no other cell.
 - rejected: an agent proposed a sentence in the design of data saying that a run's own results and send-backs continue that run; the owner rejected it, because that sentence was itself a new mechanism.
+- replaced: A tool's result being no datum for any cell was on main; the owner changed it, because the test review must judge the evidence against what each call of `run_tests` gave, which no other record gives it whole, so the engine also writes it as a datum of its own.
+
+### decision the-test-review-is-given-each-call-of-run-tests-as-a-datum
+The engine writes each call of `run_tests`, with its request and its result cut at the tool's bound, as a version of the datum `test_runs`, which only the test review reads and no cell watches.
+- rejected: an agent proposed a digest of each call made from structured records; the owner rejected it, because it needs new records and a migration, tells a second time what the engineer was given and drifts from it, and earlier works have none of them.
+- rejected: an agent proposed no datum, with the review reading `timed` and `timed_tests` through `query`; the owner rejected it, because they hold no measurement, no named check's result, no failure output and no named test that did not run, and the review would spend a round on SQL.
+- rejected: a reviewer agent proposed hiding the datum's text from `query`; the owner rejected it, because `query` hides by column, `contents.content` holds every block, and hiding by block needs views; so paths of the machine that ran the tests may be read there.
 
 ### decision tests-run-where-the-host-checks
 `run_tests` runs the tests an agent names: on GitHub by the fast workflow, on the commit named or else the branch's last, pushed to a branch of its own; on a local host by the check command.
