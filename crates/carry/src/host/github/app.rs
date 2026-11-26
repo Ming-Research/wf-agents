@@ -52,18 +52,19 @@ pub enum Credential {
 }
 
 /// A token being got, of a type that names none of the calls it makes: the App gets its installation's token with a
-/// call of `gh` that is given a token itself, so the type of the one future would hold the other's.
-type Getting<'a> = Pin<Box<dyn Future<Output = Result<String, Failed>> + Send + 'a>>;
+/// call of `gh` that is given a token itself, so the type of the one future would hold the other's, and whether it may
+/// be sent to another thread could not be told.
+pub type Getting<'a> = Pin<Box<dyn Future<Output = Result<String, Failed>> + Send + 'a>>;
 
 impl Credential {
     /// The token for a call; or why none can be got.
-    pub async fn token(&self) -> Result<String, Failed> {
+    pub fn token(&self) -> Getting<'_> {
         match self {
-            Credential::App(app) => {
-                let getting: Getting<'_> = Box::pin(app.token());
-                getting.await
+            Credential::App(app) => Box::pin(app.token()),
+            Credential::Given(token) => {
+                let token = token.clone();
+                Box::pin(async move { Ok(token) })
             }
-            Credential::Given(token) => Ok(token.clone()),
         }
     }
 }
