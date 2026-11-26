@@ -48,7 +48,9 @@ def settings(port: int) -> dict:
     if page.get("unreadable"):
         fail(f"the engine cannot read its settings file: {page['unreadable']}")
     values = {}
-    for table in page["tables"]:
+    # The settings of each project are under the project, not among the installation's own tables.
+    tables = page["tables"] + [table for project in page.get("projects", []) for table in project["tables"]]
+    for table in tables:
         for key in table["keys"]:
             written = key["written"] if key["written"] is not None else key["running"]
             if written is not None:
