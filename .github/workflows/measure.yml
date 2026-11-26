@@ -1,22 +1,22 @@
 name: measure
 
-# The project's measure workflow (`ci.measure` of wf-agents.toml): what an agent's `run_tests` waits for when it names
-# measurements. It times each measurement named in three checkouts within one run: the code the work's change began from
-# (`base`), a second checkout of the same commit (`twin`, the control: its time over the base's is this run's own noise)
-# and the code measured (`candidate`, the commit the engine gives). A pair is one timing of each of the three, in an
-# order that rotates from pair to pair, so that no side always runs first. A measurement is the file `measure/<name>` of
-# the candidate, run with bash in the root of each of the three checkouts, so that the same script times each side.
+# The workflow of the project's measurement `scripts` (`ci.measure.scripts` of wf-agents.toml), which an agent's
+# `run_tests` names. It times each file of `measure/` it is given in three checkouts within one run: the code the work's
+# change began from (`base`), a second checkout of the same commit (`twin`, the control: its time over the base's is this
+# run's own noise) and the code measured (`candidate`, the commit the engine gives). A pair is one timing of each of the
+# three, in an order that rotates from pair to pair, so that no side always runs first. A measurement is the file
+# `measure/<name>` of the candidate, run with bash in the root of each of the three checkouts, so that the same script
+# times each side.
 #
-# It reports, as JUnit XML in the artifact `test-results`, which the engine reads (crates/carry/src/host/github/
-# results.rs): a testsuite for each side (`base`, `twin`, `candidate`) with a testcase named as the measurement for each
-# timing, its `time` the wall-clock seconds; and a testsuite `median base`, `median twin` and `median candidate` with
-# the median of each side's timings. The engine gives each as a line, and draws no conclusion: the engineer does, by the
-# rules it works under. A `time` holds seconds and nothing else.
+# It reports, as the CSV file `measure.csv` in the artifact `measurement`, which the engine reads
+# (crates/carry/src/host/github/metrics.rs): a header `measurement,side,timing,seconds`, then a row for each timing of
+# each name on each side, `timing` its number on that side, and a row for the median of each side's timings, `timing`
+# `median`. `seconds` holds the wall-clock seconds and nothing else. The engine gives the file as it is, and draws no
+# conclusion: the engineer does, by the rules it works under.
 #
-# One measurement runs on the machine at a time: the runners of the machine share a home, and each run holds a lock
-# in it while it times, so that two measurements never disturb each other. Any other job of the machine's runners can
-# still overlap one, which the twin's time over the base's shows. The wait for the lock counts in the job's time limit,
-# which is `ci.measure.too_long`.
+# The engine runs one measurement at a time on the machine, and the step that times first takes the machine's gate
+# (runner/measure-gate.sh, installed as docs/installing.md says): no other job runs on the machine while it times, and it
+# fails where the gate is not installed. A job's time limit is `ci.measure.scripts.too_long`.
 #
 # It runs only by hand, which only someone who may write to the repository can ask for, and always on the main branch's
 # file, never on a work's own copy, as the fast workflow does. The run's name holds the value only the request that
@@ -36,19 +36,19 @@ on:
         description: A value only the request that asks for this run knows, which the run's name holds
         required: true
       measure:
-        description: The measurements to time, each name followed by a line break
+        description: The files of measure/ to time, by their names, apart by spaces or line breaks
         required: true
 
 permissions:
   contents: read
 
-# No concurrency group: each run is a request an agent waits for, which another request must not cancel; the lock below
+# No concurrency group: each run is a request an agent waits for, which another request must not cancel; the engine
 # makes them take turns.
 
 jobs:
   measure:
     runs-on: [self-hosted, 14900k]
-    # Equal to ci.measure.too_long (wf-agents.toml); the wait for the lock counts in it.
+    # Equal to ci.measure.scripts.too_long (wf-agents.toml); the wait for the machine's other jobs counts in it.
     timeout-minutes: 30
     env:
       # How many pairs of timings of each measurement.
@@ -69,26 +69,28 @@ jobs:
           set -euo pipefail
           out="$RUNNER_TEMP/measurement"
           rm -rf "$out"
-          mkdir -p "$out/times" "$out/xml"
+          mkdir -p "$out/times" "$out/csv"
           candidate="$GITHUB_WORKSPACE"
-          # The names, one a line: each a file of the candidate's `measure/`, named by letters, digits, `_` and `-`.
+          # The names, apart by spaces or line breaks: each a file of the candidate's `measure/`, named by letters,
+          # digits, `_` and `-`. They are read as words, never expanded by the shell.
+          read -r -a given <<< "$(tr '\n' ' ' <<< "$MEASURE")"
           names=()
-          while IFS= read -r line; do
-            n=$(sed 's/^[[:space:]]*//; s/[[:space:]]*$//' <<< "$line")
-            [ -n "$n" ] || continue
+          for n in "${given[@]}"; do
             [[ $n =~ ^[A-Za-z0-9_-]+$ ]] || { echo "::error::$n is not the name of a measurement: letters, digits, _ and - only"; exit 1; }
             [ -f "$candidate/measure/$n" ] || { echo "::error::no measurement is named $n: the commit has no file measure/$n"; exit 1; }
             names+=("$n")
-          done <<< "$MEASURE"
+          done
           [ ${#names[@]} -gt 0 ] || { echo "::error::no measurement is named"; exit 1; }
           echo "${#names[@]}" > "$out/count"
           git rev-parse --verify --quiet "$BASE^{commit}" > /dev/null || { echo "::error::$BASE is no commit of this repository"; exit 1; }
+          gate="$HOME/.wf-agents-runner/measure-gate.sh"
+          [ -f "$gate" ] || { echo "::error::the machine's gate $gate is not installed; docs/installing.md says how to install it"; exit 1; }
           git worktree add --detach -q "$RUNNER_TEMP/base" "$BASE"
           git worktree add --detach -q "$RUNNER_TEMP/twin" "$BASE"
           printf 'base %s\ncandidate %s\npairs %s\nrunner %s, %s processors\n' "$BASE" "$COMMIT" "$PAIRS" "$(uname -srm)" "$(nproc)"
-          # One measurement at a time on the machine, held to the end of this step.
-          exec 9> "$HOME/.wf-agents-measure.lock"
-          flock 9
+          # No other job runs on the machine from here to the end of this step.
+          . "$gate"
+          wait_for_a_quiet_machine
           dir_of() { case "$1" in base) echo "$RUNNER_TEMP/base" ;; twin) echo "$RUNNER_TEMP/twin" ;; *) echo "$candidate" ;; esac; }
           # Runs a measurement in the checkout of a side, and leaves its wall-clock seconds in $elapsed.
           elapsed=0
@@ -116,43 +118,42 @@ jobs:
           done
           median() { sort -g "$1" | awk '{ a[NR] = $1 } END { if (NR % 2) printf "%.6f\n", a[(NR + 1) / 2]; else printf "%.6f\n", (a[NR / 2] + a[NR / 2 + 1]) / 2 }'; }
           {
-            echo '<testsuites>'
+            echo 'measurement,side,timing,seconds'
             for side in "${sides[@]}"; do
-              echo "  <testsuite name=\"$side\">"
               for n in "${names[@]}"; do
-                while read -r t; do echo "    <testcase name=\"$n\" time=\"$t\"/>"; done < "$out/times/$n.$side"
+                i=0
+                while read -r t; do
+                  i=$((i + 1))
+                  echo "$n,$side,$i,$t"
+                done < "$out/times/$n.$side"
               done
-              echo '  </testsuite>'
             done
             for side in "${sides[@]}"; do
-              echo "  <testsuite name=\"median $side\">"
-              for n in "${names[@]}"; do echo "    <testcase name=\"$n\" time=\"$(median "$out/times/$n.$side")\"/>"; done
-              echo '  </testsuite>'
+              for n in "${names[@]}"; do echo "$n,$side,median,$(median "$out/times/$n.$side")"; done
             done
-            echo '</testsuites>'
-          } > "$out/xml/measure.xml"
-          cat "$out/xml/measure.xml"
+          } > "$out/csv/measure.csv"
+          cat "$out/csv/measure.csv"
       - name: The results are whole
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/measurement"
-          file="$out/xml/measure.xml"
-          # A testcase for each timing of each name on each side, and one median for each; every time above zero.
+          file="$out/csv/measure.csv"
+          # A row for each timing of each name on each side, and one median for each; every time above zero.
           names=$(cat "$out/count")
           expected=$((names * (3 * PAIRS + 3)))
-          found=$(grep -c '<testcase ' "$file")
+          found=$(($(wc -l < "$file") - 1))
           [ "$found" -eq "$expected" ] || { echo "::error::$found timings for $names measurements, not $expected"; exit 1; }
-          ! grep -E 'time="(0\.0+|-[0-9.]+|)"' "$file" || { echo "::error::a timing is not above zero"; exit 1; }
+          awk -F, 'NR > 1 && !($4 + 0 > 0) { bad = 1 } END { exit bad }' "$file" || { echo "::error::a timing is not above zero"; exit 1; }
       - name: Take the checkouts of the base away
         if: ${{ always() }}
         run: |
           git worktree remove --force "$RUNNER_TEMP/base" || true
           git worktree remove --force "$RUNNER_TEMP/twin" || true
           git worktree prune
-      # What became of the timings, for the engine to read, whatever became of the steps before.
+      # What was timed, for the engine to read, whatever became of the steps before.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled() }}
         with:
-          name: test-results
-          path: ${{ runner.temp }}/measurement/xml
+          name: measurement
+          path: ${{ runner.temp }}/measurement/csv
           if-no-files-found: ignore

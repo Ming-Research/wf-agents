@@ -81,30 +81,32 @@ too_long = "2h"
 # and a request waits for its turn; on `github` each run has a machine of its own. On a self-hosted runner, the step
 # that times first sources the machine's gate, `$HOME/.wf-agents-runner/measure-gate.sh`, and calls
 # `wait_for_a_quiet_machine`, which holds the machine's other jobs off until the step ends; the step fails, naming
-# wf-agents' `docs/installing.md`, where the gate is not installed. A measurement is declared so:
+# wf-agents' `docs/installing.md`, where the gate is not installed.
 #
-# [ci.measure.<name>]
-# # What it measures, which an agent is told beside its name.
-# about = "the commit's build timed against the commit its change began from"
-# workflow = "bench.yml"
-# runner = "14900k"
-# # How long a run may take once it has started: one not complete by then is cancelled, and said so. The wait for the
-# # machine and for a runner do not count.
-# too_long = "1h"
-# # The inputs the workflow is always given. The engine fills `{commit}`, the commit measured; `{base}`, the commit the
-# # work's change began from; and `{call}`, a value only the request knows, which the workflow's `run-name` holds, so
-# # that the engine finds the run. One input holds `{call}`, and one holds `{commit}`.
-# inputs = { commit = "{commit}", base = "{base}", call = "{call}" }
-# # The inputs an agent may set; one it does not set takes the workflow's default. What an agent gives holds only
-# # letters, digits, spaces and `_-.,/:=+`.
-# open = ["passes"]
-# # The artifact, and the CSV file in it, that hold what the run measured: a header line naming the columns, then a row
-# # for each thing measured.
-# artifact = "measurement"
-# file = "bench.csv"
-# # The columns of the file that hold a metric, each with its unit: each holds a number in every row. Every other column
-# # says what a row measured.
-# metrics = { seconds = "s" }
+# This project's measurement `scripts` times files of `measure/`, each on the commit, on the commit the work's change
+# began from and on a second checkout of that one, the noise (.github/workflows/measure.yml).
+[ci.measure.scripts]
+# What it measures, which an agent is told beside its name.
+about = "each file of `measure/` that `measure` names, apart by spaces, timed five times in each of three checkouts in turn: the commit your change began from (`base`), a second checkout of it (`twin`, the noise) and `commit` (`candidate`); one row a timing, and one the median of each side"
+workflow = "measure.yml"
+runner = "14900k"
+# How long a run may take once it has started: one not complete by then is cancelled, and said so. The wait for the
+# machine and for a runner do not count. It is the job's `timeout-minutes`.
+too_long = "30m"
+# The inputs the workflow is always given. The engine fills `{commit}`, the commit measured; `{base}`, the commit the
+# work's change began from; and `{call}`, a value only the request knows, which the workflow's `run-name` holds, so
+# that the engine finds the run. One input holds `{call}`, and one holds `{commit}`.
+inputs = { commit = "{commit}", base = "{base}", call = "{call}" }
+# The inputs an agent may set; one it does not set takes the workflow's default. What an agent gives holds only
+# letters, digits, spaces and `_-.,/:=+`.
+open = ["measure"]
+# The artifact, and the CSV file in it, that hold what the run measured: a header line naming the columns, then a row
+# for each thing measured.
+artifact = "measurement"
+file = "measure.csv"
+# The columns of the file that hold a metric, each with its unit: each holds a number in every row. Every other column
+# says what a row measured.
+metrics = { seconds = "s" }
 
 # How a pull request of the project is merged where GitHub is its host: squash, merge or rebase; and whether a work's
 # branch on GitHub is deleted once it is merged.
