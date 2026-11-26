@@ -321,13 +321,14 @@ fn a_work_changed_at_or_lacking_an_entry_of_its_moves_its_time_or_its_forks_is_r
     assert_eq!(store.load(number), Ok(kept));
 }
 
-/// A version of the judged flow whose outline says that the cell `write` has the block `text` as its words, and that the
-/// block `verdict`, named like the words of no cell, is its own: a block is a cell's words by what the outline says of it
-/// and not by its name.
-fn declaring_words(version: &str) -> KeptFlow {
+/// A version of the judged flow whose outline says that the cell `write` has this block as its words, and that any
+/// other block, named like the words of no cell or not, is its own: a block is a cell's words by what the outline says
+/// of it and not by its name.
+fn declaring_words(version: &str, block: &str) -> KeptFlow {
     KeptFlow {
-        outline: r#"{"name": "judged", "cells": [{"id": "write", "words": {"block": "text", "writes": []}}, {"id": "judge"}]}"#
-            .to_string(),
+        outline: format!(
+            r#"{{"name": "judged", "cells": [{{"id": "write", "words": {{"block": "{block}", "writes": []}}}}, {{"id": "judge"}}]}}"#
+        ),
         ..kept(version, &[("flow.toml", version)])
     }
 }
@@ -349,7 +350,7 @@ fn written_by_runs(work: &Work, block: &str) -> BTreeSet<(BlockId, Seq)> {
 // work that ran on no version that was kept has no outline, and everything it has is read.
 #[test]
 fn a_file_of_version_36_is_migrated_with_every_version_read_but_the_cells_replies_its_outlines_declare() {
-    let flow = declaring_words("a");
+    let (flow, later) = (declaring_words("a", "text"), declaring_words("b", "verdict"));
     let mut ran_on_it = Driver::new();
     ran_on_it
         .work
@@ -357,6 +358,15 @@ fn a_file_of_version_36_is_migrated_with_every_version_read_but_the_cells_replie
     history(&mut ran_on_it);
     let mut ran_on_none = Driver::new();
     history(&mut ran_on_none);
+    // A work that went on with another version of the flow, which declares another block as words, has the words of both.
+    let mut ran_on_two = Driver::new();
+    ran_on_two
+        .work
+        .onto(Time(START), Some("a".to_string()), Reading::default());
+    history(&mut ran_on_two);
+    ran_on_two
+        .work
+        .onto(Time(START + 1_000_000), Some("b".to_string()), Reading::default());
     let (replies, others) = (
         written_by_runs(&ran_on_it.work, "text"),
         written_by_runs(&ran_on_it.work, "verdict"),
@@ -365,7 +375,11 @@ fn a_file_of_version_36_is_migrated_with_every_version_read_but_the_cells_replie
         !replies.is_empty() && !others.is_empty(),
         "the history has no run that wrote the words block or a block that is not"
     );
-    let (old, new) = super::opening::kept_in_flows(36, &[&ran_on_it.work, &ran_on_none.work], &[flow]);
+    let (old, new) = super::opening::kept_in_flows(
+        36,
+        &[&ran_on_it.work, &ran_on_none.work, &ran_on_two.work],
+        &[flow, later],
+    );
     let store = old.open();
     assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
     assert_eq!(
@@ -397,10 +411,30 @@ fn a_file_of_version_36_is_migrated_with_every_version_read_but_the_cells_replie
         expected.contents.len() - replies.len(),
         expected.records.owner_reads[0].versions.len()
     );
+    // The work that ran on both versions of the flow has the replies of both unread: the block each declares as words.
+    let mut both = ran_on_two.work.clone();
+    both.records.owner_reads.clear();
+    let at = both.tick();
+    let unread: BTreeSet<(BlockId, Seq)> = written_by_runs(&both, "text")
+        .into_iter()
+        .chain(written_by_runs(&both, "verdict"))
+        .collect();
+    assert!(
+        unread.len() > replies.len(),
+        "the history has no run that wrote the block only the later version declares"
+    );
+    let read: Vec<(BlockId, Seq)> = (both.contents.keys())
+        .filter(|version| !unread.contains(*version))
+        .cloned()
+        .collect();
+    both.records.owner_reads.push(decide::OwnerRead { versions: read, at });
+    assert_eq!(store.load(WorkNumber(3)), Ok(both.clone()));
     let other = store.load(WorkNumber(2)).expect("the other work loads");
     assert_eq!(
         count(&old.path, "owner_read") as usize,
-        expected.records.owner_reads[0].versions.len() + other.records.owner_reads[0].versions.len()
+        expected.records.owner_reads[0].versions.len()
+            + other.records.owner_reads[0].versions.len()
+            + both.records.owner_reads[0].versions.len()
     );
     // The work that ran on no version that was kept has no outline: all it has is read, in one entry after its last.
     let mut everything = ran_on_none.work.clone();
