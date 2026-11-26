@@ -59,9 +59,14 @@ A work's merge, its pull request and the commit it makes, is named by the first 
 - replaced: The item's title naming the pull request and the merge's commit was on main; the owner changed it, because the repository is written only in English, and items are in the owner's language.
 
 ### decision a-queued-run-is-cancelled-only-where-no-runner-is-online
-A run, or the jobs of a started run, that waits for a runner past `github.start_minutes` is cancelled only where none of its label is online, on the repository or its organisation; else it waits.
+A run no job of which has started that waits for a runner past `github.start_minutes` is cancelled only where none of its label is online, on the repository or its organisation; else it waits.
 - replaced: Cancelling every run no runner took within `github.start_minutes` was on main; the owner changed it, because with every runner busy the runs of later requests were cancelled behind a long queue and the works stopped to ask again.
+- replaced: Cancelling the same way a started run whose jobs wait for a runner where none is online was on main; the owner changed it, because a run whose jobs had run lost their work.
+
+### decision a-run-is-under-way-once-a-job-of-it-has-started
+A run is under way once a job of it has started, as its jobs say where GitHub says the run is queued, and it is never cancelled as never started.
+- replaced: Judging whether a run started by GitHub's status of the run alone was on main; the owner changed it, because GitHub says a run queued again once a job has run and the next waits for a runner, and such runs were cancelled with their tests done.
 
 ### decision a-run-is-timed-only-while-it-is-not-waiting-for-a-runner
-A workflow's `too_long` counts only the time its run is not waiting for a runner, as the run's jobs say.
+A workflow's `too_long` counts the time its run is not waiting for a runner, as the run's jobs say, and the time it waits while none of its label is online.
 - replaced: Counting a run's time from the moment it was asked for, the queue included, was on main; the owner changed it, because a run whose jobs queued behind a busy machine was cut as too long for the time it waited, not the time it ran.

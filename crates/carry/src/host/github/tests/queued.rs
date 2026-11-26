@@ -1,6 +1,6 @@
-//! A run that waits for a runner: it waits on while a runner of its kind is online, busy or not, and is cancelled where
-//! none is or it cannot be told; the time it may take counts only the time it does not wait; and it says the runner it
-//! waits for. Each wait here is real time, with the window a run may wait before the runners are asked after shortened
+//! A run that waits for a runner: it waits on while a runner of its kind is online, busy or not; one no job of which
+//! has started is cancelled where none is or it cannot be told, and one under way, as its jobs tell, is not; the time
+//! it may take counts only the time it does not wait for an online runner; and it says the runner it waits for. Each wait here is real time, with the window a run may wait before the runners are asked after shortened
 //! to a tenth of a second.
 
 use super::super::api::{Layer, Outcome, Runner};
@@ -169,9 +169,9 @@ async fn a_run_on_githubs_own_machines_waits_on_and_the_runners_are_not_asked_af
 }
 
 // A run that has started but whose jobs all wait for a runner is waiting for it, and its time, which a run may take, does
-// not run while it does: it waits longer than that time with no job under way and is not cut for it. It says the runner it waits for from the first look, before the
-// runners are asked after, and none once a job is under way; and its jobs are looked at by one look at a time, which
-// GitHub counts only as the jobs change.
+// not run while it does: it waits longer than that time with no job under way and is not cut for it. It says the
+// runner it waits for from the first look, before the runners are asked after, and none once a job is under way; and
+// its jobs are looked at by one look at a time, which GitHub counts only as the jobs change.
 #[tokio::test]
 async fn a_started_run_whose_jobs_wait_for_a_runner_is_not_timed_while_they_wait_and_says_which() {
     let hub = on_14900k(Hub::new()).with(|config| {
@@ -244,28 +244,117 @@ async fn a_started_run_whose_jobs_wait_for_a_runner_is_not_timed_while_they_wait
     assert!(counted <= 4, "{counted} of {} looks were counted", looks.len());
 }
 
-// A started run whose jobs wait for a runner where none of its kind is online is cancelled once it has waited the window,
-// as one no runner took is, its words saying that a job of it never started.
+// A started run whose jobs wait for a runner where none of its kind is online is not cancelled as one no runner took,
+// since a job of it has run: the time it waits is counted from when the runners were asked after, and it is cut once
+// that time passes the time it may take, said with the job that waits not complete.
 #[tokio::test]
-async fn a_started_run_whose_jobs_wait_where_no_runner_is_online_is_cancelled() {
-    let hub = on_14900k(Hub::new());
+async fn a_started_run_whose_jobs_wait_where_no_runner_is_online_is_timed_and_not_cancelled_as_never_started() {
+    let hub = on_14900k(Hub::new()).with(|config| {
+        config.ci.as_mut().expect("a declaration").fast.too_long = "1s".to_string();
+    });
     let head = hub.committed().await;
     hub.github().fast(
         &head,
-        vec![check("test", Outcome::Queued)],
+        vec![passed("scope"), check("test", Outcome::Queued)],
         Some(("test-results", junit_green())),
     );
     hub.github().lists_runners(Ok(Vec::new()), None);
     hub.github().runs_go_on();
+    let said = asking(&hub).await.expect("said").expect("nothing stopped it");
+    assert!(!said.contains("never started"), "{said}");
+    assert!(
+        said.contains("the run did not complete within 1 second, the time it may take, and the engine cancelled it"),
+        "{said}"
+    );
+    assert!(said.contains("- test: not complete"), "{said}");
+    assert_eq!(cancelled(&hub), [1000]);
+}
+
+// GitHub says a run queued again once a job of it has run and the next waits for a runner, as a run's test job ends and
+// its job that gathers the results waits. Such a run is under way and is not cancelled as never started, though no
+// runner of its kind is online or the runners cannot be read: it waits on, and its results are read once it completes.
+#[tokio::test]
+async fn a_run_queued_again_after_a_job_ran_is_not_cancelled_and_is_read_once_it_completes() {
+    for runners in [Ok(Vec::new()), refused()] {
+        let hub = on_14900k(Hub::new());
+        let head = hub.committed().await;
+        let results = || Some(("test-results", junit_green()));
+        hub.github()
+            .fast(&head, vec![check("test", Outcome::Pending)], results());
+        hub.github().lists_runners(runners.clone(), None);
+        hub.github().runs_go_on();
+        let going = async {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            hub.github().fast(
+                &head,
+                vec![passed("test"), check("results", Outcome::Queued)],
+                results(),
+            );
+            hub.github().requeue_runs();
+            // Several windows pass with the run queued, the runners asked after at each.
+            tokio::time::sleep(Duration::from_millis(450)).await;
+            hub.github()
+                .fast(&head, vec![passed("test"), passed("results")], results());
+            hub.github().finish_runs();
+        };
+        let (said, ()) = tokio::join!(asking(&hub), going);
+        let said = said.unwrap().expect("nothing stopped it");
+        assert!(said.contains("1 of the 1 tests passed"), "{runners:?}: {said}");
+        assert!(cancelled(&hub).is_empty(), "{runners:?}: no run was cancelled");
+        assert!(hub.github().runners_asked() >= 2, "{runners:?}: it waited windows");
+    }
+}
+
+// A run the engine first finds queued, with a job that has run and one that waits, is told under way by its jobs alone,
+// read once it has waited a window: it is not cancelled where no runner is online, and is read once it completes.
+#[tokio::test]
+async fn a_run_first_found_queued_with_a_job_that_ran_is_told_under_way_by_its_jobs() {
+    let hub = on_14900k(Hub::new());
+    let head = hub.committed().await;
+    let results = || Some(("test-results", junit_green()));
+    hub.github().fast(
+        &head,
+        vec![passed("test"), check("results", Outcome::Queued)],
+        results(),
+    );
+    hub.github().lists_runners(Ok(Vec::new()), None);
+    hub.github().requeue_runs();
+    let finishing = async {
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        hub.github()
+            .fast(&head, vec![passed("test"), passed("results")], results());
+        hub.github().finish_runs();
+    };
+    let (said, ()) = tokio::join!(asking(&hub), finishing);
+    let said = said.unwrap().expect("nothing stopped it");
+    assert!(said.contains("1 of the 1 tests passed"), "{said}");
+    assert!(cancelled(&hub).is_empty(), "no run was cancelled");
+    assert!(!hub.github().jobs_looked().is_empty(), "its jobs were read");
+}
+
+// A run GitHub says is queued and none of whose jobs has started is no run under way, its jobs read to tell so: past the
+// window, with no runner of its kind online, it is cancelled as never started, as one with no jobs listed is.
+#[tokio::test]
+async fn a_queued_run_none_of_whose_jobs_started_is_cancelled_as_never_started() {
+    let hub = on_14900k(Hub::new());
+    let head = hub.committed().await;
+    hub.github().fast(
+        &head,
+        vec![check("test", Outcome::Passed), check("results", Outcome::Passed)],
+        Some(("test-results", junit_green())),
+    );
+    hub.github().lists_runners(Ok(Vec::new()), None);
+    hub.github().queue_runs();
     let why = asking(&hub).await.expect_err("not run");
     assert!(
         why.starts_with(&format!(
-            "a job of the run of fast.yml asked for on {head} never started: no runner took its jobs after "
+            "the run of fast.yml asked for on {head} never started: no runner took it after "
         )),
         "{why}"
     );
     assert!(why.contains("none of 14900k is online"), "{why}");
     assert_eq!(cancelled(&hub), [1000]);
+    assert!(!hub.github().jobs_looked().is_empty(), "its jobs were read");
 }
 
 // A run that waits and is then taken by a runner is timed from then on: a run queued for longer than the time a run may
@@ -319,7 +408,7 @@ fn a_run_is_timed_only_by_the_time_it_does_not_wait_for_a_runner() {
     assert!(waiting.due(at(50), window));
     // Asked after at 50 and one online: it is asked after again a window later, and what it waited is not its time.
     waiting.tick(at(50), true);
-    waiting.asked(at(50), window);
+    waiting.asked(at(50), window, true);
     assert_eq!(waiting.ran_for, Duration::from_secs(20));
     assert!(!waiting.due(at(79), window));
     assert!(waiting.due(at(80), window));
@@ -336,6 +425,27 @@ fn a_run_is_timed_only_by_the_time_it_does_not_wait_for_a_runner() {
     waiting.tick(at(110), true);
     assert!(!waiting.due(at(139), window));
     assert!(waiting.due(at(140), window));
+    // Asked after at 140 and none online: the time it waits from then is its time, until one is online again.
+    waiting.tick(at(140), true);
+    waiting.asked(at(140), window, false);
+    assert_eq!(waiting.ran_for, Duration::from_secs(30));
+    waiting.tick(at(170), true);
+    assert_eq!(waiting.ran_for, Duration::from_secs(60));
+    waiting.asked(at(170), window, true);
+    waiting.tick(at(200), true);
+    assert_eq!(
+        waiting.ran_for,
+        Duration::from_secs(60),
+        "one online again: not its time"
+    );
+    // Asked after and none online, then a job under way: the stretch before the look that found it is its time, and
+    // the next wait is not counted until the runners are asked after again.
+    waiting.asked(at(200), window, false);
+    waiting.tick(at(210), false);
+    assert_eq!(waiting.ran_for, Duration::from_secs(70));
+    waiting.tick(at(220), true);
+    waiting.tick(at(230), true);
+    assert_eq!(waiting.ran_for, Duration::from_secs(80));
 }
 
 // The jobs of a run are looked at by one look at a time however many waits ask: an answer young enough is given to each

@@ -207,8 +207,9 @@ pub struct GitHub {
     /// How many minutes a run of a workflow may be unlisted, or wait for a runner (the run not taken, or the jobs of a
     /// started run not taken), before the engine asks whether a runner of the workflow's kind is online; it asks again
     /// after each further such time while one is. A run unlisted so long is taken never to have started. A run that
-    /// waits where none is online, or where that cannot be told, is cancelled, and the check fails its round in
-    /// passing, or the agents' tool says so. GitHub's own machines count as online.
+    /// waits where none is online, or where that cannot be told, is cancelled where no job of it has started, and the
+    /// check fails its round in passing, or the agents' tool says so; one a job of which has started is not, and its
+    /// wait counts in the time it may take until one is online. GitHub's own machines count as online.
     #[serde(default = "start_minutes")]
     pub start_minutes: u64,
     /// The `gh` command line, or a path to it.

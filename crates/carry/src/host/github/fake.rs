@@ -43,6 +43,9 @@ struct Kept {
     another_call: bool,
     /// Whether the runs by hand stay queued, as with no runner online.
     queued: bool,
+    /// Whether the runs by hand asked for from now on have had a job run and are queued again, the next waiting for a
+    /// runner.
+    requeued: bool,
     /// The runners each layer lists; none listed by the repository and no organisation, where nothing was given.
     runners: Option<Runners>,
     /// Whether the runs by hand start and go on until they are finished or cancelled, as a run that takes minutes.
@@ -82,6 +85,9 @@ struct Dispatched {
     commit: String,
     another: bool,
     run: Run,
+    /// Whether a runner has taken a job of it: its jobs are what its commit is given where one has, and each queued
+    /// where none has, as GitHub lists the jobs of a run no runner took.
+    taken: bool,
 }
 
 /// What the jobs of a run another request asked for come to, here: its tests cancelled.
@@ -191,9 +197,23 @@ impl Fake {
         let mut kept = self.kept();
         kept.queued = false;
         let going = kept.going;
+        kept.requeued = false;
         for asked in &mut kept.runs {
             asked.run.started = true;
             asked.run.completed = !going;
+            asked.taken = true;
+        }
+    }
+
+    /// Has the runs by hand that are not complete, and every one asked for from now on, queued again after a job of
+    /// each has run, as GitHub says a run is once a job has ended and the next waits for a runner: each is not started
+    /// by its status, and its jobs are what its commit is given.
+    pub(crate) fn requeue_runs(&self) {
+        let mut kept = self.kept();
+        kept.requeued = true;
+        for asked in (kept.runs.iter_mut()).filter(|d| !d.run.completed) {
+            asked.run.started = false;
+            asked.taken = true;
         }
     }
 
@@ -221,7 +241,9 @@ impl Fake {
     /// Completes every run by hand that is under way, as it ends with the jobs and results its commit is given.
     pub(crate) fn finish_runs(&self) {
         for asked in &mut self.kept().runs {
+            asked.run.started = true;
             asked.run.completed = true;
+            asked.taken = true;
         }
     }
 
@@ -562,7 +584,7 @@ impl Api for Fake {
         if kept.another_call {
             made.push(("another".to_string(), true));
         }
-        let (ran, going) = (!kept.queued, kept.going);
+        let (ran, going, requeued) = (!kept.queued && !kept.requeued, kept.going, kept.requeued);
         for (call, another) in made {
             let id = 1000 + kept.runs.len() as u64;
             kept.runs.push(Dispatched {
@@ -578,6 +600,7 @@ impl Api for Fake {
                     cancelled: false,
                     url: format!("https://github.example/actions/runs/{id}"),
                 },
+                taken: ran || requeued,
             });
         }
         Ok(())
@@ -607,7 +630,18 @@ impl Api for Fake {
                     took: None,
                 }]
             }
-            Some(asked) => (kept.given(asked)).map_or_else(Vec::new, |(jobs, _)| jobs.clone()),
+            Some(asked) => {
+                let given = (kept.given(asked)).map_or_else(Vec::new, |(jobs, _)| jobs.clone());
+                (given.into_iter())
+                    .map(|job| match asked.taken {
+                        true => job,
+                        false => Check {
+                            outcome: super::api::Outcome::Queued,
+                            ..job
+                        },
+                    })
+                    .collect()
+            }
         };
         // As GitHub's, the entity tag is the same for the same answer, and differs for any other.
         let mut hasher = std::hash::DefaultHasher::new();

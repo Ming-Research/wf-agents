@@ -77,6 +77,14 @@ pub enum Outcome {
     Broken(String),
 }
 
+impl Outcome {
+    /// Whether a runner took the check: it is under way, or it ran to a verdict. One skipped never ran, and one that
+    /// ended without judging, as one cancelled, may have ended before any runner took it.
+    pub fn started(&self) -> bool {
+        matches!(self, Outcome::Pending | Outcome::Passed | Outcome::Failed(_))
+    }
+}
+
 /// A run of a workflow, as far as the host reads it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Run {
@@ -84,8 +92,9 @@ pub struct Run {
     pub id: u64,
     /// Its name, as the workflow's `run-name` made it.
     pub title: String,
-    /// Whether a runner took a job of it: one queued, waiting or pending has not started. A run that has started may
-    /// have jobs that wait for a runner still (`Outcome::Queued`).
+    /// Whether GitHub says it is under way or complete. One it says is queued may still have started: once a job has
+    /// run and the next waits for a runner, GitHub says the run is queued again, and only its jobs tell the two apart
+    /// ([`Outcome::started`]). A run that has started may have jobs that wait for a runner still (`Outcome::Queued`).
     pub started: bool,
     /// Whether it has completed.
     pub completed: bool,
