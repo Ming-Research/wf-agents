@@ -119,3 +119,27 @@ fn a_return_that_asks_for_calls_beside_writes_is_sent_back_for_what_is_wrong_wit
         ])
     );
 }
+
+// What stood before a return that asks for calls is read beside what it wrote, and a block it writes again replaces the
+// one that stood, as a return that completes another does, so that it is not said to be written twice.
+#[test]
+fn a_return_that_asks_for_calls_and_writes_again_a_block_that_stood_is_not_said_to_write_it_twice() {
+    let before = Round {
+        sent_back: vec![Unmet::DealtWithNothing],
+        ..handed_in(vec![prose("plan")])
+    };
+    let both = Round {
+        returned: Some(Return::Came {
+            dealt_with: vec![],
+            writes: vec![prose("plan")],
+            calls: 1,
+            found: vec![],
+            waits: false,
+            questions: Vec::new(),
+            read: Vec::new(),
+            protected: Default::default(),
+        }),
+        sent_back: Vec::new(),
+    };
+    assert_eq!(step(vec![before, both], &spec()), send_back(vec![Unmet::AsksAndWorks]));
+}

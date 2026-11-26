@@ -658,7 +658,7 @@ fn standing_names(dealt_with: &[BlockId], requires: Requires) -> Vec<BlockId> {
 /// a-sent-back-return-is-completed-by-what-is-missing): the last return, and, before it, what the returns sent back
 /// earlier said and the round after each was not told was wrong, each part by its name replaced by a later return's of
 /// the same name. A return that asks for calls holds, of the blocks and the dealing with, only what stood before it:
-/// what it wrote itself is none of what it asks for.
+/// what it wrote itself is none of what it asks for, though [`next`] reads it as written.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Together {
     pub dealt_with: Vec<BlockId>,
@@ -928,9 +928,23 @@ pub fn next(log: &Log, requires: Requires, hold: Hold) -> Step {
             // What the run has returned, taken together: the last round's return, with what the returns sent back
             // before it did not name as wrong.
             let taken = together(&log.rounds, requires.questions).unwrap_or_default();
+            // A return that asks for calls holds, in `taken`, only what stood before it. It is read as it was written, so
+            // that what is wrong with what it wrote beside its calls is said at once (principle report-all-at-once): what
+            // it wrote, and what stood but for the blocks it wrote again.
+            let beside: Vec<Write>;
+            let (read_dealt_with, read_writes) = if taken.calls == 0 {
+                (&taken.dealt_with[..], &taken.writes[..])
+            } else {
+                beside = (taken.writes.iter())
+                    .filter(|w| !own_writes.iter().any(|own| own.block == w.block))
+                    .chain(own_writes)
+                    .cloned()
+                    .collect();
+                (&own_dealt_with[..], &beside[..])
+            };
             let came = Came {
-                dealt_with: &taken.dealt_with,
-                writes: &taken.writes,
+                dealt_with: read_dealt_with,
+                writes: read_writes,
                 calls: taken.calls,
                 found: &taken.found,
                 waits: taken.waits,
@@ -1304,7 +1318,7 @@ struct Came<'r> {
     waits: bool,
     questions: &'r [Asking],
     read: &'r [BlockId],
-    /// Whether the return itself deals with something or writes a block, which a return that asks for calls does not:
-    /// what it holds beside is only what stood before it.
+    /// Whether the return itself deals with something or writes a block, which a return that asks for calls does not.
+    /// Its `writes` hold what stood before it beside what it wrote, so they cannot say.
     works: bool,
 }
