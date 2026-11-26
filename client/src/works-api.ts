@@ -51,12 +51,13 @@ export type Limit = { of: 'returns'; sentBack: number } | { of: 'calls'; made: n
 
 /// What a call is: a tool the engine runs, a question for a person (only in a work recorded before the engine stopped
 /// making them, and read as recorded), a run at a limit that the owner lets go on, or the engine's wait until a time
-/// before a round that failed in passing, the `failed`th in a row, is tried again.
+/// before a round that failed in passing, or that the host only kept from running for now (then with what kept it), the
+/// `failed`th in a row, is tried again.
 export type Call =
   | { kind: 'tool'; name: string; input: string }
   | { kind: 'question'; who: Person; question: string }
   | { kind: 'atLimit'; limit: Limit }
-  | { kind: 'wait'; until: number; failed: number };
+  | { kind: 'wait'; until: number; failed: number; obstacle: Obstacle | null };
 
 /// What kept the host from carrying a call out for now: GitHub's limit on its requests, a fault of GitHub's own, no
 /// machine of the project's CI taking the run asked for, or a fault of the network.
@@ -73,6 +74,7 @@ export interface HeldCall {
 /// The kind of cause of a round that failed, as what carried it out told it apart.
 export type Failure =
   | 'passing'
+  | 'held'
   | 'unread'
   | 'flagged'
   | 'guarded'

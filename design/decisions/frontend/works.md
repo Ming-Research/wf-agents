@@ -50,5 +50,5 @@ At a run's right, a work's history names the level, the reasoning effort and the
 - replaced: A history that named no level, effort or model was on main; the owner changed it, because each round records the model it ran on, which no later change of the settings makes untrue.
 
 ### decision a-held-call-is-said-as-the-engines-wait-with-why
-A tool call the host could not carry out for now is said with the sentence of the engine's wait until a time, saying why: GitHub's limit, GitHub failed, no machine took the run, or the network failed.
+A tool call or an act's round the host could not carry out for now is said as the engine's wait until a time, saying why: GitHub's limit, GitHub failed, no machine took the run, or the network failed.
 - replaced: A work waiting for a tool's result said only that it waits for that tool, where it runs and for how long, was on main; the owner changed it, because a wait that GitHub causes should say what it waits for and until when.

@@ -302,6 +302,7 @@ impl Sim {
             why: "it could not be run".to_string(),
             failure: decide::run::Failure::Other,
             resets: None,
+            hindrance: None,
             spent: Spent::default(),
         });
         self.take(Event::Resumed);
@@ -325,6 +326,7 @@ impl Sim {
             why: "it failed".to_string(),
             failure,
             resets: None,
+            hindrance: None,
             spent: Spent::default(),
         });
     }

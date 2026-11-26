@@ -623,6 +623,7 @@ fn the_better_way_cell_runs_until_it_has_handed_in_once() {
         why: "The agent's program could not start.".to_string(),
         failure: decide::run::Failure::Other,
         resets: None,
+        hindrance: None,
         spent: Spent::default(),
     });
     assert_eq!(handed_in(&w), 0, "a round that failed hands in nothing");

@@ -619,6 +619,7 @@ impl Driver {
                         why,
                         failure: Failure::Other,
                         resets: None,
+                        hindrance: None,
                         spent,
                     });
                     assert!(taken, "the failure of a round under way was refused");
@@ -631,6 +632,7 @@ impl Driver {
                         why,
                         failure,
                         resets: None,
+                        hindrance: None,
                         spent,
                     });
                     assert!(taken, "the failure of a round under way was refused");
@@ -670,6 +672,7 @@ impl Driver {
                         why: "stopped".to_string(),
                         failure: Failure::Other,
                         resets: None,
+                        hindrance: None,
                         spent,
                     }
                 } else {

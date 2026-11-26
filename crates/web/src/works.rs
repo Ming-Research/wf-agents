@@ -162,6 +162,8 @@ pub enum Until {
 pub enum Failure {
     /// In passing: tried again after a wait.
     Passing,
+    /// The host only kept the engine's act from running for now: waited out, counted as no failure.
+    Held,
     /// What came back could not be read: sent back.
     Unread,
     /// The service's safety check flagged it: tried again in a new session of its line.
@@ -797,9 +799,13 @@ pub enum Call {
     Question { who: Person, question: String },
     /// The run reached a limit: the owner lets it go on or cancels the work.
     AtLimit { limit: Limit },
-    /// The engine waits until this time before the run's last round, which failed in passing, the `failed`th time in
-    /// a row, is tried again.
-    Wait { until: u64, failed: u32 },
+    /// The engine waits until this time before the run's last round, which failed in passing or which the host only
+    /// kept from running for now, the `failed`th time in a row, is tried again; in the second case, what kept it.
+    Wait {
+        until: u64,
+        failed: u32,
+        obstacle: Option<Obstacle>,
+    },
 }
 
 /// The limit a run reached.
@@ -3747,6 +3753,23 @@ fn held_call(work: &Work, call: CallId) -> Option<HeldCall> {
     })
 }
 
+/// What kept the host from running the act's round that the engine's wait is for, where the round the wait follows was
+/// one it only kept from running for now.
+fn wait_obstacle(work: &Work, wait: CallId) -> Option<Obstacle> {
+    let called = work.records.called.iter().find(|called| called.call == wait)?;
+    let ended = (work.records.returned.iter())
+        .filter(|returned| returned.run == called.run && returned.at < called.at)
+        .count();
+    match work.back.get(&(called.run, ended)) {
+        Some(BackOf::Failed {
+            failure: FailureOf::Held,
+            hindrance: Some(hindrance),
+            ..
+        }) => Some(Obstacle::of(hindrance.obstacle)),
+        _ => None,
+    }
+}
+
 /// What the call is.
 fn call_of(work: &Work, call: CallId) -> Result<Call, Broken> {
     Ok(match work.calls.get(&call) {
@@ -3763,6 +3786,7 @@ fn call_of(work: &Work, call: CallId) -> Result<Call, Broken> {
         Some(CallOf::Wait { until, failed }) => Call::Wait {
             until: until.0,
             failed: *failed,
+            obstacle: wait_obstacle(work, call),
         },
         None => return Err(Broken(format!("call {} is not held", call.0))),
     })
@@ -3925,7 +3949,9 @@ pub(crate) fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
                         })
                         .collect(),
                 },
-                BackOf::Failed { why, failure, resets } => Back::Failed {
+                BackOf::Failed {
+                    why, failure, resets, ..
+                } => Back::Failed {
                     why: why.clone(),
                     failure: Failure::of(*failure),
                     resets: resets.map(|at| at.0),
@@ -4112,6 +4138,7 @@ impl Failure {
     fn of(failure: FailureOf) -> Failure {
         match failure {
             FailureOf::Passing => Failure::Passing,
+            FailureOf::Held => Failure::Held,
             FailureOf::Unread => Failure::Unread,
             FailureOf::Flagged => Failure::Flagged,
             FailureOf::Guarded => Failure::Guarded,
@@ -5100,6 +5127,7 @@ pub(crate) mod tests {
                 why: "it broke".to_string(),
                 failure: Failure::Other,
                 resets: None,
+                hindrance: None,
                 spent: work::Spent::default(),
             };
             engine::handle(&flow, &mut work, Time(t), failed).expect("the round fails");
@@ -5146,6 +5174,75 @@ pub(crate) mod tests {
         }
     }
 
+    // The engine's wait before a round the host only kept from running for now says what kept it, which the record of
+    // the round holds beside its kind; the wait before a round that failed in passing says none.
+    #[test]
+    fn the_wait_before_a_round_the_host_kept_from_running_says_what_kept_it_and_one_in_passing_says_none() {
+        use decide::run::Failure;
+        use decide::{Hindrance, Retry};
+        use engine::{Effect, Event};
+
+        let flow = flow_with("");
+        let mut work = Work::default();
+        let wrote = Event::Wrote {
+            block: "request".into(),
+            by: Outsider::Person,
+            content: "Greet.".to_string(),
+            matters: true,
+            value: None,
+        };
+        let effects = engine::handle(&flow, &mut work, Time(0), wrote).expect("the request is taken");
+        let run = effects
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::Round { run, .. } => Some(*run),
+                _ => None,
+            })
+            .expect("the writer's round begins");
+        let limit = Hindrance {
+            obstacle: decide::Obstacle::Limit,
+            retry: Some(Retry::In(60)),
+        };
+        for (n, (failure, hindrance, expected)) in [
+            (Failure::Held, Some(limit), Some(Obstacle::Limit)),
+            (Failure::Passing, None, None),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let failed = Event::Failed {
+                run,
+                why: "it broke".to_string(),
+                failure,
+                resets: None,
+                hindrance,
+                spent: work::Spent::default(),
+            };
+            let at = Time(1_000 * (n as u64 + 1));
+            let effects = engine::handle(&flow, &mut work, at, failed).expect("the round fails");
+            let wait = effects
+                .iter()
+                .find_map(|effect| match effect {
+                    Effect::Call {
+                        call,
+                        what: work::Call::Wait { .. },
+                        ..
+                    } => Some(*call),
+                    _ => None,
+                })
+                .expect("the engine waits before the round is tried again");
+            match call_of(&work, wait) {
+                Ok(Call::Wait { failed, obstacle, .. }) => assert_eq!((failed, obstacle), (1, expected)),
+                other => panic!("not the engine's wait: {other:?}"),
+            }
+            let over = Event::Done {
+                call: wait,
+                result: String::new(),
+            };
+            engine::handle(&flow, &mut work, Time(at.0 + 1_000_000), over).expect("the wait is over");
+        }
+    }
+
     // The bar draws the wait for the turn to check and merge, `q`, where another work of the work's project held the
     // turn while the work would have begun a round of a cell that takes it, and draws it alike live and from what the
     // work kept as it ended; where none held it, the same time is `.`. The work is paused from 1000 to 3000, let on
@@ -5177,6 +5274,7 @@ pub(crate) mod tests {
             why: "it broke".to_string(),
             failure: Failure::Other,
             resets: None,
+            hindrance: None,
             spent: work::Spent::default(),
         };
         engine::handle(&flow, &mut work, Time(1000), failed()).expect("the round fails");

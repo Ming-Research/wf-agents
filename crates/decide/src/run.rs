@@ -19,10 +19,12 @@
 //! kind in a row pauses the work. A cause outside every work, the same for all (the account's usage limit, a command
 //! line that cannot run, no network, a service that is down), holds the agents' rounds of every work, which is no
 //! matter of one run's: the run only has its next round once they may begin again, and so many failures of the run in
-//! a row for such a cause, each after the engine found the outside well, and the next pauses the work. Any other
-//! failure pauses the work as the round fails, so that the owner sees the cause first. Once the work is let on, the run has its next round, given what the failed round was
-//! given, and the failures counted in a row start anew. A round that failed, or a return that was sent back, deals with
-//! nothing.
+//! a row for such a cause, each after the engine found the outside well, and the next pauses the work. A round of the
+//! engine's own act that the host only kept from running for now (its limit on requests, a fault of its own, no
+//! machine taking a run) is waited out, until the time the host names where it names one, and counts toward no pause.
+//! Any other failure pauses the work as the round fails, so that the owner sees the cause first. Once the work is let
+//! on, the run has its next round, given what the failed round was given, and the failures counted in a row start anew.
+//! A round that failed, or a return that was sent back, deals with nothing.
 //!
 //! A pause of the work holds back the rounds of a run, unless the run started for a note a person wrote: such a run has
 //! every round it needs while the work is paused, but the round after one that failed and paused the work, which still
@@ -35,7 +37,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::flow::{self, BlockId};
-use crate::records::{CallId, Retry, Seq, Write};
+use crate::records::{CallId, Hindrance, Retry, Seq, Write};
 
 /// What a run has done so far: its rounds, in order.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -134,6 +136,11 @@ pub enum Failure {
     /// The service has no model of the name the round's level gives: no round on it can run until the installation
     /// names another, so the work is paused, and so is every other work that runs a round on that model.
     NoModel,
+    /// The host only kept the engine's act from running for now: its limit on requests, a fault of its own, no machine
+    /// taking the run, or a fault of the network it is reached over, which the act found its host to be reached despite.
+    /// It passes by itself, which no work's doing mends: the round is tried again after a wait, until the time the host
+    /// names where it does, and counts toward no pause. What kept it is the round's hindrance, beside the kind.
+    Held,
     /// A cause no other kind holds: a request the service refused, an error the command line reported of no kind its
     /// fields or its words tell, a refusal of the engine's act by its host or what only a person mends there, or a
     /// round that could not be carried out at all. Running again meets it again, and the work is paused. Rounds that
@@ -211,6 +218,9 @@ pub enum Return {
     Failed {
         failure: Failure,
         why: String,
+        /// What kept the host from running the engine's act for now, and when it may be asked again, where the failure
+        /// is [`Failure::Held`]; none otherwise.
+        hindrance: Option<Hindrance>,
         /// The waits the engine made as calls after it, before it is tried again: none until the engine makes one.
         waits: Vec<Call>,
     },
@@ -358,9 +368,14 @@ pub enum Step {
     Held,
     /// The run rests at these calls, which have no result yet.
     Rest { calls: Vec<CallId> },
-    /// The last round failed in passing, the `failed`th time in a row: the engine waits this long from its end, in
-    /// milliseconds, as a call of the run that it makes itself, before the round is tried again.
-    Wait { failed: u32, ms: u64 },
+    /// The last round failed in passing, or was kept from running by the host for now, the `failed`th time in a row of
+    /// its kind: the engine waits this long from its end, in milliseconds, and where the host named a time, not before
+    /// it (milliseconds since 1970), as a call of the run that it makes itself, before the round is tried again.
+    Wait {
+        failed: u32,
+        ms: u64,
+        not_before: Option<u64>,
+    },
     /// The last round failed: the run has its next round, which is given what the failed round was given.
     Retry,
     /// What came back does not meet what the flow requires: it is sent back, the next round being given why.
@@ -941,6 +956,33 @@ pub fn next(log: &Log, requires: Requires, hold: Hold) -> Step {
                 return Step::Wait {
                     failed,
                     ms: wait(failed),
+                    not_before: None,
+                };
+            }
+            let open: Vec<CallId> = waits.iter().filter(|c| !c.done).map(|c| c.call).collect();
+            if open.is_empty() {
+                return held(Step::Retry, hold);
+            }
+            return Step::Rest { calls: open };
+        }
+        // Kept from running by the host for now, the engine waits as it does for a call so kept ([`held_wait`]); the
+        // rounds so kept in a row set how long, and none pauses the work.
+        Return::Failed {
+            failure: Failure::Held,
+            hindrance,
+            waits,
+            ..
+        } => {
+            let times = held_in_a_row(log);
+            if times == 0 {
+                return held(Step::Retry, hold);
+            }
+            if waits.is_empty() {
+                let waiting = held_wait(times, hindrance.and_then(|hindrance| hindrance.retry));
+                return Step::Wait {
+                    failed: times,
+                    ms: waiting.ms,
+                    not_before: waiting.not_before,
                 };
             }
             let open: Vec<CallId> = waits.iter().filter(|c| !c.done).map(|c| c.call).collect();
@@ -1076,6 +1118,12 @@ fn passing_in_a_row(log: &Log) -> u32 {
     failures_in_a_row(log).filter(|f| *f == Failure::Passing).count() as u32
 }
 
+/// How many of the run's last rounds in a row the host kept from running for now ([`failures_in_a_row`]). Such a round
+/// is no failure of the work: it is in the row and breaks nothing, and counts toward no pause.
+fn held_in_a_row(log: &Log) -> u32 {
+    failures_in_a_row(log).filter(|f| *f == Failure::Held).count() as u32
+}
+
 /// How many of the run's last rounds in a row failed for a cause outside every work ([`failures_in_a_row`]).
 fn outside_in_a_row(log: &Log) -> u32 {
     failures_in_a_row(log).filter(|f| f.shared()).count() as u32
@@ -1085,8 +1133,8 @@ fn outside_in_a_row(log: &Log) -> u32 {
 /// cannot help; or it is in passing, or of a cause outside every work, and more of the run's last rounds in a row failed
 /// so than are tried again ([`PASSING`]); or the round was flagged, or the run guard stopped it, and another of the
 /// run's last rounds in a row failed so, whatever failed between them, the first having had its line's session begun
-/// anew. Any other failure the run takes up itself ([`next`]). The failures in a row start anew where the owner let the
-/// work on.
+/// anew. A round the host only kept from running for now is no failure of the work and never pauses it. Any other
+/// failure the run takes up itself ([`next`]). The failures in a row start anew where the owner let the work on.
 ///
 /// A round of the run begins after one that failed for a cause outside every work only once the engine has found the
 /// outside well, so that a row of them says the rounds meet what the engine's check does not find, as a limit of the
@@ -1105,7 +1153,7 @@ pub fn pausing(log: &Log) -> Option<Pausing> {
             let failed = outside_in_a_row(log);
             (failed > PASSING).then_some(Pausing::Outside { failed })
         }
-        Failure::Unread => None,
+        Failure::Held | Failure::Unread => None,
     }
 }
 

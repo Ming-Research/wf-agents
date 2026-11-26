@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use decide::run::{Failure, Unmet};
-use decide::{BlockId, CallId, CellId, End, Obstacle, Outsider, Pauser, Retry, RunId, Seq};
+use decide::{BlockId, CallId, CellId, End, Hindrance, Obstacle, Outsider, Pauser, Retry, RunId, Seq};
 use flow::{Compiled, Kind};
 
 use work::{Ask, Call, Fill, Given, Handed, Left, Measures, Question, RanOn, Reading, Said, Short, Spent, Time, Why};
@@ -61,7 +61,9 @@ pub enum Event {
     Returned { run: RunId, came: Came, spent: Spent },
     /// The round of the run that was under way failed, for this reason, having taken this: nothing came back. The
     /// cause is of the kind `failure`, as whatever carried the round out told it apart, and `resets` says when the
-    /// account's usage limit resets, where that is the cause and its report says when. Where the run is open, the
+    /// account's usage limit resets, where that is the cause and its report says when. Where the kind is
+    /// [`Failure::Held`], `hindrance` says what kept the host from running the engine's act and when it may be asked
+    /// again where it says; it is none otherwise. Where the run is open, the
     /// engine handles the failure as its kind says (crate `decide`, module `run`): where that is to pause the work, it
     /// pauses it with the reason as it takes this; the run's next round is given what the failed one was given.
     Failed {
@@ -69,6 +71,7 @@ pub enum Event {
         why: String,
         failure: Failure,
         resets: Option<Time>,
+        hindrance: Option<Hindrance>,
         spent: Spent,
     },
     /// The call has its result.
