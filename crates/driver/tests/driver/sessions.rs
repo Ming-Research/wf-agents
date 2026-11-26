@@ -1263,7 +1263,7 @@ fn warm(model: &str) -> Policy {
         warm: Some(driver::Warm {
             life_ms: 3_600_000,
             after_ms: 3_300_000,
-            most: [(model.to_string(), 2)].into(),
+            unmeasured_pings: 2,
             budget: None,
         }),
         ..policy(model)
@@ -1398,6 +1398,72 @@ fn a_line_that_waits_has_its_session_pinged_before_the_cache_lets_it_go_as_often
     s.driver.happened(Time(s.clock), s.work, pinged(read, None)).unwrap();
     // Two pings were sent in the wait, as many as it is worth: the line's session is pinged no more.
     assert!(kept_warm(&s).is_empty(), "no more pings in this wait");
+}
+
+// How many pings a wait is worth is worked out from what the work's own calls on the session's model cost, as the
+// program reported it, and from no name of a model: where the build's round and the first ping report a token read
+// at a fortieth of an hour's write, the session is pinged past the two pings a wait is worth where nothing reports a
+// cost. Fails where the worth comes from a table of models by their names, or where nothing reported counts as none.
+#[test]
+fn a_session_is_pinged_as_often_as_the_works_own_reports_of_its_model_make_worth() {
+    let mut s = S::warmed(warm("opus"));
+    // What a call cost, as the program reports it, on a model whose token sent fresh costs four millionths of a dollar
+    // and whose read from the cache a fifth of one: a write kept an hour costs eight, forty reads.
+    let reported = |fresh: u64, written: u64, read: u64, output: u64| Spent {
+        usd_micros: 4 * (fresh + 2 * written + 5 * output) + read / 5,
+        uncached_tokens: fresh + written,
+        cache_written_tokens: Some(written),
+        cached_tokens: read,
+        output_tokens: output,
+        context_tokens: Some(1_000),
+        ..Spent::default()
+    };
+    s.hands_in(100, true);
+    // The build's round reports what it cost, and waits on a tool's result.
+    let (run, _) = s.round();
+    let measures = Measures {
+        calls: 3,
+        ..Measures::default()
+    };
+    s.on(Event::Measured {
+        run,
+        attempt: 1,
+        measures,
+    });
+    s.began();
+    let ask = Ask::Tool {
+        name: "read".to_string(),
+        input: "request".to_string(),
+    };
+    let spent = reported(5_000, 50_000, 3_000_000, 20_000);
+    s.on(Event::Returned {
+        run,
+        came: Came::asks(vec![ask]),
+        spent,
+    });
+    let held = s.driver.work(s.work).expect("the work");
+    assert_eq!(
+        driver::prices::learned(held.flow, held.work, "opus"),
+        None,
+        "a round alone does not tell two prices"
+    );
+    for ping in 1..=3 {
+        let at = woken(&s);
+        let todos = s.driver.tick(Time(at), None, None).unwrap();
+        assert_eq!(pings(&s, &todos), [("engineer".to_string(), 0)], "ping {ping}");
+        s.clock = at + 5_000;
+        let read = reported(3, 60, 400_000, 25);
+        s.driver.happened(Time(s.clock), s.work, pinged(read, None)).unwrap();
+    }
+    let held = s.driver.work(s.work).expect("the work");
+    let prices = driver::prices::learned(held.flow, held.work, "opus").expect("a ping and a round tell the prices");
+    assert!((prices.input - 4.0).abs() < 1e-6, "{prices:?}");
+    assert!((prices.read - 0.2).abs() < 1e-6, "{prices:?}");
+    assert_eq!(prices.pings_worth(), 39);
+    assert!(
+        !kept_warm(&s).is_empty(),
+        "three pings of the 39 the wait is worth were sent"
+    );
 }
 
 #[test]
@@ -2235,11 +2301,12 @@ fn read_the_session() -> Spent {
     }
 }
 
-// A session is pinged by its own last call as often as a wait is worth (`Warm::most`), whatever the work's other lines
-// run. The engineer's session waits on a tool's call while the review's round stays under way through every ping:
-// each ping is due 55 minutes after the session's own last call, which the ping before it is, and a third is not
-// given; the same pings as `a_line_that_waits_has_its_session_pinged_before_the_cache_lets_it_go_as_often_as_a_wait_
-// is_worth` gives with no round beside them.
+// A session is pinged by its own last call as often as a wait is worth (`Warm::unmeasured_pings`, nothing in these
+// works reporting what its calls cost), whatever the work's other lines run. The engineer's session waits on a tool's
+// call while the review's round stays under way through every ping: each ping is due 55 minutes after the session's
+// own last call, which the ping before it is, and a third is not given; the same pings as
+// `a_line_that_waits_has_its_session_pinged_before_the_cache_lets_it_go_as_often_as_a_wait_is_worth` gives with no
+// round beside them.
 #[test]
 fn a_session_beside_a_round_of_another_line_is_pinged_as_often_as_a_wait_is_worth_and_no_oftener() {
     let (mut s, build_ended) = awaiting_a_tool();

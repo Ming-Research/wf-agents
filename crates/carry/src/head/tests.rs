@@ -92,6 +92,34 @@ async fn the_engines_merge_of_main_is_no_move_of_the_head() {
     }
 }
 
+// A merge of main is judged by the attributes of the main it took in, not by those the worktree holds: with the
+// worktree's `.gitattributes` emptied and not committed, the engine's merge of a line main added at the top of a file
+// it merges by `union` still brings only main's code, and what the work changed since is shown without main's line.
+#[tokio::test]
+async fn a_merge_of_main_is_judged_by_mains_attributes_not_the_worktrees() {
+    let repo = Repo::new("true");
+    commit(&repo.project.repo, "log.md", "Old.\n");
+    commit(&repo.project.repo, ".gitattributes", "log.md merge=union\n");
+    let started = git::start(&repo.project, &repo.place(WORK), "main", "main")
+        .await
+        .unwrap();
+    let place = started.place;
+    let built = commit(&place.dir, "log.md", "Work.\nOld.\n");
+    commit(&repo.project.repo, "log.md", "Main.\nOld.\n");
+    let caught = catch_up::take_in(&repo.project, &place, MAIN, RunId(7), WHOSE).await;
+    assert!(matches!(caught.outcome, Outcome::TookIn { .. }), "{caught:?}");
+    std::fs::write(place.dir.join(".gitattributes"), "").unwrap();
+    assert_eq!(work_head(&place).await, built);
+    let now = commit(&place.dir, "weather.txt", "Sunny.\n");
+    let command = between(&place.dir, MAIN, &built, &now).await.unwrap();
+    let from = command
+        .strip_prefix("`git diff ")
+        .and_then(|rest| rest.strip_suffix(&format!(" {now}`")))
+        .unwrap_or_else(|| panic!("{command}"));
+    let shown = run(&place.dir, &["diff", "--name-only", from, &now]);
+    assert_eq!(shown, "weather.txt", "{command}");
+}
+
 // An agent that amends the engine's merge of main keeps its address and its words, and slips its own change in as
 // main's: known by its content, the merge is no longer one that brings only main's code, and the head moves to it.
 #[tokio::test]

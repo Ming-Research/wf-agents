@@ -24,7 +24,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use decide::run::Failure;
 use decide::{BlockId, CallId, End, Outsider, Pauser, RunId};
 use driver::history::Lines;
-use driver::{Accounts, Along, Found, Going, Instead, Policy, Said, Under};
+use driver::{Accounts, Along, Found, Going, Instead, Limit, Policy, Said, Under};
 use engine::{Came, Event};
 use flow::{CellSpec, Compiled, Kind};
 use store::{Item, WorkNumber};
@@ -163,9 +163,9 @@ pub trait Rounds: Send + Sync {
 
 /// A fork of a round's session, asked a question: the work as it is kept, the outline of the version of its flow it is
 /// on, by which its rounds are placed in their sessions whichever version is installed, its item, the run and the round
-/// of it whose session is forked, the question, whether the work has ended, and the accounts as they stand, by which
-/// the fork runs under its session's account, or the one in use where that one was removed or the session ran under
-/// none ([`Accounts::of_session`]).
+/// of it whose session is forked, the question, whether the work has ended, and the accounts and the usage limits that
+/// stand as they are, by which the fork runs under its session's account, or the one in use where that one was removed,
+/// the session ran under none, or that one is at its usage limit ([`Accounts::of_session`]).
 #[derive(Clone, Debug)]
 pub struct Fork {
     pub work: WorkNumber,
@@ -177,6 +177,7 @@ pub struct Fork {
     pub question: String,
     pub ended: bool,
     pub accounts: Accounts,
+    pub limits: BTreeMap<String, Limit>,
 }
 
 /// Why a fork could not be asked or gave no answer, what its program cost where it ran, and how many processes it

@@ -126,7 +126,7 @@ pub struct Sessions {
     /// How long the agents' program keeps a session in its prompt cache after its last call, in minutes: an hour for
     /// `claude`, whose usage says every write to the cache is one kept an hour (`ephemeral_1h_input_tokens`); 0 for a
     /// program that keeps none, whose sessions are not kept warm. How many keep-warm pings a wait is worth is not set
-    /// here: it follows from the prices of the session's model.
+    /// here: it follows from the prices of the session's model, as the work's own reports of its calls tell them.
     #[serde(default = "cache_minutes")]
     pub cache_minutes: u64,
     /// How long after a session's last call a line that waits has it sent a keep-warm ping, in minutes: five before the
@@ -661,9 +661,7 @@ impl Settings {
         let warm = self.cache_ms().map(|life_ms| Warm {
             life_ms,
             after_ms: sessions.warm_minutes.saturating_mul(MINUTE),
-            most: (self.agents.levels.values())
-                .filter_map(|level| Some((level.model.clone(), crate::cost::pings_worth(&level.model)?)))
-                .collect(),
+            unmeasured_pings: driver::prices::UNMEASURED_PINGS,
             budget: self.budget(),
         });
         Policy {
@@ -743,6 +741,10 @@ mod tests {
         );
     }
 
+    // Whatever model a level names, a wait of its session is kept warm as often as the work's own reports of the model
+    // make worth (crate `driver`, module `prices`), and before they tell it as often as the dearest read makes worth,
+    // never not at all. Fails where the pings a wait is worth come from a table of models by their names, as when
+    // Fable 5.2, which the table did not name, was never pinged.
     #[test]
     fn a_session_is_kept_warm_from_55_minutes_after_its_last_call_to_the_hour_as_often_as_its_models_prices_make_worth()
     {
@@ -760,16 +762,10 @@ mod tests {
             (warm.life_ms, warm.after_ms, warm.budget),
             (3_600_000, 3_300_000, Some(budget))
         );
-        // The sample's levels run on Haiku, Sonnet and Opus 5.5 and on Fable 5.1.
-        let most: Vec<(&str, u32)> = warm.most.iter().map(|(m, n)| (m.as_str(), *n)).collect();
-        assert_eq!(
-            most,
-            [
-                ("claude-fable-5-1", 79),
-                ("claude-haiku-5-5", 19),
-                ("claude-opus-5-5", 39),
-                ("claude-sonnet-5-5", 39)
-            ]
+        assert_eq!(warm.unmeasured_pings, driver::prices::UNMEASURED_PINGS);
+        assert_ne!(
+            warm.unmeasured_pings, 0,
+            "a session on a model not yet reported is kept warm"
         );
         let none = Settings::read(&SAMPLE.replace("cache_minutes = 60", "cache_minutes = 0")).unwrap();
         assert_eq!(none.policy().warm, None, "a program that keeps no cache");

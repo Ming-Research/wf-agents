@@ -22,6 +22,11 @@ Each session of a line its work can come back to is pinged `sessions.warm_minute
 - replaced: Sending no ping while the engine held every work as it started, or while one work was paused, was on main; the owner changed it, because a hold stops the work from going on, and a cache left to go cold during the hold costs a whole write when the work goes on.
 - replaced: Pinging a session only while none of its work's rounds was under way, a ping holding back every round of its work, was on main; the owner changed it, because a round on one line left the work's other sessions unpinged for its whole length and their caches expired.
 
+### decision a-wait-is-worth-the-pings-its-works-reports-tell
+A wait is worth as many keep-warm pings as the prices that the work's own reports of the session's model tell make worth, and 19 where they tell none yet; no model is named.
+- replaced: Reading the pings a wait is worth from a table of models by their names, a model it did not name getting none, was on main; the owner changed it, because models are upgraded and the table falls behind: Fable 5.2, which it did not name, was never pinged.
+- rejected: an agent proposed adding the new models to the table and giving a model it does not name the pings of the dearest; the owner rejected it, because models are upgraded and the table would fall behind again.
+
 ### decision one-switch-keeps-sessions-warm
 One switch says whether sessions are kept warm at all: the engine's own state, kept in the store, switched at once on the owner's page, and on until the owner switches it off.
 - replaced: Settings of the installation, read when the engine starts, that kept sessions warm through a pause was on main; the owner changed it, because he turns off one switch over every ping to stop the spending at once, and a switch that waits for a restart cannot do that.
