@@ -587,7 +587,8 @@ struct Start {
 
 /// What keeps the real carriers from carrying out the flows, every fault at once: what the acts need of a flow and of
 /// their words beside the flows; what every agent is refused whatever its project, beside the flows, and the program
-/// the installation names ([`carry::permissions::faults`]), the same for every project and said once; what the texts
+/// the installation names ([`carry::permissions::faults`]), and the variables the installation keeps for the agents
+/// where the flows give them ([`carry::cli::kept_faults`]), the same for every project and said once; what the texts
 /// sent to the agents name and hold where it is the flows', the same for every project; and two projects in one
 /// repository, each said with the projects' keys. Of each project, what is wrong with its declaration on its main, with the files it names, its heavy
 /// commands and the commands its host needs of it, is no fault of the engine's but holds that project alone
@@ -599,6 +600,10 @@ fn start(settings: &carry::Settings, beside: &flow::agents::Agents, flows: &[Com
     let words = carry::word_faults(&beside.acts.check).into_iter();
     faults.extend(words.map(|fault| format!("{}/{fault}", beside.root.display())));
     faults.extend(carry::permissions::faults(beside, &settings.agents.command));
+    faults.extend(carry::cli::kept_faults(
+        &settings.agents.env,
+        &beside.refused.environment,
+    ));
     let (declared, wrong) = carry::projects::declared(settings, beside, flows);
     faults.extend(wrong);
     let held = (declared.iter())
@@ -828,6 +833,26 @@ mod tests {
             }
         }
         kept.join("\n") + "\n"
+    }
+
+    // A variable the flows give every agent's program that the installation's settings also keep of the engine's
+    // environment (`agents.env`) is a fault of the engine's, said as it starts, with the key that names it; without it
+    // the engine starts with no fault. Well under a millisecond: the one test that `start` asks for these faults, which
+    // the test of the function alone does not show.
+    #[test]
+    fn a_setting_that_keeps_a_variable_the_flows_give_every_agents_program_keeps_the_engine_from_starting() {
+        let dir = tempfile::tempdir().expect("a directory");
+        let mut settings = settings(dir.path());
+        let beside = beside(&[flows().join("engineer")], &[]).expect("the files beside the flows");
+        assert_eq!(start(&settings, &beside, &[engineer()]).faults, Vec::<String>::new());
+        settings.agents.env = vec!["GIT_ALLOW_PROTOCOL".to_string()];
+        let started = start(&settings, &beside, &[engineer()]);
+        assert_eq!(started.faults.len(), 1, "{:?}", started.faults);
+        assert!(
+            started.faults[0].starts_with("agents.env: GIT_ALLOW_PROTOCOL"),
+            "{:?}",
+            started.faults
+        );
     }
 
     // A project whose declaration cannot be used is held, and every one is said at once with its project's key and why,
