@@ -29,11 +29,11 @@ First read of an engine (works every work's part out) and the median of 21 reads
 
 | round | side | runs | first read, all engines: median / least | warm read, all engines: median / least |
 |---|---|---|---|---|
-| 1, change before the first change of how it reads | before | 2 | 10.4 / 5.3 | 3.1 / 1.6 |
+| 1, change as first measured (every read asked for everything that holds every work at once; the slots held sorted for each window) | before | 2 | 10.4 / 5.3 | 3.1 / 1.6 |
 | 1 | after | 2 | 7.5 / 6.1 | 2.4 / 2.2 |
-| 2, 100 merged works, change after sorting the slots once | before | 3 | 6.1 / 5.3 | 1.8 / 1.6 |
+| 2, 100 merged works; the slots held sorted once for each read, the waits every work shares read once | before | 3 | 6.1 / 5.3 | 1.8 / 1.6 |
 | 2 | after | 3 | 10.3 / 6.0 | 3.3 / 2.0 |
-| 3, 100 merged and 5 not ended, change as handed in | before | 3 | 13.0 / 5.6 | 3.3 / 1.7 |
+| 3, 100 merged and 5 not ended; as handed in | before | 3 | 13.0 / 5.6 | 3.3 / 1.7 |
 | 3 | after | 3 | 13.6 / 6.1 | 2.9 / 2.0 |
 
 Round 3 is the code handed in. Its times by run, the median of 21 warm reads of each engine:
@@ -47,10 +47,11 @@ Round 3 is the code handed in. Its times by run, the median of 21 warm reads of 
   runs being on different runners and overlapping one another. The ratio of medians was 0.77, 1.83 and 0.88 in the three
   rounds, which is noise.
 - The least time of each side is steady across rounds. After over before: first read 1.15, 1.13 and 1.09 times; warm read
-  1.38, 1.25 and 1.18 times (1.6 to 2.2 ms, 1.6 to 2.0 ms, 1.7 to 2.0 ms). The code of round 3 differs from that of round 2
-  in reading what holds every work at once only where a part is worked out or a work has not ended, and then only the
-  agents' wait of it (before, every read worked out the slots taken, the turns and the acts' host as well), and in sorting
-  the slots held once for each read instead of once for each window; round 1 had neither.
+  1.38, 1.25 and 1.18 times (1.6 to 2.2 ms, 1.6 to 2.0 ms, 1.7 to 2.0 ms). Round 2 differs from round 1 in sorting the slots
+  held once for each read, not once for each window, and in reading the waits every work shares from the rounds once, not
+  twice; round 3 from round 2 in reading what holds every work at once only where a part is worked out or a work has not
+  ended, and then only the agents' wait of it (before, every read worked out the slots taken, the turns and the acts' host
+  as well).
 - So the change adds about 0.3 to 0.4 ms to a read over 105 works and about 0.5 ms to the first read. Over 105 works that
   is a fifth to a sixth of what the read took, and a read of 400 works with many rounds each is longer to the same degree
   on the parts that are read again for every work (the parts kept for works that ended are not).
