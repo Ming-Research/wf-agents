@@ -1,8 +1,8 @@
 # Installing a build of the engine
 
 How to get the program `wf-agents` that an installation runs: for whoever installs a new build, which today is the
-assistant. It covers getting the program and putting it where the installation runs it, and, at its end, the gate a
-machine of self-hosted runners needs where measurements run on it. What belongs to one machine, such as stopping the
+assistant. It covers getting the program and putting it where the installation runs it; the GitHub App the engine acts
+as on GitHub; and, at its end, the gate a machine of self-hosted runners needs where measurements run on it. What belongs to one machine, such as stopping the
 engine, keeping a copy of the store and starting the engine again, is that installation's own and is not said here.
 
 The program is made by the workflow `build.yml` on each push to `main`, for macOS on arm64, with the owner's page and
@@ -34,6 +34,29 @@ The old program is not kept: to run an earlier one, install the build of its com
 A push to `main` that merges while the previous run is still going cancels that run, so the head's run is the one that
 is never cancelled. The run of a commit that is not main's head may therefore be missing or cancelled, which is no
 fault. A red run of the head is one: the commit does not build on macOS, and the work that mends it is an item.
+
+## The engine's GitHub App
+
+The engine acts on GitHub as a GitHub App of its own, never with a person's sign-in: every call it makes there, through
+`gh` and through git over HTTPS, is given a token of the App's installation, and the App's calls count against a limit
+of the App's own, which no person's use of GitHub shares. The table `[github_app]` of the installation's settings names
+the App (`crates/carry/install.sample.toml`). It is needed where a project's repository or the copies of the database
+are on GitHub, and is set up once, by the owner of the account that holds those repositories:
+
+1. Make the App under that account (its settings, then Developer settings, then GitHub Apps), with no webhook, and
+   give it these permissions: on repositories, Actions, Contents, Pull requests and Workflows read and write, and
+   Checks and Commit statuses read; on the organisation, Self-hosted runners read, so that the engine can tell whether
+   a runner is online.
+2. Install it on the account, for every repository the engine reaches: each project's, and the one the copies are kept
+   in.
+3. Make a private key on the App's page, and keep the file on the machine the engine runs on, readable by the user the
+   engine runs as alone (`chmod 600`).
+4. Write the table into the settings: `app_id`, the App ID the App's page shows; `installation_id`, the number that
+   ends the address of the installation's page; and `private_key`, the key's path written out whole.
+
+The engine needs `openssl` on its `PATH`: it signs with the key, which the engine itself never reads. The engine does
+not start where a project or the copies are on GitHub and the settings name no App, or where the key cannot be read.
+Where GitHub then gives no token, each call fails saying why, and no other credential is tried.
 
 ## The gate on a machine that measurements run on
 

@@ -6,6 +6,10 @@ Where a project's repository is hosted, GitHub or the local repository, and what
 The engine reaches a project's host through one interface: on GitHub it pushes the work's branch, opens a pull request, runs CI and merges there; with a local host it does all of it in the clone.
 - rejected: an agent proposed doing every work in the local repository alone, running its check command and merging the branch there; the owner rejected it, because the project's rules have every change go through a pull request and its tests run only in CI.
 
+### decision the-engine-acts-on-github-as-its-app
+The engine makes every call of GitHub, through gh and git over HTTPS, as a GitHub App of its own, with a token of the App's installation got anew before it expires.
+- replaced: A token in the engine's environment, the owner's own sign-in of gh, was on main; the owner changed it, because the engine shared that sign-in's 5,000 calls an hour with the owner and the assistant, and when they ran out the checks before the merges failed for hours.
+
 ### decision the-engine-merges-the-pull-request
 The engine merges a work's pull request itself once the check before the merge passes; the owner reviews no pull request.
 - rejected: an agent proposed asking the owner to review a work's pull request before it merges; the owner rejected it, because he reviews no pull request, as the process already said, and his questions go where he works.

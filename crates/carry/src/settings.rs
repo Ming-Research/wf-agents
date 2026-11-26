@@ -32,6 +32,9 @@ pub struct Settings {
     /// Where the copies of the database are kept off the machine, and how many are kept; with none, the copies stay
     /// on the machine alone, which shares the disk they are kept against losing.
     pub backup: Option<Backup>,
+    /// The GitHub App the engine acts as on GitHub, which settings that put a project's repository or the copies there
+    /// name; with none, nothing is done on GitHub.
+    pub github_app: Option<GitHubApp>,
     /// How a line's session is kept: its program's prompt cache, and the pings that keep it warm while the line waits.
     #[serde(default)]
     pub sessions: Sessions,
@@ -53,23 +56,16 @@ pub struct Owner {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Backup {
-    /// The private repository on github.com, as `owner/name`. It is not the project's repository nor the data
-    /// directory's remote: the database holds everything said to every agent.
+    /// The private repository on github.com, as `owner/name`, which the engine reaches as its GitHub App
+    /// (`github_app`). It is not the project's repository nor the data directory's remote: the database holds
+    /// everything said to every agent.
     pub repository: String,
-    /// The variable of the engine's environment that holds the token for this repository, which is not the one the
-    /// project's repository has.
-    #[serde(default = "backup_token_env")]
-    pub token_env: String,
     /// How many copies are kept, the newest, on the machine and off it.
     #[serde(default = "backup_keep")]
     pub keep: usize,
     /// The `gh` command line, or a path to it.
     #[serde(default = "gh")]
     pub gh: String,
-}
-
-fn backup_token_env() -> String {
-    "WF_BACKUP_TOKEN".to_string()
 }
 
 /// How many copies are kept where the settings do not say.
@@ -81,7 +77,7 @@ fn backup_keep() -> usize {
 
 impl Backup {
     /// What is wrong with these settings, each in words with its key.
-    fn wrong(&self, agents: &Agents, projects: &BTreeMap<String, Project>) -> Vec<String> {
+    fn wrong(&self) -> Vec<String> {
         let mut wrong = Vec::new();
         let parts: Vec<&str> = self.repository.split('/').collect();
         if !(parts.len() == 2 && parts.iter().all(|p| !p.is_empty())) {
@@ -93,22 +89,38 @@ impl Backup {
         if self.keep == 0 {
             wrong.push("backup.keep: at least one copy is kept".to_string());
         }
-        if self.token_env.is_empty() {
-            wrong.push("backup.token_env: the token's variable has a name".to_string());
+        wrong
+    }
+}
+
+/// The GitHub App the engine acts as on GitHub: every call it makes there, through `gh` and through git over HTTPS,
+/// is given a token of the App's installation, which the engine gets with the App's private key.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct GitHubApp {
+    /// The App's id, as GitHub shows it on the App's page (App ID).
+    pub app_id: u64,
+    /// The id of the App's installation on the account that holds the repositories the engine reaches.
+    pub installation_id: u64,
+    /// The App's private key, the file GitHub made for it, by its absolute path on this machine.
+    pub private_key: PathBuf,
+}
+
+impl GitHubApp {
+    /// What is wrong with these settings, each in words with its key.
+    fn wrong(&self) -> Vec<String> {
+        let mut wrong = Vec::new();
+        if self.app_id == 0 {
+            wrong.push("github_app.app_id: an App's id is a number above 0".to_string());
         }
-        if agents.env.contains(&self.token_env) {
+        if self.installation_id == 0 {
+            wrong.push("github_app.installation_id: an installation's id is a number above 0".to_string());
+        }
+        if !self.private_key.is_absolute() {
             wrong.push(format!(
-                "agents.env: {} holds the engine's token for the copies, which no agent is given",
-                self.token_env
+                "github_app.private_key: the key is named by its absolute path, not {:?}",
+                self.private_key
             ));
-        }
-        for (name, project) in projects {
-            if project.github.as_ref().is_some_and(|g| g.token_env == self.token_env) {
-                wrong.push(format!(
-                    "backup.token_env: the copies have a token of their own, not the one of the repository of the \
-                     project {name}"
-                ));
-            }
         }
         wrong
     }
@@ -264,9 +276,6 @@ pub struct GitHub {
     /// The clone's name for the repository on GitHub: main's head is fetched to `refs/remotes/<remote>/<main>`.
     #[serde(default = "origin")]
     pub remote: String,
-    /// The variable of the engine's environment that holds the engine's token for GitHub.
-    #[serde(default = "token_env")]
-    pub token_env: String,
     /// How many minutes a run of a workflow may be unlisted, or wait for a runner (the run not taken, or the jobs of a
     /// started run not taken), before the engine asks whether a runner of the workflow's kind is online; it asks again
     /// after each further such time while one is. A run unlisted so long is taken never to have started. A run that
@@ -291,10 +300,6 @@ fn runners() -> Vec<String> {
 
 fn origin() -> String {
     "origin".to_string()
-}
-
-fn token_env() -> String {
-    "WF_GITHUB_TOKEN".to_string()
 }
 
 fn start_minutes() -> u64 {
@@ -433,6 +438,17 @@ const CHECKS_MOVED: &str = "github.checks: the checks that count are the jobs of
      the project's wf-agents.toml as [ci.full] (workflows, runner, too_long), which the check before a merge runs \
      on the commit to merge; delete the line";
 
+/// What the settings are told where a project's table for GitHub or the copies' table names `token_env`, the variable
+/// that once held the engine's token for GitHub, `{key}` the table.
+const TOKEN_GONE: &str = "{key}.token_env: the engine acts on GitHub as its GitHub App, with the tokens it gets for the \
+     App's installation, and reads no token from its environment: delete the line, and name the App in a table \
+     [github_app] with app_id, installation_id and private_key, as install.sample.toml shows";
+
+/// What the settings are told where they name no App and a project's repository or the copies are on GitHub, `{key}`
+/// the table that puts them there.
+const NO_APP: &str = "github_app: [{key}] is on GitHub, where the engine acts as its GitHub App, and the settings name \
+     none: add a table [github_app] with app_id, installation_id and private_key, as install.sample.toml shows";
+
 /// What the settings are told where they hold `[project]` or `[github]`, the tables of the one project an installation
 /// once had, `{key}` the one they hold.
 const ONE_PROJECT: &str = "{key}: an installation names each of its projects now, and [{key}] is a project's: write \
@@ -471,7 +487,7 @@ pub const FILE: &str = "install.toml";
 
 impl GitHub {
     /// What is wrong with these settings of the project of this name, each in words with its key.
-    fn wrong(&self, project: &str, agents: &Agents) -> Vec<String> {
+    fn wrong(&self, project: &str) -> Vec<String> {
         let mut wrong = Vec::new();
         let parts: Vec<&str> = self.repository.split('/').collect();
         if !(parts.len() == 2 && parts.iter().all(|p| !p.is_empty())) {
@@ -487,17 +503,6 @@ impl GitHub {
         }
         if self.runners.iter().any(|r| r.trim().is_empty()) {
             wrong.push(format!("projects.{project}.github.runners: each runner is named"));
-        }
-        if self.token_env.is_empty() {
-            wrong.push(format!(
-                "projects.{project}.github.token_env: the token's variable has a name"
-            ));
-        }
-        if agents.env.contains(&self.token_env) {
-            wrong.push(format!(
-                "agents.env: {} holds the engine's token for GitHub, which no agent is given",
-                self.token_env
-            ));
         }
         wrong
     }
@@ -569,6 +574,13 @@ impl Settings {
                     return Err(format!("projects.{name}.{words}"));
                 }
             }
+            if github.is_some_and(|github| github.contains_key("token_env")) {
+                return Err(TOKEN_GONE.replace("{key}", &format!("projects.{name}.github")));
+            }
+        }
+        let backup = table.as_ref().and_then(|t| t.get("backup")).and_then(|b| b.as_table());
+        if backup.is_some_and(|backup| backup.contains_key("token_env")) {
+            return Err(TOKEN_GONE.replace("{key}", "backup"));
         }
         let settings: Settings = toml::from_str(text).map_err(|e| e.to_string().trim_end().to_string())?;
         let mut wrong = Vec::new();
@@ -622,7 +634,10 @@ impl Settings {
                 wrong.push(format!("projects.{name}.main: the main branch has a name"));
             }
             if let Some(github) = &project.github {
-                wrong.extend(github.wrong(name, &settings.agents));
+                wrong.extend(github.wrong(name));
+                if settings.github_app.is_none() {
+                    wrong.push(NO_APP.replace("{key}", &format!("projects.{name}.github")));
+                }
             }
         }
         if settings.owner.language.trim().is_empty() {
@@ -640,7 +655,13 @@ impl Settings {
             }
         }
         if let Some(backup) = &settings.backup {
-            wrong.extend(backup.wrong(&settings.agents, &settings.projects));
+            wrong.extend(backup.wrong());
+            if settings.github_app.is_none() {
+                wrong.push(NO_APP.replace("{key}", "backup"));
+            }
+        }
+        if let Some(app) = &settings.github_app {
+            wrong.extend(app.wrong());
         }
         if wrong.is_empty() {
             Ok(settings)
@@ -905,14 +926,17 @@ mod tests {
 
     #[test]
     fn the_fast_ci_of_the_installation_is_refused_in_words_that_say_where_it_went_and_the_runners_are_read() {
-        let github = "\n[projects.example.github]\nrepository = \"owner/name\"\n";
-        let settings = Settings::read(&format!("{SAMPLE}{github}")).expect("it reads");
+        let (sample, github) = (
+            format!("{SAMPLE}{}", app()),
+            "\n[projects.example.github]\nrepository = \"owner/name\"\n",
+        );
+        let settings = Settings::read(&format!("{sample}{github}")).expect("it reads");
         let of = |settings: Settings| settings.projects["example"].github.clone().expect("github");
         assert_eq!(of(settings).runners, ["github"]);
-        let runners = format!("{SAMPLE}{github}runners = [\"github\", \"14900K\"]\n");
+        let runners = format!("{sample}{github}runners = [\"github\", \"14900K\"]\n");
         let both = of(Settings::read(&runners).expect("it reads")).runners;
         assert_eq!(both, ["github", "14900K"]);
-        let checks = format!("{SAMPLE}{github}checks = [\"check\"]\n");
+        let checks = format!("{sample}{github}checks = [\"check\"]\n");
         let refused = Settings::read(&checks).expect_err("refused");
         assert!(
             refused.starts_with("projects.example.github.checks: the checks that count are the jobs of the project's"),
@@ -922,7 +946,7 @@ mod tests {
             refused.contains("[ci.full]") && refused.ends_with("delete the line"),
             "{refused}"
         );
-        let fast = format!("{SAMPLE}{github}[projects.example.github.fast]\nworkflow = \"fast.yml\"\n");
+        let fast = format!("{sample}{github}[projects.example.github.fast]\nworkflow = \"fast.yml\"\n");
         let refused = Settings::read(&fast).expect_err("refused");
         assert!(
             refused.starts_with("projects.example.github.fast: the fast workflow is the project's"),
@@ -1239,15 +1263,26 @@ mod tests {
         }
     }
 
-    /// The sample with its table for GitHub written in.
-    fn on_github() -> String {
+    /// The sample's table under this header, written in: its lines from the header to the first that is not a comment,
+    /// each taken out of its comment.
+    fn written_in(header: &str) -> String {
         let table = (SAMPLE.lines())
-            .skip_while(|line| *line != "# [projects.example.github]")
+            .skip_while(|line| *line != header)
             .take_while(|line| line.starts_with('#'))
             .map(|line| line.strip_prefix("# ").unwrap_or(line))
             .collect::<Vec<_>>()
             .join("\n");
-        format!("{SAMPLE}\n{table}\n")
+        format!("\n{table}\n")
+    }
+
+    /// The sample's table for the engine's GitHub App, written in.
+    fn app() -> String {
+        written_in("# [github_app]")
+    }
+
+    /// The sample with its tables for GitHub and for the engine's GitHub App written in.
+    fn on_github() -> String {
+        format!("{SAMPLE}{}{}", written_in("# [projects.example.github]"), app())
     }
 
     #[test]
@@ -1264,9 +1299,16 @@ mod tests {
         assert_eq!(github.repository, "owner/name");
         assert_eq!(github.url(), "https://github.com/owner/name.git");
         assert_eq!(github.remote, "origin");
-        assert_eq!(github.token_env, "WF_GITHUB_TOKEN");
         assert_eq!(github.start_minutes, 10);
         assert_eq!(github.gh, "gh");
+        assert_eq!(
+            Settings::read(&on_github()).expect("it reads").github_app,
+            Some(GitHubApp {
+                app_id: 123456,
+                installation_id: 12345678,
+                private_key: PathBuf::from("/path/to/the/app.private-key.pem"),
+            })
+        );
     }
 
     #[test]
@@ -1281,24 +1323,18 @@ mod tests {
     #[test]
     fn what_github_cannot_be_given_is_refused_all_at_once() {
         let text = (on_github().replace("repository = \"owner/name\"", "repository = \"name\""))
-            .replace("# env = [\"HTTPS_PROXY\"]", "env = [\"WF_GITHUB_TOKEN\"]");
+            .replace("start_minutes = 10", "start_minutes = 0");
         let refused = Settings::read(&text).expect_err("refused");
         assert_eq!(refused.lines().count(), 2, "{refused}");
         assert!(refused.contains("projects.example.github.repository"), "{refused}");
-        assert!(refused.contains("agents.env: WF_GITHUB_TOKEN"), "{refused}");
+        assert!(refused.contains("projects.example.github.start_minutes"), "{refused}");
         let unknown = on_github().replace("remote = \"origin\"", "remotes = \"origin\"");
         assert!(Settings::read(&unknown).expect_err("refused").contains("remotes"));
     }
 
-    /// The sample with its table for the copies written in.
+    /// The sample with its tables for the copies and for the engine's GitHub App written in.
     fn with_backup() -> String {
-        let table = (SAMPLE.lines())
-            .skip_while(|line| *line != "# [backup]")
-            .take_while(|line| line.starts_with('#'))
-            .map(|line| line.strip_prefix("# ").unwrap_or(line))
-            .collect::<Vec<_>>()
-            .join("\n");
-        format!("{SAMPLE}\n{table}\n")
+        format!("{SAMPLE}{}{}", written_in("# [backup]"), app())
     }
 
     #[test]
@@ -1313,56 +1349,83 @@ mod tests {
             .backup
             .expect("the copies go off the machine");
         assert_eq!(backup.repository, "owner/name");
-        assert_eq!(backup.token_env, "WF_BACKUP_TOKEN");
         assert_eq!(backup.keep, 7);
         assert_eq!(backup.gh, "gh");
         // Only the repository is needed.
-        let short = format!("{SAMPLE}\n[backup]\nrepository = \"owner/name\"\n");
+        let short = format!("{SAMPLE}{}\n[backup]\nrepository = \"owner/name\"\n", app());
         let backup = Settings::read(&short).unwrap().backup.unwrap();
-        assert_eq!(
-            (backup.token_env.as_str(), backup.keep, backup.gh.as_str()),
-            ("WF_BACKUP_TOKEN", 7, "gh")
-        );
+        assert_eq!((backup.keep, backup.gh.as_str()), (7, "gh"));
     }
 
     #[test]
     fn what_the_copies_cannot_be_given_is_refused_all_at_once() {
         let text = (with_backup().replace("repository = \"owner/name\"", "repository = \"name\""))
-            .replace("keep = 7", "keep = 0")
-            .replace("# env = [\"HTTPS_PROXY\"]", "env = [\"WF_BACKUP_TOKEN\"]");
+            .replace("keep = 7", "keep = 0");
         let refused = Settings::read(&text).expect_err("refused");
-        assert_eq!(refused.lines().count(), 3, "{refused}");
+        assert_eq!(refused.lines().count(), 2, "{refused}");
         assert!(refused.contains("backup.repository"), "{refused}");
         assert!(refused.contains("backup.keep"), "{refused}");
-        assert!(refused.contains("agents.env: WF_BACKUP_TOKEN"), "{refused}");
         let unknown = with_backup().replace("keep = 7", "kept = 7");
         assert!(Settings::read(&unknown).expect_err("refused").contains("kept"));
-        // The project's token is not the copies'.
-        let same = format!(
-            "{}\n{}",
-            on_github(),
-            "[backup]\nrepository = \"o/n\"\ntoken_env = \"WF_GITHUB_TOKEN\"\n"
-        );
-        let refused = Settings::read(&same).expect_err("refused");
-        assert!(refused.contains("backup.token_env"), "{refused}");
     }
 
-    // The token writes a release that holds the whole database and every conversation: it has a name, and no agent is
-    // given it, as with the token for the project's repository.
+    // Whatever the engine reaches on GitHub, a project's repository or the copies, it reaches as the GitHub App the
+    // settings name, and as nothing else: settings that put either there and name no App are refused, saying what to
+    // add; a token's variable, which once named the engine's token in its environment, is refused, saying what took its
+    // place; and the App's table is held to ids above 0 and a key by its absolute path, all said at once.
     #[test]
-    fn the_copies_token_has_a_name_and_is_given_to_no_agent() {
-        let empty = with_backup().replace("token_env = \"WF_BACKUP_TOKEN\"", "token_env = \"\"");
-        let refused = Settings::read(&empty).expect_err("an empty name is refused");
-        assert_eq!(refused.lines().count(), 1, "{refused}");
-        assert!(
-            refused.contains("backup.token_env: the token's variable has a name"),
-            "{refused}"
+    fn whatever_is_on_github_is_reached_as_the_app_the_settings_name_and_as_nothing_else() {
+        let github = format!("{SAMPLE}{}", written_in("# [projects.example.github]"));
+        let refused = Settings::read(&github).expect_err("no App");
+        assert_eq!(
+            refused,
+            "github_app: [projects.example.github] is on GitHub, where the engine acts as its GitHub App, and the \
+             settings name none: add a table [github_app] with app_id, installation_id and private_key, as \
+             install.sample.toml shows"
         );
-        let shared = with_backup().replace("# env = [\"HTTPS_PROXY\"]", "env = [\"WF_BACKUP_TOKEN\"]");
-        let refused = Settings::read(&shared).expect_err("a token an agent is given is refused");
-        assert_eq!(refused.lines().count(), 1, "{refused}");
-        assert!(refused.contains("agents.env: WF_BACKUP_TOKEN"), "{refused}");
-        assert!(refused.contains("which no agent is given"), "{refused}");
+        let backup = format!("{SAMPLE}{}", written_in("# [backup]"));
+        let refused = Settings::read(&backup).expect_err("no App");
+        assert!(refused.starts_with("github_app: [backup] is on GitHub"), "{refused}");
+        for (table, text) in [
+            (
+                "projects.example.github",
+                on_github().replace("remote = \"origin\"", "token_env = \"WF_GITHUB_TOKEN\""),
+            ),
+            (
+                "backup",
+                with_backup().replace("keep = 7", "token_env = \"WF_BACKUP_TOKEN\""),
+            ),
+        ] {
+            let refused = Settings::read(&text).expect_err(table);
+            assert!(
+                refused.starts_with(&format!(
+                    "{table}.token_env: the engine acts on GitHub as its GitHub App, with the tokens it gets for the \
+                     App's installation, and reads no token from its environment: delete the line"
+                )),
+                "{refused}"
+            );
+        }
+        let wrong = (on_github().replace("app_id = 123456", "app_id = 0"))
+            .replace("installation_id = 12345678", "installation_id = 0")
+            .replace("\"/path/to/the/app.private-key.pem\"", "\"app.private-key.pem\"");
+        let refused = Settings::read(&wrong).expect_err("refused");
+        assert_eq!(
+            refused.lines().collect::<Vec<_>>(),
+            [
+                "github_app.app_id: an App's id is a number above 0",
+                "github_app.installation_id: an installation's id is a number above 0",
+                "github_app.private_key: the key is named by its absolute path, not \"app.private-key.pem\"",
+            ]
+        );
+        let unknown = on_github().replace("app_id = 123456", "id = 123456");
+        assert!(
+            Settings::read(&unknown)
+                .expect_err("refused")
+                .contains("unknown field `id`")
+        );
+        // An App named where nothing is on GitHub is read, and does nothing.
+        let local = format!("{SAMPLE}{}", app());
+        assert!(Settings::read(&local).expect("it reads").github_app.is_some());
     }
 
     #[test]
@@ -1404,7 +1467,7 @@ mod tests {
     fn two_projects() -> String {
         let other = "[projects.other]\nrepo = \"/path/to/the/other\"\nmain = \"trunk\"\n\n\
                      [projects.other.github]\nrepository = \"owner/other\"\nrunners = [\"github\", \"14900k\"]\n";
-        format!("{SAMPLE}\n{other}")
+        format!("{SAMPLE}{}\n{other}", app())
     }
 
     // An installation names its projects, each with its own repository, main branch, check and host.
@@ -1478,26 +1541,16 @@ mod tests {
             refused.lines().nth(1).is_some_and(|l| l.starts_with("github: ")),
             "{refused}"
         );
-        // Moved as it says, it reads.
+        // Moved as it says, it reads, with the App it is reached as.
         let moved = both
             .replace("[project]", "[projects.example]")
             .replace("[github]", "[projects.example.github]");
+        let moved = format!("{moved}{}", app());
         assert!(
             Settings::read(&moved).expect("it reads").projects["example"]
                 .github
                 .is_some()
         );
-    }
-
-    // The copies' token is none of the projects' tokens.
-    #[test]
-    fn the_copies_token_is_no_projects_token() {
-        let same = format!(
-            "{}\n[backup]\nrepository = \"o/n\"\ntoken_env = \"WF_GITHUB_TOKEN\"\n",
-            two_projects()
-        );
-        let refused = Settings::read(&same).expect_err("refused");
-        assert!(refused.contains("the repository of the project other"), "{refused}");
     }
 
     // The subagents an agent may start are three where the settings give none, or as they say.

@@ -26,6 +26,7 @@
 //! it, and a request that asks for nothing else pushes nothing more and runs nothing. A request that names no test, no
 //! check, no measurement and no publishing runs nothing.
 //!
+//! - `app`: the engine's GitHub App, as which every call of GitHub is made, pushes and fetches as well.
 //! - `api`: what is asked of GitHub besides pushing and fetching, and `gh`, which asks it with the `gh` command line.
 //! - `output`: what a test said, as a reader wants it.
 //! - `log`: what a job's log says of the step that failed it, which is said of a job that failed with no failed test
@@ -36,6 +37,7 @@
 //! - `fake`: GitHub for the tests, with a bare repository on disk to push to.
 
 mod api;
+mod app;
 mod fast;
 mod gh;
 mod log;
@@ -62,6 +64,7 @@ use store::Continues;
 use uuid::Uuid;
 
 pub use api::{Api, Pull, State};
+pub use app::{App, Credential};
 pub use gh::{Gh, GhOffsite, UPLOAD_RATE};
 pub use machines::Machines;
 
@@ -74,6 +77,10 @@ use crate::settings::{self, Project};
 /// waited for while an agent or the check before a merge waits, so it is seen done within a few seconds. One look serves
 /// every wait on the workflow, and costs GitHub's limit on requests nothing where nothing changed (the module `looks`).
 pub const FAST_POLL: Duration = Duration::from_secs(5);
+
+/// What the settings are told where a project is on GitHub and they name no App for the engine to act as there.
+const NO_APP: &str = "github_app: the engine acts on GitHub as its GitHub App, and the settings name none: add a \
+     table [github_app] with app_id, installation_id and private_key, as install.sample.toml shows";
 
 /// What GitHub says where it refuses a merge because main moved as it was to merge (`HTTP 405`).
 const BASE_MODIFIED: &str = "Base branch was modified";
@@ -107,9 +114,9 @@ pub struct Config {
     pub check: Option<flow::agents::Check>,
     /// How often GitHub is asked how the runs of a workflow go, by a look every wait on the workflow shares.
     pub fast_poll: Duration,
-    /// The engine's token, which git's pushes and fetches are given in their environment; none where the address
-    /// needs none.
-    pub token: Option<String>,
+    /// What gives the token that git's pushes and fetches are given in their environment, the engine's GitHub App's;
+    /// none where the address needs none, as a repository on disk does.
+    pub credential: Option<Credential>,
     /// The paths of this machine that nothing the engine publishes on GitHub names: the data directory, the project's
     /// local repository and the home directory, each said by what it is instead.
     pub withheld: Vec<(String, String)>,
@@ -133,7 +140,7 @@ impl std::fmt::Debug for Config {
             .field("ci", &self.ci)
             .field("runners", &self.runners)
             .field("fast_poll", &self.fast_poll)
-            .field("token", &self.token.as_ref().map(|_| "(given)"))
+            .field("credential", &self.credential)
             .field("withheld", &self.withheld)
             .field("words", &self.words)
             .field("installation", &self.installation)
@@ -159,14 +166,15 @@ const GITHUB: &str = "github.com";
 
 impl GitHub<Gh> {
     /// GitHub as the installation's settings and the project's declaration say (its workflows `ci` and how its pull
-    /// requests are merged, `merging`), for the installation of this id, reached with `gh` and the engine's token, which
-    /// `env` gives from the engine's environment; `gh` keeps its configuration in the data directory, which is an
-    /// absolute path. Says why where the token is not there.
+    /// requests are merged, `merging`), for the installation of this id, reached with `gh` and git as the engine's
+    /// GitHub App the settings name (`app`), whose tokens are judged by the time the clock reads; `env` gives the
+    /// engine's environment, of which the home directory is read. `gh` keeps its configuration in the data directory,
+    /// which is an absolute path. Says why where the settings name no App or its private key cannot be read.
     pub fn from_settings(
-        github: &settings::GitHub,
+        (github, app): (&settings::GitHub, Option<&settings::GitHubApp>),
         project: &Project,
         data: &Path,
-        (installation, machines): (Uuid, Arc<Machines>),
+        (installation, machines, clock): (Uuid, Arc<Machines>, Arc<dyn service::Clock>),
         env: impl Fn(&str) -> Option<String>,
         (ci, merging): (Option<flow::agents::Ci>, &flow::agents::Merging),
         (tool, check, words): (
@@ -175,14 +183,10 @@ impl GitHub<Gh> {
             flow::agents::PullRequest,
         ),
     ) -> Result<GitHub<Gh>, String> {
-        let token = (env(&github.token_env).filter(|token| !token.is_empty())).ok_or_else(|| {
-            format!(
-                "github.token_env: the engine's environment has no {}, which is to hold its token for GitHub",
-                github.token_env
-            )
-        })?;
+        let app = app.ok_or(NO_APP)?;
         let dir = data.join("gh");
         std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        let credential = Credential::App(Arc::new(App::new(app, &github.gh, &dir, clock)?));
         let config = Config {
             url: github.url(),
             remote: github.remote.clone(),
@@ -194,13 +198,13 @@ impl GitHub<Gh> {
             tool,
             check,
             fast_poll: FAST_POLL,
-            token: Some(token.clone()),
+            credential: Some(credential.clone()),
             withheld: withheld(data, &project.repo, env("HOME"), &words.withheld),
             words,
             installation,
             machines,
         };
-        let gh = Gh::new(&github.gh, &github.repository, &token, &dir);
+        let gh = Gh::new(&github.gh, &github.repository, credential, &dir);
         Ok(GitHub::new(gh, project.clone(), config))
     }
 }
@@ -228,7 +232,7 @@ impl<A: Api> GitHub<A> {
     /// What git is given to push and fetch: neither the user's nor the system's configuration, no credential helper of
     /// the owner's, a connection that stalls given up, and, with a token, a helper that gives it for GitHub alone over
     /// HTTPS, from the command's environment.
-    fn credentials(&self) -> With {
+    fn credentials(token: Option<&str>) -> With {
         // A connection slower than a kilobyte a second for a minute is given up, as a stalled one.
         let settings = ["credential.helper=", "http.lowSpeedLimit=1000", "http.lowSpeedTime=60"];
         let mut with = With {
@@ -238,14 +242,14 @@ impl<A: Api> GitHub<A> {
                 ("GIT_CONFIG_NOSYSTEM".to_string(), "1".to_string()),
             ],
         };
-        if let Some(token) = &self.config.token {
+        if let Some(token) = token {
             with.settings.push(format!(
                 "credential.helper=!f() {{ test \"$1\" = get || exit 0; host=; https=; while IFS= read -r line && test \
                  -n \"$line\"; do case \"$line\" in host={GITHUB}) host=1 ;; protocol=https) https=1 ;; esac; done; if \
                  test -n \"$host\" && test -n \"$https\"; then printf 'username=x-access-token\\npassword=%s\\n' \
                  \"${TOKEN}\"; fi; }}; f"
             ));
-            with.env.push((TOKEN.to_string(), token.clone()));
+            with.env.push((TOKEN.to_string(), token.to_string()));
         }
         with
     }
@@ -254,8 +258,9 @@ impl<A: Api> GitHub<A> {
     /// includes, is found to send nothing elsewhere: a key of its own that rewrites an address (`url.*`), sets how
     /// HTTP goes (`http.*`: a proxy, the checking of certificates), or is set for an address itself (`remote.<address>.*`:
     /// another address, a program to run for the transfer) could send the token to another server or run a program
-    /// with it, and is refused.
-    async fn network(&self) -> Result<With, String> {
+    /// with it, and is refused. The token is the one the credential gives now; where it gives none, git is not run,
+    /// and why is said.
+    async fn network(&self) -> Result<With, Failed> {
         let listed = git::git(&self.project.repo, &["config", "--list", "--show-scope", "--includes"]).await?;
         let found: Vec<String> = (listed.lines())
             .filter_map(|line| line.split_once('\t'))
@@ -268,25 +273,29 @@ impl<A: Api> GitHub<A> {
             .map(|(scope, key)| format!("{key} ({scope})"))
             .collect();
         if !found.is_empty() {
-            return Err(format!(
+            return Err(Failed::from(format!(
                 "the configuration of {} says where git's connections to GitHub go, which could send the engine's \
                  token elsewhere: {}. Take each out",
                 self.project.repo.display(),
                 found.join(", ")
-            ));
+            )));
         }
-        Ok(self.credentials())
+        let token = match &self.config.credential {
+            Some(credential) => Some(credential.token().await?),
+            None => None,
+        };
+        Ok(Self::credentials(token.as_deref()))
     }
 
     /// Pushes the commit to the work's branch on GitHub, never forcing it: a branch there that holds a commit this one
     /// does not is refused. A commit the branch is at already is pushed as nothing.
-    async fn push(&self, branch: &Branch<'_>, commit: &str) -> Result<(), String> {
+    async fn push(&self, branch: &Branch<'_>, commit: &str) -> Result<(), Failed> {
         self.push_to(commit, &branch.place.reference(), false).await
     }
 
     /// Pushes the commit to the branch on GitHub that the reference names, forcing it where `force` says so, or, with
     /// no commit, deletes that branch.
-    async fn push_to(&self, commit: &str, reference: &str, force: bool) -> Result<(), String> {
+    async fn push_to(&self, commit: &str, reference: &str, force: bool) -> Result<(), Failed> {
         let target = format!("{}{commit}:{reference}", if force { "+" } else { "" });
         let args = [
             "push",
@@ -306,10 +315,10 @@ impl<A: Api> GitHub<A> {
         } else {
             format!("the push of {commit} to the branch {name}")
         };
-        Err(format!(
+        Err(Failed::from(format!(
             "{what} on GitHub was refused: {}",
             if pushed.err.is_empty() { pushed.out } else { pushed.err }
-        ))
+        )))
     }
 
     /// The work's open pull request into main, opened where the branch has none; or why the work cannot be checked
@@ -930,7 +939,7 @@ impl<A: Api> GitHub<A> {
             true => {
                 let kept = published_branch(branch, &commit);
                 (self.push_to(&commit, &format!("refs/heads/{kept}"), false).await)
-                    .map_err(crate::acts::failing::told_by_its_words)?;
+                    .map_err(crate::acts::failing::told)?;
                 Some(fill(&words.published, &[("commit", &commit), ("branch", &kept)]))
             }
         };
@@ -941,7 +950,7 @@ impl<A: Api> GitHub<A> {
             // before the change, must not land on the work's branch.
             let trying = trial_branch(branch, asking);
             (self.push_to(&commit, &format!("refs/heads/{trying}"), false).await)
-                .map_err(crate::acts::failing::told_by_its_words)?;
+                .map_err(crate::acts::failing::told)?;
             let request = fast::Request {
                 work: branch.work,
                 commit: &commit,

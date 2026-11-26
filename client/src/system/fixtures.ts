@@ -247,7 +247,7 @@ export function fixtureProjects(): ProjectSettings[] {
           leftOut: false,
           keys: [
             key('repository', '"owner/wf-agents"'),
-            key('token_env', '"WF_GITHUB_TOKEN"'),
+            key('remote', '"upstream"'),
             key('runners', '["github", "14900k"]'),
           ],
         },

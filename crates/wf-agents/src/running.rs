@@ -205,7 +205,7 @@ pub fn run(data: &Path, flows: &Flows, with: With, port: u16, new: bool) -> Exit
                         }
                     }
                 }
-                match keeping(data, settings.backup.as_ref()) {
+                match keeping(data, settings.backup.as_ref(), settings.github_app.as_ref()) {
                     Ok(keeping) => copies = Some(keeping),
                     Err(why) => {
                         eprintln!("{why}");
@@ -368,9 +368,13 @@ enum Keeping {
     Off(backup::Plan<carry::GhOffsite>, backup::Disk),
 }
 
-/// What keeps the copies, with the engine's token for the place off the machine from its environment, and its own
-/// directory for `gh`'s configuration, apart from the host's.
-fn keeping(data: &Path, settings: Option<&carry::settings::Backup>) -> Result<Keeping, String> {
+/// What keeps the copies, the place off the machine reached as the engine's GitHub App the settings name (`app`), with
+/// its own directory for `gh`'s configuration, apart from the host's.
+fn keeping(
+    data: &Path,
+    settings: Option<&carry::settings::Backup>,
+    app: Option<&carry::settings::GitHubApp>,
+) -> Result<Keeping, String> {
     let (store, dir) = (data.join(store::FILE), data.join(COPIES));
     let ground = backup::Disk::open(&store, &dir)?;
     let Some(b) = settings else {
@@ -382,19 +386,21 @@ fn keeping(data: &Path, settings: Option<&carry::settings::Backup>) -> Result<Ke
         };
         return Ok(Keeping::Local(plan, ground));
     };
-    let token = (std::env::var(&b.token_env).ok().filter(|token| !token.is_empty())).ok_or_else(|| {
+    let app = app.ok_or_else(|| {
         format!(
-            "backup.token_env: the variable {} is not set: the engine needs its token for {}",
-            b.token_env, b.repository
+            "github_app: the copies are kept on GitHub, in {}, which the engine reaches as its GitHub App, and the \
+             settings name none",
+            b.repository
         )
     })?;
     let config = data.join("gh-backup");
     std::fs::create_dir_all(&config).map_err(|e| format!("{}: {e}", config.display()))?;
+    let offsite = carry::GhOffsite::new(b, app, &config, Arc::new(SystemClock))?;
     let plan = backup::Plan {
         store,
         dir,
         keep: b.keep,
-        offsite: Some(carry::GhOffsite::new(&b.gh, &b.repository, &token, &config)),
+        offsite: Some(offsite),
     };
     Ok(Keeping::Off(plan, ground))
 }
@@ -813,7 +819,8 @@ mod tests {
         let mut project = if github {
             let table = format!(
                 "\n[projects.{name}]\nrepo = \"/the/repository\"\nmain = \"main\"\n\n[projects.{name}.github]\n\
-                 repository = \"owner/{name}\"\n"
+                 repository = \"owner/{name}\"\n\n[github_app]\napp_id = 1\ninstallation_id = 2\n\
+                 private_key = \"/the/app.private-key.pem\"\n"
             );
             carry::Settings::read(&format!("{SAMPLE}{table}"))
                 .expect("it reads")
