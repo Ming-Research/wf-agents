@@ -694,11 +694,13 @@ fn a_file_of_version_20_is_migrated_keeping_every_row_it_holds_its_tries_directo
         "no round of the file has a try whose tokens add up to its own"
     );
     assert!(!before["spent"].is_empty(), "the work has rounds that took something");
-    // The file has no table of forks yet, which a later version makes empty.
-    for (table, written) in [("spent", 5), ("pinged", 6), ("forked", 6)] {
+    // The file has no table of forks yet, which a later version makes empty. A later version also added, after the cost,
+    // whether some of it is not known: none of it, as every cost was priced then.
+    for (table, unpriced, written) in [("spent", 4, 6), ("pinged", 5, 7), ("forked", 5, 7)] {
         let mut told_apart: Vec<Vec<String>> = (before.get(table).into_iter().flatten())
             .map(|row| {
                 let mut row = row.clone();
+                row.insert(unpriced, "Integer(0)".to_string());
                 row.insert(written, "Null".to_string());
                 row
             })
