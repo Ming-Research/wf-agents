@@ -32,8 +32,7 @@
 //! directory, the engine's (`account::profile`), and the token of the account the round was handed out with, as what
 //! keeps the tokens gives it as the round begins; a token it cannot give, or none where the round was handed out with
 //! no account, fails the round as a command line that cannot run, in its words, nothing being run (decision
-//! no-default-credential); and, last, the variables the flows give every agent's program (`agents/refused.toml`),
-//! whichever way it is started (decision agents-cannot-push-however-it-is-written). A keep-warm ping runs under the account it is handed out with, which its session's last call
+//! no-default-credential). A keep-warm ping runs under the account it is handed out with, which its session's last call
 //! ran under, and a fork under its session's account, or under the one in use where that one was removed or the session
 //! ran under none, which it says. What the program's stream says of the usage of the account a round, a ping or a fork
 //! runs under is said to the loop under that account, a round's as each rate limit event comes. Which of its line's
@@ -46,6 +45,9 @@
 //! says to the loop as the session reopened, and gives the session the round's whole message again, as a session that
 //! holds nothing is sent it. After each use of a tool another hook gives the session what the owner said to the round
 //! while it runs, where the runner put it in the round's files (`cli::Words`).
+//!
+//! The program's environment ends with the variables the flows give every agent's program (`agents/refused.toml`), so
+//! that each start of it has them, whichever way it is started (decision agents-cannot-push-however-it-is-written).
 //!
 //! A round given again after the process of the engine that gave it ended while a try of it ran goes on from that
 //! try, where its program said it began, reached the service or printed its result: what the try kept of its stream is
@@ -1126,11 +1128,10 @@ impl Inner {
     /// The program's command line for a round on what it runs on, with its line's system prompt, of a line with these
     /// permissions, given the form of return of its flow, in the session, begun or gone on in, in the worktree, which
     /// the program compacts at the installation's `sessions.compact_at`, given the program's directory and the token of
-    /// the account it runs under, the variables its project's declaration names and those every agent's program has,
-    /// beside the flows ([`cli::environment`]); where `refusing` says so, with every
-    /// use of a tool refused but the return's ([`cli::refusing`]), as a keep-warm ping runs; and with `lines` added to
-    /// its environment, which give its git the hook that ends each commit with the item and the work
-    /// ([`commit_lines::environment`]).
+    /// the account it runs under, the variables its project's declaration names and those every agent's program has
+    /// beside the flows ([`cli::environment`]); where `refusing` says so, with every use of a tool refused but the
+    /// return's ([`cli::refusing`]), as a keep-warm ping runs; and with `lines` added to its environment, which give
+    /// its git the hook that ends each commit with the item and the work ([`commit_lines::environment`]).
     #[allow(clippy::too_many_arguments)]
     fn command(
         &self,

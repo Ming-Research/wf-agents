@@ -48,8 +48,8 @@ fn refs(remote: &Path) -> Vec<String> {
 /// Each way of writing a push of `HEAD` to the new branch `{branch}` of the remote that the work repository `{repo}`
 /// names `origin`, as a shell command line run in it.
 ///
-/// Each comes with whether it pushes where git is given no variable: an empty `GIT_ALLOW_PROTOCOL` is a value, which git
-/// takes as allowing no protocol, so it refuses there too.
+/// Each comes with whether it pushes where git is given no variable: an empty `GIT_ALLOW_PROTOCOL` is a value, which
+/// git takes as allowing no protocol, so it refuses there too.
 fn spellings() -> Vec<(&'static str, String, bool)> {
     let push = "push origin HEAD:refs/heads/{branch}";
     let git = git_path().display().to_string();

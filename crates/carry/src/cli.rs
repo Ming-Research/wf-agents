@@ -532,8 +532,8 @@ pub fn environment_faults(
 
 /// What is wrong with the variables the installation's settings keep of the engine's environment for the agents'
 /// program (`agents.env`: `named`) where one is a variable every agent's program has beside the flows (`refused`): the
-/// program would be given the flow's value, not the engine's, so the setting would say what is not so. Each is said with
-/// where it is written.
+/// program would be given the flow's value, not the engine's, so the setting would say what is not so. Each is said
+/// with where it is written.
 pub fn kept_faults(named: &[String], refused: &BTreeMap<String, String>) -> Vec<String> {
     (named.iter())
         .filter(|name| refused.contains_key(*name))
@@ -2802,10 +2802,10 @@ mod tests {
     }
 
     // What every agent's program has beside the flows comes last of all, whatever the engine's environment, the
-    // installation's `agents.env` and the declaration hold, so that nothing before it changes it; and the same names are
-    // refused where a declaration or `agents.env` writes one. Well under a millisecond alone; no other test holds the
-    // environment's last place or the faults of these names, which the real git test of the work (tests/real) takes as
-    // given.
+    // installation's `agents.env` and the declaration hold, so that nothing before it changes it; and the same names
+    // are refused where a declaration or `agents.env` writes one. Well under a millisecond alone; no other test holds
+    // the environment's last place or the faults of these names, which the real git test of the work (tests/real) takes
+    // as given.
     #[test]
     fn the_variables_every_agents_program_has_come_last_and_no_declaration_or_setting_names_one() {
         let token = Token::new("sk-ant-oat01-secret".to_string());

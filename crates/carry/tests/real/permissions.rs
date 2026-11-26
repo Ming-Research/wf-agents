@@ -198,8 +198,8 @@ async fn every_round_is_given_the_variables_the_projects_declaration_names_with_
 
 // Every round's command line is given the variable the flows give every agent's program, on the line that writes and on
 // the line that only reads: the stand-in keeps what it was given. A few rounds of the stand-in, with git: about a
-// second; the one test that the variable reaches the command line a round runs, on the real launch of a round, which the
-// unit test of the environment's order cannot show.
+// second; the one test that the variable reaches the command line a round runs, on the real launch of a round, which
+// the unit test of the environment's order cannot show.
 #[tokio::test]
 async fn every_round_is_given_the_variables_the_flows_give_every_agents_program() {
     let mut real = Real::trial(Fake::default());
