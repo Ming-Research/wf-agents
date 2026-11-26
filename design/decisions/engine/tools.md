@@ -48,6 +48,10 @@ Where no commit is named, `run_tests` on GitHub runs the last commit and names t
 - replaced: Refusing to run while the worktree held anything not committed, untracked files included, was on main; the owner changed it, because a cache a local command left stopped the tool though the commit was sound, and a forgotten new file is named instead.
 - rejected: an agent proposed refusing an uncommitted change where a commit is named too; the owner rejected it, because the agent has said which commit to run, and a demonstration commit is made while the changes it is made from are still uncommitted.
 
+### decision run-tests-says-only-what-main-is-known-to-fail
+`run_tests` says a failed test also failed on main only where a check before a merge has already found it failing on main's head; it runs nothing on main for the call.
+- rejected: an agent proposed that `run_tests` run a call's failed tests on main's head when main has no record of them, so the first work to meet a red main knows it; the owner rejected it, because it costs a CI run for each call with a failure, mostly for nothing, and fights the owner for the processor.
+
 ### decision no-cell-runs-the-tests
 No cell of a flow runs the tests a cell asks for: they stay a call within that cell's run.
 - rejected: an agent proposed a cell of the engine that runs the tests each cell asks for, with the request and the result as data; the owner rejected it, because it was there only to show a cell's CI run on the page, and a row for each tool on the chart shows that just as well.

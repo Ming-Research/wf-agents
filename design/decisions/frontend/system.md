@@ -6,6 +6,10 @@ The view of the state of the whole system, and the settings of the installation 
 The state of the database's copies is shown in the System view's section on what is going on now, and nowhere on the Works page.
 - replaced: A grey, red or orange line at the top of the Works page was on main; the owner changed it, because the backup belongs to the installation and not to a work, and the line told him nothing while all was well.
 
+### decision a-red-main-stands-on-the-system-view-only
+A project whose main is red is a row of the System view's section on what is going on now, in the colour of a failure; the console carries no mark of it.
+- rejected: an agent proposed a mark beside the project's name in the console's list as well; the owner rejected it, because the same fact would stand in two places, with one more mark to explain, and the list means what waits for the owner, while a red main waits for the architect.
+
 ### decision the-shared-wait-is-said-without-the-trace
 The wait every work shares is described by what is down and since when, what the engine's check found, and what the wait holds; never the round that met it, its error, or when the engine checks next.
 - rejected: an agent proposed six sentences, among them the round that met the wait and the command line's own words; the owner rejected it, because the last two sentences and the words saying it was not signed in said one thing three times.
