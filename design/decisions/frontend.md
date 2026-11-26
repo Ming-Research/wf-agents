@@ -140,7 +140,7 @@ A work's usage (Usage tab, round panel, System view) tells tokens sent fresh, wr
 - replaced: Tokens told as sent, read from the cache and given back, the sent counting those written to the cache with those sent fresh, was on main; the owner changed it, because a write to the cache costs more than a send fresh, an hour's twice as much, and he could not see where the money went.
 
 ### decision the-browser-tells-the-owner-what-waits
-While the page is open, a browser notification tells the owner of each work that starts waiting, naming its cell and why, and of the engine's pause of all works; a click opens the console.
+While the page is open, a browser notification tells the owner of each work that starts waiting, naming its cell and why, and of the engine's pause of all works; a click opens its card or the console.
 - rejected: an agent proposed a notification sent by a script on the machine the server runs on; the owner rejected it, because he uses the page in Chrome, and the server runs on his machine only by chance.
 - rejected: an agent proposed a push notification to the owner's phone; the owner rejected it, because the browser's notifications are enough for now.
 - rejected: an agent proposed a notification of the operating system, sent by the engine, as well as the browser's; the owner rejected it, because the browser's notifications are enough.

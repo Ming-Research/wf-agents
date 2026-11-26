@@ -110,7 +110,7 @@ While the search is open the tree is dimmed, as round the item under the pointer
 - replaced: Finding an item only by scrolling the tree was on main; the owner changed it, because once many items were imported he could not find one he looked for.
 
 ### decision the-owner-walks-the-stops-by-keys
-n and N go to the next and the previous stop, m and M to the next and the previous reply not read, tree by tree in the list's order, round from the last; Next, left of Discuss on a stop, does as n.
+n and N go to the next and previous stop, m and M to the next and previous reply not read, round the trees; none goes to the engine's pause; Next, left of Discuss on each stop but the last, does as n.
 - replaced: A button Next question on a row of its own under Discuss was on main; the owner changed it, because the two buttons go together on one row, and Next is shorter.
 - replaced: Finding each thing to handle by looking for a card with a count and scrolling its window was on main; the owner changed it, because he works by those counts, and wanted to go from one thing he handles to the next by keys.
 - replaced: Walking by n and N alone, with no key for the replies the owner had not read, was on main; the owner changed it, because the owner could not find a reply an agent had written to the owner's words after leaving the page, and wanted to go from one unread reply to the next by keys.
