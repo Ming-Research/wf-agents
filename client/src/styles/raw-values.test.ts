@@ -106,17 +106,19 @@ function scan(css: string): Finding[] {
   return findings;
 }
 
-// A value the check lets stand, with why, and the decision that makes the choice.
-type Exception = { file: string; value: string; reason: string; decision: string };
+// A value the check lets stand, with why, and the decision that makes the choice. It stands only where its reason holds:
+// in a statement that begins with `within` (an at-rule such as `@media`), so that the same value in an ordinary
+// declaration of the same file is still reported.
+type Exception = { file: string; value: string; within: string; reason: string; decision: string };
 
 // What the sheets hold that is not an exception, and each exception that no sheet holds any longer.
 function judge(sheets: Record<string, string>, exceptions: Exception[]) {
   const found = Object.entries(sheets).flatMap(([file, css]) => scan(css).map((f) => ({ file, ...f })));
-  const listed = (f: { file: string; found: string }) =>
-    exceptions.some((e) => e.file === f.file && e.value === f.found);
+  const holds = (e: Exception, f: { file: string; found: string; statement: string }) =>
+    e.file === f.file && e.value === f.found;
   return {
-    unlisted: found.filter((f) => !listed(f)),
-    stale: exceptions.filter((e) => !found.some((f) => f.file === e.file && f.found === e.value)),
+    unlisted: found.filter((f) => !exceptions.some((e) => holds(e, f))),
+    stale: exceptions.filter((e) => !found.some((f) => holds(e, f))),
   };
 }
 
@@ -136,6 +138,7 @@ const MEDIA_DECISION = 'the-style-check-lists-the-media-breakpoints';
 const EXCEPTIONS: Exception[] = ['1200px', '760px', '480px'].map((value) => ({
   file: 'styles/works.css',
   value,
+  within: '@media',
   reason: MEDIA_REASON,
   decision: MEDIA_DECISION,
 }));
@@ -170,6 +173,7 @@ describe('the check of raw values in the page’s styles', () => {
   it('gives each exception the decision that makes its choice and a reason', () => {
     for (const e of EXCEPTIONS) {
       expect(e.reason, `${e.file} ${e.value}`).not.toBe('');
+      expect(e.within, `${e.file} ${e.value}`).toMatch(/^@[a-z-]+$/);
       expect(e.decision, `${e.file} ${e.value}`).toMatch(/^[a-z]+(-[a-z]+)*$/);
     }
   });
@@ -276,24 +280,36 @@ describe('the scanner of raw values', () => {
     ]);
   });
 
+  const media760 = { file: 'a.css', value: '760px', within: '@media', reason: 'r', decision: 'd' };
+
   it('holds back an exception that is listed, and reports what is not', () => {
-    const exception = { file: 'a.css', value: '760px', reason: 'r', decision: 'd' };
     const sheets = { 'a.css': '@media (width < 760px) { b { top: 0; } }\n@media (width < 480px) { b { top: 0; } }' };
-    const { unlisted, stale } = judge(sheets, [exception]);
+    const { unlisted, stale } = judge(sheets, [media760]);
     expect(unlisted.map((f) => f.found)).toEqual(['480px']);
     expect(stale).toEqual([]);
   });
 
   it('reports an exception that no stylesheet holds any longer', () => {
-    const exception = { file: 'a.css', value: '760px', reason: 'r', decision: 'd' };
-    const { unlisted, stale } = judge({ 'a.css': 'b { top: 0; }' }, [exception]);
+    const { unlisted, stale } = judge({ 'a.css': 'b { top: 0; }' }, [media760]);
     expect(unlisted).toEqual([]);
-    expect(stale).toEqual([exception]);
+    expect(stale).toEqual([media760]);
   });
 
   it('names an exception by its file as well as its value', () => {
-    const exception = { file: 'a.css', value: '760px', reason: 'r', decision: 'd' };
-    const { unlisted } = judge({ 'b.css': '@media (width < 760px) { c { top: 0; } }' }, [exception]);
+    const { unlisted } = judge({ 'b.css': '@media (width < 760px) { c { top: 0; } }' }, [media760]);
     expect(unlisted.map((f) => `${f.file} ${f.found}`)).toEqual(['b.css 760px']);
+  });
+
+  it('lets an exception stand only where its reason holds, so the same value in a declaration is reported', () => {
+    const sheet = '@media (width < 760px) { b { top: 0; } }\nc { max-width: 760px; }';
+    const { unlisted, stale } = judge({ 'a.css': sheet }, [media760]);
+    expect(unlisted.map((f) => `${f.line} ${f.found}`)).toEqual(['2 760px']);
+    expect(stale).toEqual([]);
+  });
+
+  it('reports an exception as no longer held when its value stands only in a declaration', () => {
+    const { unlisted, stale } = judge({ 'a.css': 'c { max-width: 760px; }' }, [media760]);
+    expect(unlisted.map((f) => f.found)).toEqual(['760px']);
+    expect(stale).toEqual([media760]);
   });
 });
