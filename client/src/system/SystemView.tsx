@@ -523,7 +523,7 @@ function Produced({ s, items }: { s: System; items: Map<number, Item> }) {
 /// how long the calls and rounds that waited for CI took, and how long its jobs waited for a runner; how many works held
 /// a slot and how many ran, against how many slots there were; and, over more than one week, each week by itself. What
 /// the engine does not know is said, never shown as nothing.
-function WaitedPart({ s }: { s: System }) {
+export function WaitedPart({ s }: { s: System }) {
   const waited = s.waited;
   if (waited === undefined) return null;
   const ci = waited.ci;
