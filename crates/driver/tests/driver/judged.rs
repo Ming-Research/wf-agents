@@ -268,7 +268,7 @@ fn the_time_a_call_was_held_is_left_out_of_the_time_it_is_judged_by() {
         },
     );
     let judged: Judged = h.d().judged(None, Time(h.clock));
-    let against = judged.calls[&held].time.expect("its time is judged");
+    let against = judged.calls[&(work, held)].time.expect("its time is judged");
     assert!(
         against.value < 15_000.0,
         "the fifty seconds it was held are left out: {against:?}"

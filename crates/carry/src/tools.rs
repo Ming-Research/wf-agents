@@ -492,6 +492,7 @@ mod tests {
         match answer(host, &repo.project, &branch, &told, &call, &mut Stop::never()).await {
             Answer::Result(result) => result,
             Answer::Withdrawn => panic!("nothing withdrew it"),
+            Answer::Held(_) => panic!("nothing held it"),
         }
     }
 

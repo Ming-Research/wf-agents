@@ -511,7 +511,8 @@ pub enum RecordFault {
     DealtWithUnknown(RunId),
     /// The run's return names one block twice as dealt with.
     DealtWithTwice(RunId),
-    /// The call was made after its run had finished or was abandoned: a run makes its calls before it ends.
+    /// The call was made after its run had finished or was abandoned: a run makes its calls before it ends, but for the
+    /// engine's wait for a call of the run that was held, which is made when the call is held.
     CalledAfterEnd(CallId),
     /// The answer at this place names no version of its question, asking it, written before it.
     AnswerNoVersion(Seq),
