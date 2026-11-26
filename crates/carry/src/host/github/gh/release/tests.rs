@@ -54,7 +54,8 @@ esac
         std::fs::write(&script, GH.replace("DIR", &dir.path().display().to_string())).expect("written");
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).expect("made runnable");
         let config = dir.path().join("config");
-        let place = GhOffsite::new(&script.display().to_string(), "owner/name", "the-token", &config);
+        let token = Credential::Given("the-token".to_string());
+        let place = GhOffsite::with(&script.display().to_string(), "owner/name", token, &config);
         (dir, place)
     }
 

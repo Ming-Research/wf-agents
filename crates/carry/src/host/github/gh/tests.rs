@@ -500,8 +500,10 @@ fn a_limit_says_when_it_may_be_asked_again_as_github_says_it() {
     assert_eq!(held("HTTP/2.0 422 Unprocessable Entity", "Validation Failed"), None);
 }
 
+// `gh` is given of the engine's environment only what git is given: no token the owner keeps there, which the call's
+// own token is given beside (the module `app`). Milliseconds.
 #[test]
-fn gh_is_given_the_token_and_nothing_else_of_the_engines_but_what_git_is() {
+fn gh_is_given_nothing_of_the_engines_environment_but_what_git_is() {
     let engine = [
         ("PATH", "/bin"),
         ("HOME", "/home/someone"),
@@ -510,26 +512,25 @@ fn gh_is_given_the_token_and_nothing_else_of_the_engines_but_what_git_is() {
         ("ANTHROPIC_API_KEY", "a key"),
     ]
     .map(|(n, v)| (n.to_string(), v.to_string()));
-    let env = environment(engine, "the engine's", Path::new("/data/gh"));
+    let env = environment(engine, Path::new("/data/gh"));
     let names: Vec<&str> = env.iter().map(|(n, _)| n.as_str()).collect();
     assert_eq!(
         names,
         [
             "HOME",
             "PATH",
-            "GH_TOKEN",
             "GH_CONFIG_DIR",
             "GH_PROMPT_DISABLED",
             "GH_NO_UPDATE_NOTIFIER",
             "NO_COLOR"
         ]
     );
-    let token: Vec<&str> = (env.iter())
-        .filter(|(n, _)| n == "GH_TOKEN")
-        .map(|(_, v)| v.as_str())
-        .collect();
-    assert_eq!(token, ["the engine's"]);
-    let gh = Gh::new("gh", "o/r", "the engine's", Path::new("/data/gh"));
+    let gh = Gh::new(
+        "gh",
+        "o/r",
+        Credential::Given("the engine's".to_string()),
+        Path::new("/data/gh"),
+    );
     assert!(!format!("{gh:?}").contains("the engine's"), "the token is not shown");
 }
 
@@ -540,8 +541,13 @@ async fn a_gh_that_never_answers_is_given_up_within_its_limit() {
     std::fs::write(&script, "#!/bin/sh\nexec sleep 30\n").unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let gh = Gh::new(&script.display().to_string(), "o/r", "the-token", dir.path())
-        .within(std::time::Duration::from_millis(500));
+    let gh = Gh::new(
+        &script.display().to_string(),
+        "o/r",
+        Credential::Given("the-token".to_string()),
+        dir.path(),
+    )
+    .within(std::time::Duration::from_millis(500));
     let began = std::time::Instant::now();
     let given_up = gh.pulls("work-1").await.expect_err("given up");
     assert!(given_up.why.contains("did not end within"), "{given_up}");
@@ -568,7 +574,12 @@ async fn a_jobs_log_is_asked_for_with_its_escapes_allowed_and_given_as_github_ga
     std::fs::write(&script, text).unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let gh = Gh::new(&script.display().to_string(), "o/r", "the-token", dir.path());
+    let gh = Gh::new(
+        &script.display().to_string(),
+        "o/r",
+        Credential::Given("the-token".to_string()),
+        dir.path(),
+    );
     let log = gh.log(5).await.expect("the log");
     assert_eq!(
         log,
@@ -612,7 +623,12 @@ fn gh_with_open_pulls(dir: &std::path::Path, count: u64) -> Gh {
     std::fs::write(&script, text).unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-    Gh::new(&script.display().to_string(), "o/r", "the-token", dir)
+    Gh::new(
+        &script.display().to_string(),
+        "o/r",
+        Credential::Given("the-token".to_string()),
+        dir,
+    )
 }
 
 // A repository's open pull requests come in pages of a hundred, and every page is read: a list cut at the first would
@@ -681,7 +697,12 @@ esac
     std::fs::write(&script, text).unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-    Gh::new(&script.display().to_string(), "o/r", "the-token", dir)
+    Gh::new(
+        &script.display().to_string(),
+        "o/r",
+        Credential::Given("the-token".to_string()),
+        dir,
+    )
 }
 
 /// What each look the `gh` of [`gh_with_runs`] was given asked, as its arguments.
@@ -745,7 +766,12 @@ async fn a_304_to_a_look_that_sent_no_tag_is_refused() {
     std::fs::write(&script, text).unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let gh = Gh::new(&script.display().to_string(), "o/r", "the-token", dir.path());
+    let gh = Gh::new(
+        &script.display().to_string(),
+        "o/r",
+        Credential::Given("the-token".to_string()),
+        dir.path(),
+    );
     let refused = gh.runs("fast.yml", "main", None).await.expect_err("no runs");
     assert!(refused.why.contains("though it was sent no entity tag"), "{refused}");
 }
@@ -776,7 +802,12 @@ esac
     std::fs::write(&script, text).unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-    Gh::new(&script.display().to_string(), "o/r", "the-token", dir)
+    Gh::new(
+        &script.display().to_string(),
+        "o/r",
+        Credential::Given("the-token".to_string()),
+        dir,
+    )
 }
 
 // A look at a run's jobs sends the entity tag it is given, as a look at a workflow's runs does, and GitHub's 304 to it is
@@ -849,7 +880,12 @@ esac
     std::fs::write(&script, text).unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-    Gh::new(&script.display().to_string(), "o/r", "the-token", dir)
+    Gh::new(
+        &script.display().to_string(),
+        "o/r",
+        Credential::Given("the-token".to_string()),
+        dir,
+    )
 }
 
 /// The runners as GitHub lists them: one online and busy, one offline.
@@ -931,7 +967,12 @@ fn gh_whose_download_fails(dir: &std::path::Path, said: &str) -> Gh {
     std::fs::write(&script, text).unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-    Gh::new(&script.display().to_string(), "o/r", "the-token", dir)
+    Gh::new(
+        &script.display().to_string(),
+        "o/r",
+        Credential::Given("the-token".to_string()),
+        dir,
+    )
 }
 
 // What a run uploaded is fetched by `gh run download`, which says what GitHub refused in words on its standard error and

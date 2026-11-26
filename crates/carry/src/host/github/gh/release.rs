@@ -1,14 +1,18 @@
 //! The copies of the database kept off the machine, as assets of a release of a private repository on GitHub, asked
 //! with the same runner of `gh` as the host: the environment cleared, the token only as `GH_TOKEN`, a configuration
 //! directory of its own, a call that does not end stopped and killed, and nothing secret in a failure's words. The token
-//! it is given is the backup's own, not the host's.
+//! is the engine's GitHub App's, as the host's is, got by an App of the copies' own.
 
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 use backup::{Offsite, RELEASE};
+use service::Clock;
 
 use super::Gh;
+use crate::host::github::{App, Credential};
+use crate::settings;
 
 /// The lowest rate, in bytes a second, that an upload of a copy is expected to go at. The limit of an upload is the
 /// runner's own limit, which fits an answer from GitHub, and the time the copy takes at this rate.
@@ -26,11 +30,25 @@ pub struct GhOffsite {
 }
 
 impl GhOffsite {
-    /// The release of the repository `owner/name`, reached with this command line and the backup's own token, keeping
-    /// the command's configuration in this directory.
-    pub fn new(command: &str, repository: &str, token: &str, config_dir: &Path) -> GhOffsite {
+    /// The release of the repository the settings of the copies name, reached with their command line as the engine's
+    /// GitHub App the settings name, the command keeping its configuration in this directory, the App's tokens judged
+    /// by the time this clock reads; or why not, where the App's private key cannot be read.
+    pub fn new(
+        backup: &settings::Backup,
+        app: &settings::GitHubApp,
+        config_dir: &Path,
+        clock: Arc<dyn Clock>,
+    ) -> Result<GhOffsite, String> {
+        let app = App::new(app, &backup.gh, config_dir, clock)?;
+        let credential = Credential::App(Arc::new(app));
+        Ok(GhOffsite::with(&backup.gh, &backup.repository, credential, config_dir))
+    }
+
+    /// The release of the repository `owner/name`, reached with this command line and the token this credential gives,
+    /// keeping the command's configuration in this directory.
+    pub(crate) fn with(command: &str, repository: &str, credential: Credential, config_dir: &Path) -> GhOffsite {
         GhOffsite {
-            gh: Gh::new(command, repository, token, config_dir),
+            gh: Gh::new(command, repository, credential, config_dir),
         }
     }
 
@@ -79,7 +97,8 @@ impl GhOffsite {
             "Copies of the wf-agents database, compressed, the newest kept.",
             "--latest=false",
         ];
-        self.gh.output(&create, self.gh.limit).await.map(|_| ())
+        self.gh.output(&create, self.gh.limit).await?;
+        Ok(())
     }
 }
 
@@ -109,7 +128,8 @@ impl Offsite for GhOffsite {
             "--clobber",
         ];
         let limit = GhOffsite::upload_limit(self.gh.limit, size);
-        self.gh.output(&args, limit).await.map(|_| ())
+        self.gh.output(&args, limit).await?;
+        Ok(())
     }
 
     async fn list(&self) -> Result<Vec<String>, String> {
@@ -141,6 +161,7 @@ impl Offsite for GhOffsite {
             self.repository(),
             "--yes",
         ];
-        self.gh.output(&args, self.gh.limit).await.map(|_| ())
+        self.gh.output(&args, self.gh.limit).await?;
+        Ok(())
     }
 }
