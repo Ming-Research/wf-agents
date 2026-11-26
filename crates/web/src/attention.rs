@@ -351,7 +351,7 @@ pub(crate) fn answer(things: Vec<Thing>, mark: Option<&Mark>, now: Time, again: 
     let from = mark.map_or(0, |mark| mark.from);
     let new = |thing: &Thing| mark.is_some_and(|mark| thing.came >= mark.read);
     let due: Vec<(usize, &Thing)> = (stands.iter().enumerate())
-        .filter(|(at, thing)| (whole && *at >= from) || new(*thing))
+        .filter(|(at, thing)| (whole && *at >= from) || new(thing))
         .collect();
     let told: Vec<&Thing> = match mark {
         None => Vec::new(),

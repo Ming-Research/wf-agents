@@ -607,9 +607,7 @@ mod tests {
         let mut work = work_of(20);
         says(&mut work, 1, "main at A");
         check(&mut work, 5, "1", "C", "A", &[("t", false)], &[("t", false)]);
-        let red = of_project("project", &[member(7, &work, &block, false)], |n| n == WorkNumber(7))
-            .red
-            .unwrap();
+        let red = of_project("project", &[member(7, &work, &block, false)], |n| n == WorkNumber(7)).unwrap();
         assert_eq!(red.waiting, [WorkNumber(7)]);
     }
 }
