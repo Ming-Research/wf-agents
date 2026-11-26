@@ -22,7 +22,7 @@ fn a_new_file_is_made_with_the_schema_its_version_and_a_write_ahead_log() {
     assert_eq!(store.works(), Ok(vec![]));
     let tables: BTreeSet<String> = dump(&db.path).into_keys().collect();
     assert_eq!(tables, schema_tables());
-    assert_eq!(tables.len(), 65);
+    assert_eq!(tables.len(), 66);
     let file = Connection::open(&db.path).expect("the database opens");
     let version: u32 = (file.query_row("SELECT version FROM schema_version", [], |row| row.get(0))).expect("a version");
     assert_eq!(version, SCHEMA_VERSION);
@@ -180,6 +180,18 @@ pub(crate) fn before_unpriced(work: &mut Work) {
     }
 }
 
+/// A work as a file migrated from before version 37 holds it: the migration gave it one place of reads after its latest
+/// entry, holding every version it has, since no flow of these works declares a cell's words block, so that no version
+/// is left unread.
+pub(crate) fn after_reads_were_kept(mut work: Work) -> Work {
+    let at = work.tick();
+    let versions: Vec<(BlockId, Seq)> = work.contents.keys().cloned().collect();
+    if !versions.is_empty() {
+        work.records.owner_reads.push(OwnerRead { versions, at });
+    }
+    work
+}
+
 /// The work as a file made with this earlier version of the schema holds it, and a file of this version that holds
 /// it: the rows a store of this version keeps, each copied into the earlier file in the columns its table has there.
 pub(crate) fn kept_in(version: u32, work: &Work) -> (Db, Db) {
@@ -188,9 +200,17 @@ pub(crate) fn kept_in(version: u32, work: &Work) -> (Db, Db) {
 
 /// As [`kept_in`], of several works, the first of the first item and each after it of an item of its own.
 fn kept_in_works(version: u32, works: &[&Work]) -> (Db, Db) {
+    kept_in_flows(version, works, &[])
+}
+
+/// As [`kept_in_works`], with these versions of flows kept first, which the works may have been on.
+pub(crate) fn kept_in_flows(version: u32, works: &[&Work], flows: &[store::KeptFlow]) -> (Db, Db) {
     let new = Db::new();
     {
         let mut store = new.open();
+        for flow in flows {
+            store.keep_flow(flow).expect("the flow is kept");
+        }
         let number = first_work(&mut store);
         store.save(number, works[0]).expect("the work is saved");
         for (i, work) in works.iter().enumerate().skip(1) {
@@ -254,7 +274,7 @@ fn a_file_made_with_the_first_version_of_the_schema_is_migrated_and_its_pauses_r
     assert_eq!(pauses, 2, "the old file holds the pause and the letting on");
 
     let store = old.open();
-    assert_eq!(store.load(WorkNumber(1)), Ok(work));
+    assert_eq!(store.load(WorkNumber(1)), Ok(after_reads_were_kept(work)));
     // The version's one row reads this version, as it does in a new file: code that reads the row finds no older one.
     assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
     assert_eq!(versions(&new.path), [SCHEMA_VERSION]);
@@ -310,6 +330,7 @@ fn a_file_of_version_9_is_migrated_and_its_runs_read_as_dealing_with_everything_
     let loaded = store.load(WorkNumber(1)).expect("the work loads");
     assert!(loaded.records.finished.iter().all(|f| f.dealt_with.is_none()));
     assert!(loaded.records.finished[0].writes[0].meaning_unchanged);
+    let work = after_reads_were_kept(work);
     assert_eq!(loaded, work);
     // A work of the new form is kept in it beside, as in a file made at this version.
     let new = of_the_new_form();
@@ -581,8 +602,8 @@ fn a_file_of_version_17_is_migrated_and_each_of_its_writes_reads_as_holding_what
     let new = new.open();
     assert_eq!(new.load(WorkNumber(1)), Ok(kept.clone()));
     assert_eq!(new.load(WorkNumber(2)), Ok(other.clone()));
-    assert_eq!(store.load(WorkNumber(1)), Ok(kept));
-    assert_eq!(store.load(WorkNumber(2)), Ok(other));
+    assert_eq!(store.load(WorkNumber(1)), Ok(after_reads_were_kept(kept)));
+    assert_eq!(store.load(WorkNumber(2)), Ok(after_reads_were_kept(other)));
 }
 
 /// A file of version 17 that lacks something `make` takes out of it, given the places of the request written and of the
@@ -735,7 +756,7 @@ fn a_file_of_version_20_is_migrated_keeping_every_row_it_holds_its_tries_directo
         columns(&new.path),
         "the migrated file has other tables than a new one"
     );
-    assert_eq!(store.load(WorkNumber(1)), Ok(work));
+    assert_eq!(store.load(WorkNumber(1)), Ok(after_reads_were_kept(work)));
     assert_eq!(store.accounts(), Ok(Vec::new()));
 }
 

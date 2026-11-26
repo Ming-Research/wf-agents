@@ -20,8 +20,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use decide::{
-    CallId, Called, Done, Finished, Hurried, Outsider, Pauser, PutIn, Returned, Round, RunId, Seq, Started, Who, Write,
-    Written,
+    BlockId, CallId, Called, Done, Finished, Hurried, Outsider, OwnerRead, Pauser, PutIn, Returned, Round, RunId, Seq,
+    Started, Who, Write, Written,
 };
 use engine::{Ask, Came, Effect, Event, Given, Handed, Spent, Time, Work, handle, pending};
 use flow::{Compiled, Has, Source, compile};
@@ -523,6 +523,10 @@ fn history(d: &mut Driver) {
     );
     d.on(Event::LetGo { cell: "write".into() });
     d.end(hands_in(&[("text", None)]));
+    // The owner reads the text, the first version of it.
+    d.on(Event::Read {
+        versions: vec![("text".into(), 1)],
+    });
     // The judge asks for a tool during a pause that says why and the items it waits for: the call is made, and entering
     // it again waits for the resume.
     d.on(Event::Paused {

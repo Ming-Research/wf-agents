@@ -262,6 +262,9 @@ pub fn refused_words(refused: &Refused) -> String {
         Refused::WithoutEnd(decision) => {
             format!("what is decided on the work's records leads to deciding again without end, last {decision:?}")
         }
+        Refused::NoSuchBlockVersion { block, version } => {
+            format!("the work has no version {version} of the block {block}")
+        }
         Refused::NotCancelled => "the work's item is not cancelled: there is no cancel to reopen".to_string(),
         Refused::NoOneSpokenTo(why) => no_one_words(why),
         Refused::NotInstalled => {
@@ -437,7 +440,7 @@ mod tests {
 
     use std::collections::BTreeSet;
 
-    use decide::CellId;
+    use decide::{BlockId, CellId};
     use store::WorkNumber;
 
     use super::*;
@@ -476,7 +479,7 @@ mod tests {
     fn a_question_a_version_or_an_option_the_work_has_not_is_refused_naming_which_and_where_the_reopen_and_the_install_say_why()
      {
         let question = || "check".to_string();
-        let cases: [(Refused, &[&str]); 9] = [
+        let cases: [(Refused, &[&str]); 10] = [
             (Refused::NoSuchQuestion(question()), &["no question check"]),
             (
                 Refused::NoSuchVersion {
@@ -501,6 +504,13 @@ mod tests {
             (Refused::NotCancelled, &["not cancelled", "no cancel to reopen"]),
             (Refused::NotInstalled, &["not installed"]),
             (Refused::NotToRelease, &["has not ended"]),
+            (
+                Refused::NoSuchBlockVersion {
+                    block: BlockId::from("t2_words"),
+                    version: 5,
+                },
+                &["no version 5", "block t2_words"],
+            ),
         ];
         let mut all = BTreeSet::new();
         for (refused, parts) in cases {
@@ -508,7 +518,7 @@ mod tests {
             says(&words, parts);
             all.insert(words);
         }
-        assert_eq!(all.len(), 9, "two refusals are said alike: {all:?}");
+        assert_eq!(all.len(), 10, "two refusals are said alike: {all:?}");
     }
 
     #[test]

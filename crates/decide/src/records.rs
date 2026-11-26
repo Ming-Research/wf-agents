@@ -82,6 +82,11 @@ pub struct Records {
     /// have none, and read so. What was let go since the work's latest reopen is [`Records::released`].
     #[serde(default)]
     pub releases: Vec<Seq>,
+    /// Each time the owner read versions of the work's blocks, or the engine counted versions as read as it brought the
+    /// store up to date: what the owner has read is what these name. Records kept before the engine kept what the owner
+    /// read have none, and read so.
+    #[serde(default)]
+    pub owner_reads: Vec<OwnerRead>,
 }
 
 impl Records {
@@ -155,6 +160,7 @@ impl Records {
             cancels: kept(&self.cancels, |at| *at, place),
             reopens: kept(&self.reopens, |at| *at, place),
             releases: kept(&self.releases, |at| *at, place),
+            owner_reads: kept(&self.owner_reads, |e| e.at, place),
         }
     }
 
@@ -410,6 +416,14 @@ pub enum Who {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LetGo {
     pub cell: CellId,
+    pub at: Seq,
+}
+
+/// The owner read these versions of the work's blocks, each named by its block and the place of the entry that wrote
+/// it (design decision the-engine-keeps-what-the-owner-read).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OwnerRead {
+    pub versions: Vec<(BlockId, Seq)>,
     pub at: Seq,
 }
 

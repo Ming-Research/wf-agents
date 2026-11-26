@@ -50,6 +50,34 @@ pub struct Items {
     pub items: Vec<Item>,
     /// A wait every work shares, where one stands: no agent's round of any work begins.
     pub outage: Option<Outage>,
+    /// What the whole installation waits on the owner for, which no work does, as the one definition of it says
+    /// ([`driver::owner::installation_waits`]): what the count of the bar and the browser's notifications read beside
+    /// the works' own.
+    #[serde(default)]
+    pub waits: Vec<InstallationWait>,
+}
+
+/// One thing the whole installation waits on the owner for: a [`Wait`] that belongs to no work, and since when it has.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallationWait {
+    pub key: String,
+    pub why: String,
+    pub ends: Ends,
+    /// Since when, in milliseconds since 1970: a notification is given once for each time it began.
+    pub since: u64,
+}
+
+impl InstallationWait {
+    pub(crate) fn of(waiting: driver::owner::InstallationWaiting) -> InstallationWait {
+        let wait = Wait::of(waiting.waiting);
+        InstallationWait {
+            key: wait.key,
+            why: wait.why,
+            ends: wait.ends,
+            since: waiting.since.0,
+        }
+    }
 }
 
 /// A wait every work shares: a round of an agent failed for a cause outside every work, and no agent's round of any
@@ -338,6 +366,14 @@ pub struct Summary {
     /// ([`QuestionPage::ahead`]). A question that holds it counts in `waits` alone.
     #[serde(default)]
     pub ahead: usize,
+    /// Whether the item is new to the owner, or has changed since they read it, as the one definition of what the owner
+    /// has not read says ([`driver::unread`]): the card's left line and the item window's new and changed marks read it.
+    #[serde(default)]
+    pub fresh: Fresh,
+    /// How many of the cells' replies the owner has not read, as the same definition says: the card's count, the bar's
+    /// and the places `m` goes to read it.
+    #[serde(default)]
+    pub replies_unread: u32,
     /// The level its rounds run at, by the rule that gives a round its level ([`Levels::of_round`]): its item's, or
     /// the default where its item has none; none where that rule refuses it, the item's level being none an item may
     /// be at.
@@ -428,6 +464,29 @@ pub struct DiffPage {
     pub path: String,
     pub diff: String,
     pub cut: Option<u64>,
+}
+
+/// Whether an item is new to the owner, or has changed since they read it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Fresh {
+    /// Nothing a cell wrote for its card is unread.
+    #[default]
+    None,
+    /// A cell wrote what the card shows, and the owner has read none of it.
+    New,
+    /// The owner has read some of what the card shows, and a cell wrote a later version they have not.
+    Changed,
+}
+
+impl Fresh {
+    pub(crate) fn of(fresh: driver::unread::Fresh) -> Fresh {
+        match fresh {
+            driver::unread::Fresh::None => Fresh::None,
+            driver::unread::Fresh::New => Fresh::New,
+            driver::unread::Fresh::Changed => Fresh::Changed,
+        }
+    }
 }
 
 /// One thing a work waits on the owner for: what names it within its work, which a notification's address and the
@@ -1100,6 +1159,12 @@ pub struct Version {
     pub chars: usize,
     /// Whether it holds nothing, as the engine recorded it and a test of content reads it.
     pub empty: bool,
+    /// Whether it is a cell's reply to the owner, as the one definition of a reply says ([`driver::unread::replies`]).
+    #[serde(default)]
+    pub reply: bool,
+    /// Whether the owner has read it.
+    #[serde(default)]
+    pub read: bool,
 }
 
 /// Who wrote a version of a block, as a round is told it (decision a-version-is-told-by-the-line-that-wrote-it): the
@@ -1927,6 +1992,17 @@ pub enum Act {
     /// Says words to a cell of the work's flow, or to a line of it: to the cell the engine chooses, which the work's
     /// page shows (`speaking`), and which the act answers with ([`Said`]).
     Say { to: SpokenTo, words: String },
+    /// Says the owner read these versions of the work's blocks, each by its block and its number among the block's
+    /// versions, as the work's page names them. A version the work has not is refused and none is kept.
+    Read { versions: Vec<ReadVersion> },
+}
+
+/// A version of a block of the work, by the block and its number among the block's versions.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ReadVersion {
+    pub block: String,
+    pub version: u64,
 }
 
 /// A fork of a round's session asked by whoever plans the work (design document `testing`, 27): the round, the run's
@@ -2316,6 +2392,7 @@ impl Summary {
             .collect();
         let ahead = QuestionPage::ahead(&QuestionPage::all(&kept)?, &waits);
         let beside = spent_beside_rounds(work, &|_| true)?;
+        let unread = driver::unread::of_work(&kept);
         Ok(Summary {
             number: kept.head.number.0,
             item: kept.head.item.0,
@@ -2325,6 +2402,8 @@ impl Summary {
             paused: decide::pause(&work.records).map(|pause| Pauser::of(pause.by)),
             waits,
             ahead,
+            fresh: Fresh::of(unread.fresh),
+            replies_unread: unread.replies_unread,
             now,
             cells,
             spent: (runs.iter().fold(Spent::default(), |sum, run| sum.with(run.spent)))
@@ -2375,6 +2454,8 @@ impl Summary {
             sent_back: 0,
             waits,
             ahead: 0,
+            fresh: Fresh::None,
+            replies_unread: 0,
             level,
             cell_level,
             raise,
@@ -3101,6 +3182,8 @@ impl WorkPage {
         let view = viewed_at(driver, number, &every.at_once)?;
         let work = kept.work;
         let records = &work.records;
+        let replies = driver::unread::replies_of(&kept);
+        let read = driver::unread::read(records);
         let mut blocks = Vec::new();
         for (block, versions) in &view.blocks {
             let versions = (versions.iter())
@@ -3115,6 +3198,8 @@ impl WorkPage {
                         said_to: said_to(work, block, version.at),
                         chars: chars(work, block, version.at)?,
                         empty: version.empty,
+                        reply: replies.contains(&(block.clone(), version.at)),
+                        read: read.contains(&(block.clone(), version.at)),
                     })
                 })
                 .collect::<Result<_, Broken>>()?;
@@ -3408,6 +3493,9 @@ impl Act {
                 option,
             },
             Act::Say { to, words } => service::Act::Say { to: to.taken(), words },
+            Act::Read { versions } => service::Act::Read {
+                versions: (versions.into_iter()).map(|v| (BlockId(v.block), v.version)).collect(),
+            },
         }
     }
 }

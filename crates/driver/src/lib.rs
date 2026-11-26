@@ -123,6 +123,8 @@ pub mod timed;
 
 mod turn;
 
+pub mod unread;
+
 pub mod usage;
 
 pub mod versions;
@@ -2487,6 +2489,16 @@ impl Driver {
             return Vec::new();
         };
         owner::waits(&kept, &kept.work.records, &view.decision, held, at_once.shared())
+    }
+
+    /// What the installation waits on the owner for as the pause of everything stands ([`owner::installation_waits`]),
+    /// said in the words beside the flows, which every flow reads alike: none where no flow is installed, since no work
+    /// then waits to be let on.
+    pub fn installation_waits(&self, at_once: &AtOnce) -> Vec<owner::InstallationWaiting> {
+        match self.flows().next() {
+            Some(flow) => owner::installation_waits(at_once.everything, &flow.waits.owner),
+            None => Vec::new(),
+        }
     }
 
     /// What holds every work at once as it stands ([`AtOnce`]), worked out from every work's records.

@@ -28,7 +28,7 @@ use service::{Handle, Levels, OfWork, Refusal, Seen};
 use store::WorkNumber;
 use work::Time;
 
-use crate::works::{Broken, EveryWork, Item, Items, Now, Others, Outages, Summary, asked};
+use crate::works::{Broken, EveryWork, InstallationWait, Item, Items, Now, Others, Outages, Summary, asked};
 
 /// How long a summary of a work with something under way, and what git says of such a work, are kept before they
 /// are worked out again: the page reads again at this interval while such a work is on its screen.
@@ -124,6 +124,8 @@ struct Inner {
     entries: BTreeMap<u64, Entry>,
     /// What holds every work at once as the last check found it, which every summary is made from.
     outages: Option<Outages>,
+    /// What the whole installation waits on the owner for as the last check found it.
+    waits: Vec<InstallationWait>,
 }
 
 /// The items the pages read, worked out again only where they changed.
@@ -155,6 +157,7 @@ impl ItemsCache {
                 rev: 0,
                 entries: BTreeMap::new(),
                 outages: None,
+                waits: Vec::new(),
             }),
             looked: tokio::sync::Notify::new(),
             built: AtomicUsize::new(0),
@@ -248,6 +251,9 @@ impl ItemsCache {
             }
         }
         inner.outages = Some(outages);
+        inner.waits = (driver.installation_waits(&at_once).into_iter())
+            .map(InstallationWait::of)
+            .collect();
         Ok(checked)
     }
 
@@ -360,11 +366,12 @@ impl ItemsCache {
         let outage = inner.outages.as_ref().and_then(|outages| outages.agents.as_ref());
         let cursor = format!("{}.{}", inner.boot, inner.rev);
         Ok(format!(
-            "{{\"cursor\":{},\"full\":{},\"items\":[{}],\"outage\":{},\"againAfterMs\":{}}}",
+            "{{\"cursor\":{},\"full\":{},\"items\":[{}],\"outage\":{},\"waits\":{},\"againAfterMs\":{}}}",
             quoted(&cursor),
             after.is_none(),
             changed.join(","),
             serde_json::to_string(&outage).map_err(|e| Failure::Broken(Broken(e.to_string())))?,
+            serde_json::to_string(&inner.waits).map_err(|e| Failure::Broken(Broken(e.to_string())))?,
             self.bound,
         ))
     }
@@ -376,6 +383,7 @@ impl ItemsCache {
         Ok(Items {
             items: inner.entries.values().map(shown).collect(),
             outage: inner.outages.as_ref().and_then(|outages| outages.agents.clone()),
+            waits: inner.waits.clone(),
         })
     }
 
