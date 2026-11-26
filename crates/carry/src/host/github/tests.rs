@@ -988,6 +988,30 @@ async fn the_merge_refuses_a_main_that_moved_on_github_since_the_check() {
     );
 }
 
+// GitHub's limit on its requests, met as the check asks for the project's full workflows, only keeps the check from
+// running for now: the round of the check is held, with what kept it and when GitHub says it may be asked again; a
+// refusal no wait mends is not held.
+#[tokio::test]
+async fn a_limit_met_as_the_full_workflows_are_asked_for_holds_the_check_with_the_time_github_says() {
+    for (said, kind, hindrance) in [
+        (
+            "HTTP 429: API rate limit exceeded",
+            Failure::Held,
+            Some(decide::Hindrance {
+                obstacle: decide::Obstacle::Limit,
+                retry: Some(decide::Retry::In(60)),
+            }),
+        ),
+        ("HTTP 422: No ref found for: main", Failure::Other, None),
+    ] {
+        let hub = Hub::new();
+        let head = hub.committed().await;
+        hub.github().refuse_dispatch(said);
+        let failed = hub.failing(&head).await.expect_err("the check does not run");
+        assert_eq!((failed.kind, failed.hindrance), (Some(kind), hindrance), "{said}");
+    }
+}
+
 // What GitHub's answer to a merge tells is its kind: a fault of GitHub's own passes, a refusal waits for the owner.
 #[tokio::test]
 async fn a_merge_github_fails_in_passing_or_refuses_is_of_the_kind_its_answer_tells() {
