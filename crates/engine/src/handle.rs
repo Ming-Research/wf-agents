@@ -92,10 +92,7 @@ pub fn handle_then(
     let releasing = release(end_of(flow, work), work).is_some();
     let ended = end_of(flow, work).is_some();
     let mut effects = Vec::new();
-    match event {
-        Event::Held { call, obstacle, retry } => hold_call(flow, work, now, (call, obstacle, retry), &mut effects)?,
-        event => take(flow, work, event, &mut effects)?,
-    }
+    take(flow, work, now, event, &mut effects)?;
     // A call held is asked for again once its wait has its result.
     if let Some(wait) = result_of {
         asked_again(flow, work, wait, &mut effects);
@@ -118,7 +115,7 @@ pub fn handle_then(
         }
     }
     for event in then(flow, work) {
-        take(flow, work, event, &mut effects)?;
+        take(flow, work, now, event, &mut effects)?;
     }
     let at = At {
         from,
@@ -300,7 +297,7 @@ pub fn at_rest(work: &Work) -> bool {
 
 /// Adds what happened to the records, with what is to be done outside for it alone, or refuses what cannot have
 /// happened to this work.
-fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect>) -> Result<(), Refused> {
+fn take(flow: &Compiled, work: &mut Work, now: Time, event: Event, effects: &mut Vec<Effect>) -> Result<(), Refused> {
     match event {
         event @ (Event::Look
         | Event::Paused { .. }
@@ -317,6 +314,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
         | Event::Released) => {
             take_kept(&|work| end_of(flow, work), &flow.waits.paused.let_go, work, event)?;
         }
+        Event::Held { call, obstacle, retry } => hold_call(flow, work, now, (call, obstacle, retry), effects)?,
         Event::Wrote {
             block,
             by,
@@ -371,7 +369,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
                         matters: true,
                         value: None,
                     };
-                    take(flow, work, wrote, effects)?;
+                    take(flow, work, now, wrote, effects)?;
                     (work.records.written.last())
                         .map(|w| w.at)
                         .expect("the version was written")
@@ -430,6 +428,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
             return take(
                 flow,
                 work,
+                now,
                 Event::Failed {
                     run,
                     why,
