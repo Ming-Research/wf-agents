@@ -230,7 +230,7 @@ async fn a_pause_with_no_reason_an_item_at_a_root_and_slots_free_while_items_cou
         (&json!(2), &json!(START + 1000))
     );
     // Paused again with a reason, the base stands no more, and is still to be let on from when it was first paused:
-    // nothing came since the mark.
+    // what came since the mark is only that the work after it waits for it, paused anew, which is said once.
     let marked = mark(&answer);
     pass(500).await;
     let why = json!({ "kind": "pause", "why": "The owner says when." });
@@ -238,10 +238,17 @@ async fn a_pause_with_no_reason_an_item_at_a_root_and_slots_free_while_items_cou
         post(router, "/api/v1/works/1/acts", &why).await.0,
         StatusCode::NO_CONTENT
     );
+    pass(500).await;
     let whole = get_json(router, "/api/v1/attention").await;
     assert_eq!(kinds(&whole), ["unexplained", "slots", "root"], "{whole}");
     let since = get_json(router, &format!("/api/v1/attention?since={marked}")).await;
-    assert_eq!(kinds(&since), Vec::<String>::new(), "{since}");
+    assert_eq!(kinds(&since), ["idle"], "{since}");
+    assert_eq!(
+        (&since["lines"][0]["of"]["work"], &since["lines"][0]["since"]),
+        (&json!(2), &json!(START + 2000))
+    );
+    let after = get_json(router, &format!("/api/v1/attention?since={}", mark(&since))).await;
+    assert_eq!(kinds(&after), Vec::<String>::new(), "{after}");
 }
 
 /// The trial's acts, each of whose rounds is said to wait for the runner `14900k` from as it begins, which no record of
