@@ -57,3 +57,11 @@ Once a continuing work's own pull request is open, the engine closes the open pu
 ### decision a-merge-is-named-by-its-works-line
 A work's merge, its pull request and the commit it makes, is named by the first line of the block the flow's merge names, which the cell that writes the code writes in English.
 - replaced: The item's title naming the pull request and the merge's commit was on main; the owner changed it, because the repository is written only in English, and items are in the owner's language.
+
+### decision a-queued-run-is-cancelled-only-where-no-runner-is-online
+A run, or the jobs of a started run, that waits for a runner past `github.start_minutes` is cancelled only where none of its label is online, on the repository or its organisation; else it waits.
+- replaced: Cancelling every run no runner took within `github.start_minutes` was on main; the owner changed it, because with every runner busy the runs of later requests were cancelled behind a long queue and the works stopped to ask again.
+
+### decision a-run-is-timed-only-while-it-is-not-waiting-for-a-runner
+A workflow's `too_long` counts only the time its run is not waiting for a runner, as the run's jobs say.
+- replaced: Counting a run's time from the moment it was asked for, the queue included, was on main; the owner changed it, because a run whose jobs queued behind a busy machine was cut as too long for the time it waited, not the time it ran.

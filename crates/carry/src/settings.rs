@@ -204,8 +204,11 @@ pub struct GitHub {
     /// The variable of the engine's environment that holds the engine's token for GitHub.
     #[serde(default = "token_env")]
     pub token_env: String,
-    /// How many minutes a run of a workflow may be unlisted or queued before the CI is taken never to have started:
-    /// the engine cancels the run it asked for, and the check fails its round in passing, or the agents' tool says so.
+    /// How many minutes a run of a workflow may be unlisted, or wait for a runner (the run not taken, or the jobs of a
+    /// started run not taken), before the engine asks whether a runner of the workflow's kind is online; it asks again
+    /// after each further such time while one is. A run unlisted so long is taken never to have started. A run that
+    /// waits where none is online, or where that cannot be told, is cancelled, and the check fails its round in
+    /// passing, or the agents' tool says so. GitHub's own machines count as online.
     #[serde(default = "start_minutes")]
     pub start_minutes: u64,
     /// The `gh` command line, or a path to it.

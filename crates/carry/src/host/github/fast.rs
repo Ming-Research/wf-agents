@@ -54,6 +54,92 @@ struct Plan<'a> {
     inputs: Vec<(String, String)>,
     call: String,
     limit: Duration,
+    /// The runner the workflow runs on, as the project's declaration names it.
+    runner: &'a str,
+}
+
+/// The runner that is GitHub's own machines, which a workflow's `runner` names `github`: they are never offline.
+const HOSTED: &str = "github";
+
+/// Whether a runner of a kind is online.
+enum Online {
+    Yes,
+    No,
+    /// It could not be told: no layer of runners lists one, and GitHub's words for why a layer could not be read.
+    Unknown(String),
+}
+
+/// Whether a run that has started waits for a runner: none of its jobs runs, and one waits for a runner to take it. A
+/// run whose jobs wait on one another, as one that needs the others, is not told apart by this: a job runs first.
+fn waits_for_a_runner(jobs: &[Check]) -> bool {
+    !jobs.iter().any(|j| j.outcome == Outcome::Pending) && jobs.iter().any(|j| j.outcome == Outcome::Queued)
+}
+
+/// What a run that gave no result because no runner took it says first, of the run or of its jobs.
+fn never_started(workflow: &str, commit: &str, started: bool) -> String {
+    if started {
+        format!("a job of the run of {workflow} asked for on {commit} never started")
+    } else {
+        format!("the run of {workflow} asked for on {commit} never started")
+    }
+}
+
+/// How long a run has waited for a runner and how long it has not, as the waits for it saw it at each look.
+pub(super) struct Waiting {
+    /// The time the run did not wait for a runner, which the time it may take counts.
+    pub(super) ran_for: Duration,
+    /// When it was last looked at, and whether it waited for a runner then, which holds until the next look.
+    last: tokio::time::Instant,
+    waiting: bool,
+    /// Since when it has waited for a runner without a break; none while it does not.
+    since: Option<tokio::time::Instant>,
+    /// Before when the runners are not asked after again; none where they were not asked after.
+    next: Option<tokio::time::Instant>,
+}
+
+impl Waiting {
+    pub(super) fn new(now: tokio::time::Instant) -> Waiting {
+        Waiting {
+            ran_for: Duration::ZERO,
+            last: now,
+            waiting: false,
+            since: None,
+            next: None,
+        }
+    }
+
+    /// The run was looked at now, and does or does not wait for a runner: what came since the last look is the time it
+    /// did not wait where it did not then.
+    pub(super) fn tick(&mut self, now: tokio::time::Instant, waiting: bool) {
+        if !self.waiting {
+            self.ran_for += now.saturating_duration_since(self.last);
+        }
+        self.last = now;
+        self.waiting = waiting;
+        if waiting {
+            self.since.get_or_insert(now);
+        } else {
+            self.since = None;
+            self.next = None;
+        }
+    }
+
+    /// How long it has waited for a runner without a break.
+    pub(super) fn waited(&self, now: tokio::time::Instant) -> Duration {
+        self.since
+            .map_or(Duration::ZERO, |since| now.saturating_duration_since(since))
+    }
+
+    /// Whether the runners are to be asked after: it has waited for a window, and, where they were asked after, the
+    /// window since has passed.
+    pub(super) fn due(&self, now: tokio::time::Instant, window: Duration) -> bool {
+        self.waited(now) >= window && self.next.is_none_or(|next| now >= next)
+    }
+
+    /// The runners were asked after now and one was online: they are asked after again a window from now.
+    pub(super) fn asked(&mut self, now: tokio::time::Instant, window: Duration) {
+        self.next = Some(now + window);
+    }
 }
 
 /// What a run of a workflow came to: its jobs, its results, and what the log of each job that failed with nothing in
@@ -150,7 +236,8 @@ fn judged<'a>(ran: &'a [Ran], tests: &'a [String]) -> Option<Vec<results::Row<'a
         return None;
     };
     let run = one.results.as_ref().ok()?;
-    let concluded = (one.jobs.iter()).all(|j| !matches!(j.outcome, Outcome::Broken(_) | Outcome::Pending));
+    let concluded =
+        (one.jobs.iter()).all(|j| !matches!(j.outcome, Outcome::Broken(_) | Outcome::Pending | Outcome::Queued));
     concluded.then(|| results::rows(tests, run))
 }
 
@@ -369,6 +456,7 @@ impl<A: Api> GitHub<A> {
                     inputs,
                     call,
                     limit,
+                    runner: &fast.runner,
                 };
                 match self.execute(&plan, commit, stop).await? {
                     Some(one) => {
@@ -395,6 +483,7 @@ impl<A: Api> GitHub<A> {
                     inputs,
                     call,
                     limit,
+                    runner: &measure.runner,
                 };
                 match self.execute(&plan, commit, stop).await? {
                     Some(one) => ran.push(one),
@@ -416,6 +505,7 @@ impl<A: Api> GitHub<A> {
                         inputs,
                         call,
                         limit,
+                        runner: &full.runner,
                     };
                     match self.execute(&plan, commit, stop).await? {
                         Some(one) => {
@@ -640,19 +730,43 @@ impl<A: Api> GitHub<A> {
     /// dispatched for now with the plan's inputs. Of two runs of the request, the first asked for is waited for, which
     /// began first. None where it was told to stop.
     ///
-    /// A run that never started, GitHub listing none or no runner taking it in the time the CI may take to start, is
-    /// cancelled where it is listed, so that it does not run later for nothing, and fails in passing: what stops it is
-    /// no work's (GitHub, or a runner offline), and asked for again after a wait it may start. A run not complete in the
-    /// time it may take is cancelled, and is what it found: its jobs not complete said so, and no test's result known.
+    /// A run waits for a runner while no runner has taken it, or while it has started and none of its jobs runs and one
+    /// waits ([`waits_for_a_runner`]). That is no time the run is judged by: its limit, the time it may take, counts
+    /// only the time it does not wait. Once it has waited as long as the CI may take to start, the engine asks GitHub
+    /// whether a runner of the workflow's kind is online ([`GitHub::online`]), and asks again after each further such
+    /// time: where one is, busy or not, the run waits on, said to wait for that runner; where none is, or it cannot be
+    /// told, the run is cancelled where it is listed, so that it does not run later for nothing, and fails in passing:
+    /// what stops it is no work's (GitHub, or a runner offline), and asked for again after a wait it may start. A run
+    /// that does not wait and is not complete in the time it may take is cancelled, and is what it found: its jobs not
+    /// complete said so, and no test's result known.
     ///
     /// The runs are looked at by the look every wait on the workflow shares ([`super::looks`]): the first time by one
     /// sent now, so that a run the request asked for moments before is found; then by the last one, where it is younger
     /// than [`Config::fast_poll`](super::Config::fast_poll), and the wait sleeps until that one is that old, so that the
-    /// waits on a workflow look at it together, once each time.
+    /// waits on a workflow look at it together, once each time. The jobs of a run that has started are looked at in the
+    /// same way.
     async fn execute(&self, plan: &Plan<'_>, commit: &str, stop: &mut Stop) -> Result<Option<Ran>, Failed> {
+        let mut run = None;
+        let ran = self.wait_for(plan, commit, stop, &mut run).await;
+        if let Some(run) = run {
+            self.looks.forget(run);
+        }
+        ran
+    }
+
+    /// [`GitHub::execute`], which leaves in `run` the number of the run it found, so that the look at its jobs is let go
+    /// however the wait ends.
+    async fn wait_for(
+        &self,
+        plan: &Plan<'_>,
+        commit: &str,
+        stop: &mut Stop,
+        found: &mut Option<u64>,
+    ) -> Result<Option<Ran>, Failed> {
         let workflow = plan.workflow;
         let main = &self.project.main;
         let poll = self.config.fast_poll;
+        let start = self.config.start;
         let Some((asked, _)) = self.runs_of(plan, Duration::ZERO, stop).await? else {
             return Ok(None);
         };
@@ -664,6 +778,7 @@ impl<A: Api> GitHub<A> {
             })?;
         }
         let began = tokio::time::Instant::now();
+        let mut waiting = Waiting::new(began);
         let run = loop {
             let Some((runs, at)) = self.runs_of(plan, poll, stop).await? else {
                 return Ok(None);
@@ -671,33 +786,70 @@ impl<A: Api> GitHub<A> {
             let mine = (runs.into_iter())
                 .filter(|r| !cancelled.contains(&r.id))
                 .min_by_key(|r| r.id);
-            // Once its run is found, the call or the act runs as it, at its link.
             if let Some(run) = &mine {
-                stop.say(Some(Along::Runs { at: run.url.clone() }));
+                *found = Some(run.id);
             }
-            let waited = began.elapsed();
+            let queued = match &mine {
+                None => false,
+                Some(run) if run.completed => false,
+                Some(run) if !run.started => true,
+                Some(run) => {
+                    let Some(jobs) = self.jobs_of(run.id, poll, stop).await? else {
+                        return Ok(None);
+                    };
+                    waits_for_a_runner(&jobs)
+                }
+            };
+            let now = tokio::time::Instant::now();
+            waiting.tick(now, queued);
+            // Once its run is found, the call or the act runs as it, at its link, and says the runner it waits for.
+            if let Some(run) = &mine {
+                stop.say(Some(Along::Runs {
+                    at: run.url.clone(),
+                    queued_for: queued.then(|| plan.runner.to_string()),
+                }));
+            }
             match mine {
                 Some(run) if run.completed => break run,
-                // Listed at once as queued where no runner is online: given up as never started, not waited for
-                // until the run would time out.
-                Some(run) if !run.started && waited >= self.config.start => {
-                    self.api.cancel(run.id).await?;
-                    return Err(Failed::passing(format!(
-                        "the run of {workflow} asked for on {commit} never started: no runner took it after {} ({}), \
-                         and the engine cancelled it",
-                        super::span(self.config.start),
-                        run.url
-                    )));
-                }
-                None if waited >= self.config.start => {
+                None if began.elapsed() >= start => {
                     return Err(Failed::passing(format!(
                         "the run of {workflow} asked for on {commit} never started: GitHub listed none after {}",
-                        super::span(self.config.start)
+                        super::span(start)
                     )));
                 }
+                Some(run) if queued && waiting.due(now, start) => {
+                    let (asked_of, how) = (plan.runner, if run.started { "its jobs" } else { "it" });
+                    let waited = super::span(waiting.waited(now));
+                    let said = match self.online(plan.runner).await {
+                        Online::Yes => {
+                            waiting.asked(now, start);
+                            None
+                        }
+                        // Listed at once as queued where no runner is online: given up as never started, not waited
+                        // for until the run would time out.
+                        Online::No => Some(format!(
+                            "{}: no runner took {how} after {waited} ({}), none of {asked_of} is online, and the \
+                             engine cancelled the run",
+                            never_started(workflow, commit, run.started),
+                            run.url
+                        )),
+                        Online::Unknown(why) => Some(format!(
+                            "{}: no runner took {how} after {waited} ({}), the engine could not tell whether a \
+                             runner of {asked_of} is online ({why}), and cancelled the run",
+                            never_started(workflow, commit, run.started),
+                            run.url
+                        )),
+                    };
+                    if let Some(said) = said {
+                        self.api.cancel(run.id).await?;
+                        return Err(Failed::passing(said));
+                    }
+                }
                 // Its jobs are read before it is cancelled, so that those still under way are said not complete.
-                Some(run) if run.started && waited >= plan.limit => {
-                    let jobs = self.api.jobs(run.id).await?;
+                Some(run) if !queued && waiting.ran_for >= plan.limit => {
+                    let Some(jobs) = self.jobs_of(run.id, Duration::ZERO, stop).await? else {
+                        return Ok(None);
+                    };
                     self.api.cancel(run.id).await?;
                     let results = Err(format!(
                         "the run did not complete within {}, the time it may take, and the engine cancelled it",
@@ -718,7 +870,9 @@ impl<A: Api> GitHub<A> {
                 () = stop.told() => return Ok(None),
             }
         };
-        let jobs = self.api.jobs(run.id).await?;
+        let Some(jobs) = self.jobs_of(run.id, Duration::ZERO, stop).await? else {
+            return Ok(None);
+        };
         let results = match self.api.artifact(run.id, plan.results).await {
             Ok(Some(files)) => results::read(&files).map_err(|why| format!("the artifact {}: {why}", plan.results)),
             Ok(None) => Err(format!("the run uploaded no artifact {}", plan.results)),
@@ -733,6 +887,33 @@ impl<A: Api> GitHub<A> {
         }))
     }
 
+    /// Whether a runner of this kind is online, as the repository's runners and its organisation's say: GitHub's own
+    /// machines always are; any other is, where a layer lists an online runner, busy or not, with a label equal to it,
+    /// ignoring the case; it cannot be told where no layer lists one and a layer could not be read, as a token that may
+    /// not read runners is refused.
+    async fn online(&self, runner: &str) -> Online {
+        if runner == HOSTED {
+            return Online::Yes;
+        }
+        let listed = self.api.runners().await;
+        let mut unread = Vec::new();
+        let mut online = false;
+        for layer in [Some(listed.repository), listed.organisation].into_iter().flatten() {
+            match layer {
+                Ok(runners) => {
+                    online |= (runners.iter())
+                        .any(|r| r.online && r.labels.iter().any(|label| label.eq_ignore_ascii_case(runner)));
+                }
+                Err(why) => unread.push(why),
+            }
+        }
+        match (online, unread.is_empty()) {
+            (true, _) => Online::Yes,
+            (false, true) => Online::No,
+            (false, false) => Online::Unknown(unread.join("; ")),
+        }
+    }
+
     /// What the log of each job of a run that failed with nothing in the results to say why says of the step that
     /// failed it ([`unexplained`]); a log that cannot be read is said so, and fails nothing else.
     async fn step_ends(&self, jobs: &[Check], read: &Result<results::Run, String>) -> Vec<StepEnd> {
@@ -745,6 +926,15 @@ impl<A: Api> GitHub<A> {
             ends.push(StepEnd { job: job.id, said });
         }
         ends
+    }
+
+    /// The jobs of the run, as the look every wait on it shares found them, sent less than `within` ago, or else as one
+    /// sent now finds them; none where it was told to stop.
+    async fn jobs_of(&self, run: u64, within: Duration, stop: &mut Stop) -> Result<Option<Vec<Check>>, Failed> {
+        tokio::select! {
+            jobs = self.looks.jobs(&self.api, run, within) => Ok(Some(jobs?)),
+            () = stop.told() => Ok(None),
+        }
     }
 
     /// The runs by hand of the plan's workflow on main whose name holds the plan's value, as the shared look found them
@@ -914,7 +1104,7 @@ fn job_line(words: &ResultWords, job: &Check) -> String {
         Outcome::Passed => words.job_passed.clone(),
         Outcome::Failed(how) => fill(&words.job_failed, &[("how", how)]),
         Outcome::Broken(how) => fill(&words.job_broken, &[("how", how)]),
-        Outcome::Pending => words.job_pending.clone(),
+        Outcome::Pending | Outcome::Queued => words.job_pending.clone(),
         Outcome::Skipped => words.job_skipped.clone(),
     };
     let time = match (job.took, &job.outcome) {
