@@ -307,6 +307,27 @@ fn a_call_made_after_its_run_ended_is_a_fault() {
 }
 
 #[test]
+fn a_call_held_until_a_wait_or_a_wait_for_a_call_never_made_is_a_fault() {
+    let mut w = World::with_gate(vec![cell("a", &["p"], &["q"])]);
+    w.person_writes("p");
+    let run = w.start("a");
+    called(&mut w, run);
+    let at = w.tick();
+    w.records.held.push(decide::Held {
+        call: CallId(99),
+        wait: CallId(100),
+        at,
+        obstacle: decide::Obstacle::Fault,
+    });
+    // The wait was never made.
+    assert_eq!(w.decide(), Decision::Fault(RecordFault::UnknownCall(CallId(100))));
+    // The call held was never made.
+    w.records.held[0].call = CallId(98);
+    w.records.held[0].wait = CallId(99);
+    assert_eq!(w.decide(), Decision::Fault(RecordFault::UnknownCall(CallId(98))));
+}
+
+#[test]
 fn the_engines_wait_for_a_call_held_is_made_after_its_run_finished_and_no_other_call_is() {
     let mut w = World::with_gate(vec![cell("a", &["p"], &["q"])]);
     w.person_writes("p");

@@ -42,6 +42,8 @@ struct Kept {
     refuses_artifact: Option<String>,
     /// Why reading the log of a job is refused, where it is.
     refuses_log: Option<String>,
+    /// Whether GitHub lists none of the runs by hand, though it took them.
+    hides_runs: bool,
     /// Whether another request runs the workflow on the same branch and commit right after each one asked here, as
     /// another check of the same work may.
     another_call: bool,
@@ -193,6 +195,11 @@ impl Fake {
     /// Refuses to give what a run uploaded, with these words, until it is told otherwise.
     pub(crate) fn refuse_artifact(&self, why: Option<&str>) {
         self.kept().refuses_artifact = why.map(str::to_string);
+    }
+
+    /// Lists none of the runs by hand from now on, though GitHub took them.
+    pub(crate) fn hide_runs(&self) {
+        self.kept().hides_runs = true;
     }
 
     /// Refuses to give the log of any job, with these words, until it is told otherwise.
@@ -562,8 +569,9 @@ impl Api for Fake {
 
     async fn runs(&self, workflow: &str, branch: &str, tag: Option<&str>) -> Result<Listed, Failed> {
         let mut kept = self.kept();
+        let hidden = kept.hides_runs;
         let runs: Vec<Run> = (kept.runs.iter().rev())
-            .filter(|d| d.workflow == workflow && d.branch == branch)
+            .filter(|d| !hidden && d.workflow == workflow && d.branch == branch)
             .map(|d| d.run.clone())
             .collect();
         // As GitHub's, the entity tag is the same for the same answer, and differs for any other.

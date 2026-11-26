@@ -617,6 +617,36 @@ async fn a_run_no_runner_took_is_cancelled_and_holds_what_asked() {
     assert_eq!(cancelled(&hub), [1000]);
 }
 
+// A run GitHub never lists, in the time the CI may take to start, is a fault of GitHub's for now: what asked is held, the
+// run is not cancelled (there is none to cancel) and the timeout of a run is not waited for.
+#[tokio::test]
+async fn a_run_github_never_lists_holds_what_asked_as_a_fault_of_its_own() {
+    let hub = super::queued::on_14900k(Hub::new());
+    let head = hub.committed().await;
+    hub.github().hide_runs();
+    let began = std::time::Instant::now();
+    let failed = hub.named_failed(&named(&["a"], &[])).await.expect_err("not run");
+    assert!(
+        failed.why.starts_with(&format!(
+            "the run of fast.yml asked for on {head} never started: GitHub listed none after "
+        )),
+        "{failed}"
+    );
+    assert_eq!(
+        failed.held,
+        Some(crate::host::Held {
+            obstacle: Obstacle::Fault,
+            retry: None
+        })
+    );
+    assert_eq!(failed.kind, Some(Failure::Passing));
+    assert!(
+        began.elapsed() < Duration::from_secs(2),
+        "the timeout was not waited for"
+    );
+    assert!(cancelled(&hub).is_empty(), "no run was listed to cancel");
+}
+
 // GitHub's own faults and its limit on the requests it takes keep a request from being run for now, at each place the
 // host asks it: they hold what asked, with when it may be asked again where GitHub says, and nothing of them is said as
 // the result of the tests.

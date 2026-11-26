@@ -899,8 +899,9 @@ mod tests {
         let mut again = run_tests_call();
         again.kept = Arc::new(records);
         tools.call(again, CallReply::new(WORK, CallId(2), to));
-        let Some(service::Message::Happened { event, .. }) = came.recv().await else {
-            panic!("the call is answered");
+        let carried_out = tokio::time::timeout(std::time::Duration::from_secs(10), came.recv()).await;
+        let Ok(Some(service::Message::Happened { event, .. })) = carried_out else {
+            panic!("the call is carried out again and answered");
         };
         let engine::Event::Done { call, result } = event else {
             panic!("the call has its result: {event:?}");
