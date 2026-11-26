@@ -285,30 +285,35 @@ async fn a_read_is_taken_for_the_versions_the_work_holds_and_refused_naming_one_
 /// The trial flow with a cell of words of its own: the plan has `plan_words`, and its first round hands in the plan and
 /// a reply, and the item's card shows the plan.
 fn trial_with_words() -> (flow::Compiled, service::Script) {
-    let source = edit(
-        trial_flow(),
-        None,
-        "[blocks.plan]\n",
-        "[blocks.plan]\n\n[blocks.plan_words]\noutside = \"words\"\n[blocks.plan_words.writes]\n\
-         owner = \"The owner: {words}\"\nreply = \"{reply}\"\n",
-    );
+    // A cell that can be spoken to may ask, so the plan has its questions beside its words.
+    let own = "[blocks.plan]\n\n[blocks.plan_questions]\noutside = \"answer\"\nshown = true\n\
+        [blocks.plan_questions.writes]\n\
+        text = \"{question}, {version}: {option}, {does}.\"\n\
+        asked = \"{question}, {version}: {ask}{options}{recommends}{waits}\"\n\
+        asked_anew = \"{question}, {version} for {was}: {ask}{options}{recommends}{waits}\"\n\
+        option = \" [{option}. {does}]\"\nrecommends = \" Recommends {option}.\"\nwaits = \" Waits.\"\n\
+        goes_on = \" Goes on.\"\nwithdrawn = \"{question}, {version}: {was} withdrawn.{reason}\"\n\
+        why = \" Why: {why}\"\n\
+        [blocks.plan_words]\noutside = \"words\"\n[blocks.plan_words.writes]\n\
+        owner = \"The owner: {words}\"\nreply = \"{reply}\"\n";
+    let source = edit(trial_flow(), None, "[blocks.plan]\n", own);
     let source = edit(
         source,
         Some("plan"),
         "watches = [\"request\"]",
-        "watches = [\"request\", \"plan_words\"]",
+        "watches = [\"request\", \"plan_questions\", \"plan_words\"]",
     );
     let source = edit(
         source,
         Some("plan"),
         "outputs = [\"plan\"]",
-        "outputs = [\"plan\", \"plan_words\"]",
+        "outputs = [\"plan\", \"plan_questions\", \"plan_words\"]",
     );
     let source = edit(
         source,
         Some("plan"),
         "request = \"last_and_latest\"",
-        "request = \"last_and_latest\"\nplan_words = \"all\"",
+        "request = \"last_and_latest\"\nplan_questions = \"all\"\nplan_words = \"all\"",
     );
     let mut flow = flow::compile(&source, &trial_has_with_words(&source)).unwrap();
     flow.card = vec!["plan".into()];
