@@ -491,7 +491,8 @@ pub enum Now {
     /// It has ended: its item was cancelled.
     Cancelled,
     /// A round of this run of this cell is under way, since this time; where it is an engine cell's act that runs as
-    /// a CI run, the run's link, as the act says as it goes.
+    /// a CI run, the run's link, as the act says as it goes, and the runner its run, or the jobs of it, wait for where
+    /// they wait for one.
     Round {
         cell: String,
         run: u64,
@@ -499,6 +500,8 @@ pub enum Now {
         since: u64,
         #[serde(default)]
         at: Option<String>,
+        #[serde(default)]
+        queued_for: Option<String>,
     },
     /// It is paused at this cell, by the owner, or by the engine itself for this reason, as when a round failed: what
     /// it would do next is begin a round there, or, where it is stalled and its own pause holds it, it stands there. An
@@ -575,7 +578,8 @@ pub enum Unrun {
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Waited {
     /// The result of a call a run rests at: from this person, or from the engine where there is none; made at this
-    /// time, and, for a tool that runs as a CI run, the run's link, as the tool says as it goes.
+    /// time, and, for a tool that runs as a CI run, the run's link, as the tool says as it goes, and the runner its run,
+    /// or the jobs of it, wait for where they wait for one.
     Call {
         call: u64,
         who: Option<Person>,
@@ -584,6 +588,8 @@ pub enum Waited {
         made: u64,
         #[serde(default)]
         at: Option<String>,
+        #[serde(default)]
+        queued_for: Option<String>,
     },
     /// A key of the cell's `requires` does not hold: the named test, or the block's key as the cell's file writes it
     /// (`dependencies = merged`); the words shown for it, the test's or the same key; and each who can make it hold, by
@@ -2607,12 +2613,14 @@ impl Now {
                 let said = (along.iter())
                     .find(|(under, _)| *under == Under::Round { run: *run, round })
                     .map(|(_, said)| *said);
+                let (at, queued_for) = runs_at(said);
                 Now::Round {
                     cell: cell.to_string(),
                     run: run.0,
                     round,
                     since,
-                    at: runs_at(said),
+                    at,
+                    queued_for,
                 }
             }
             Decision::Paused { cell } if held == Some(Holder::Everything) => everything(cell)?,
@@ -2649,17 +2657,21 @@ impl Now {
                 on: (on.iter())
                     .map(|waited| {
                         Ok(match waited {
-                            WaitedOf::Call { call, on } => Waited::Call {
-                                call: call.0,
-                                who: on.as_ref().map(Person::of),
-                                what: call_of(work, *call)?,
-                                made: made(work, *call)?,
-                                at: runs_at(
+                            WaitedOf::Call { call, on } => {
+                                let (at, queued_for) = runs_at(
                                     (along.iter())
                                         .find(|(under, _)| *under == Under::Call(*call))
                                         .map(|(_, said)| *said),
-                                ),
-                            },
+                                );
+                                Waited::Call {
+                                    call: call.0,
+                                    who: on.as_ref().map(Person::of),
+                                    what: call_of(work, *call)?,
+                                    made: made(work, *call)?,
+                                    at,
+                                    queued_for,
+                                }
+                            }
                             // The work waits for those of the items its item depends on that have not ended.
                             waited if driver::attention::on_items(waited) => Waited::Items {
                                 items: waited_for.iter().map(|on| on.0).collect(),
@@ -2907,6 +2919,20 @@ impl Beside {
     pub(crate) fn all(&self) -> Spent {
         self.pinged.with(self.forked)
     }
+
+    /// These and one more call of this kind, which took this.
+    pub(crate) fn with(self, kind: work::BesideKind, one: Spent) -> Beside {
+        match kind {
+            work::BesideKind::Ping => Beside {
+                pinged: self.pinged.with(one),
+                ..self
+            },
+            work::BesideKind::Fork => Beside {
+                forked: self.forked.with(one),
+                ..self
+            },
+        }
+    }
 }
 
 /// What each call of the work beside its rounds that ended at a time `within` took, each counted as a round, with the
@@ -2928,16 +2954,7 @@ pub(crate) fn beside_rounds(
 pub(crate) fn spent_beside_rounds(work: &work::Work, within: &dyn Fn(u64) -> bool) -> Result<Beside, Broken> {
     Ok(beside_rounds(work, within)?
         .into_iter()
-        .fold(Beside::default(), |sum, (_, kind, one)| match kind {
-            work::BesideKind::Ping => Beside {
-                pinged: sum.pinged.with(one),
-                ..sum
-            },
-            work::BesideKind::Fork => Beside {
-                forked: sum.forked.with(one),
-                ..sum
-            },
-        }))
+        .fold(Beside::default(), |sum, (_, kind, one)| sum.with(kind, one)))
 }
 
 impl WorkPage {
@@ -3340,11 +3357,12 @@ pub(crate) fn viewed_at(driver: &Driver, number: WorkNumber, at_once: &driver::A
     (driver.view_at(number, at_once)).ok_or_else(|| Broken(format!("the driver shows {number} and has no view of it")))
 }
 
-/// The link of the CI run a round or a call runs as, where what carries it out says it does.
-fn runs_at(said: Option<&Along>) -> Option<String> {
+/// The link of the CI run a round or a call runs as, where what carries it out says it does, and the runner the run, or
+/// the jobs of it, wait for where it says they wait for one.
+fn runs_at(said: Option<&Along>) -> (Option<String>, Option<String>) {
     match said {
-        Some(Along::Runs { at }) => Some(at.clone()),
-        _ => None,
+        Some(Along::Runs { at, queued_for }) => (Some(at.clone()), queued_for.clone()),
+        _ => (None, None),
     }
 }
 
@@ -5112,5 +5130,54 @@ pub(crate) mod tests {
         // A cause kept without it names the version consumed, and one that consumed none and worked from none, none.
         assert_eq!(named(cause(Some(Seq(2)), None)), Some(2));
         assert_eq!(named(cause(None, None)), None);
+    }
+
+    /// A call, or a round of an act, whose CI run waits for a runner says which, as the page and the command line read
+    /// it; one that does not says none.
+    #[test]
+    fn a_call_or_a_round_says_the_runner_its_run_waits_for() {
+        let link = "https://ci.example/runs/7";
+        let waits = Along::Runs {
+            at: link.to_string(),
+            queued_for: Some("14900k".to_string()),
+        };
+        let runs = Along::Runs {
+            at: link.to_string(),
+            queued_for: None,
+        };
+        assert_eq!(
+            runs_at(Some(&waits)),
+            (Some(link.to_string()), Some("14900k".to_string()))
+        );
+        assert_eq!(runs_at(Some(&runs)), (Some(link.to_string()), None));
+        assert_eq!(runs_at(None), (None, None));
+        let call = |(at, queued_for)| Waited::Call {
+            call: 4,
+            who: None,
+            what: Call::Tool {
+                name: "run_tests".to_string(),
+                input: "the work's branch".to_string(),
+            },
+            made: 9,
+            at,
+            queued_for,
+        };
+        let said = serde_json::to_value(call(runs_at(Some(&waits)))).expect("it is JSON");
+        assert_eq!(
+            (said["at"].as_str(), said["queuedFor"].as_str()),
+            (Some(link), Some("14900k"))
+        );
+        let said = serde_json::to_value(call(runs_at(Some(&runs)))).expect("it is JSON");
+        assert!(said["queuedFor"].is_null(), "{said}");
+        let round = |(at, queued_for)| Now::Round {
+            cell: "merge".to_string(),
+            run: 3,
+            round: 1,
+            since: 5,
+            at,
+            queued_for,
+        };
+        let said = serde_json::to_value(round(runs_at(Some(&waits)))).expect("it is JSON");
+        assert_eq!(said["queuedFor"], "14900k", "{said}");
     }
 }

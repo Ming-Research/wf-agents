@@ -2,8 +2,8 @@
 //! installation's policy, and the work goes on where it stood: a new session runs no cell, and the next round of the
 //! line is filled in it with all its cell's data.
 
-use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering::SeqCst;
+use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::sync::{Arc, Mutex};
 
 use driver::cache::{Cause, Miss};
@@ -1458,6 +1458,96 @@ fn a_line_whose_session_began_otherwise_than_a_new_one_would_now_is_not_kept_war
         ..warm("opus")
     };
     assert!(kept_warm_on(&s, &changed).is_empty());
+}
+
+/// The policy of [`warm`] whose carriers' check of what a new session would begin with ([`Policy::changed`]) counts
+/// each time it is asked, and answers as `changed` says.
+fn counting(asked: &Arc<AtomicUsize>, changed: &Arc<AtomicBool>) -> Policy {
+    let (asked, changed) = (asked.clone(), changed.clone());
+    Policy {
+        changed: Some(Box::new(move |_, _, _, _, _| {
+            asked.fetch_add(1, SeqCst);
+            changed.load(SeqCst)
+        })),
+        ..warm("opus")
+    }
+}
+
+// A wake takes the next ping from the sessions each work keeps warm, worked out again only as the work grows: asked
+// again while nothing changed, it goes through no work's sessions, and asks the carriers nothing, whose check reads the
+// work's worktree. A ping that ends is the session's last call, and the wake moves to the next ping. Fails where a wake
+// works the pings out of every work's sessions again, as it did with every work's sessions on each wake of the loop.
+// Milliseconds.
+#[test]
+fn a_wake_goes_through_no_works_sessions_again_while_nothing_changed() {
+    let asked = Arc::new(AtomicUsize::new(0));
+    let (mut s, at) = waiting(counting(&asked, &Arc::new(AtomicBool::new(false))));
+    let before = asked.load(SeqCst);
+    for _ in 0..3 {
+        assert_eq!(s.driver.wake().map(|wake| wake.at.0), Some(at));
+    }
+    assert_eq!(asked.load(SeqCst), before, "a wake asked the carriers again");
+    let todos = s.driver.tick(Time(at), None, None).unwrap();
+    assert_eq!(pings(&s, &todos), [("engineer".to_string(), 0)]);
+    s.clock = at + 1_000;
+    let read = Spent {
+        cached_tokens: 100,
+        ..Default::default()
+    };
+    s.driver.happened(Time(s.clock), s.work, pinged(read, None)).unwrap();
+    let asked_then = asked.load(SeqCst);
+    assert_eq!(
+        woken(&s),
+        s.clock + 3_300_000,
+        "the next ping, after the one that ended"
+    );
+    assert_eq!(s.driver.wake().map(|wake| wake.at.0), Some(s.clock + 3_300_000));
+    assert_eq!(asked.load(SeqCst), asked_then, "a wake asked the carriers again");
+}
+
+// An item put at a level whose model is not the one its line's session ran on writes nothing to the work, and its line
+// is to begin a new session: the work keeps that session warm no more, as worked out afresh, and no ping wakes the
+// driver or is given. Fails where what the work keeps is worked out again only as the work grows. Milliseconds.
+#[test]
+fn a_line_whose_item_was_put_at_another_model_is_kept_warm_no_more() {
+    let by_level = || Policy {
+        model: Box::new(|item: &store::Item, _: &flow::CellSpec| {
+            Some(
+                if item.level.as_deref() == Some("2") {
+                    "sonnet"
+                } else {
+                    "opus"
+                }
+                .to_string(),
+            )
+        }),
+        ..warm("opus")
+    };
+    let (mut s, at) = waiting(by_level());
+    assert_eq!(s.driver.wake().map(|wake| wake.at.0), Some(at));
+    let item = s.driver.work(s.work).expect("the work").item.number;
+    let level = driver::Asked::Item(store::ItemChange::Level("2".into()));
+    s.driver
+        .change(Time(s.clock), None, vec![(item, level)])
+        .expect("the level is changed");
+    assert!(kept_warm_on(&s, &by_level()).is_empty(), "its session is to be left");
+    assert_eq!(s.driver.wake(), None, "woken for a ping it will not give");
+    let todos = s.driver.tick(Time(at), None, None).unwrap();
+    assert!(pings(&s, &todos).is_empty(), "{todos:?}");
+}
+
+// The carriers read from the work's worktree whether a line begins a new session, which a round of another line can
+// change before any record of the work does. A ping due by what the work kept is given only as the work stands when it
+// is due: with the line to begin a new session, none is given, and the driver waits for it no more. Fails where a ping
+// is given from what the work kept before the look at the time. Milliseconds.
+#[test]
+fn a_ping_is_given_as_the_line_stands_when_it_is_due() {
+    let (asked, changed) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicBool::new(false)));
+    let (mut s, at) = waiting(counting(&asked, &changed));
+    changed.store(true, SeqCst);
+    let todos = s.driver.tick(Time(at), None, None).unwrap();
+    assert!(pings(&s, &todos).is_empty(), "{todos:?}");
+    assert_eq!(s.driver.wake(), None, "woken for a ping it will not give");
 }
 
 /// What the program's own report of what it gave the model holds in the rounds of these tests unless a test changes it:
