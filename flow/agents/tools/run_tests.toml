@@ -7,7 +7,9 @@ words = '''
   `commit` is the commit to run on, as git names one in your worktree; with none, it is
   the last commit of the work's branch, and anything not committed is not run. It gives each test you named,
   passed or failed, with the time it took and what a failed one said, and each job, with how it ended and its
-  wall time.{measure}'''
+  wall time.{measure}
+  Add `"publish": true` to leave `commit` on GitHub, on a branch of this work's own until the work ends, where a
+  workflow you start yourself can run it; the result names the branch. It runs nothing by itself.'''
 
 # What it says in place of `words` where the host is the local repository.
 words_local = '''
@@ -16,14 +18,14 @@ words_local = '''
   whether the command passed and what it said.'''
 
 # What a request that cannot be read as that shape is told, nothing having been run: `{error}` what the reading said.
-unread = "Nothing was run: the request is not `{\"tests\": [...], \"checks\": [...], \"commit\": \"...\"}`, with `\"measure\": [...]` where the project times measurements; each list holds names, the commit is one name, and each may be left out: {error}."
+unread = "Nothing was run: the request is not `{\"tests\": [...], \"checks\": [...], \"commit\": \"...\"}`, with `\"measure\": [...]` where the project times measurements and `\"publish\": true` to leave the commit on GitHub; each list holds names, the commit is one name, and each may be left out: {error}."
 
 # What it is told where the check could not be run at all, whatever the host: `{why}` what stopped it.
 could_not_check = "The check could not be run: {why}"
 
 [request]
 type = "object"
-properties = { tests = { type = "array", items = { type = "string" } }, checks = { type = "array", items = { type = "string" } }, measure = { type = "array", items = { type = "string" } }, commit = { type = "string" } }
+properties = { tests = { type = "array", items = { type = "string" } }, checks = { type = "array", items = { type = "string" } }, measure = { type = "array", items = { type = "string" } }, commit = { type = "string" }, publish = { type = "boolean" } }
 additionalProperties = false
 
 # How much of a result is given. The engine keeps it whole in its records, and in a file in the temporary directory, and
@@ -93,6 +95,8 @@ no_fast = "Nothing was run: the project declares no workflows, so nothing can be
 unknown_checks = "Nothing was run: the fast workflow runs only these checks by name: {runs}; not {unknown}."
 runner_missing = "Nothing was run: the workflow runs on {runner}, and this installation has only {have}."
 no_measure = "Nothing was run: the project declares no workflow that times measurements, so none can be named. Nothing was pushed."
+# Said before what a request that publishes the commit found, or alone: `{commit}` the commit, `{branch}` the branch on GitHub.
+published = "The commit {commit} is on GitHub as the branch {branch} until the work ends; start a workflow on it with that branch as its ref."
 
 # What it says where the host is the local repository.
 [local]
@@ -103,6 +107,7 @@ could_not = "The check `{command}` could not be run: {why}"
 not_apart = "The tests and checks you named are not run separately: the whole command runs."
 no_commit = "Nothing was run: the check runs on your worktree as it is, so no commit can be named. Ask again with none."
 no_measure = "Nothing was run: the check runs the project's tests alone, so no measurement can be named."
+no_publish = "Nothing was run: this repository has no host to leave a commit on, so none can be published."
 
 # What fills `{measure}` in the words: `declared`, where the project declares a measure workflow (`[ci.measure]` of
 # wf-agents.toml), and `none` where it declares none or its host is the local repository, whose words say nothing of it.

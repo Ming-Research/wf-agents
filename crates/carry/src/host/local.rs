@@ -160,6 +160,10 @@ impl Host for Local {
         stop: &mut Stop,
     ) -> Result<Option<String>, Failed> {
         let words = self.words()?;
+        // There is no host to leave a commit on.
+        if named.publish {
+            return Ok(Some(words.no_publish.clone()));
+        }
         // The command runs the project's tests alone, so a measurement named is none that could be run.
         if !named.measure.is_empty() {
             return Ok(Some(words.no_measure.clone()));
