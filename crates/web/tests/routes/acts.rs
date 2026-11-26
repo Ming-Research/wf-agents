@@ -2,9 +2,13 @@
 
 use axum::http::StatusCode;
 use serde_json::{Value, json};
+use service::Scripted;
 use store::Store;
 
-use crate::{get_json, greeted, pass, post, post_text, running, running_scripted, trial_script};
+use crate::{
+    edit, get_json, greeted, pass, post, post_text, running, running_compiled, running_scripted, trial_flow,
+    trial_has_with_words, trial_script,
+};
 
 const ACTS: &str = "/api/v1/works/1/acts";
 
@@ -276,4 +280,144 @@ async fn a_read_is_taken_for_the_versions_the_work_holds_and_refused_naming_one_
     let unknown = read(json!([{ "block": "nothing_here", "version": 1 }]));
     let (status, json) = post(router, ACTS, &unknown).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{json}");
+}
+
+/// The trial flow with a cell of words of its own: the plan has `plan_words`, and its first round hands in the plan and
+/// a reply, and the item's card shows the plan.
+fn trial_with_words() -> (flow::Compiled, service::Script) {
+    let source = edit(
+        trial_flow(),
+        None,
+        "[blocks.plan]\n",
+        "[blocks.plan]\n\n[blocks.plan_words]\noutside = \"words\"\n[blocks.plan_words.writes]\n\
+         owner = \"The owner: {words}\"\nreply = \"{reply}\"\n",
+    );
+    let source = edit(
+        source,
+        Some("plan"),
+        "watches = [\"request\"]",
+        "watches = [\"request\", \"plan_words\"]",
+    );
+    let source = edit(
+        source,
+        Some("plan"),
+        "outputs = [\"plan\"]",
+        "outputs = [\"plan\", \"plan_words\"]",
+    );
+    let source = edit(
+        source,
+        Some("plan"),
+        "request = \"last_and_latest\"",
+        "request = \"last_and_latest\"\nplan_words = \"all\"",
+    );
+    let mut flow = flow::compile(&source, &trial_has_with_words(&source)).unwrap();
+    flow.card = vec!["plan".into()];
+    let script = service::Script::read(
+        r#"
+        [[flows.trial.rounds]]
+        cell = "plan"
+        hands_in = [{ block = "plan", content = "The plan." }, { block = "plan_words", content = "Kept it short." }]
+        "#,
+    )
+    .unwrap();
+    (flow, script)
+}
+
+// What the owner has read of a work lowers what the items say of it, as the page reads them: the plan the card shows is
+// new and the reply to the owner's words is not read until each is, and the item is given again, on the cursor of the
+// page, once a read of it is kept; a read that is refused or repeated changes nothing the page is given.
+#[tokio::test(start_paused = true)]
+async fn what_the_owner_reads_lowers_what_the_items_say_of_the_work_and_gives_the_item_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path().join("store.sqlite")).unwrap();
+    let (flow, script) = trial_with_words();
+    let (running, _, _) = running_compiled(
+        Box::new(store),
+        dir,
+        Scripted::new(script).carriers(),
+        flow,
+        crate::levels(),
+        web::items_cache::BOUND_MS,
+    );
+    let router = &running.router;
+    let done = (StatusCode::NO_CONTENT, Value::Null);
+    let item = json!({
+        "title": "Greet the user",
+        "dependsOn": [],
+        "project": "trial",
+        "flow": "trial",
+        "writes": [{ "block": "request", "content": "Greet the user, please.", "value": null }],
+    });
+    assert_eq!(post(router, "/api/v1/items", &item).await.0, StatusCode::OK);
+    pass(1000).await;
+    // The owner speaks to the plan, and the work goes on: the plan hands in its plan and a reply.
+    let say = json!({ "kind": "say", "to": { "kind": "cell", "cell": "plan" }, "words": "Keep it short." });
+    assert_eq!(post(router, ACTS, &say).await, done);
+    assert_eq!(post(router, ACTS, &json!({ "kind": "resume" })).await, done);
+    let mut work = Value::Null;
+    for _ in 0..100 {
+        pass(250).await;
+        work = get_json(router, "/api/v1/items").await["items"][0]["work"].clone();
+        if work["repliesUnread"] == 1 {
+            break;
+        }
+    }
+    assert_eq!(
+        (work["fresh"].clone(), work["repliesUnread"].clone()),
+        (json!("new"), json!(1)),
+        "{work}"
+    );
+    // Held where it stands, so that nothing but a read changes what the items say.
+    assert_eq!(post(router, ACTS, &json!({ "kind": "pause" })).await, done);
+    pass(20_000).await;
+    let page = get_json(router, "/api/v1/works/1").await;
+    let version = |block: &str, reply: bool| {
+        let block = page["blocks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|b| b["name"] == block)
+            .unwrap();
+        let found = block["versions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|v| v["reply"] == reply)
+            .unwrap();
+        found["number"].clone()
+    };
+    let (plan, reply) = (version("plan", false), version("plan_words", true));
+    let first = get_json(router, "/api/v1/items").await;
+    let items_since = |since: String| async move {
+        let page = get_json(router, &format!("/api/v1/items?since={since}")).await;
+        let numbers: Vec<u64> = (page["items"].as_array().unwrap().iter())
+            .map(|i| i["number"].as_u64().unwrap())
+            .collect();
+        let work = page["items"].get(0).map_or(Value::Null, |i| i["work"].clone());
+        (
+            numbers,
+            work["fresh"].clone(),
+            work["repliesUnread"].clone(),
+            page["cursor"].as_str().unwrap().to_string(),
+        )
+    };
+    let cursor = first["cursor"].as_str().unwrap().to_string();
+    let read = |versions: Value| json!({ "kind": "read", "versions": versions });
+    // A read of a version the work has not is refused and keeps nothing, not the version beside it: nothing is given.
+    let refused = read(json!([{ "block": "plan_words", "version": reply }, { "block": "plan_words", "version": 99 }]));
+    assert_eq!(post(router, ACTS, &refused).await.0, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(items_since(cursor.clone()).await.0, Vec::<u64>::new());
+    // The reply read: its count falls to nothing, the plan is still new, and the item is given again.
+    let one = read(json!([{ "block": "plan_words", "version": reply }]));
+    assert_eq!(post(router, ACTS, &one).await, done);
+    let (given, fresh, replies, cursor) = items_since(cursor).await;
+    assert_eq!((given, fresh, replies), (vec![1], json!("new"), json!(0)));
+    // The plan read: it is no longer new, and the item is given again.
+    let plan_read = read(json!([{ "block": "plan", "version": plan }]));
+    assert_eq!(post(router, ACTS, &plan_read).await, done);
+    let (given, fresh, replies, cursor) = items_since(cursor).await;
+    assert_eq!((given, fresh, replies), (vec![1], json!("none"), json!(0)));
+    // Read again, nothing changes, and the item is not given again.
+    assert_eq!(post(router, ACTS, &plan_read).await, done);
+    assert_eq!(items_since(cursor).await.0, Vec::<u64>::new());
 }
