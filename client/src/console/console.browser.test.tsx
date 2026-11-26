@@ -1731,47 +1731,36 @@ describe('the console page, with several projects', () => {
     // Of the made-up items of wf-agents, 26 are open or stand over an open one.
     await expect.poll(() => shown()?.stats.items).toBe(26);
     expect(localStorage.getItem('wf-agents.console-project')).toBe('wf-agents');
-    rows()[names().indexOf('Whitefoot')].click();
-    await expect.poll(current).toBe('Whitefoot');
-    await expect.poll(() => shown()?.stats.items).toBe(3);
-    // The tree of a project with no item yet is empty.
-    key('2');
-    await expect.poll(current).toBe('Birch');
-    await expect.poll(() => shown()?.stats.items).toBe(0);
-    // Kept, the project shown is shown again on the next page.
-    unmount();
-    container.remove();
-    open();
-    await expect.poll(current).toBe('Birch');
-  });
-
-  it('says why a tree is empty where it is: the project has no item, or the boxes hide every one of them, and which boxes to tick', async () => {
-    await drawn();
+    // A tree that draws items says nothing of an empty one. With Open unticked the boxes hide every item of the project,
+    // and the page says how many and which boxes to tick, each of the kinds the project has; ticked again, it says
+    // nothing.
     const said = () => container.querySelector('.console-empty')?.textContent ?? null;
     const box = (name: string) =>
       [...container.querySelectorAll<HTMLLabelElement>('.console-shows label')]
         .find((l) => l.textContent === name)
         ?.querySelector('input') as HTMLInputElement;
-    // A tree that draws items says nothing of this.
-    await expect.poll(current).toBe('Alder');
     expect(said()).toBeNull();
-    // A project with no item yet.
+    const own = (await fixtureSource(Date.now(), 4).items.loadItems()).items.filter((i) => i.project === 'wf-agents');
+    const kinds = STANDINGS.filter((s) => own.some((i) => standingOf(i) === s));
+    box('Open').click();
+    await expect.poll(said).toBe(emptyWords({ kind: 'hidden', count: own.length, unticked: kinds }));
+    expect(said()).toMatch(/^All \d+ items are hidden by the boxes: tick Open/);
+    box('Open').click();
+    await expect.poll(() => shown()?.stats.items).toBe(26);
+    expect(said()).toBeNull();
+    rows()[names().indexOf('Whitefoot')].click();
+    await expect.poll(current).toBe('Whitefoot');
+    await expect.poll(() => shown()?.stats.items).toBe(3);
+    // The tree of a project with no item yet is empty, and says so.
     key('2');
     await expect.poll(current).toBe('Birch');
+    await expect.poll(() => shown()?.stats.items).toBe(0);
     await expect.poll(said).toBe('No items in this project yet');
-    // A project whose items the boxes all hide: Open unticked hides the open ones, and the done and the cancelled were
-    // hidden already, so each box of a kind the project has is named.
-    key('1');
-    await expect.poll(current).toBe('Alder');
-    await expect.poll(said).toBeNull();
-    const alder = (await fixtureSource(Date.now(), 4).items.loadItems()).items.filter((i) => i.project === 'Alder');
-    const kinds = STANDINGS.filter((s) => alder.some((i) => standingOf(i) === s));
-    box('Open').click();
-    await expect.poll(said).toBe(emptyWords({ kind: 'hidden', count: alder.length, unticked: kinds }));
-    expect(said()).toMatch(/^All \d+ items are hidden by the boxes: tick Open/);
-    // Ticked again, the items are drawn and nothing is said.
-    box('Open').click();
-    await expect.poll(said).toBeNull();
+    // Kept, the project shown is shown again on the next page.
+    unmount();
+    container.remove();
+    open();
+    await expect.poll(current).toBe('Birch');
   });
 
   it('says in words, which the empty tree draws, that no item is there, or that all of them, or the one, are hidden by boxes to tick', () => {
