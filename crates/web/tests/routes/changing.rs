@@ -281,6 +281,57 @@ async fn an_item_whose_work_has_started_comes_to_depend_on_another_item_and_give
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_dependency_is_made_the_main_one_and_the_store_moves_the_main_one_once_its_item_is_cancelled() {
+    let running = running();
+    let router = &running.router;
+    post(router, "/api/v1/items", &item("First", json!([]))).await;
+    post(router, "/api/v1/items", &item("Second", json!([1]))).await;
+    post(router, "/api/v1/items", &item("Third", json!([1]))).await;
+    let main_of = |items: &Value, item: usize| items["items"][item - 1]["mainDependent"].clone();
+    // The first dependency on an item is its main one.
+    let items = get_json(router, "/api/v1/items").await;
+    assert_eq!(main_of(&items, 1), json!(2));
+    assert_eq!(main_of(&items, 3), Value::Null);
+    // Made the main one, the third's takes its place, and made so again it is no change; an item that does not depend
+    // on the other is refused.
+    let main = changes(
+        "It stands under the third",
+        json!([{ "kind": "main", "item": 3, "on": 1 }]),
+    );
+    let changed = |changed: Value| (StatusCode::OK, json!({ "changed": changed }));
+    assert_eq!(post(router, CHANGES, &main).await, changed(json!([true])));
+    assert_eq!(post(router, CHANGES, &main).await, changed(json!([false])));
+    assert_eq!(
+        post(
+            router,
+            CHANGES,
+            &changes("why", json!([{ "kind": "main", "item": 1, "on": 2 }]))
+        )
+        .await,
+        refused("#1 does not depend on #2.")
+    );
+    let items = get_json(router, "/api/v1/items").await;
+    assert_eq!(main_of(&items, 1), json!(3));
+    let history = items["items"][2]["history"]["changes"].as_array().unwrap().clone();
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0]["what"], json!({ "kind": "main", "item": 1 }));
+    // A work's page says each dependency of its item, both ways, and which is the main one.
+    assert_eq!(
+        get_json(router, "/api/v1/works/1").await["dependencies"],
+        json!({ "on": [], "by": [{ "item": 2, "main": false }, { "item": 3, "main": true }] })
+    );
+    assert_eq!(
+        get_json(router, "/api/v1/works/3").await["dependencies"],
+        json!({ "on": [{ "item": 1, "main": true }], "by": [] })
+    );
+    // Its item cancelled, the main one goes to the earliest made of those left whose item is not cancelled.
+    let cancel = changes("Joined into the second", json!([{ "kind": "cancel", "item": 3 }]));
+    assert_eq!(post(router, CHANGES, &cancel).await, changed(json!([true])));
+    let items = get_json(router, "/api/v1/items").await;
+    assert_eq!(main_of(&items, 1), json!(2));
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_cancel_says_why_and_keeps_what_depends_on_its_item_and_a_cancelled_item_is_reopened() {
     let running = running();
     let router = &running.router;

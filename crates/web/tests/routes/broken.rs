@@ -51,6 +51,10 @@ impl Storage for Unreadable {
         self.store.items()
     }
 
+    fn mains(&self) -> Result<store::Mains, Fault> {
+        self.store.mains()
+    }
+
     fn works(&self) -> Result<Vec<WorkHead>, Fault> {
         self.store.works()
     }

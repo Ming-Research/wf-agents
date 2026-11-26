@@ -617,19 +617,31 @@ export function fixtureItems(start = Date.now()): Items {
     },
   };
   return {
-    items: Object.entries(items).map(
-      ([n, m]): Item => ({
-        number: Number(n),
-        title: m.title,
-        level: '2',
-        project: m.project === undefined ? 'wf-agents' : m.project,
-        added: m.work.added,
-        dependsOn: m.dependsOn,
-        history: { first: { title: m.title, level: '2', dependsOn: m.dependsOn }, changes: [] },
-        work: { ...m.work, item: Number(n), flow: FLOW.name },
-      }),
+    items: withMains(
+      Object.entries(items).map(
+        ([n, m]): Item => ({
+          number: Number(n),
+          title: m.title,
+          level: '2',
+          project: m.project === undefined ? 'wf-agents' : m.project,
+          added: m.work.added,
+          dependsOn: m.dependsOn,
+          mainDependent: null,
+          history: { first: { title: m.title, level: '2', dependsOn: m.dependsOn }, changes: [] },
+          work: { ...m.work, item: Number(n), flow: FLOW.name },
+        }),
+      ),
     ),
   };
+}
+
+/// The made-up items, each some item depends on given its main dependent, which the engine's store keeps of real
+/// items: here the first by number of the items that depend on it.
+function withMains(items: Item[]): Item[] {
+  const main = new Map<number, number>();
+  for (const i of [...items].sort((a, b) => a.number - b.number))
+    for (const on of i.dependsOn) if (!main.has(on)) main.set(on, i.number);
+  return items.map((i) => ({ ...i, mainDependent: main.get(i.number) ?? null }));
 }
 
 /// Made-up names of more projects, for looking at the console with many (`?fixtures&projects=12`).
@@ -669,7 +681,7 @@ function withProjects(data: Items, projects: number): Items {
       };
     }),
   );
-  return { items: [...data.items, ...more] };
+  return { items: withMains([...data.items, ...more]) };
 }
 
 /// The questions put to the owner, by the item whose work they are of: one the work waits for at its cell, and one it
@@ -731,6 +743,7 @@ function pageOf(item: Item, summary: Summary, questions: Record<number, Question
     level: item.level,
     project: item.project,
     history: item.history,
+    dependencies: { on: [], by: [] },
     outline: outlineOf(FLOW),
     flow: FLOW,
     cells,

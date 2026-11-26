@@ -135,6 +135,8 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                 "first": { "title": "Greet the user", "level": "2", "dependsOn": [], "tags": [] },
                 "changes": [],
             },
+            // It depends on no item, and no item depends on it.
+            "dependencies": { "on": [], "by": [] },
             "project": "trial",
             // The version of the flow the work runs on, as its outline has it: what its history and its card are
             // drawn from.

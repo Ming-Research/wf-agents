@@ -249,12 +249,14 @@ async fn a_cursor_of_another_process_or_unreadable_gives_every_item_and_says_so(
     assert_eq!((own_again["full"].clone(), numbers(&own_again)), (json!(false), vec![]));
 }
 
-// What whoever plans the work changes of an item reaches the page as that item alone.
+// What whoever plans the work changes of an item reaches the page as that item alone, and as each other item whose
+// main dependency the change moved.
 #[tokio::test(start_paused = true)]
 async fn a_change_to_one_item_reaches_the_page_and_no_other_item_is_given() {
     let (running, cache, _, _) = kept(trial_script(), BOUND_MS);
     let router = &running.router;
-    for (title, on) in [("First", json!([])), ("Second", json!([])), ("Third", json!([]))] {
+    // The second depends on the first, by the first's main dependency.
+    for (title, on) in [("First", json!([])), ("Second", json!([1])), ("Third", json!([]))] {
         assert_eq!(
             post(router, "/api/v1/items", &item(title, on, "trial")).await.0,
             StatusCode::OK
@@ -278,6 +280,19 @@ async fn a_change_to_one_item_reaches_the_page_and_no_other_item_is_given() {
     assert_eq!(moved["items"][0]["title"], "Third, narrowed");
     assert_eq!(moved["items"][0]["dependsOn"], json!([1]));
     assert_eq!(cache.built(), built + 1);
+    // The third's dependency made the main one, the first stands under the third: the first is given as well.
+    let main = json!({
+        "why": "The first stands under the third",
+        "changes": [{ "kind": "main", "item": 3, "on": 1 }],
+    });
+    assert_eq!(
+        post(router, "/api/v1/items/changes", &main).await,
+        (StatusCode::OK, json!({ "changed": [true] }))
+    );
+    let mained = read(router, Some(&cursor(&moved))).await;
+    assert_eq!(numbers(&mained), vec![1, 3]);
+    assert_eq!(mained["items"][0]["mainDependent"], json!(3));
+    assert_eq!(cache.built(), built + 3);
 }
 
 // The items a page holds, a whole read and then what each read gave since, are what a working out of every item gives,

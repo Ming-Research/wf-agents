@@ -7,8 +7,7 @@
 // goes on, whether the work has begun, and how many of the things its work waits for wait for the owner; and a work's
 // age and what it has taken, as a card and the item's window say them. Pure, so that it is tested on its own.
 //
-// It reads the items as `works-api.ts` gives them. The interface does not say which of an item's dependents is its
-// main one: the first of them by number is.
+// It reads the items as `works-api.ts` gives them, each with its main dependent as the engine's store keeps it.
 
 import type { CellNow, Fresh, Held, Item, Items, Now, Pauser, Summary, Wait } from '../works-api';
 import { mocksShown } from '../mock-data';
@@ -155,17 +154,18 @@ export function projectsIn(data: Items, kept: readonly string[], named: readonly
   return [...known, ...rest];
 }
 
-/// Each item's main dependent, which it stands under in the tree: the first by number of the items of its own project
-/// that depend on it. An item that only items of other projects depend on stands at the top of its own project's tree,
-/// and a shadow of it stands under each of them.
+/// Each item's main dependent, which it stands under in the tree: the item whose dependency on it the engine's store
+/// keeps as its main one (`Item.mainDependent`), where that item is of its own project. An item whose main dependent is
+/// of another project stands at the top of its own project's tree, and a shadow of it under each item that depends on
+/// it.
 function mainDependents(data: Items): Map<number, number> {
   const byId = new Map(data.items.map((i) => [i.number, i]));
   const main = new Map<number, number>();
-  for (const i of [...data.items].sort((a, b) => a.number - b.number))
-    for (const d of i.dependsOn) {
-      const of = byId.get(d);
-      if (of !== undefined && !main.has(d) && projectOf(of) === projectOf(i)) main.set(d, i.number);
-    }
+  for (const i of data.items) {
+    if (i.mainDependent === null) continue;
+    const dependent = byId.get(i.mainDependent);
+    if (dependent !== undefined && projectOf(dependent) === projectOf(i)) main.set(i.number, i.mainDependent);
+  }
   return main;
 }
 

@@ -35,6 +35,8 @@ async fn the_items_are_given_each_with_its_work_in_brief() {
                 "project": "trial",
                 "added": START,
                 "dependsOn": [],
+                // No item depends on it.
+                "mainDependent": null,
                 "tags": [],
                 "history": {
                     "first": { "title": "Greet the user", "level": "2", "dependsOn": [], "tags": [] },
@@ -71,6 +73,9 @@ async fn an_item_is_added_with_its_work_paused_and_what_it_depends_on() {
     let items = get_json(router, "/api/v1/items").await;
     let second = &items["items"][1];
     assert_eq!(second["dependsOn"], json!([1]));
+    // The first dependency on an item is its main one, and an item nothing depends on has none.
+    assert_eq!(items["items"][0]["mainDependent"], json!(2));
+    assert_eq!(second["mainDependent"], Value::Null);
     assert_eq!(second["work"]["paused"], "owner");
     // A precondition only the items it depends on make hold holds the work before its cell whether or not it is
     // paused, and says which of them have not merged.
