@@ -1380,6 +1380,7 @@ describe('the console page', () => {
       '/ search',
       'e fold or unfold the card under the pointer',
       'n / N next / previous question',
+      'm / M next / previous reply you have not read',
       '1 – 9 the tree of the project of that place in the list',
       "Space every project's tree at once",
       'Esc close',
