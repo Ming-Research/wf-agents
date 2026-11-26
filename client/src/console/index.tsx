@@ -49,7 +49,7 @@ import {
 } from './items';
 import { ItemPanel, type PageState } from './ItemWindow';
 import { SnapScene } from './snap';
-import { aheadCount, waitingCount } from '../works/waiting';
+import { aheadCount, repliesUnreadCount, waitingCount } from '../works/waiting';
 import { ProjectList } from './projects';
 import { type Heard, type Source, inOrder, pageSource } from './source';
 
@@ -517,12 +517,13 @@ export function ConsolePage({
   // overview is open, every tree stands small in a grid as near square as lets each be as large as can be, filled a
   // row at a time in the list's order, with a gap between, the grid in the room's middle; as it opens and closes, the
   // trees fade where they go rather than move there (`fade`).
-  // What waits for the owner in each project, counted as the bar counts it over every project.
+  // What waits for the owner in each project, and the replies of its works not read, counted as the bar counts them
+  // over every project.
   const counts = useMemo(() => {
-    const of = new Map<string, { waiting: number; ahead: number }>();
+    const of = new Map<string, { waiting: number; ahead: number; unread: number }>();
     for (const name of projects) {
       const works = (data?.items ?? []).filter((i) => projectOf(i) === name).map((i) => i.work);
-      of.set(name, { waiting: waitingCount(works), ahead: aheadCount(works) });
+      of.set(name, { waiting: waitingCount(works), ahead: aheadCount(works), unread: repliesUnreadCount(works) });
     }
     return of;
   }, [data, projects]);
