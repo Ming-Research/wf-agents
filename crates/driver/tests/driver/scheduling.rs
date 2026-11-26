@@ -5,6 +5,7 @@
 //! owner's pause of everything, kept in the store, holds back what each work's own pause would until it is lifted.
 
 use decide::Holder;
+use store::Storage;
 
 use super::*;
 

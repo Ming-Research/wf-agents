@@ -811,9 +811,12 @@ struct Part {
     /// Each stretch it held a slot, as the version its work is on says which cells take one, and each stretch a round or
     /// a call of a tool of it was under way, merged; the end none while it is under way. None where that version is
     /// not known.
-    taking: Option<Vec<(u64, Option<u64>)>>,
-    running: Option<Vec<(u64, Option<u64>)>>,
+    taking: Spans,
+    running: Spans,
 }
+
+/// Stretches of time from a time to its end (none while under way), or none where they are not known.
+type Spans = Option<Vec<(u64, Option<u64>)>>;
 
 /// A stretch of time a work stopped for one cause.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1097,10 +1100,11 @@ fn stops_of(kept: Kept<'_>, held: &HeldAll, going: bool, now: Time) -> (Option<V
             }),
         }
     }
-    if live && going {
-        if let Some(last) = stops.last_mut() {
-            last.open = last.until >= now.0;
-        }
+    if live
+        && going
+        && let Some(last) = stops.last_mut()
+    {
+        last.open = last.until >= now.0;
     }
     (Some(stops), live)
 }
@@ -1108,8 +1112,7 @@ fn stops_of(kept: Kept<'_>, held: &HeldAll, going: bool, now: Time) -> (Option<V
 /// Each stretch the work held a slot, and each stretch a round or a call of a tool of it was under way, as the version
 /// the work is on says which of its cells an agent runs, and so takes a slot; none of both for a work on none kept, whose
 /// cells that version does not tell.
-#[allow(clippy::type_complexity)]
-fn held_slots(kept: Kept<'_>, runs: &[Run]) -> (Option<Vec<(u64, Option<u64>)>>, Option<Vec<(u64, Option<u64>)>>) {
+fn held_slots(kept: Kept<'_>, runs: &[Run]) -> (Spans, Spans) {
     if kept.on.outline().is_none() {
         return (None, None);
     }
@@ -1605,7 +1608,7 @@ fn crowd(stretches: impl Iterator<Item = (u64, Option<u64>)>, window: (u64, u64)
         peak = peak.max(level);
     }
     let length = u128::from(window.1.saturating_sub(window.0));
-    let average = if length == 0 { 0 } else { (area * 1000 / length) as u64 };
+    let average = (area * 1000).checked_div(length).map_or(0, |average| average as u64);
     (average, peak as usize)
 }
 
@@ -1617,9 +1620,8 @@ impl Occupancy {
         now: u64,
         history: &[store::SlotsRecord],
     ) -> Occupancy {
-        let stretches = |pick: fn(&Part) -> &Option<Vec<(u64, Option<u64>)>>| {
-            parts.clone().flat_map(move |part| pick(part).iter().flatten().copied())
-        };
+        let stretches =
+            |pick: fn(&Part) -> &Spans| parts.clone().flat_map(move |part| pick(part).iter().flatten().copied());
         let (taking_avg, taking_peak) = crowd(stretches(|part| &part.taking), window, now);
         let (running_avg, running_peak) = crowd(stretches(|part| &part.running), window, now);
         let (slots, recorded) = slots_in(history, window);
