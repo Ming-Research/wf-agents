@@ -1,5 +1,6 @@
-//! Which blocks of a cell would let a stalled work go on, where its run finished as a return would have it: the walk
-//! is read on the records with that finish added (decision a-work-no-cell-can-move-is-stalled says what a stall is).
+//! Which blocks of a cell would let a work go on that waits for what cells write and none of which will run, where its
+//! run finished as a return would have it: the walk is read on the records with that finish added (decision
+//! a-work-no-cell-can-move-is-stalled says what a stall is).
 
 use decide::stuck_blocks;
 use decide::{Test, TestKind, TestName};
@@ -11,6 +12,12 @@ use super::*;
 /// it is not; the check of the code, which alone writes whether it passed; and the merge, which waits for that. The
 /// research's own cell is given, so that a test can say what it may write.
 fn research_to_merge(research: Cell) -> World {
+    research_to_merge_by(research, true)
+}
+
+/// The same, where the check's `checked` is written only by cells, or, `false`, by people too, as where a verdict may be
+/// ruled on.
+fn research_to_merge_by(research: Cell, by_cells: bool) -> World {
     let named = Test {
         kind: TestKind::All,
         reads: vec!["checked".into()],
@@ -23,7 +30,9 @@ fn research_to_merge(research: Cell) -> World {
         requiring("checked", cell("merge", &["checked"], &[])),
     ];
     let mut w = World::with_tests(cells, BTreeMap::from([(TestName::from("checked"), named)]));
-    w.written_by_cells("checked");
+    if by_cells {
+        w.written_by_cells("checked");
+    }
     w.person_writes("background");
     w
 }
@@ -100,5 +109,37 @@ fn a_dialogue_block_of_the_cell_is_no_block_it_is_told_to_write() {
     let mut research = the_research();
     research.dialogues.insert("plan".into(), vec!["code".into()]);
     let mut w = research_to_merge(research);
+    assert!(stuck_after(&mut w, &[("deep", Value("no"))]).is_empty());
+}
+
+// The work waits at the merge for what the check writes, which the owner may write too, as where a verdict may be ruled
+// on: no call, question or limit is on its way, and the check, behind the research, will not run, so it is as stuck as
+// where only cells write it, and was so in the item's case.
+#[test]
+fn a_precondition_the_owner_may_also_make_hold_is_one_no_cell_will_make_hold_either() {
+    let mut w = research_to_merge_by(the_research(), false);
+    assert_eq!(stuck_after(&mut w, &[("deep", Value("no"))]), ["plan".into()]);
+    let mut w = research_to_merge_by(the_research(), false);
+    assert!(stuck_after(&mut w, &[("deep", Value("no")), ("plan", Matters)]).is_empty());
+}
+
+// A work that waits at its last cell for what only the owner writes is not waiting for what cells write: it is to be
+// woken by the owner, and no return of the research is held for it.
+#[test]
+fn a_work_that_waits_only_for_the_owner_is_not_stuck() {
+    let cells = vec![
+        the_research(),
+        when("deep", "no", cell("implement", &["plan"], &["code"])),
+        cell("close", &["finish"], &[]),
+    ];
+    let mut w = World::new(cells);
+    w.person_writes("background");
+    assert!(stuck_after(&mut w, &[("deep", Value("no"))]).is_empty());
+}
+
+// A block the cell watches would run the cell itself again, not let the work go on.
+#[test]
+fn a_block_the_cell_itself_watches_is_no_block_it_is_told_to_write() {
+    let mut w = research_to_merge(cell("research", &["background", "plan"], &["deep", "plan"]));
     assert!(stuck_after(&mut w, &[("deep", Value("no"))]).is_empty());
 }

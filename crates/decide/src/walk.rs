@@ -363,11 +363,11 @@ pub fn decide_in(flow: &Flow, records: &Records, room: Room) -> Decision {
 
 /// The blocks of the run's cell that would let the work go on, where it could not go on with the run finished as it is
 /// given: it deals with these blocks and writes these. The walk is taken on the records with that finish added, and where
-/// it comes to a stall ([`Decision::Stalled`]), each block the cell may write that is no choice, none of the cell's
-/// dialogues, not written by this finish and with no version yet is written in turn, and those after which the work is
-/// no longer stalled are the answer. None where the work is not stalled, or where no block of the cell would let it go
-/// on: that stall is the flow's, which a return of this cell cannot mend. `choices` are the blocks that are choices,
-/// whose value a stand-in write could not give.
+/// it leaves the work waiting for what cells write (`leaves_to_cells`), each block the cell may write that is no
+/// choice, none of the cell's dialogues, none that runs the cell itself, not written by this finish and with no version
+/// yet is written in turn, and those after which the work is no longer so held are the answer. None where the work is
+/// not held so, or where no block of the cell would let it go on: that stall is the flow's, which a return of this cell
+/// cannot mend. `choices` are the blocks that are choices, whose value a stand-in write could not give.
 pub fn stuck_blocks(
     flow: &Flow,
     records: &Records,
@@ -399,7 +399,7 @@ pub fn stuck_blocks(
             dealt_with: Some(dealt_with.to_vec()),
             waits_for: None,
         });
-        matches!(decide_in(flow, &with, Room::FREE), Decision::Stalled { .. })
+        leaves_to_cells(&decide_in(flow, &with, Room::FREE))
     };
     if !stalled(None) {
         return Vec::new();
@@ -408,12 +408,33 @@ pub fn stuck_blocks(
         .chain(cell.verdicts.values().map(|v| &v.dialogue))
         .collect();
     (cell.outputs.iter())
-        .filter(|block| !choices.contains_key(*block) && !dialogues.contains(block))
+        .filter(|block| !choices.contains_key(*block) && !dialogues.contains(block) && !cell.runs_on.contains(*block))
         .filter(|block| !writes.iter().any(|w| &w.block == *block))
         .filter(|block| records.next_number([*block]) == 1)
         .filter(|block| !stalled(Some(*block)))
         .cloned()
         .collect()
+}
+
+/// Whether the work, as this decides, goes no further for want of what cells write: it is stalled with cells to blame,
+/// or it waits at a cell for preconditions alone, each of which a cell makes hold and no source outside the work could.
+/// The owner may write such a block too, as where a verdict may be ruled on, but nothing the work waits for is on its
+/// way: no call, question, limit, slot or turn is among it.
+fn leaves_to_cells(decision: &Decision) -> bool {
+    match decision {
+        Decision::Stalled { by, .. } => !by.is_empty(),
+        Decision::Wait { on, .. } => {
+            !on.is_empty()
+                && on.iter().all(|waited| match waited {
+                    Waited::Precondition { by, .. } => {
+                        by.iter().any(|m| matches!(m, Maker::Cell { .. }))
+                            && !by.iter().any(|m| matches!(m, Maker::Outside { .. }))
+                    }
+                    _ => false,
+                })
+        }
+        _ => false,
+    }
 }
 
 /// What the round of the run was told, and how the blocks its cell may write stand now: what its return may name as

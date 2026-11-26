@@ -8,9 +8,12 @@ use decide::run::Stuck;
 
 use super::*;
 
+/// What the check was asked, each time: what the run would finish having dealt with, and the blocks it would write.
+type Asks = Vec<(Vec<BlockId>, Vec<Write>)>;
+
 /// What the run does next on these rounds, the walk saying these blocks would let the work go on, whatever the run
 /// would finish dealing with and writing; and what it was asked, each time.
-fn step_asking(rounds: Vec<Round>, spec: &Spec, blocks: &[&str]) -> (Step, Vec<(Vec<BlockId>, Vec<Write>)>) {
+fn step_asking(rounds: Vec<Round>, spec: &Spec, blocks: &[&str]) -> (Step, Asks) {
     let asked = RefCell::new(Vec::new());
     let stuck = |dealt_with: &[BlockId], writes: &[Write]| -> Vec<BlockId> {
         asked.borrow_mut().push((dealt_with.to_vec(), writes.to_vec()));
