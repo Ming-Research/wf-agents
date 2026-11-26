@@ -42,9 +42,10 @@ of each part.
    engineer's histories hold the deciding code to calling a work stalled exactly where the records read it so. A return
    that would leave a work waiting for blocks that cells write, none of which will run, is sent back where a block of
    its cell would end the wait, so what stalls in the loop's histories is what no block of the cell that wrote last
-   could mend, and the histories' agents hand in the blocks such a send-back names. Each such test counts every case it is there to reach
-   and fails where none did; those of the deciding code and of the engineer's flow count the histories that reached each
-   case, run more in batches until each has been reached in ten, and fail where one has not, so that no property passes
+   could mend, and the histories' agents hand in the blocks such a send-back names. Each such test counts every case it
+   is there to reach and fails where none did; those of the deciding code and of the engineer's flow count the
+   histories that reached each case, run more in batches until each has been reached in ten, and fail where one has not,
+   so that no property passes
    by a case tried once; a failing history gives its seed, which replays it. This layer is the one
    to catch a fault that needs an order of events nobody wrote down: a stop between two steps, a write while a round
    is under way, a return after a send-back.
