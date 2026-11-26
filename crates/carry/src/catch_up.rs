@@ -358,6 +358,57 @@ mod tests {
         );
     }
 
+    /// A started work and main that each added a line at the top of `log.md`, and, where `clash` says so, each wrote
+    /// `greeting.txt` its own way. Since the work started, main's `.gitattributes` has `log.md` merged by `union`; the
+    /// owner's checkout stands on the commit the work started from, which has no attributes, as the work's worktree
+    /// does. Gives the repository, the work's place, its head and main's.
+    async fn each_added_a_line(clash: bool) -> (Repo, Place, String, String) {
+        let repo = Repo::new("true");
+        let checkout = repo.project.repo.clone();
+        let before = commit(&checkout, "log.md", "Old.\n");
+        let started = git::start(&repo.project, &repo.place(WORK), "main", "main")
+            .await
+            .unwrap();
+        let dir = started.place.dir.clone();
+        commit(&checkout, ".gitattributes", "log.md merge=union\n");
+        let mut main = commit(&checkout, "log.md", "Main.\nOld.\n");
+        let mut head = commit(&dir, "log.md", "Work.\nOld.\n");
+        if clash {
+            main = commit(&checkout, "greeting.txt", "Hello from main.\n");
+            head = commit(&dir, "greeting.txt", "Hello, you.\n");
+        }
+        run(&checkout, &["checkout", "-q", "--detach", &before]);
+        (repo, started.place, head, main)
+    }
+
+    // Main merges by its own attributes, whatever commit the owner's checkout and the work's worktree stand on: the two
+    // lines added at the top of the file main merges by `union` are no conflict, and main's head is taken in with both.
+    #[tokio::test]
+    async fn main_merges_by_its_own_attributes_not_those_of_the_checkout_or_the_worktree() {
+        let (repo, place, head, main) = each_added_a_line(false).await;
+        assert_eq!(git::conflicts(&repo.project, &main, &head).await, Ok(None));
+        let caught = take_in(&repo.project, &place, "refs/heads/main", RUN, WHOSE).await;
+        let Outcome::TookIn { main: took, merge } = caught.outcome else {
+            panic!("{caught:?}");
+        };
+        assert_eq!(took, main);
+        let log = run(&place.dir, &["show", &format!("{merge}:log.md")]);
+        assert_eq!(log, "Work.\nMain.\nOld.", "both lines are kept");
+    }
+
+    // Main's attributes merge only the files they name: a file both sides wrote, which they do not name, is still in
+    // conflict, and is the only file said to be.
+    #[tokio::test]
+    async fn a_file_mains_attributes_do_not_name_is_still_in_conflict() {
+        let (repo, place, head, main) = each_added_a_line(true).await;
+        let conflict = git::conflicts(&repo.project, &main, &head).await.unwrap();
+        assert_eq!(conflict.map(|c| c.files), Some("greeting.txt".to_string()));
+        let caught = take_in(&repo.project, &place, "refs/heads/main", RUN, WHOSE).await;
+        let files = vec!["greeting.txt".to_string()];
+        assert_eq!(caught.outcome, Outcome::Conflict { main, files });
+        assert_eq!(run(&place.dir, &["rev-parse", "HEAD"]), head, "nothing is taken in");
+    }
+
     #[tokio::test]
     async fn a_worktree_with_changes_not_committed_is_left_as_it_is_and_says_them() {
         let (repo, place, main) = moved("other.txt").await;

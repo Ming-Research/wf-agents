@@ -532,9 +532,19 @@ pub(crate) async fn merged_as(
     })
 }
 
+/// The option, given before git's command, that has git read the files' attributes from the tree of `main`, a commit of
+/// main, and not from the working tree of the directory it runs in. The attributes name the driver each file is merged
+/// with, such as `union`. Every merge the engine makes or works out between main and a branch reads them so, as the
+/// merge into main does: the owner's checkout may stand on an older main, and a work's worktree on an older branch, and
+/// either may hold a change to `.gitattributes` not committed, so their attributes would find conflicts that the merge
+/// into main does not have.
+pub(crate) fn attributes_of(main: &str) -> String {
+    format!("--attr-source={main}")
+}
+
 /// Merges main's head at `main` into the branch checked out in the worktree, which merges it without a conflict, as a
-/// commit of the engine's made with these words, by whom `commits` says, and gives the branch's head after it; a merge
-/// that fails is taken back.
+/// commit of the engine's made with these words, by whom `commits` says, and with main's attributes
+/// ([`attributes_of`]), and gives the branch's head after it; a merge that fails is taken back.
 pub(crate) async fn merge_as(dir: &Path, main: &str, message: &str, commits: &Commits) -> Result<String, String> {
     let with = With {
         settings: vec![
@@ -543,7 +553,16 @@ pub(crate) async fn merge_as(dir: &Path, main: &str, message: &str, commits: &Co
         ],
         env: Vec::new(),
     };
-    let args = ["merge", "--no-ff", "--no-edit", "-m", message, main];
+    let attributes = attributes_of(main);
+    let args = [
+        attributes.as_str(),
+        "merge",
+        "--no-ff",
+        "--no-edit",
+        "-m",
+        message,
+        main,
+    ];
     if let Err(why) = git_with(dir, &with, &args).await {
         if said(dir, &["rev-parse", "--quiet", "--verify", "MERGE_HEAD"]).await?.ok {
             let _ = git(dir, &["merge", "--abort"]).await;
@@ -582,10 +601,18 @@ pub(crate) struct Conflict {
     pub(crate) kinds: String,
 }
 
-/// The conflict between the commit and main's head, worked out without changing anything; none where the commit
-/// merges into main cleanly.
+/// The conflict between the commit and main's head at `main`, worked out with main's attributes ([`attributes_of`])
+/// without changing anything; none where the commit merges into main cleanly.
 pub(crate) async fn conflicts(project: &Project, main: &str, commit: &str) -> Result<Option<Conflict>, String> {
-    let args = ["merge-tree", "--write-tree", "--name-only", main, commit];
+    let attributes = attributes_of(main);
+    let args = [
+        attributes.as_str(),
+        "merge-tree",
+        "--write-tree",
+        "--name-only",
+        main,
+        commit,
+    ];
     let merged = said(&project.repo, &args).await?;
     match merged.code {
         Some(0) => Ok(None),
