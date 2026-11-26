@@ -55,10 +55,19 @@ fn beside() -> Agents {
 /// The temporary directory the tests hand the program, as `$TMPDIR` writes it on some machines: with a trailing `/`.
 const TEMP: &str = "/x/T/";
 
-/// The permissions of a line, for what every agent may do as the repository's flows say, in the test's temporary
-/// directory.
+/// The worktree the tests hand the program, with no trailing slash.
+const WORKTREE: &str = "/x/W";
+
+/// The permissions of a line, for what every agent may do as the repository's flows say, in the test's worktree and
+/// temporary directory.
 fn of(reads_only: bool) -> Permissions {
-    Permissions::of(reads_only, &beside().allowed.may, Path::new(TEMP), &commands())
+    Permissions::of(
+        reads_only,
+        &beside().allowed.may,
+        Path::new(WORKTREE),
+        Path::new(TEMP),
+        &commands(),
+    )
 }
 
 fn strings(list: &[&str]) -> Vec<String> {
@@ -136,14 +145,20 @@ fn the_flows_words_are_turned_into_the_programs_tools_rules_and_directories() {
         "Glob",
         "WebSearch",
         "WebFetch",
-        "Edit(./**)",
+        "Edit(//x/W/**)",
         "Edit(//x/T/**)",
     ]);
     wanted.sort();
     assert_eq!(allowed, wanted, "each rule once");
-    assert_eq!(permissions.directories, ["/x/T"]);
-    // The same directory without its trailing slash gives the same.
-    let without = Permissions::of(false, &beside().allowed.may, Path::new("/x/T"), &commands());
+    assert_eq!(permissions.directories, ["/x/W", "/x/T"]);
+    // The same directories with or without their trailing slash give the same.
+    let without = Permissions::of(
+        false,
+        &beside().allowed.may,
+        Path::new("/x/W/"),
+        Path::new("/x/T"),
+        &commands(),
+    );
     assert_eq!(without, permissions);
 }
 
@@ -151,7 +166,7 @@ fn the_flows_words_are_turned_into_the_programs_tools_rules_and_directories() {
 // directory and its edit rule, `shell` the shell, and a list of no word gives the program no tool and no rule.
 #[test]
 fn each_word_gives_its_own_tools_and_rules() {
-    let only = |word| Permissions::of(false, &[word], Path::new(TEMP), &[]);
+    let only = |word| Permissions::of(false, &[word], Path::new(WORKTREE), Path::new(TEMP), &[]);
     let web = only(Ability::Web);
     assert_eq!(
         (web.tools, web.allowed),
@@ -166,14 +181,14 @@ fn each_word_gives_its_own_tools_and_rules() {
     );
     let files = only(Ability::Files);
     assert_eq!(files.tools, ["Read", "Grep", "Glob", "Edit", "Write"]);
-    assert_eq!(files.allowed, ["Grep", "Glob", "Edit(./**)"]);
-    assert!(files.directories.is_empty());
+    assert_eq!(files.allowed, ["Grep", "Glob", "Edit(//x/W/**)"]);
+    assert_eq!(files.directories, ["/x/W"]);
     let shell = only(Ability::Shell);
     assert_eq!((shell.tools, shell.allowed), (strings(&["Bash"]), strings(&["Bash"])));
     let subagents = only(Ability::Subagents);
     assert_eq!(subagents.tools, ["Agent"]);
     assert!(subagents.allowed.is_empty() && subagents.directories.is_empty());
-    let none = Permissions::of(false, &[], Path::new(TEMP), &[]);
+    let none = Permissions::of(false, &[], Path::new(WORKTREE), Path::new(TEMP), &[]);
     assert_eq!(none.arguments(), ["--tools", ""], "no tool, no rule, no directory");
 }
 
@@ -191,9 +206,10 @@ fn the_permissions_are_given_as_the_command_lines_flags() {
     assert_eq!(given[1], writes.tools.join(","));
     assert!(allowed < directory && directory < refused);
     assert_eq!(given[allowed + 1..directory], writes.allowed[..]);
-    assert_eq!(given[directory + 1], "/x/T");
+    // Each directory after a flag of its own, the worktree and then the temporary directory.
+    assert_eq!(given[directory..refused], ["--add-dir", "/x/W", "--add-dir", "/x/T"]);
     assert_eq!(given[refused + 1..], writes.refused[..]);
-    let nothing = Permissions::of(true, &[], Path::new(TEMP), &[]).arguments();
+    let nothing = Permissions::of(true, &[], Path::new(WORKTREE), Path::new(TEMP), &[]).arguments();
     assert!(
         !nothing.iter().any(|a| a == "--allowedTools" || a == "--add-dir"),
         "{nothing:?}"
@@ -369,7 +385,7 @@ fn every_set_of_words_gives_tools_rules_and_directories_the_program_can_read_and
         let may = picked(mask);
         let has = |w: Ability| may.contains(&w);
         for reads_only in [false, true] {
-            let p = Permissions::of(reads_only, &may, Path::new("/x/T/"), &commands());
+            let p = Permissions::of(reads_only, &may, Path::new("/x/W/"), Path::new("/x/T/"), &commands());
             let at = format!("{may:?} reads_only {reads_only}: {p:?}");
             for (name, list) in [
                 ("tools", &p.tools),
@@ -408,13 +424,23 @@ fn every_set_of_words_gives_tools_rules_and_directories_the_program_can_read_and
             assert_eq!(has(Ability::Shell), p.allowed.contains(&"Bash".to_string()), "{at}");
             assert_eq!(
                 has(Ability::Files),
-                p.allowed.contains(&"Edit(./**)".to_string()),
+                p.allowed.contains(&"Edit(//x/W/**)".to_string()),
                 "{at}"
             );
+            assert_eq!(has(Ability::Files), p.directories.contains(&"/x/W".to_string()), "{at}");
             assert_eq!(has(Ability::Web), p.tools.contains(&"WebFetch".to_string()), "{at}");
             assert_eq!(has(Ability::Web), p.tools.contains(&"WebSearch".to_string()), "{at}");
             assert_eq!(has(Ability::Subagents), p.tools.iter().any(|t| t == "Agent"), "{at}");
-            assert_eq!(has(Ability::TempFiles), p.directories == ["/x/T"], "{at}");
+            assert_eq!(
+                has(Ability::TempFiles),
+                p.directories.contains(&"/x/T".to_string()),
+                "{at}"
+            );
+            assert_eq!(
+                p.directories.len(),
+                usize::from(has(Ability::Files)) + usize::from(has(Ability::TempFiles)),
+                "{at}"
+            );
             assert_eq!(
                 has(Ability::TempFiles),
                 p.allowed.contains(&"Edit(//x/T/**)".to_string()),
@@ -436,11 +462,43 @@ fn every_set_of_words_gives_tools_rules_and_directories_the_program_can_read_and
 // Reference: the program's tools reference (code.claude.com/docs/en/tools-reference), its `--tools` row. Microseconds.
 #[test]
 fn every_tool_a_round_is_given_is_a_name_the_programs_tools_reference_lists() {
-    let all = Permissions::of(false, &WORDS, Path::new("/x/T"), &[]);
+    let all = Permissions::of(false, &WORDS, Path::new("/x/W"), Path::new("/x/T"), &[]);
     for tool in &all.tools {
         assert!(
             DOCUMENTED_TOOLS.contains(&tool.as_str()),
             "{tool} is no documented tool name"
         );
+    }
+}
+
+// What the agents may edit is the worktree by its absolute path, not by a path relative to the directory the program
+// is in: the agents' shell keeps a `cd` from one command to the next, the program takes the directory it moved to as
+// its current one, and a write outside it, such as one to `.github/workflows/` from `compiler/src`, is then asked
+// about, which in a print-mode run is refused. So no rule that allows edits is relative, and the worktree is written
+// as the temporary directory is: an absolute rule and a directory of its own. Reference: the program's permission
+// rules (`./path` is relative to the current directory, `//path` is absolute) and what W208, W236 and W246 showed.
+#[test]
+fn what_files_lets_the_agents_edit_does_not_move_with_the_shell() {
+    for mask in 0..32 {
+        let may = picked(mask);
+        if !may.contains(&Ability::Files) {
+            continue;
+        }
+        let p = Permissions::of(false, &may, Path::new("/x/W/"), Path::new("/x/T"), &[]);
+        let edits: Vec<&String> = p.allowed.iter().filter(|r| r.starts_with("Edit(")).collect();
+        assert!(!edits.is_empty(), "{may:?}: no rule allows edits");
+        for rule in &edits {
+            let path = rule
+                .strip_prefix("Edit(")
+                .and_then(|r| r.strip_suffix(')'))
+                .expect("a rule");
+            assert!(path.starts_with("//"), "{rule} is not an absolute path: {may:?}");
+        }
+        assert!(edits.iter().any(|r| *r == "Edit(//x/W/**)"), "{may:?}: {edits:?}");
+        assert!(p.directories.contains(&"/x/W".to_string()), "{may:?}: {p:?}");
+        // Written as the temporary directory is, with the rule and the directory of the same path.
+        if may.contains(&Ability::TempFiles) {
+            assert!(edits.iter().any(|r| *r == "Edit(//x/T/**)") && p.directories.contains(&"/x/T".to_string()));
+        }
     }
 }

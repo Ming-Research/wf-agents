@@ -507,9 +507,15 @@ impl Rounds for Agents {
 
 impl Inner {
     /// What the program is let run for a round of the cell, of the project.
-    fn permissions(&self, of: &Of, cell: &flow::CellSpec) -> Permissions {
+    fn permissions(&self, of: &Of, cell: &flow::CellSpec, worktree: &Path) -> Permissions {
         let refused = permissions::refused_commands(&of.beside, &of.declaration, &self.settings.agents.command);
-        Permissions::of(cell.reads_only, &of.beside.allowed.may, &std::env::temp_dir(), &refused)
+        Permissions::of(
+            cell.reads_only,
+            &of.beside.allowed.may,
+            worktree,
+            &std::env::temp_dir(),
+            &refused,
+        )
     }
 
     /// Whether the line of the cell, in the work, for the item, would begin a new session of it with another system
@@ -534,7 +540,7 @@ impl Inner {
         let Ok(dir) = git::worktree(&place) else {
             return false;
         };
-        let permissions = self.permissions(of, cell);
+        let permissions = self.permissions(of, cell, &dir);
         let session = session::session(self.installation, work, line, number);
         system::changed(&self.data, session, |what| {
             of.begins_with(flow, cell, &permissions, &dir, what)
@@ -623,7 +629,7 @@ impl Inner {
                 .await
                 .map_err(|e| format!("{}: {e}", parent.display()))?;
         }
-        let permissions = self.permissions(of, &round.cell);
+        let permissions = self.permissions(of, &round.cell, &dir);
         // One program at a time in a line's session: a keep-warm ping of the line under way ends first, so that what its
         // session holds and cost is worked out with the ping in.
         let lock = self.lock(round.work, line);
@@ -1722,6 +1728,7 @@ impl Inner {
                 .map_err(|e| NoLine::System(format!("{}: {e}", at.file_name().unwrap_or_default().to_string_lossy())))
         };
         let refused = permissions::refused_commands(&of.beside, &of.declaration, &self.settings.agents.command);
+        let worktree = git::place(&self.data, &git::tag(&self.installation), number).dir;
         Ok(SessionLine {
             session,
             run: last.run,
@@ -1729,7 +1736,13 @@ impl Inner {
             on: last.on.clone(),
             system: began(system::Begun::System)?,
             form: began(system::Begun::Form)?,
-            permissions: Permissions::of(reads_only, &of.beside.allowed.may, &std::env::temp_dir(), &refused),
+            permissions: Permissions::of(
+                reads_only,
+                &of.beside.allowed.may,
+                &worktree,
+                &std::env::temp_dir(),
+                &refused,
+            ),
         })
     }
 
