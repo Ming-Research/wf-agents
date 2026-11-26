@@ -24,6 +24,7 @@
 
 use std::time::Duration;
 
+use driver::red_main::RedTest;
 use flow::agents::{Ci, CiFast, CiFull, CiMeasure, ResultWords, Tool, fill};
 use store::WorkNumber;
 use uuid::Uuid;
@@ -386,7 +387,11 @@ impl<A: Api> GitHub<A> {
             .result
             .as_ref()
             .ok_or("the words of run_tests have no [result]")?;
-        Ok(Some(said(words, &role, request.commit, &ran, named)))
+        let on_main = OnMain {
+            main: &self.project.main,
+            red: stop.red_tests(),
+        };
+        Ok(Some(said(words, &role, request.commit, &ran, named, Some(&on_main))))
     }
 
     /// The jobs of the full workflows that did not pass may be let through with no failed test of their own, as the
@@ -567,7 +572,7 @@ impl<A: Api> GitHub<A> {
         if !red {
             return Ok(Some(verdict));
         }
-        let first = said(words, &role, commit, &ran, &named);
+        let first = said(words, &role, commit, &ran, &named, None);
         let accounted = self.accounted(main).await;
         let Some(tests) = failed_alone(&ran, &accounted) else {
             verdict.failed = Some(first);
@@ -629,7 +634,7 @@ impl<A: Api> GitHub<A> {
             return Ok(None);
         };
         let section = |word: &str, head: &str, ran: &[Ran], named: &Named| {
-            let run = said(words, &role, head, ran, named);
+            let run = said(words, &role, head, ran, named, None);
             let slots = [("main", self.project.main.as_str()), ("head", head), ("run", &run)];
             fill(word, &slots)
         };
@@ -717,10 +722,23 @@ impl<A: Api> GitHub<A> {
                 ..Again::default()
             }));
         }
-        let only = filled(&check.only_here, &only_here);
+        let mut failures = vec![
+            first,
+            again_on_commit,
+            again_on_main,
+            filled(&check.only_here, &only_here),
+        ];
+        // What failed on main as well is said so, that what the change did not make is not looked for in the change.
+        let also_on_main: Vec<&str> = (rows.iter())
+            .filter(|row| row.became == Became::Failed)
+            .map(|row| row.named)
+            .collect();
+        if !also_on_main.is_empty() {
+            failures.push(filled(&check.on_main_too, &also_on_main));
+        }
         Ok(Some(Again {
             flaky,
-            ..Again::failed(vec![first, again_on_commit, again_on_main, only])
+            ..Again::failed(failures)
         }))
     }
 
@@ -968,11 +986,40 @@ impl<A: Api> GitHub<A> {
     }
 }
 
+/// The tests that are red on the head of main, as the engine knows them from the checks it ran there, so that a test of a
+/// result that failed and is among them is said to have failed on main too.
+struct OnMain<'a> {
+    /// The main branch's name.
+    main: &'a str,
+    red: &'a [RedTest],
+}
+
+impl OnMain<'_> {
+    /// What is said beneath the failed case where its test is red on main: that the test failed there, at the head it
+    /// last failed on. None for a case that did not fail, and for a test main is not known to fail.
+    fn said(&self, words: &ResultWords, case: &Case) -> Option<String> {
+        if case.outcome != results::Outcome::Failed {
+            return None;
+        }
+        let red = (self.red.iter()).find(|red| red.unit == case.test.unit && red.name == case.test.name)?;
+        Some(fill(&words.also_on_main, &[("main", self.main), ("head", &red.head)]))
+    }
+}
+
 /// What became of the runs, in words for the agent: a line of what they came to, the tests that did not pass, each
 /// job, and the tests that passed, so that what a cut result gives is what matters. Of the fast workflow it says each
 /// test the request named, and each job; of the full workflows, which name no test, only what did not pass: the tests
 /// that failed, and the jobs that did not pass. A run whose results could not be read says no test's result is known.
-fn said(words: &ResultWords, role: &Role<'_>, commit: &str, ran: &[Ran], named: &Named) -> String {
+///
+/// A test that failed and is red on the main of the project as well, which `on_main` gives, is said so beneath its line.
+fn said(
+    words: &ResultWords,
+    role: &Role<'_>,
+    commit: &str,
+    ran: &[Ran],
+    named: &Named,
+    on_main: Option<&OnMain<'_>>,
+) -> String {
     let which = match role {
         Role::Fast(_) => &words.which_fast,
         Role::Full(_) => &words.which_full,
@@ -1000,7 +1047,7 @@ fn said(words: &ResultWords, role: &Role<'_>, commit: &str, ran: &[Ran], named: 
                 for row in results::rows(asked, run) {
                     total += 1;
                     passed += usize::from(row.became == Became::Passed);
-                    let lines = test_lines(words, &row, run, measuring);
+                    let lines = test_lines(words, &row, run, measuring, on_main);
                     if row.became == Became::Passed {
                         green.extend(lines);
                     } else {
@@ -1014,7 +1061,7 @@ fn said(words: &ResultWords, role: &Role<'_>, commit: &str, ran: &[Ran], named: 
                     if case.outcome == results::Outcome::Passed {
                         passed += 1;
                     } else {
-                        tests.extend(case_lines(words, case, false));
+                        tests.extend(case_lines(words, case, false, None));
                     }
                 }
                 tests.extend(run.unbuilt.iter().map(|u| {
@@ -1160,7 +1207,7 @@ fn time(words: &ResultWords, case: &Case) -> String {
 
 /// A test as a line of what became of it and how long it took, and what a failed one said beneath it; a timing of a
 /// measurement as the same with what was timed in it, since the timings of one name differ only by that.
-fn case_lines(words: &ResultWords, case: &Case, measuring: bool) -> Vec<String> {
+fn case_lines(words: &ResultWords, case: &Case, measuring: bool, also: Option<String>) -> Vec<String> {
     let became = match case.outcome {
         results::Outcome::Passed => &words.passed,
         results::Outcome::Failed => &words.failed,
@@ -1176,6 +1223,7 @@ fn case_lines(words: &ResultWords, case: &Case, measuring: bool) -> Vec<String> 
             ("time", &time(words, case)),
         ],
     )];
+    lines.extend(also);
     if case.outcome == results::Outcome::Failed
         && let Some(said) = &case.said
     {
@@ -1186,7 +1234,13 @@ fn case_lines(words: &ResultWords, case: &Case, measuring: bool) -> Vec<String> 
 }
 
 /// A test an agent named, as the lines of the tests of the run it names, or of why none is.
-fn test_lines(words: &ResultWords, row: &results::Row<'_>, run: &results::Run, measuring: bool) -> Vec<String> {
+fn test_lines(
+    words: &ResultWords,
+    row: &results::Row<'_>,
+    run: &results::Run,
+    measuring: bool,
+    on_main: Option<&OnMain<'_>>,
+) -> Vec<String> {
     let mut lines = Vec::new();
     match row.became {
         Became::NotRun | Became::NotBuilt => {
@@ -1220,7 +1274,12 @@ fn test_lines(words: &ResultWords, row: &results::Row<'_>, run: &results::Run, m
         }
         Became::Passed | Became::Failed => {
             for case in &row.matched {
-                lines.extend(case_lines(words, case, measuring));
+                lines.extend(case_lines(
+                    words,
+                    case,
+                    measuring,
+                    on_main.and_then(|red| red.said(words, case)),
+                ));
             }
         }
     }

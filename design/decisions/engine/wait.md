@@ -15,3 +15,7 @@ When the agents' command line fails, only a cause no retry mends, like a refused
 ### decision no-line-says-the-merge-waits
 A question the owner is to answer shows only what it asks, and no line beside it says that the merge waits for it.
 - rejected: an agent proposed the line "The merge waits for this answer." under a question's card; the owner rejected it, because the owner had called such a line needless, and the red card and the work's line at the check already say so.
+
+### decision the-engine-reports-a-red-main-and-fixes-nothing
+The engine reports that a project's main is red on tests, once for each time it came to be so, in `wf-agents wait` and on the System view; it makes no item to fix it and starts no agent.
+- rejected: an agent proposed that the engine make an item to fix a red main and start an architect agent for it; the owner rejected it, because the architect session decides, by section 2 of `architect/rules.md`, whether to fix or to roll back, and the engine only states the fact.

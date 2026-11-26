@@ -231,9 +231,14 @@ async fn several_tests_that_fail_again_hold_the_commit_only_where_all_fail_on_ma
         let verdict = hub.verdict(&head).await.unwrap().expect("judged");
         if c_passes_on_main {
             assert_eq!(verdict.held, None, "{verdict:?}");
+            // What fails on main as well is said after it, so that it is not looked for in the change.
             let failed = verdict.failed.expect("failed");
             assert!(
-                failed.ends_with("These failed again on the commit, but not on the head of main: `tools::tests::c`."),
+                failed.ends_with(&format!(
+                    "These failed again on the commit, but not on the head of main: `tools::tests::c`.\n\nThese \
+                     failed on the commit, failed again when they were run again, and also failed on the head of \
+                     main, {main}: `tools::tests::b`."
+                )),
                 "{failed}"
             );
         } else {

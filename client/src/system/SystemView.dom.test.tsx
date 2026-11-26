@@ -252,6 +252,34 @@ describe('the System view', () => {
     expect(rests.slice(1)).toEqual(running.slice(1).map(() => 'longer than any before'));
   });
 
+  it('says, of a project whose main is red, the tests, the head and the works that wait, in red; of one whose main is not, nothing', async () => {
+    const s = sources();
+    s.system.loadSystem = async (weeks) => ({
+      ...fixtureSystem(weeks),
+      redMain: [
+        {
+          project: 'Firn-wf',
+          since: Date.now() - 3_600_000,
+          tests: [{ unit: 'firn', name: 'firn_runs_scripts', head: 'f4e3d6c0123456789' }],
+          waiting: [184, 190],
+        },
+      ],
+    });
+    const { container } = draw(<SystemView period="week" />, s);
+    await settle();
+    const now = part(container, 'Now');
+    const heading = [...now.querySelectorAll('dt')].find((dt) => dt.textContent === 'Main of Firn-wf');
+    expect(heading).toBeDefined();
+    const said = heading?.nextElementSibling;
+    expect(said?.className).toBe('failed');
+    expect(said?.textContent).toContain('firn_runs_scripts fails on its head f4e3d6c01234');
+    expect(said?.textContent).toContain('2 works wait for it to pass');
+
+    const quiet = draw(<SystemView period="week" />, sources());
+    await settle();
+    expect(texts(part(quiet.container, 'Now'), 'dt').filter((dt) => dt.startsWith('Main of'))).toEqual([]);
+  });
+
   it('says no rest of a round, and nothing of a stop, while no stop stands', async () => {
     const s = sources();
     const { container } = draw(<SystemView period="week" />, s);

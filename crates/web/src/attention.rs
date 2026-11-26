@@ -27,6 +27,7 @@ use tokio::sync::broadcast::error::RecvError;
 use tokio::time::Instant;
 
 use crate::interface::{fail, refused};
+use crate::system::RedTest;
 use crate::works::{Broken, Now, Others, Outage, Outages, Pauser, Wait};
 
 /// What needs the planner since the mark it gave, most pressing first.
@@ -57,6 +58,14 @@ pub enum Line {
         outage: Outage,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         mend: Option<String>,
+    },
+    /// The main branch of the project is red on these tests, which the check before a merge found failing on its head,
+    /// since the time its red began; these works wait for it to pass. It is about no work.
+    MainRed {
+        since: u64,
+        project: String,
+        tests: Vec<RedTest>,
+        works: Vec<Of>,
     },
     /// The work's records cannot be those of a work.
     Fault { of: Of, since: u64, now: Now },
@@ -167,6 +176,25 @@ impl Attention {
                             .flatten()
                             .map(|kept| kept.flow.waits.owner.mend.clone()),
                     },
+                    Heed::MainRed { project, tests, works } => {
+                        let works = (works.iter())
+                            .map(|work| {
+                                let kept =
+                                    (driver.work(*work)).ok_or_else(|| Broken(format!("there is no work {work}")))?;
+                                Ok(Of {
+                                    work: work.0,
+                                    item: kept.item.number.0,
+                                    title: kept.item.title.clone(),
+                                })
+                            })
+                            .collect::<Result<Vec<_>, Broken>>()?;
+                        Line::MainRed {
+                            since,
+                            project: project.clone(),
+                            tests: tests.iter().map(RedTest::of).collect(),
+                            works,
+                        }
+                    }
                     Heed::Fault { work } => {
                         let (of, now, ..) = of_work(*work)?;
                         Line::Fault { of, since, now }
@@ -341,6 +369,38 @@ mod tests {
             observations: false,
             going,
         }
+    }
+
+    // A red main is a line of its own kind, about no work, which names the tests, the head and the works that wait, and is
+    // read back as it was said. Milliseconds; the one test of this line's wire shape.
+    #[test]
+    fn a_red_main_is_a_line_of_its_own_kind_that_is_read_back_as_it_was_said() {
+        let line = Line::MainRed {
+            since: 1_700_000_000_000,
+            project: "Firn-wf".to_string(),
+            tests: vec![RedTest {
+                unit: "carry".to_string(),
+                name: "tools::tests::b".to_string(),
+                head: "9f8e7d6c".to_string(),
+            }],
+            works: vec![Of {
+                work: 184,
+                item: 90,
+                title: "Greet".to_string(),
+            }],
+        };
+        let said = serde_json::to_value(&line).expect("it is said");
+        assert_eq!(
+            said,
+            serde_json::json!({
+                "kind": "mainRed",
+                "since": 1_700_000_000_000u64,
+                "project": "Firn-wf",
+                "tests": [{ "unit": "carry", "name": "tools::tests::b", "head": "9f8e7d6c" }],
+                "works": [{ "work": 184, "item": 90, "title": "Greet" }],
+            })
+        );
+        assert_eq!(serde_json::from_value::<Line>(said).expect("it is read"), line);
     }
 
     // A held request is woken by a change that names a work or sets another flag, also where `going` is set with it,

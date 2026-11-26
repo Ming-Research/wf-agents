@@ -1383,6 +1383,9 @@ pub struct ResultWords {
     pub not_built: String,
     /// What a test that failed said, as the results hold it: `{said}`.
     pub output: String,
+    /// Said beneath the line of a test that failed and is red on the main of the project as well, as the engine knows
+    /// it from the checks it ran on main's head: `{main}` the main branch's name, `{head}` the head it failed on.
+    pub also_on_main: String,
     /// A job of the workflow: `{name}`, `{how}` one of the following, `{time}` as `time` says it for a job that ran to a
     /// conclusion, or as `job_untimed` says where GitHub gives no time for it, and `{link}` as `link` says it.
     pub job: String,
