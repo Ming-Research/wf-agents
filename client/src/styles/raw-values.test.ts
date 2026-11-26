@@ -140,10 +140,11 @@ const EXCEPTIONS: Exception[] = ['1200px', '760px', '480px'].map((value) => ({
   decision: MEDIA_DECISION,
 }));
 
-// Every stylesheet of the page, by its path under src/.
+// Every stylesheet of the page, by its path under src/ (the glob names them from the root of the page's project, so that
+// a sheet beside this test is named as one in another directory is).
 const SHEETS: Record<string, string> = Object.fromEntries(
-  Object.entries(import.meta.glob<string>('../**/*.css', { query: '?raw', import: 'default', eager: true })).map(
-    ([path, css]) => [path.replace(/^\.\.\//, ''), css],
+  Object.entries(import.meta.glob<string>('/src/**/*.css', { query: '?raw', import: 'default', eager: true })).map(
+    ([path, css]) => [path.replace(/^\/src\//, ''), css],
   ),
 );
 
