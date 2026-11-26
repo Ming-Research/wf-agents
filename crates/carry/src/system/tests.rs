@@ -93,7 +93,13 @@ fn of(line: &str) -> String {
     let cell = cell(&flow, line);
     let protected = &declaration.protected.paths;
     let tests = cell.tests_only.then(|| crate::tests_only::paths(&declaration));
-    let permissions = Permissions::of(cell.reads_only, &[], std::path::Path::new("/x/T"), &[]);
+    let permissions = Permissions::of(
+        cell.reads_only,
+        &[],
+        std::path::Path::new("/x/W"),
+        std::path::Path::new("/x/T"),
+        &[],
+    );
     let your_line = permissions.told(&beside.your_line, protected, tests);
     let filling = filling(&settings, &beside, &declaration);
     of_line(&beside, &declaration, &filling, &flow, cell, &your_line, project).expect("it is made")
@@ -380,7 +386,13 @@ impl Line {
     /// What a new session of the line begins with now, as a round makes it.
     fn now(&self, what: Begun) -> Result<String, String> {
         let cell = cell(&self.flow, "engineer");
-        let permissions = Permissions::of(cell.reads_only, &[], std::path::Path::new("/x/T"), &[]);
+        let permissions = Permissions::of(
+            cell.reads_only,
+            &[],
+            std::path::Path::new("/x/W"),
+            std::path::Path::new("/x/T"),
+            &[],
+        );
         self.of
             .begins_with(&self.flow, cell, &permissions, &self.worktree(), what)
     }

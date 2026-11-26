@@ -2294,7 +2294,7 @@ mod tests {
     #[test]
     fn the_command_line_begins_a_session_and_goes_on_in_it() {
         let session = Uuid::parse_str("6a1f3c2e-8d4b-4e7a-9c5f-2b8e1d0a7f43").unwrap();
-        let permissions = Permissions::of(true, &[], Path::new("/x/T"), &[]);
+        let permissions = Permissions::of(true, &[], Path::new("/x/W"), Path::new("/x/T"), &[]);
         let ran = RanOn {
             level: "1".to_string(),
             model: "claude-haiku-5-5".to_string(),
@@ -2378,7 +2378,7 @@ mod tests {
             marks: PathBuf::from("compacted"),
             again: PathBuf::from("again.md"),
         };
-        let permissions = Permissions::of(false, &[], Path::new("/x/T"), &[]);
+        let permissions = Permissions::of(false, &[], Path::new("/x/W"), Path::new("/x/T"), &[]);
         let args = arguments(
             &ran,
             "SYSTEM",
@@ -2444,7 +2444,7 @@ mod tests {
             marks: PathBuf::from("compacted"),
             again: PathBuf::from("again.md"),
         };
-        let permissions = Permissions::of(false, &[], Path::new("/x/T"), &["cargo".to_string()]);
+        let permissions = Permissions::of(false, &[], Path::new("/x/W"), Path::new("/x/T"), &["cargo".to_string()]);
         let session = Uuid::nil();
         let round = arguments(
             &ran,
