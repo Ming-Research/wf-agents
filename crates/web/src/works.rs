@@ -294,6 +294,11 @@ pub struct Summary {
     pub paused: Option<Pauser>,
     /// What the work does now.
     pub now: Now,
+    /// The engine could not read the records the rest of this summary is made from, so `cells`, `spent`, `pinged`,
+    /// `forked`, `from`, `bar`, `sent_back` and `ahead` are not worked out and hold nothing; `waits` is what the work's
+    /// view says, none where it has none. False of every other summary, whose `now` may still be [`Now::Broken`].
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unread: bool,
     /// Each cell of its flow as it stands for this work, in the order of the walk.
     pub cells: Vec<CellNow>,
     /// What all its rounds that ended took, and its keep-warm pings and its forks, which count in what it spent as its
@@ -486,6 +491,9 @@ const BAR_CELLS: u64 = 96;
 pub enum Now {
     /// Its records cannot be those of a work, and nothing is decided on them; in words.
     Fault { words: String },
+    /// The engine could not work out what the work does now, and says why in the words of what it could not read; the
+    /// engine goes on with the work, and the rest of the summary is as worked out.
+    Broken { words: String },
     /// It has ended: its last cell, the merge, has a record.
     Merged,
     /// It has ended: its item was cancelled.
@@ -2133,16 +2141,24 @@ pub struct Broken(pub String);
 
 impl Item {
     /// The item of this kept work with its work in brief, as the driver holds them and what holds every work at once
-    /// says, its rounds at these levels, at this time; what git says of the work is not in it ([`Summary::saw`]).
-    pub(crate) fn of(
-        kept: Kept<'_>,
-        driver: &Driver,
-        every: &EveryWork,
-        levels: &Levels,
-        now: Time,
-    ) -> Result<Item, Broken> {
-        let view = viewed_at(driver, kept.head.number, &every.at_once)?;
-        Ok(Item {
+    /// says, its rounds at these levels, at this time; what git says of the work is not in it ([`Summary::saw`]). A work
+    /// whose summary cannot be worked out is given with what is certain of it ([`Summary::broken`]), so that it keeps
+    /// no other item from being given.
+    pub(crate) fn of(kept: Kept<'_>, driver: &Driver, every: &EveryWork, levels: &Levels, now: Time) -> Item {
+        let number = kept.head.number;
+        // What waits on the owner is read from the work's view alone, so a work whose records cannot be read still says it.
+        let waits_of = |view: &View| -> Vec<Wait> {
+            let held = driver.held_at(number, &every.at_once);
+            (driver.waits_on_owner_at(number, view, held, &every.at_once).into_iter())
+                .map(Wait::of)
+                .collect()
+        };
+        let work = match viewed_at(driver, number, &every.at_once) {
+            Ok(view) => Summary::of(kept, &view, driver, every, levels, now)
+                .unwrap_or_else(|broken| Summary::broken(kept, broken, levels, waits_of(&view))),
+            Err(broken) => Summary::broken(kept, broken, levels, Vec::new()),
+        };
+        Item {
             number: kept.item.number.0,
             title: kept.item.title.clone(),
             level: kept.item.level.clone(),
@@ -2152,8 +2168,8 @@ impl Item {
             tags: kept.item.tags.clone(),
             continues: kept.item.continues.as_ref().map(Continues::of),
             history: ItemHistory::of(kept.item),
-            work: Summary::of(kept, &view, driver, every, levels, now)?,
-        })
+            work,
+        }
     }
 }
 
@@ -2213,17 +2229,10 @@ impl Summary {
         let work = kept.work;
         let number = kept.head.number;
         let held = driver.held_at(number, &every.at_once);
-        let along = &driver.along_of(number);
         let runs = runs(kept)?;
         let engine = |cell: &CellId| kept.cell(cell).is_some_and(|cell| !cell.agent);
-        let now = Now::of(
-            kept,
-            &view.decision,
-            held,
-            &every.outages,
-            along,
-            &Others::of(driver, number, &every.at_once),
-        )?;
+        // A state that cannot be worked out is said as such, and the rest of the summary is worked out as it is.
+        let now = Now::of_work(kept, view, held, driver, &every.outages, &every.at_once);
         // The cell the work waits at for a tool's call the engine runs.
         let calling = match &now {
             Now::Waits { at, on } => (on.iter())
@@ -2323,7 +2332,47 @@ impl Summary {
             pull,
             // What git says of it is worked out off the loop, after this ([`Summary::saw`]).
             changed: None,
+            unread: false,
         })
+    }
+
+    /// The work as far as it is certain, where the records the rest of its summary is made from cannot be read, and
+    /// why: what its head, its item, its pause, its moments and its pull request say, and the levels its rounds run
+    /// at, and what waits on the owner, which the work's view says, with its state [`Now::Broken`] and
+    /// [`Summary::unread`] set.
+    pub(crate) fn broken(kept: Kept<'_>, why: Broken, levels: &Levels, waits: Vec<Wait>) -> Summary {
+        let work = kept.work;
+        let now = Now::Broken { words: why.0 };
+        let (level, cell_level, raise, capped) = levels_of(levels, kept.item.level.as_deref(), kept.flow, &now);
+        Summary {
+            number: kept.head.number.0,
+            item: kept.head.item.0,
+            flow: kept.head.flow.clone(),
+            delivers: delivers(kept),
+            added: kept.head.added.0,
+            paused: decide::pause(&work.records).map(|pause| Pauser::of(pause.by)),
+            now,
+            unread: true,
+            cells: Vec::new(),
+            spent: Spent::default(),
+            pinged: Spent::default(),
+            forked: Spent::default(),
+            last: work.moments.last().map(|moment| moment.at.0),
+            from: None,
+            bar: String::new(),
+            sent_back: 0,
+            waits,
+            ahead: 0,
+            level,
+            cell_level,
+            raise,
+            held: capped,
+            pull: (work.pulls.last()).map(|pulled| Pull {
+                number: pulled.number,
+                url: pulled.url.clone(),
+            }),
+            changed: None,
+        }
     }
 
     /// The summary with what the repository of its work's project says of the work beside its records: what it
@@ -2582,8 +2631,35 @@ impl Now {
             Now::Paused { at, .. } | Now::Everything { at, .. } | Now::Waits { at, .. } | Now::Stalled { at, .. } => {
                 Some(at.as_str())
             }
-            Now::Fault { .. } | Now::Merged | Now::Cancelled => None,
+            Now::Fault { .. } | Now::Broken { .. } | Now::Merged | Now::Cancelled => None,
         }
+    }
+
+    /// What the work does now where it could be worked out, else [`Now::Broken`] with what it could not be worked out
+    /// by, so that one work whose state cannot be read does not keep the others from being shown.
+    pub(crate) fn or_broken(worked: Result<Now, Broken>) -> Now {
+        worked.unwrap_or_else(|Broken(words)| Now::Broken { words })
+    }
+
+    /// What the work does now by its view, what holds back its next round and what the driver says of the others
+    /// ([`Now::of`]), or [`Now::Broken`]: the one reading of it that a summary and a line of what waits both take.
+    pub(crate) fn of_work(
+        kept: Kept<'_>,
+        view: &View,
+        held: Option<Holder>,
+        driver: &Driver,
+        outages: &Outages,
+        at_once: &driver::AtOnce,
+    ) -> Now {
+        let number = kept.head.number;
+        Now::or_broken(Now::of(
+            kept,
+            &view.decision,
+            held,
+            outages,
+            &driver.along_of(number),
+            &Others::of(driver, number, at_once),
+        ))
     }
 
     /// What the work does now. Of what holds it back, its own pause is said first, then the owner's pause of
@@ -5052,6 +5128,150 @@ pub(crate) mod tests {
         assert_eq!(now(&at_rest, Some(Holder::Turn), Some(900), turn), Ok(stopped));
         // A work the driver gives no turn that is another's waits for none.
         assert!(matches!(now(&waits, None, None, None), Err(Broken(_))));
+    }
+
+    // A state the driver gives no turn for, which `Now::of` refuses, is said to be broken with the words it refused by,
+    // and the work in brief keeps every other part as worked out; a summary that cannot be read at all is given with only
+    // what its head, item, moments and pull request say, set unread, so that it is not read as a work that did nothing.
+    // Fails where either is given as the state of a work that ended, or as no work.
+    #[test]
+    fn a_state_that_cannot_be_worked_out_is_said_broken_and_a_summary_that_cannot_be_read_holds_only_what_is_certain() {
+        let flow = flow_with("takes_turn = true\n");
+        let mut work = Work::default();
+        work.records.written.push(Written {
+            block: "request".into(),
+            by: Outsider::Person,
+            matters: true,
+            value: None,
+            empty: false,
+            said_to: None,
+            at: Seq(1),
+        });
+        work.moments.push(work::Moment {
+            from: Seq(1),
+            at: Time(1500),
+        });
+        work.pulls.push(work::Pulled {
+            at: Seq(1),
+            number: 12,
+            url: "https://example.test/pull/12".to_string(),
+        });
+        let stored = Stored::new(&flow.name);
+        let on = driver::On::installed_flow(&flow);
+        let room = decide::Room {
+            turn: false,
+            ..decide::Room::FREE
+        };
+        let waits = decide::decide_in(&flow.flow, &work.records, room);
+        let outages = Outages {
+            agents: None,
+            host: None,
+            everything: None,
+            stopping: None,
+        };
+        let others = Others {
+            waited_for: Vec::new(),
+            paused_for: Vec::new(),
+            turn: None,
+        };
+        let kept = stored.kept(&flow, &on, &work);
+        let worked = Now::of(kept, &waits, None, &outages, &[], &others);
+        let Err(Broken(words)) = worked.clone() else {
+            panic!("a work the driver gives no turn for was worked out: {worked:?}");
+        };
+        assert_eq!(Now::or_broken(worked), Now::Broken { words: words.clone() });
+        assert_eq!(Now::or_broken(Ok(Now::Merged)), Now::Merged);
+        assert_eq!(Now::Broken { words: words.clone() }.cell(), None);
+        let levels = Levels::new(
+            [service::Level {
+                name: "1".to_string(),
+                desc: "Easy work".to_string(),
+            }],
+            "1",
+            None,
+            None,
+        )
+        .expect("the levels are made");
+        let summary = Summary::broken(kept, Broken(words.clone()), &levels, Vec::new());
+        assert_eq!(summary.now, Now::Broken { words });
+        assert!(summary.unread);
+        assert_eq!((summary.number, summary.item, summary.flow.as_str()), (1, 1, "small"));
+        assert_eq!(summary.last, Some(1500));
+        assert_eq!(summary.pull.as_ref().map(|pull| pull.number), Some(12));
+        assert!(summary.cells.is_empty() && summary.waits.is_empty() && summary.bar.is_empty());
+        assert_eq!(summary.spent, Spent::default());
+        // Said as it stands, it leaves `unread` out of every summary that was read.
+        let json = serde_json::to_value(&summary).expect("it is JSON");
+        assert_eq!(json["unread"], serde_json::json!(true));
+        assert_eq!(json["now"]["kind"], serde_json::json!("broken"));
+    }
+
+    // Where the deciding code says a work waits for its project's turn and the driver names none, the summary is still
+    // given: its state is broken, with the words of what could not be worked out, and every other part of it is worked out
+    // as it is for a work that can be. The line of what waits that the attention read gives reads its state by the same
+    // `Now::of_work`. Fails where the error of the state is given as the error of the summary, or the rest is left out.
+    #[test]
+    fn a_summary_whose_state_cannot_be_worked_out_is_given_with_every_other_part_as_worked_out() {
+        let flow = flow_with("takes_turn = true\n");
+        let store = store::Store::in_memory().expect("the store is made");
+        let (mut driver, _) = Driver::open(Box::new(store), vec![flow], 2, None, Time(1000)).expect("the driver opens");
+        let new = driver::NewItem {
+            title: "A work".to_string(),
+            level: "1".to_string(),
+            project: "small".to_string(),
+            depends_on: Vec::new(),
+            tags: Vec::new(),
+            continues: None,
+            flow: "small".to_string(),
+            writes: vec![driver::FirstWrite {
+                block: BlockId("request".to_string()),
+                content: "Please.".to_string(),
+                value: None,
+            }],
+            why: None,
+            waits_for: Vec::new(),
+        };
+        let (_, number, _) = driver.add(Time(1000), new).expect("the item is added");
+        let levels = Levels::new(
+            [service::Level {
+                name: "1".to_string(),
+                desc: "Easy work".to_string(),
+            }],
+            "1",
+            None,
+            None,
+        )
+        .expect("the levels are made");
+        let at_once = driver.at_once();
+        let kept = driver.work(number).expect("the work is held");
+        let view = driver.view_at(number, &at_once).expect("the work has a view");
+        let every = EveryWork::with(&driver, at_once);
+        let read = Summary::of(kept, &view, &driver, &every, &levels, Time(2000)).expect("the summary is read");
+        assert!(!matches!(read.now, Now::Broken { .. }), "{:?}", read.now);
+        // The walk says it waits for the turn, and the driver names none: the one thing `Now::of` refuses.
+        let mut turned = view.clone();
+        turned.decision = Decision::Wait {
+            at: "write".into(),
+            on: vec![WaitedOf::Turn],
+        };
+        let broken = Summary::of(kept, &turned, &driver, &every, &levels, Time(2000))
+            .expect("a state that cannot be worked out does not keep the summary from being given");
+        let Now::Broken { words } = &broken.now else {
+            panic!("the state is not said broken: {:?}", broken.now);
+        };
+        assert!(words.contains("whose turn"), "{words}");
+        // The line of what waits that the attention read gives takes its state from the same reading.
+        let held = driver.held_at(number, &every.at_once);
+        assert_eq!(
+            Now::of_work(kept, &turned, held, &driver, &every.outages, &every.at_once),
+            broken.now
+        );
+        assert!(!broken.unread);
+        assert!(!broken.cells.is_empty());
+        assert_eq!(
+            (broken.number, broken.cells, broken.spent, broken.level),
+            (read.number, read.cells, read.spent, read.level)
+        );
     }
 
     // A new session begun because what a new one would begin with changed is given to the page with the tokens of

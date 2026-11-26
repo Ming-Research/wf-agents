@@ -526,6 +526,37 @@ describe('the panel of the item selected', () => {
     expect(text(el, '.pairs dd')).toEqual(['61', '$7.31', '1.1d ago', '0', 'building']);
   });
 
+  it("says a work's facts as worked out where only its state could not be, and as a dash where its records could not be read", () => {
+    const i = itemOf(2);
+    const broken = (work: Partial<Item['work']>): Item => ({
+      ...i,
+      work: { ...i.work, now: { kind: 'broken', words: 'the driver names no turn' }, waits: [], ...work },
+    });
+    // Only its state could not be worked out: the rest of it is as it was.
+    const el = draw(broken({}), answered([]));
+    act(() => button(el, 'Work').click());
+    expect(text(el, '.pairs dd')).toEqual(['61', '$7.31', '1.1d ago', '0', 'building']);
+    // Its records could not be read: no figure is made up of what was not read.
+    act(() => root?.unmount());
+    root = undefined;
+    const unread = draw(broken({ unread: true, cells: [] }), answered([]));
+    act(() => button(unread, 'Work').click());
+    expect(text(unread, '.pairs dd')).toEqual(['–', '–', '–', '–', 'building']);
+  });
+
+  it('draws a state the engine could not work out as the red stop card with the engine\'s words, and says it in the state line', () => {
+    const i = itemOf(2);
+    const item: Item = {
+      ...i,
+      work: { ...i.work, now: { kind: 'broken', words: 'the driver names no turn' }, waits: [] },
+    };
+    const el = draw(item, answered([]));
+    expect(lines(el)[1]).toContain('Broken');
+    const card = el.querySelector('.cw-waits .cw-choice-holds');
+    expect(card?.textContent).toBe('the driver names no turn');
+    expect(card?.querySelector('button')).toBeNull();
+  });
+
   it('names the cell its work waits at as a cell is shown, its id and its title, and leaves the question to the plan', async () => {
     const el = drawAsking({ kind: 'waits', at: 'research', on: [{ kind: 'answer', question: 'scope' }] }, ['scope'], [
       question('scope', { waits: true }),

@@ -84,6 +84,7 @@ import {
   SHOW_QUESTION,
   TAKEN,
   type Tone as WorkTone,
+  UNREAD,
   WRITE_WORDS,
   count,
   itemName,
@@ -1030,14 +1031,15 @@ function Acts({ paused, act }: { paused: boolean; act: (what: Act) => Promise<un
 
 /// The work's stops that are not drawn in its body, each a card under the state line in the look of every stop: what
 /// the engine's list says it waits on the owner for, one sentence of why and the button that ends it, each saying on
-/// pointing at it what it does; and a fault or a stall, which no one waits on, with what is wrong.
+/// pointing at it what it does; and a fault, a state that cannot be worked out or a stall, which no one waits on, with
+/// what is wrong.
 function StopCards({ work, act }: { work: Summary; act: (what: Act) => Promise<unknown> }) {
   // The wait whose button was pressed: from the press until the work's next read no longer has it, its button stays
   // disabled, so that the press shows at once and the button does not come back before its card goes.
   const [sent, setSent] = useState<string | null>(null);
   const [refused, setRefused] = useState<string | null>(null);
   const now = work.now;
-  const halted = now.kind === 'fault' ? now.words : now.kind === 'stalled' ? now.why : null;
+  const halted = now.kind === 'fault' || now.kind === 'broken' ? now.words : now.kind === 'stalled' ? now.why : null;
   const waits = waitsOf(work).filter((w) => !drawnInBody(w));
   const stands = sent !== null && waits.some((w) => w.key === sent);
   useEffect(() => {
@@ -1802,12 +1804,13 @@ function WorkFacts({ w, page, verdicts, reader }: {
   reader: Reader;
 }) {
   const tier = workTierOf();
+  const unread = w.unread === true;
   const rows: [string, ReactNode][] = [
-    ['Rounds', String(w.spent.rounds)],
-    ['Cost', dollars(w.spent.usdMicros)],
-    ['Started', w.from === null ? 'Not yet' : `${ago(w.from ?? w.added)} ago`],
+    ['Rounds', unread ? UNREAD.shown : String(w.spent.rounds)],
+    ['Cost', unread ? UNREAD.shown : dollars(w.spent.usdMicros)],
+    ['Started', unread ? UNREAD.shown : w.from === null ? 'Not yet' : `${ago(w.from ?? w.added)} ago`],
     ...(tier === null ? [] : [['Tier', tier] as [string, ReactNode]]),
-    ['Sent back', String(sentBackOf(w, page))],
+    ['Sent back', unread ? UNREAD.shown : String(sentBackOf(w, page))],
     ['Flow', w.flow],
     ...verdicts,
   ];

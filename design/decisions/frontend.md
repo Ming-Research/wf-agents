@@ -26,6 +26,10 @@ A work the engine halted is marked in the red of a fault, and a work the owner p
 - replaced: One word, stopped, for every halt was on main; the owner changed it, because a pause is someone's choice and the list's filters called it paused, while red says there is a problem to look at.
 - replaced: The same dot for a pause of all works, whether the engine or the owner made it, was on main; the owner changed it, because a pause the engine made by itself, not one he made, should show at least some red.
 
+### decision a-state-the-engine-cannot-work-out-is-red-and-says-broken
+A work whose state the engine cannot work out is marked in the red of a fault, its state word is Broken, and the engine's own words of why follow the word.
+- rejected: an agent proposed the word Unreadable; the owner rejected it, because the engine already names this state Broken, and one thing has one name everywhere (principle one-name-one-meaning).
+
 ### decision the-owners-pause-stands-beside-the-state
 In the list of works and the System view, Paused stands beside a work's state while the owner's pause holds it and the state says something else; the engine's pause is the state itself.
 - replaced: One place saying a work was paused and another that it waited for the owner was on main; the owner changed it, because he could not tell which of the two stopped the work.
