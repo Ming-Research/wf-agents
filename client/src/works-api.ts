@@ -177,6 +177,9 @@ export type Waited =
 /// What a work does now.
 export type Now =
   | { kind: 'fault'; words: string }
+  /// The engine could not work out what the work does now, and says why in the words of what it could not read; it goes
+  /// on with the work, and the rest of the summary is as worked out.
+  | { kind: 'broken'; words: string }
   | { kind: 'merged' }
   | { kind: 'cancelled' }
   /// A round of this run of this cell is under way, since this time; where it is an engine cell's act that runs as a
@@ -278,6 +281,10 @@ export interface Summary {
   /// Who paused it, where it is paused: only a note to a cell is answered; a round under way goes on.
   paused: Pauser | null;
   now: Now;
+  /// The engine could not read the records the rest of this summary is made from: its cells, what it spent, its time
+  /// and how many of its questions may be answered ahead are not worked out and hold nothing; what it waits on the
+  /// owner for is what its view says. Absent from every summary that was read, whose `now` may still be broken.
+  unread?: boolean;
   /// In the order of the walk.
   cells: CellNow[];
   spent: Spent;

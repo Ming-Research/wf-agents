@@ -8,15 +8,16 @@ import { STATE, waitingFor } from '../works/words';
 import type { Merged } from './api';
 
 /// Where a work stands now, as the owner acts on it, each work in one place: it is halted at a fault, or stalled, no
-/// cell able to move it on; it waits for the owner, as the engine's one list of it says; a round of it runs; its next
+/// cell able to move it on; its state cannot be worked out, though the engine goes on with it; it waits for the owner, as the engine's one list of it says; a round of it runs; its next
 /// round is due, as soon as a slot is free or the owner's pause of everything is lifted; it waits for what another
 /// gives; the owner paused it. What needs the owner comes first.
-export const STANDINGS = ['halted', 'owner', 'running', 'due', 'others', 'paused'] as const;
+export const STANDINGS = ['halted', 'broken', 'owner', 'running', 'due', 'others', 'paused'] as const;
 export type Standing = (typeof STANDINGS)[number];
 
 /// The tiles' names, the states' own words, and what each counts, said on pointing at it.
 export const STANDING_WORDS: Record<Standing, { name: string; title: string }> = {
   halted: { name: STATE.halted, title: 'At a fault, or stalled: no cell can move it on' },
+  broken: { name: STATE.broken, title: 'Its state cannot be worked out; the card on its item says why' },
   owner: { name: STATE.owner, title: 'Each has a card on its item in the console, where you act on it' },
   running: { name: STATE.running, title: 'A round of it is under way' },
   due: {
@@ -37,6 +38,8 @@ export function standingOf(work: Summary): Standing | null {
       return null;
     case 'fault':
       return 'halted';
+    case 'broken':
+      return 'broken';
     case 'paused':
       return 'paused';
     case 'round':

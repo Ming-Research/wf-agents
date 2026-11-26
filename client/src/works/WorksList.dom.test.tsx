@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useBarItems } from '../Engine';
 import type { Changed, Items } from '../works-api';
 import { fixtureCopies, fixtureItems } from './fixtures';
+import { dollars, UNREAD } from './words';
 import { keptSame, type Source, SourceContext } from './source';
 import { WorksList } from './WorksList';
 
@@ -187,5 +188,43 @@ describe('the list of works with several hundred works', () => {
     const after = keptSame(before, manyItems(30, 2003));
     expect(after).not.toBe(before);
     expect(after.items.filter((item, i) => item !== before.items[i]).map((item) => item.work.number)).toEqual([2003]);
+  });
+});
+
+describe('the list of works where the engine could not work out a state', () => {
+  it('says a broken state in its row and keeps the figures worked out, and draws a dash for what it could not read', async () => {
+    const [a, b, c] = structuredClone(fixtureItems().items);
+    for (const [i, item] of [a, b, c].entries()) {
+      item.number = 7000 + i;
+      item.project = 'wf-agents';
+      item.work.number = 7500 + i;
+      item.work.item = item.number;
+      item.work.waits = [];
+      item.work.spent = { ...item.work.spent, usdMicros: 2_000_000, workingMs: 61_000 };
+    }
+    // Its state could not be worked out and the rest of it was.
+    b.work.now = { kind: 'broken', words: 'the driver names no turn' };
+    // Nothing of it could be read, and what it holds there is not a cost.
+    c.work.now = { kind: 'broken', words: 'round 1 of run 1 was given nothing' };
+    c.work.unread = true;
+    c.work.cells = [];
+    c.work.spent = { ...c.work.spent, usdMicros: 9_000_000, workingMs: 9_000_000 };
+    const s = manySource(0);
+    const source: Source = { ...s.source, loadItems: async () => ({ items: [a, b, c], outage: null }) };
+    const page = draw(<WorksList />, source);
+    await settle();
+    const row = (work: number) => page.querySelector(`tr[data-work="${work}"]`) as HTMLElement;
+    expect(row(7501).querySelector('.now-words')?.textContent).toMatch(/^Broken/);
+    expect(row(7502).querySelector('.now-words')?.textContent).toMatch(/^Broken/);
+    // Read, it shows its cost and time as every work does.
+    expect(row(7501).querySelector('.col-cost')?.textContent).toBe(dollars(2_000_000));
+    expect(row(7501).querySelector('.col-time')?.textContent).not.toBe(UNREAD.shown);
+    // Not read, it shows a dash in the three columns that hold what was not read, and no strip.
+    for (const column of ['.col-cost', '.col-time', '.col-cells']) {
+      expect(row(7502).querySelector(column)?.textContent).toBe(UNREAD.shown);
+    }
+    expect(row(7502).querySelector('.col-cells svg, .col-cells .strip')).toBeNull();
+    // What the project's works cost leaves it out.
+    expect(page.querySelector('[title="What its works cost"]')?.textContent).toBe(dollars(4_000_000));
   });
 });

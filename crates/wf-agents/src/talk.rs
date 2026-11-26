@@ -2230,6 +2230,7 @@ fn run_or_none(run: Option<u64>) -> String {
 fn now(now: &Now) -> String {
     match now {
         Now::Fault { words } => format!("it cannot go on, for its records are not those of a work: {words}"),
+        Now::Broken { words } => format!("its state cannot be worked out: {words}"),
         Now::Merged => "merged".to_string(),
         Now::Cancelled => "cancelled".to_string(),
         Now::Round {
@@ -3045,6 +3046,7 @@ mod tests {
                 held: None,
                 pull: None,
                 changed: None,
+                unread: false,
             },
         }
     }
@@ -3164,6 +3166,33 @@ mod tests {
             "{said}"
         );
         assert!(lines[LISTED - 1].starts_with("b pull request 40 "), "{said}");
+    }
+
+    // A work whose state the engine could not work out is said as that, with the engine's words, on its own line of the list,
+    // and the lines of the other items are as they are. Fails where the list says nothing of it or says it as a fault.
+    #[test]
+    fn a_list_says_a_state_that_cannot_be_worked_out_on_that_items_line_alone() {
+        let mut broken = item(2, false, &[], &[]);
+        broken.work.now = Now::Broken {
+            words: "the driver says neither whose turn the work waits for nor since when".to_string(),
+        };
+        broken.work.unread = true;
+        let others = [item(1, false, &[], &[]), item(3, true, &[], &[])];
+        let said = list(
+            &items(vec![others[0].clone(), broken, others[1].clone()]),
+            &Listing::default(),
+            0,
+        );
+        let alone = list(&items(others.to_vec()), &Listing::default(), 0);
+        let lines: Vec<&str> = said.lines().collect();
+        assert!(
+            lines[1].contains(
+                "its state cannot be worked out: the driver says neither whose turn the work waits for nor since when"
+            ),
+            "{said}"
+        );
+        assert!(!lines[1].contains("cannot go on"), "{said}");
+        assert_eq!(lines[0], alone.lines().next().unwrap(), "{said}");
     }
 
     // The owner's pause is said with why, and with the items it waits for until each has merged or been cancelled, and that
