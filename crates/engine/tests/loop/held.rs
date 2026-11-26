@@ -57,10 +57,16 @@ fn a_call_held_is_not_given_a_result_but_waited_for_and_then_asked_for_again() {
     );
     assert!(!w.work.records.is_held(call));
     assert_eq!(pending(&w.flow, &w.work), effects);
-    // The call has its result as any does, and its cell is entered for it.
+    // The call has its result as any does, and its cell is entered for it, given the result of the call it asked for
+    // and none of the wait the engine made.
     let effects = w.done(call);
     assert_eq!(w.work.results.get(&call), Some(&format!("the result of {}", call.0)));
-    assert!(matches!(effects[..], [Effect::Round { .. }]), "{effects:?}");
+    let again = w.work.records.started.last().expect("a run").run;
+    assert_ne!(again, write);
+    assert_eq!(
+        effects,
+        vec![round_effect(again, "write", 1, Given::Results(vec![call]))]
+    );
 }
 
 #[test]
