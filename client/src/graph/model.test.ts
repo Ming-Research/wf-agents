@@ -113,10 +113,9 @@ describe('the flowchart of the engineer flow', () => {
       'P1>f:R1 plan_review R1,D1',
       'P2>f:R1 tree_review R1,D1',
       'I1>f:R1 plan_doubts R1,D1',
-      'I1>f:D2 plan D2,P1',
     ]);
     // A way back to one of a fork's cells alone ends at that cell.
-    expect(arrow(chart, 'I1', 'R2')?.target).toBe(cellNode('R2'));
+    expect(arrow(chart, 'R2', 'R1')?.target).toBe(cellNode('R1'));
   });
 
   it('walks the main path cell to cell, parting at each fork and joining again', () => {
@@ -213,8 +212,8 @@ describe('the flowchart of the engineer flow', () => {
     expect(all['M1>M2']).toBe('checked');
     const pairs = everyArrow(chart).map((e) => `${e.from}>${e.to}`);
     expect(new Set(pairs).size).toBe(pairs.length);
-    // Four ways back are drawn as one each, into a fork (below).
-    expect(pairs).toHaveLength(34);
+    // Three ways back are drawn as one each, into a fork (below).
+    expect(pairs).toHaveLength(31);
   });
 
   it('folds an arrow that runs along the main path into its step, its names on the step after the branch', () => {
@@ -258,11 +257,8 @@ describe('the flowchart of the engineer flow', () => {
       'P1>f:R1 plan_review',
       'P2>f:R1 tree_review',
       'I1>f:R1 plan_doubts',
-      'I1>f:D2 plan',
       'R2>c:R1 better_found',
       'D2>c:D1 better_found',
-      'I1>c:R2 plan',
-      'I1>c:P2 plan',
       'T1>c:I1 review',
       'T2>c:I1 test_review',
       'T3>c:I1 design_review',
@@ -272,9 +268,8 @@ describe('the flowchart of the engineer flow', () => {
       'T4>c:T3 change',
       'M1>c:I1 check',
     ]);
-    // Sixteen arrows; the three into the fork after R1 and the one into D2's each stand for the ways back to both cells
-    // it leads to.
-    expect(chart.waysBack).toBe(20);
+    // Thirteen arrows; the three into the fork after R1 each stand for the ways back to both cells it leads to.
+    expect(chart.waysBack).toBe(16);
     const place = (id: string | null) => engineer.cells.findIndex((c) => c.id === id);
     for (const e of chart.edges.filter((x) => x.kind === 'arrow')) expect(e.back).toBe(place(e.from) > place(e.to));
   });
