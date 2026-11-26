@@ -37,10 +37,6 @@ path = "design/README.md"
 [project]
 # Where an agent keeps what it makes for research, committed.
 research = "research/"
-# How an agent names a measurement to `run_tests`: by the file of `measure/` that times it.
-measure_names = '''
-A measurement is named by its file in `measure/`: `design-lint` times `measure/design-lint`. A name holds letters, digits,
-`_` and `-`.'''
 # Transitional, as `tree_format` above: the command that checks the design tree's files, which the I1 task of the engine
 # installed before the engine ran the check names. This engine runs the check itself and names no such setting.
 tree_check = "python3 design/lint.py"
@@ -62,8 +58,8 @@ paths = [
 expected = ["crates/carry/tests/fixtures/", "crates/flow/tests/project/"]
 
 # The project's workflows, which the engine runs by hand on main's file with a commit given: the fast and the full, and
-# the one that measures. Each reports every test, or every timing, as JUnit XML, named as an agent asks for it, in the
-# artifact `test-results`.
+# those of its measurements. The fast and the full report every test as JUnit XML, named as an agent asks for it, in
+# the artifact `test-results`.
 [ci.fast]
 # Builds and runs only the tests and checks it is given.
 workflow = "fast.yml"
@@ -79,13 +75,36 @@ workflows = ["ci.yml"]
 runner = "14900k"
 too_long = "2h"
 
-# The workflow that times the measurements an agent's `run_tests` names, each on the commit the work's change began from and
-# on the work's commit, in one run. It reports every timing as JUnit XML in the artifact `test-results`. Its job holds the
-# machine's lock while it times, and its time limit counts the wait, so `too_long` is the job's `timeout-minutes`.
-[ci.measure]
-workflow = "measure.yml"
-runner = "14900k"
-too_long = "30m"
+# The measurements an agent may name to `run_tests`, each a table `[ci.measure.<name>]` named by the name the agent gives
+# it: a workflow the engine runs by hand on main's file, which uploads what it measured as a CSV file in an artifact. On
+# a self-hosted runner the engine runs one measurement at a time on the machine, of whatever project names that runner,
+# and a request waits for its turn; on `github` each run has a machine of its own. On a self-hosted runner, the step
+# that times first sources the machine's gate, `$HOME/.wf-agents-runner/measure-gate.sh`, and calls
+# `wait_for_a_quiet_machine`, which holds the machine's other jobs off until the step ends; the step fails, naming
+# wf-agents' `docs/installing.md`, where the gate is not installed. A measurement is declared so:
+#
+# [ci.measure.<name>]
+# # What it measures, which an agent is told beside its name.
+# about = "the commit's build timed against the commit its change began from"
+# workflow = "bench.yml"
+# runner = "14900k"
+# # How long a run may take once it has started: one not complete by then is cancelled, and said so. The wait for the
+# # machine and for a runner do not count.
+# too_long = "1h"
+# # The inputs the workflow is always given. The engine fills `{commit}`, the commit measured; `{base}`, the commit the
+# # work's change began from; and `{call}`, a value only the request knows, which the workflow's `run-name` holds, so
+# # that the engine finds the run. One input holds `{call}`, and one holds `{commit}`.
+# inputs = { commit = "{commit}", base = "{base}", call = "{call}" }
+# # The inputs an agent may set; one it does not set takes the workflow's default. What an agent gives holds only
+# # letters, digits, spaces and `_-.,/:=+`.
+# open = ["passes"]
+# # The artifact, and the CSV file in it, that hold what the run measured: a header line naming the columns, then a row
+# # for each thing measured.
+# artifact = "measurement"
+# file = "bench.csv"
+# # The columns of the file that hold a metric, each with its unit: each holds a number in every row. Every other column
+# # says what a row measured.
+# metrics = { seconds = "s" }
 
 # How a pull request of the project is merged where GitHub is its host: squash, merge or rebase; and whether a work's
 # branch on GitHub is deleted once it is merged.

@@ -41,16 +41,16 @@ pub(crate) enum Failure {
 }
 
 /// What a summary is made from, besides the work's records as far as they have come ([`Inputs::moments`]).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 struct Inputs {
     /// How many things have happened to the work: every entry of its records belongs to one.
     moments: usize,
     /// How many changes were made to its item.
     item_changes: usize,
     /// Each round or call of the work under way that stands as a CI run, with its link and the runner it waits for
-    /// where it waits for one. What the rest of a round under way has come to changes with every call and is no part of
-    /// a summary.
-    runs: Vec<(Under, String, Option<String>)>,
+    /// where it waits for one, or waits for its turn on a machine. What the rest of a round under way has come to
+    /// changes with every call and is no part of a summary.
+    runs: Vec<(Under, Along)>,
     /// What the engine leaves the work room for, which says what holds its next round back.
     room: Room,
     /// The items it waits for, those its pause waits for and whose turn to check and merge it is.
@@ -70,7 +70,7 @@ impl Inputs {
             item_changes,
             runs: (driver.along_of(number).into_iter())
                 .filter_map(|(under, along)| match along {
-                    Along::Runs { at, queued_for } => Some((under, at.clone(), queued_for.clone())),
+                    Along::Runs { .. } | Along::WaitsForMachine { .. } => Some((under, along.clone())),
                     Along::Going(_) => None,
                 })
                 .collect(),

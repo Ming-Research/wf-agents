@@ -40,7 +40,7 @@ const WORK: WorkNumber = WorkNumber(1);
 /// many calls and rounds have asked it for runs, each asking anew.
 struct Hub {
     repo: Repo,
-    host: GitHub<Fake>,
+    host: Arc<GitHub<Fake>>,
     asked: AtomicU64,
 }
 
@@ -85,7 +85,7 @@ fn ci() -> flow::agents::Ci {
             test_stop_input: "test_stop".to_string(),
             results: "test-results".to_string(),
         },
-        measure: None,
+        measure: std::collections::BTreeMap::new(),
     }
 }
 
@@ -123,7 +123,13 @@ fn config(bare: &std::path::Path) -> Config {
         withheld: Vec::new(),
         words: words(),
         installation: INSTALLATION,
+        machines: machines(),
     }
+}
+
+/// The machines of an installation of its own, which no other host shares.
+fn machines() -> Arc<Machines> {
+    Arc::new(Machines::new(Arc::new(service::SystemClock)))
 }
 
 impl Hub {
@@ -134,7 +140,7 @@ impl Hub {
         run(&repo.project.repo, &["push", "-q", &bare.display().to_string(), "main"]);
         let mut config = config(&bare);
         config.withheld = withheld(&repo.data, &repo.project.repo, None, &config.words.withheld);
-        let host = GitHub::new(Fake::new(bare.clone()), repo.project.clone(), config);
+        let host = Arc::new(GitHub::new(Fake::new(bare.clone()), repo.project.clone(), config));
         Hub {
             repo,
             host,
@@ -153,7 +159,19 @@ impl Hub {
     }
 
     fn with(mut self, change: impl FnOnce(&mut Config)) -> Hub {
-        change(&mut self.host.config);
+        change(self.config_mut());
+        self
+    }
+
+    /// The host's configuration, to change before its machines know of it.
+    fn config_mut(&mut self) -> &mut Config {
+        let host = Arc::get_mut(&mut self.host).expect("the host is changed before its machines know of it");
+        &mut host.config
+    }
+
+    /// The host, as the engine makes it, tells the machines its measurements run on that it measures there.
+    fn sharing(self) -> Hub {
+        GitHub::share_machines(&self.host);
         self
     }
 
@@ -1118,7 +1136,7 @@ fn github_as_the_settings_say_needs_the_engines_token() {
         &github,
         &repo.project,
         &repo.data,
-        INSTALLATION,
+        (INSTALLATION, machines()),
         |_| None,
         (None, &merging()),
         (None, None, words()),
@@ -1130,7 +1148,7 @@ fn github_as_the_settings_say_needs_the_engines_token() {
         &github,
         &repo.project,
         &repo.data,
-        INSTALLATION,
+        (INSTALLATION, machines()),
         given,
         (Some(ci()), &merging()),
         (None, None, words()),

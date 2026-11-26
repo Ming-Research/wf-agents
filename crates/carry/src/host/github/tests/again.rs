@@ -114,38 +114,55 @@ async fn a_call_given_again_while_its_fast_run_goes_on_waits_for_that_run_and_on
     assert!(hub.trials().is_empty());
 }
 
-// The engine stopped while the measure workflow ran for a call of `run_tests`: the call, given again, waits for that run
-// and asks for no other, with the same value, and the run ended meanwhile is read once more without another. About a
-// tenth of a second alone, which is the wait the test gives the call to ask for a run it must not ask for: the one test
-// that a measure run is found again as the fast one is.
+// The engine stopped while a measurement's run went on for a call of `run_tests`: the call, given again, finds that run
+// and waits for it, asking for no other and taking no turn on the machine, and the run ended meanwhile is read once
+// more without another. Another request for the machine, which the turns the engine keeps in memory would let go at
+// once after the stop, waits for that run all the same, since GitHub lists it there, and asks for its own once that run
+// has ended. About a tenth of a second alone, which is the wait the test gives the requests to ask for a run they must
+// not ask for; the one test that a measurement's run is found again, and that one the turns do not know of holds the
+// machine.
 #[tokio::test]
-async fn a_call_given_again_while_its_measure_run_goes_on_waits_for_that_run_and_one_ended_is_read() {
-    let hub = Hub::new().with(measuring);
+async fn a_call_given_again_while_its_measurement_goes_on_waits_for_that_run_and_another_waits_for_it_to_end() {
+    let hub = Hub::new().with(measuring).sharing();
     let head = hub.committed().await;
     hub.github().of_workflow(
         "measure.yml",
         &head,
-        vec![passed("measure")],
-        Some(("test-results", timings())),
+        vec![passed("bench")],
+        Some(("measurement", timings())),
     );
     hub.github().runs_go_on();
-    let asked = measured(&["design-lint"]);
+    let asked = measured(&["compare"]);
     let call = hub.call();
     cut_off(&hub, hub.tests_asked(&asked, call)).await;
     assert_eq!(hub.trials().len(), 1, "the branch is kept while the run is not read");
-    let (said, ()) = tokio::join!(hub.tests_asked(&asked, call), hub.finished_after_a_while(1));
+    let other = hub.call();
+    let (said, waited, ()) = tokio::join!(hub.tests_asked(&asked, call), hub.tests_asked(&asked, other), async {
+        hub.finished_after_a_while(1).await;
+        asked_for(&hub, 2).await;
+        hub.github().finish_runs();
+    });
     let said = said.unwrap().expect("nothing stopped it");
-    let ran = format!(
-        "The measure workflow ran on the commit {head} (https://github.example/actions/runs/1000): 1 of the 1 \
-         measurements ran."
-    );
+    let ran = format!("The measurement compare ran measure.yml on the commit {head}, whose change began from ");
     assert!(said.starts_with(&ran), "{said}");
-    assert!(said.contains("- design-lint [candidate]: passed in 0.40 s"), "{said}");
-    assert!(hub.trials().is_empty(), "the branch is deleted once the result is read");
+    assert!(
+        said.contains("(https://github.example/actions/runs/1000): every job of it passed."),
+        "{said}"
+    );
+    assert!(said.contains("It wrote 2 rows to bench.csv"), "{said}");
+    let waited = waited.unwrap().expect("nothing stopped it");
+    assert!(
+        waited.contains("(https://github.example/actions/runs/1001)"),
+        "{waited}"
+    );
+    assert!(
+        hub.trials().is_empty(),
+        "the branches are deleted once the results are read"
+    );
     let again = hub.tests_asked(&asked, call).await.unwrap().expect("read");
     assert_eq!(again, said);
-    assert_eq!(hub.dispatched().len(), 1);
-    assert_eq!(hub.calls().len(), 1);
+    assert_eq!(hub.dispatched().len(), 2);
+    assert_eq!(hub.calls().len(), 2);
 }
 
 // The engine stopped while the full workflows ran for the check before the merge, and the run ended before it started

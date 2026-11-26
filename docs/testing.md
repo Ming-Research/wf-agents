@@ -39,10 +39,13 @@ of each part.
    under test: that a work rests waiting for someone, or is stalled, is read from the records by `Reading::rest`, and
    a disagreement with what the deciding code says is a breach, whichever way it goes. So that a work stalls in them at
    all, some histories of the small flows have a check that only cells write, which the merge waits for, and the
-   engineer's histories hold the deciding code to calling a work stalled exactly where the records read it so. Each
-   such test counts every case it is there to reach
-   and fails where none did; those of the deciding code and of the engineer's flow count the histories that reached each
-   case, run more in batches until each has been reached in ten, and fail where one has not, so that no property passes
+   engineer's histories hold the deciding code to calling a work stalled exactly where the records read it so. A return
+   that would leave a work waiting for blocks that cells write, none of which will run, is sent back where a block of
+   its cell would end the wait, so what stalls in the loop's histories is what no block of the cell that wrote last
+   could mend, and the histories' agents hand in the blocks such a send-back names. Each such test counts every case it
+   is there to reach and fails where none did; those of the deciding code and of the engineer's flow count the
+   histories that reached each case, run more in batches until each has been reached in ten, and fail where one has not,
+   so that no property passes
    by a case tried once; a failing history gives its seed, which replays it. This layer is the one
    to catch a fault that needs an order of events nobody wrote down: a stop between two steps, a write while a round
    is under way, a return after a send-back.
@@ -60,7 +63,10 @@ of each part.
    The context manager's histories choose what they do apart from the search, and hold what it wrote to real rounds:
    each script, run again, carries out a round in the same situation, the message the page shows for it is what the
    engine sent, and every line a round of the histories stood in, on the small flow of its tests, is one a written
-   situation stands in. On the engineer's flow the lines a round stood in and the search left out are printed by cell,
+   situation stands in; for that flow the search has bounds of its own, wider than the tool's, since the tool's end
+   it before it has found all its histories reach (decision the-small-flows-search-test-has-bounds-of-its-own;
+   research/situations-search-measured.md, section 9). On the
+   engineer's flow the lines a round stood in and the search left out are printed by cell,
    with the steps before the first round that stood in each, and do not fail the test: some need two passes through the
    flow, which the search does not reach in the 30 s the tool has (decision
    the-situations-tool-writes-the-situations-a-search-reached).

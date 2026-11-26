@@ -505,6 +505,10 @@ fn a_round_after_its_return_was_sent_back_is_sent_why() {
         entered.text
     );
     assert_eq!(entered.fills, [Fill::SentBack { round: 2 }]);
+    assert!(
+        !entered.situation.whole,
+        "a return that did the cell's work is not given whole again"
+    );
     assert_eq!(
         entered.run.sent_back,
         [(
@@ -518,6 +522,74 @@ fn a_round_after_its_return_was_sent_back_is_sent_why() {
     let anew = sim.enter(&round, true);
     assert!(anew.fills.contains(&Fill::part("task", "Review the code.")));
     assert!(anew.text.contains("## Sent back"), "{}", anew.text);
+}
+
+// A return that asked for calls holds nothing the next completes (decision a-sent-back-return-is-completed-by-what-is-
+// missing), so the round after it is told to give it whole: its situation says so, and what the page shows for that
+// situation ends the reasons as the round does, where a return that did the cell's work ends them in `again`. The page
+// also shows the text of each ending, as the files define it.
+#[test]
+fn a_round_told_to_give_a_return_whole_again_says_so_in_its_situation_and_the_page_ends_its_reasons_as_the_round_does()
+{
+    const ONLY_WHAT_IS_LISTED: &str = "Return again.";
+    const WHOLE_AGAIN: &str = "Return again, all of it.";
+    let ends_in = |sent: &[context::Sent], ending: &str| {
+        let part = (sent.iter().find(|s| s.part == flow::agents::Part::SentBack.name())).expect("the reasons are sent");
+        let text = as_written(&part.pieces);
+        assert!(text.ends_with(ending), "{ending:?} is not the end of {text:?}");
+    };
+    let mut sim = support::small();
+    sim.writes("request", "Greet the user.");
+    carry(&mut sim, &[("plan", "Greet by name.", None)]);
+    let round = sim.round().expect("the build is entered");
+    let entered = sim.enter(&round, sim.begins(&round));
+    sim.tries(&round, 1, entered.fills);
+    let asks = Ask::Tool {
+        name: "query".to_string(),
+        input: "{}".to_string(),
+    };
+    let mut came = Came::asks(vec![asks]);
+    came.found = vec![Unmet::NotATool {
+        name: "query".to_string(),
+    }];
+    sim.returns(&round, came, 0);
+    let again = sim.round().expect("the build's round after it was sent back");
+    let entered = sim.enter(&again, false);
+    assert!(
+        entered.situation.sent_back && entered.situation.whole,
+        "{:?}",
+        entered.situation
+    );
+    ends_in(&entered.sent, WHOLE_AGAIN);
+    let cell = sim.cell(&again);
+    let page = |situation: &context::Situation| {
+        context::message(&sim.flow, &sim.words, cell, situation, Values::Slots(&sim.named))
+    };
+    ends_in(&page(&entered.situation), WHOLE_AGAIN);
+    let plain = context::Situation {
+        whole: false,
+        ..entered.situation.clone()
+    };
+    ends_in(&page(&plain), ONLY_WHAT_IS_LISTED);
+    // The two endings are two lines the written situations are held to, and a situation stands in one of them, so that
+    // a situation is written for each.
+    let given = |situation: &context::Situation| -> Vec<String> {
+        (context::situations::stood(cell, situation).into_iter())
+            .filter(|line| line.contains("given why a return was sent back"))
+            .collect()
+    };
+    assert_eq!(given(&entered.situation).len(), 1, "{:?}", given(&entered.situation));
+    assert_eq!(given(&plain).len(), 1, "{:?}", given(&plain));
+    assert_ne!(given(&entered.situation), given(&plain));
+    // The files' definition of the message shows both endings.
+    let defined = context::defined(&sim.flow, &sim.words, cell);
+    let reasons = (defined.iter().find(|d| d.part == flow::agents::Part::SentBack)).expect("the part is defined");
+    assert!(
+        as_written(&reasons.pieces).ends_with(ONLY_WHAT_IS_LISTED),
+        "{:?}",
+        reasons.pieces
+    );
+    assert!(as_written(&reasons.whole).ends_with(WHOLE_AGAIN), "{:?}", reasons.whole);
 }
 
 // Each thing a return is sent back for, as one sample of it and the key its words have in `[faults]` of
@@ -566,12 +638,13 @@ reasons! {
     NotATest { path: "x".into() } => "not_a_test",
     Uncommitted { changes: "x".into() } => "uncommitted",
     Merging { changes: "x".into() } => "merging",
-    TreeUnchanged { name: "x".into() } => "tree_unchanged",
-    NotAnEntry { line: "x".into() } => "not_an_entry",
+    TreeUnchanged { name: "x".into(), blocks: vec![] } => "tree_unchanged",
+    NotAnEntry { block: None, line: "x".into() } => "not_an_entry",
     TreeForm { lines: vec![] } => "tree_form",
     Unanswered { block: BlockId::from("b") } => "unanswered",
     WordOwed { name: BlockId::from("b"), watched: vec![] } => "word_owed",
     NoPoint { block: BlockId::from("b"), value: "v".into(), name: BlockId::from("b") } => "no_point",
+    WouldStall { blocks: vec![BlockId::from("b")] } => "would_stall",
 }
 
 // Each reason a return is sent back for has the key its words have in `[faults]` of the file, which the owner's page
@@ -665,6 +738,7 @@ fn a_return_that_hands_in_the_change_without_an_answer_marked_tree_in_the_tree_i
     let mut came = Came::hands_in(Vec::new());
     came.found = vec![Unmet::TreeUnchanged {
         name: "placement".to_string(),
+        blocks: Vec::new(),
     }];
     sim.returns(&round, came, 0);
     let again = sim.round().expect("the build's round after it was sent back");

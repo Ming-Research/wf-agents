@@ -34,6 +34,7 @@ fn asked() -> Value {
                 "made": START + 5500,
                 "at": null,
                 "queuedFor": null,
+                "machine": null,
                 "held": null,
             }],
         },

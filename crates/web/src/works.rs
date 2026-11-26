@@ -581,6 +581,15 @@ pub enum Unrun {
     Held {},
 }
 
+/// A call that waits for its turn on a machine, on which one measurement runs at a time: the machine, by its runner's
+/// label, and since when it waits, in milliseconds since 1970.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MachineWait {
+    pub machine: String,
+    pub since: u64,
+}
+
 /// A call the host could not carry out for now, and held: the engine asks for it again once its wait is over.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -623,7 +632,7 @@ impl Obstacle {
 pub enum Waited {
     /// The result of a call a run rests at: from this person, or from the engine where there is none; made at this
     /// time, and, for a tool that runs as a CI run, the run's link, as the tool says as it goes, and the runner its run,
-    /// or the jobs of it, wait for where they wait for one.
+    /// or the jobs of it, wait for where they wait for one; or, for a measurement, the machine whose turn it waits for.
     Call {
         call: u64,
         who: Option<Person>,
@@ -634,6 +643,9 @@ pub enum Waited {
         at: Option<String>,
         #[serde(default)]
         queued_for: Option<String>,
+        /// Where the call waits for its turn on a machine, the machine and since when.
+        #[serde(default)]
+        machine: Option<MachineWait>,
         /// Where the call is held because the host could not carry it out for now, until when the engine waits to
         /// ask for it again.
         #[serde(default)]
@@ -2794,12 +2806,10 @@ impl Now {
                         Ok(match waited {
                             WaitedOf::Call { call, on } => {
                                 let held = held_call(work, *call);
-                                let (at, queued_for) = call_runs_at(
-                                    held.as_ref(),
-                                    (along.iter())
-                                        .find(|(under, _)| *under == Under::Call(*call))
-                                        .map(|(_, said)| *said),
-                                );
+                                let said = (along.iter())
+                                    .find(|(under, _)| *under == Under::Call(*call))
+                                    .map(|(_, said)| *said);
+                                let (at, queued_for) = call_runs_at(held.as_ref(), said);
                                 Waited::Call {
                                     call: call.0,
                                     who: on.as_ref().map(Person::of),
@@ -2807,6 +2817,7 @@ impl Now {
                                     made: made(work, *call)?,
                                     at,
                                     queued_for,
+                                    machine: call_waits_for_machine(held.as_ref(), said),
                                     held,
                                 }
                             }
@@ -3510,6 +3521,18 @@ fn runs_at(said: Option<&Along>) -> (Option<String>, Option<String>) {
 /// until its wait is over, and the run it last said it ran as is no longer where it stands.
 fn call_runs_at(held: Option<&HeldCall>, said: Option<&Along>) -> (Option<String>, Option<String>) {
     if held.is_some() { (None, None) } else { runs_at(said) }
+}
+
+/// The machine a call waits for its turn on, and since when, where what carries it out says it does; none where the
+/// call is held, as [`call_runs_at`] says.
+fn call_waits_for_machine(held: Option<&HeldCall>, said: Option<&Along>) -> Option<MachineWait> {
+    match (held, said) {
+        (None, Some(Along::WaitsForMachine { machine, since })) => Some(MachineWait {
+            machine: machine.clone(),
+            since: *since,
+        }),
+        _ => None,
+    }
 }
 
 /// When the call was made.
@@ -5389,12 +5412,14 @@ pub(crate) mod tests {
             (
                 UnmetOf::TreeUnchanged {
                     name: "tree_question".to_string(),
+                    blocks: vec![block("tree_answer")],
                 },
                 "tree_unchanged",
                 vec![("name", "tree_question")],
             ),
             (
                 UnmetOf::NotAnEntry {
+                    block: Some(block("tree_entries")),
                     line: "an entry".to_string(),
                 },
                 "not_an_entry",
@@ -5404,6 +5429,13 @@ pub(crate) mod tests {
                 UnmetOf::Unanswered { block: block("plan") },
                 "unanswered",
                 vec![("block", "plan")],
+            ),
+            (
+                UnmetOf::WouldStall {
+                    blocks: vec![block("plan_owner"), block("acceptance")],
+                },
+                "would_stall",
+                vec![("blocks", "plan_owner"), ("blocks", "acceptance")],
             ),
         ];
         for (unmet, key, values) in cases {
@@ -5523,6 +5555,7 @@ pub(crate) mod tests {
             made: 9,
             at,
             queued_for,
+            machine: None,
             held: None,
         };
         let said = serde_json::to_value(call(runs_at(Some(&waits)))).expect("it is JSON");
@@ -5542,5 +5575,48 @@ pub(crate) mod tests {
         };
         let said = serde_json::to_value(round(runs_at(Some(&waits)))).expect("it is JSON");
         assert_eq!(said["queuedFor"], "14900k", "{said}");
+    }
+
+    /// A call that waits for its turn on a machine says which and since when, as the page reads it, and has no run's
+    /// link yet; one held says none, as it is carried out nowhere; one that runs says none. Under a millisecond; the
+    /// one test of what the page is given of a wait for a machine.
+    #[test]
+    fn a_call_that_waits_for_its_turn_on_a_machine_says_which_and_since_when() {
+        let waits = Along::WaitsForMachine {
+            machine: "14900k".to_string(),
+            since: 1_700_000_000_000,
+        };
+        let wait = call_waits_for_machine(None, Some(&waits)).expect("it waits for the machine");
+        assert_eq!(runs_at(Some(&waits)), (None, None), "no run is asked for yet");
+        let held = HeldCall {
+            until: 9_000,
+            failed: 1,
+            obstacle: Obstacle::Limit,
+        };
+        assert_eq!(call_waits_for_machine(Some(&held), Some(&waits)), None);
+        let runs = Along::Runs {
+            at: "https://ci.example/runs/7".to_string(),
+            queued_for: None,
+        };
+        assert_eq!(call_waits_for_machine(None, Some(&runs)), None);
+        let call = Waited::Call {
+            call: 4,
+            who: None,
+            what: Call::Tool {
+                name: "run_tests".to_string(),
+                input: "{}".to_string(),
+            },
+            made: 9,
+            at: None,
+            queued_for: None,
+            machine: Some(wait),
+            held: None,
+        };
+        let said = serde_json::to_value(call).expect("it is JSON");
+        assert_eq!(
+            said["machine"],
+            serde_json::json!({ "machine": "14900k", "since": 1_700_000_000_000u64 }),
+            "{said}"
+        );
     }
 }

@@ -8,6 +8,8 @@ wf-agents runs coding agents through a defined flow.
   designs that hold only as a whole, which may be ahead of the code.
 - `research/`: what a work's research made for its problem beside the tests: data, code, probes and notes, with what
   was measured and how to measure it again.
+- `runner/`: what is installed on a machine of self-hosted runners that measurements run on: the gate that keeps its
+  other jobs off while a measurement times, which [docs/installing.md](docs/installing.md) says how to install.
 - `db/`: the engine's database schema (`schema.sql`) and its migrations; a change of the schema adds a migration to
   `migrations/`, named by the minute it was written and what it does.
 - `crates/`: the engine's Rust crates. `crates/wf-agents` is the `wf-agents` command; `wf-agents flow page <dir>` serves

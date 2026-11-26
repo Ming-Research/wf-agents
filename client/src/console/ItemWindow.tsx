@@ -70,7 +70,7 @@ import {
   type Summary,
   type WorkPage,
 } from '../works-api';
-import { CallsTook, type Got, Loaded, Parts, Strip, useWanted } from '../works/marks';
+import { CallsTook, type Got, Loaded, Parts, Strip, useNow, useWanted } from '../works/marks';
 import { type HistoryRow, placeSteps, sessionsBegun, standingRun } from '../works/placing';
 import { type Reader, readerOf, useSource } from '../works/source';
 import { StepTab } from '../works/StepPanel';
@@ -939,11 +939,12 @@ function Progress({ w, page }: { w: Summary; page: WorkPage | null }) {
 /// its card says them.
 function WorkLine({ w, page }: { w: Summary; page: WorkPage | null }) {
   const { tone, cell } = stateOf(w);
+  const time = useNow(tone === 'calling');
   const now = w.now;
   const items = now.kind === 'waits' ? now.on.filter((x) => x.kind === 'items') : [];
   const lines = linesOf(w);
   return (
-    <Line tone={tone} word={<Parts parts={stateParts(w)} />}>
+    <Line tone={tone} word={<Parts parts={stateParts(w, time)} />}>
       {tone === 'calling' && <CallsTook work={w} />}
       {cell !== null && <CellName cell={cell} page={page} />}
       {items.map((x, i) => (

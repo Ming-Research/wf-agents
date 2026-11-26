@@ -15,7 +15,7 @@ import { StateMark, markName } from '../marks';
 import { Attr, Fold, ListRow, Sign, StatusLine } from '../parts';
 import type { CallRow, Following, Handed, Round, Run, Step, Unmet, WorkPage } from '../works-api';
 import { ChosenRound } from './chosen-round';
-import { CallsTook, Opener, Parts } from './marks';
+import { CallsTook, Opener, Parts, useNow } from './marks';
 import { type HistoryRow, type SessionStep, runState } from './placing';
 import { ContextKeys, DoneList, Keys, MissedKeys, SystemPrompt, TookKeys } from './Round';
 import type { Reader } from './source';
@@ -314,6 +314,8 @@ function RunStep({ run, mark, began, page, reader, shown }: {
   const wayRound = isWayRound(run);
   // The calls of tools the work waits at this run for, where it does: the run then stands as the work does.
   const calls = mark === 'waiting' ? callsWaited(page.summary) : [];
+  // How long a call has waited for its turn on a machine is kept current, as how long it has waited is beside it.
+  const waited = useNow(calls.length > 0);
   // What its rounds ran on and the sessions they ran in, each once, in the order its rounds first did.
   const ranOn = [
     ...new Map(
@@ -344,7 +346,7 @@ function RunStep({ run, mark, began, page, reader, shown }: {
       <div className="status-line">
         <StateMark state={mark} />
         <span className="status-word">
-          {calls.length > 0 ? <Parts parts={callWaitParts(calls)} /> : standWords(run, mark)}
+          {calls.length > 0 ? <Parts parts={callWaitParts(calls, waited)} /> : standWords(run, mark)}
         </span>
         {calls.length > 0 && <CallsTook work={page.summary} />}
         <span className="mono">{run.cell}</span>

@@ -161,18 +161,21 @@ fn the_engine_pausing_a_work_for_its_reason_is_a_line_and_the_owner_pausing_one_
 
 #[test]
 fn a_work_that_stalls_is_a_line_until_what_runs_a_cell_moves_it_on() {
-    let mut h = H::new();
-    let (_, w) = h.add(new_item("a", &[], "plain"));
+    let mut h = H::with(vec![checked()]);
+    let (_, w) = h.add(new_item("a", &[], "checked"));
     let mark = since(&h, None).mark;
     h.let_on(w);
-    // The writer deals with what ran it and hands in nothing: nothing runs the merge, and nothing will.
+    // The writer writes the text, and the check deals with it and hands in nothing: the merge waits for the check's yes,
+    // which nothing writes. The check's one output is a choice, so none of its blocks would end the stall, and its
+    // return is taken.
+    h.hands_in(w, &[("text", None)]);
     h.hands_in(w, &[]);
     let stalled = Time(h.clock);
     let at_the_merge = Decision::Stalled {
         at: "merge".into(),
-        on: Vec::new(),
+        on: vec![decide::Condition::Test("passed".into())],
         by: vec![decide::Stalling {
-            cell: "write".into(),
+            cell: "check".into(),
             why: decide::Unrun::NothingNew,
         }],
     };

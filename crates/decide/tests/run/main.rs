@@ -17,6 +17,7 @@ mod owed;
 mod paused;
 mod paused_answers;
 mod rounds;
+mod stalling;
 
 use std::collections::BTreeMap;
 
@@ -56,6 +57,7 @@ impl Spec {
             nothing_but: &self.nothing_but,
             questions: self.questions.as_ref(),
             words: self.words.as_ref(),
+            stuck: None,
         }
     }
 }
