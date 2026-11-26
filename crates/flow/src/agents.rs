@@ -374,6 +374,8 @@ pub struct WorkWords {
     pub time: String,
     /// What it has spent is over the budget the settings give.
     pub budget: String,
+    /// What some of what it has spent cost is not known.
+    pub unpriced: String,
     pub started: String,
     pub let_on: String,
     pub between: String,

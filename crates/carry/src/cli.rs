@@ -669,6 +669,11 @@ pub struct Stream {
     usages: usize,
     /// The session the program says it runs in, from the first line that names it.
     session: Option<String>,
+    /// What the tokens of each model cost, as the program's earlier reports of the work's calls on it tell them
+    /// ([`driver::prices::learned_all`]), by the model's name without its context window: a call of one of them that
+    /// the program reports no cost of is priced at them ([`Stream::cost`]). A call of a model not here has a cost that
+    /// is not known ([`Stream::unpriced`]).
+    pub learned: BTreeMap<String, driver::prices::Prices>,
 }
 
 /// What a result the program printed says of cost, as the repair of recorded costs reads it.
@@ -939,7 +944,7 @@ impl Stream {
 
     /// Takes the end of a call, which names it as `api_message_id`: the tokens it wrote, which its message's start and
     /// its whole message give as the few it began with. A call whose start was not seen is taken as the end gives it,
-    /// with no model until a line of its own names it, and priced as the dearest while it has none.
+    /// with no model until a line of its own names it, and its cost is not known while it has none.
     fn ended(&mut self, line: &Value) {
         let (Some(id), usage) = (line["api_message_id"].as_str(), &line["event"]["usage"]) else {
             return;
@@ -970,6 +975,7 @@ impl Stream {
         let last = self.calls.last()?;
         let mut spent = Spent {
             usd_micros: self.cost().0,
+            unpriced: self.unpriced(),
             context_tokens: Some(last.tokens.prompt()),
             cache_written_tokens: Some(0),
             ..Spent::default()
@@ -988,17 +994,16 @@ impl Stream {
     /// What the stream cost, in millionths of a dollar, and whether any of it is priced from its calls and not told by
     /// the program: each result the program printed gives what it spent since the one before it, and where a result
     /// gives none, or the calls after the last result have none yet, those calls cost what their tokens do at their
-    /// models' prices. The one place a stream's cost is worked out.
+    /// models' prices as the program's earlier reports tell them ([`Stream::learned`]). A call of a model they do not
+    /// price adds nothing, and its cost is not known ([`Stream::unpriced`]). The one place a stream's cost is worked
+    /// out.
     pub fn cost(&self) -> (u64, bool) {
         // What the calls of the spans that `wanted` names cost at their models' prices, and whether there are any: a
         // result that says nothing of cost and had no call has nothing priced, and is no estimate.
         let priced = |wanted: &dyn Fn(usize) -> bool| {
             let calls = self.calls.iter().filter(|call| wanted(call.span));
             (
-                calls
-                    .clone()
-                    .map(|call| cost::of_call(&call.model, &call.tokens))
-                    .sum::<u64>(),
+                calls.clone().filter_map(|call| self.price(call)).sum::<u64>(),
                 calls.count() > 0,
             )
         };
@@ -1016,6 +1021,24 @@ impl Stream {
         }
         let (spent, any) = priced(&|of| of >= results);
         (usd + spent, estimated || any)
+    }
+
+    /// Whether some of what the stream cost is not known: a call the program reported no cost of whose model the
+    /// program's earlier reports do not price ([`Stream::cost`]).
+    pub fn unpriced(&self) -> bool {
+        let told: Vec<bool> = (self.earlier.iter().chain(&self.result))
+            .map(|result| since_last(result).is_some())
+            .collect();
+        (self.calls.iter())
+            .filter(|call| !told.get(call.span).copied().unwrap_or(false))
+            .any(|call| self.price(call).is_none())
+    }
+
+    /// What the call cost at its model's prices as the program's earlier reports tell them; none where they do not
+    /// price its model, or it has none.
+    fn price(&self, call: &Call) -> Option<u64> {
+        let prices = self.learned.get(driver::prices::id(&call.model))?;
+        Some(cost::at(prices, &call.tokens))
     }
 
     /// What each result the stream holds says of cost, in the order the program printed them.
@@ -1060,7 +1083,10 @@ impl Stream {
     pub fn what_it_took(&self) -> Option<Spent> {
         let result = (self.result.clone()).and_then(|result| serde_json::from_value::<Result>(result).ok());
         match result {
-            Some(result) => Some(spent_of_result(&result, &self.earlier, self.cost().0)),
+            Some(result) => Some(Spent {
+                unpriced: self.unpriced(),
+                ..spent_of_result(&result, &self.earlier, self.cost().0)
+            }),
             None => self.took(),
         }
     }
@@ -1072,6 +1098,7 @@ impl Stream {
     /// is in these words.
     pub fn read(self, words: &ProgramWords) -> std::result::Result<Read, Box<NoResult>> {
         let (usd_micros, _) = self.cost();
+        let unpriced = self.unpriced();
         let took = self.took();
         let fields = self.said;
         let Some(result) = self.result else {
@@ -1094,7 +1121,10 @@ impl Stream {
                 }));
             }
         };
-        let spent = spent_of_result(&result, &self.earlier, usd_micros);
+        let spent = Spent {
+            unpriced,
+            ..spent_of_result(&result, &self.earlier, usd_micros)
+        };
         if !result.is_error {
             // The agent may stop trying after the command line refused its attempts, and end its turn: its last
             // attempt is read as one the command line gave up on is.
@@ -1182,9 +1212,13 @@ fn last_attempt(
     })
 }
 
-/// What a whole stream says the round took, as [`Stream::what_it_took`] does.
-pub fn took(stream: &[u8]) -> Option<Spent> {
-    let mut read = Stream::default();
+/// What a whole stream says the round took, as [`Stream::what_it_took`] does, a call the program reported no cost of
+/// priced at what the program's earlier reports tell of its model ([`Stream::learned`]).
+pub fn took(stream: &[u8], learned: BTreeMap<String, driver::prices::Prices>) -> Option<Spent> {
+    let mut read = Stream {
+        learned,
+        ..Stream::default()
+    };
     for line in stream.split(|b| *b == b'\n').filter(|line| !line.is_empty()) {
         read.line(line);
     }
@@ -1345,6 +1379,7 @@ fn spent(result: &Result, usd_micros: u64) -> Spent {
     let usage = &result.usage;
     Spent {
         usd_micros,
+        unpriced: false,
         uncached_tokens: usage.input_tokens + usage.cache_creation_input_tokens,
         cache_written_tokens: Some(usage.cache_creation_input_tokens),
         cached_tokens: usage.cache_read_input_tokens,
@@ -1451,6 +1486,7 @@ mod tests {
             read.spent,
             Spent {
                 usd_micros: 2614,
+                unpriced: false,
                 uncached_tokens: 9094,
                 cache_written_tokens: Some(9090),
                 cached_tokens: 63348,
@@ -1968,6 +2004,7 @@ mod tests {
             read.spent,
             Spent {
                 usd_micros: 30_000,
+                unpriced: false,
                 uncached_tokens: (2 + 100) + (4 + 10),
                 cache_written_tokens: Some(100 + 10),
                 cached_tokens: 50 + 200,
@@ -2029,6 +2066,17 @@ mod tests {
             stream.line(line.as_bytes());
         }
         stream
+    }
+
+    /// What the program's earlier reports of a work's calls on the model tell of its prices: a token sent fresh and one
+    /// read from the cache, in millionths of a dollar.
+    fn learned(model: &str, input: f64, read: f64) -> BTreeMap<String, driver::prices::Prices> {
+        [(model.to_string(), driver::prices::Prices { input, read })].into()
+    }
+
+    /// What the reports tell of Haiku 5.5, whose calls the real stream holds: what its program's own count makes them.
+    fn haiku() -> BTreeMap<String, driver::prices::Prices> {
+        learned("claude-haiku-5-5", 0.1, 0.01)
     }
 
     /// The index of the line of the real stream's result.
@@ -2203,17 +2251,27 @@ mod tests {
         assert_eq!(stream.cost(), (183_200, false), "told by the program, none priced");
     }
 
-    // A result that does not say what it spent is priced from its calls and says so, with the cost of the calls at their
-    // models' prices as the oracle: the real stream's two calls come to $0.002614 by the program's own count too.
+    // A result that does not say what it spent is priced from its calls at their model's prices as the work's earlier
+    // reports tell them, and says so, with the program's own count as the oracle: the real stream's two calls come to
+    // $0.002614 by it too. Where no report prices the model, what the calls cost is not known, and said so: never
+    // nothing. Fails where a call is priced from a table of models by their names.
     #[test]
     fn a_result_without_the_field_is_priced_from_its_calls_and_says_so() {
-        let stream = feed(&without_cost());
+        let mut stream = feed(&without_cost());
+        stream.learned = haiku();
         assert_eq!(stream.cost(), (2614, true));
         assert!(stream.estimated());
-        assert_eq!(stream.took().map(|s| s.usd_micros), Some(2614));
+        assert!(!stream.unpriced());
+        assert_eq!(stream.took().map(|s| (s.usd_micros, s.unpriced)), Some((2614, false)));
+        let unknown = feed(&without_cost());
+        assert!(unknown.unpriced(), "no report prices the model");
+        assert_eq!(unknown.took().map(|s| s.unpriced), Some(true));
+        let read = unknown.read(&program()).expect("the stream reads");
+        assert!(read.spent.unpriced, "a round whose cost is not known says so");
         let told = feed(&real_message());
         assert_eq!(told.cost(), (2614, false));
         assert!(!told.estimated());
+        assert!(!told.unpriced(), "the program told what it cost");
     }
 
     // A stream cut off before its result prices each call by the tokens its `message_delta` says it wrote: the messages the
@@ -2221,7 +2279,8 @@ mod tests {
     #[test]
     fn a_stream_cut_off_prices_each_call_by_its_message_delta() {
         let cut: Vec<String> = real_message().into_iter().take(result_at(&real_message())).collect();
-        let stream = feed(&cut);
+        let mut stream = feed(&cut);
+        stream.learned = haiku();
         assert_eq!(stream.cost(), (2614, true));
         let without: Vec<String> = cut
             .iter()
@@ -2229,7 +2288,9 @@ mod tests {
             .cloned()
             .collect();
         // Haiku 5.5: 2 fresh, 27,199 read and 8,950 written for an hour, then 2, 36,149 and 140, with 17 and 5 tokens out.
-        assert_eq!(feed(&without).cost(), (2071 + 392, true));
+        let mut without = feed(&without);
+        without.learned = haiku();
+        assert_eq!(without.cost(), (2071 + 392, true));
     }
 
     // The end of a call is final whichever comes first, its message or its `message_delta`: the program prints the message
@@ -2248,24 +2309,33 @@ mod tests {
             moved.insert(message, end);
             assert!(at(&moved, r#""message_delta""#) < at(&moved, r#"{"type":"assistant""#));
         }
-        assert_eq!(feed(&moved).cost(), (2614, true));
+        let mut moved = feed(&moved);
+        moved.learned = haiku();
+        assert_eq!(moved.cost(), (2614, true));
     }
 
     // The lines of a call a subagent made are kept like the agent's own, so that a try the engine did not see end is
-    // priced from them again, and the call is priced with the rest. Opus 5.5: 100 fresh, 1,000 read, 50 out.
+    // priced from them again, and the call is priced with the rest: 100 fresh, 1,000 read, 50 out, at the prices the
+    // work's reports tell of its model.
     #[test]
     fn the_start_and_the_end_of_every_call_are_kept_and_priced_again_as_they_were() {
         // As the program prints them, the type first.
         let start = r#"{"type":"stream_event","parent_tool_use_id":"toolu_1","event":{"type":"message_start","message":{"id":"msg_sub","model":"claude-opus-5-5","usage":{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":1000,"output_tokens":1}}}}"#;
         let end = r#"{"type":"stream_event","parent_tool_use_id":"toolu_1","api_message_id":"msg_sub","event":{"type":"message_delta","usage":{"input_tokens":100,"output_tokens":50}}}"#;
         let piece = r#"{"type":"stream_event","parent_tool_use_id":"toolu_1","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"x"}}}"#;
-        let mut stream = Stream::default();
+        let mut stream = Stream {
+            learned: learned("claude-opus-5-5", 4.0, 0.2),
+            ..Stream::default()
+        };
         assert!(stream.line(start.as_bytes()), "a subagent's start is kept");
         assert!(!stream.line(piece.as_bytes()), "a piece of its text is not");
         assert!(stream.line(end.as_bytes()), "its end is kept");
         // 100 × 4 + 1,000 × 0.2 + 50 × 20 millionths.
         assert_eq!(stream.cost(), (1600, true));
-        let mut again = Stream::default();
+        let mut again = Stream {
+            learned: learned("claude-opus-5-5", 4.0, 0.2),
+            ..Stream::default()
+        };
         for line in [start, end] {
             again.line(line.as_bytes());
         }
@@ -2284,7 +2354,8 @@ mod tests {
             .position(|l| l.contains(r#""message_delta""#))
             .expect("a call's end");
         lines.extend(second.into_iter().take(end + 1));
-        let stream = feed(&lines);
+        let mut stream = feed(&lines);
+        stream.learned = haiku();
         assert_eq!(stream.results(), 1);
         assert_eq!(stream.cost(), (500_000 + 2099, true));
         let no = stream.read(&program()).expect_err("no result for the question");

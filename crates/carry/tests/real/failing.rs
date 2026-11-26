@@ -250,8 +250,11 @@ async fn a_failed_round_whose_result_says_what_it_cost_is_charged_it_and_the_nex
     );
 }
 
+// A round whose program crashed before its result, the work's first, has no earlier report of its model to price its
+// calls by: what it cost is not known, and is kept and said so, never as nothing, and the work waits for the owner, as
+// what it spent cannot be held to its budget. Fails where a call is priced from a table of models by their names.
 #[tokio::test]
-async fn a_round_whose_program_crashed_before_its_result_is_charged_its_calls_at_their_prices_and_says_so() {
+async fn a_round_whose_program_crashed_before_its_result_has_a_cost_not_known_and_waits_for_the_owner() {
     let fake = Fake {
         crashes_first: true,
         ..Fake::default()
@@ -262,10 +265,18 @@ async fn a_round_whose_program_crashed_before_its_result_is_charged_its_calls_at
     real.until(|real| real.failures == 1).await;
     let kept = real.work(work);
     let plan_run = kept.records.started[0].run;
-    // Opus 5.5: 100 × 4 + 1,000 × 0.2 + 10 × 20 millionths of a dollar.
-    assert_eq!(kept.spent[&(plan_run, 1)].usd_micros, 400 + 200 + 200);
+    let spent = kept.spent[&(plan_run, 1)];
+    assert_eq!(
+        (spent.usd_micros, spent.unpriced),
+        (0, true),
+        "what it cost is not known"
+    );
     let measures = work::measured::of_round(&kept.measured, plan_run, 1).expect("its calls are measured");
-    assert!(measures.priced, "what it took is priced from its calls");
+    assert!(measures.priced, "what it took is worked out from its calls");
+    let why = decide::pause(&kept.records)
+        .and_then(|p| p.why.clone())
+        .expect("the work waits for the owner");
+    assert!(why.contains("is not known"), "{why}");
 }
 
 #[tokio::test]

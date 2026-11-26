@@ -2983,7 +2983,12 @@ fn spent(spent: &Spent) -> String {
     let micros = spent.usd_micros % 1_000_000;
     let seconds = spent.working_ms / 1000;
     let tenths = spent.working_ms % 1000 / 100;
-    format!("${dollars}.{micros:06} in {rounds}, under way for {seconds}.{tenths} s")
+    // Where some of it is not known, what is said is a part of it, and said so.
+    let unknown = match spent.unpriced {
+        0 => String::new(),
+        n => format!("; {n} of its rounds, pings and forks cost more than that, by how much is not known"),
+    };
+    format!("${dollars}.{micros:06} in {rounds}, under way for {seconds}.{tenths} s{unknown}")
 }
 
 #[cfg(test)]
@@ -2991,6 +2996,24 @@ mod tests {
     use web::works::{FirstItem, Item, ItemHistory, Summary};
 
     use super::*;
+
+    // What rounds took is said with the part of it that is not known, never as if what is known were all of it.
+    #[test]
+    fn a_spend_some_of_whose_cost_is_not_known_says_so() {
+        let known = Spent {
+            usd_micros: 1_500_000,
+            working_ms: 3_200,
+            rounds: 2,
+            ..Spent::default()
+        };
+        assert_eq!(spent(&known), "$1.500000 in 2 rounds, under way for 3.2 s");
+        let part = Spent { unpriced: 1, ..known };
+        assert_eq!(
+            spent(&part),
+            "$1.500000 in 2 rounds, under way for 3.2 s; 1 of its rounds, pings and forks cost more than that, by how \
+             much is not known"
+        );
+    }
 
     /// An item of the trial flow, merged where `merged`, depending on these, carrying these tags.
     fn item(number: u64, merged: bool, depends_on: &[u64], tags: &[&str]) -> Item {

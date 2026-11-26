@@ -389,7 +389,7 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
     out.spent = rows(
         db,
         "SELECT run, round, usd_micros, uncached_tokens, cache_written_tokens, cached_tokens, output_tokens, \
-         context_tokens, compactions FROM spent WHERE work = ?1",
+         context_tokens, compactions, unpriced FROM spent WHERE work = ?1",
         w,
         |row| {
             let spent = Spent {
@@ -400,6 +400,7 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
                 output_tokens: row.get(6)?,
                 context_tokens: row.get(7)?,
                 compactions: row.get(8)?,
+                unpriced: row.get(9)?,
             };
             Ok(((RunId(row.get(0)?), row.get(1)?), spent))
         },
@@ -494,7 +495,7 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
     out.pinged = rows(
         db,
         "SELECT at, line, session, usd_micros, uncached_tokens, cache_written_tokens, cached_tokens, output_tokens, \
-         context_tokens, compactions, failed FROM pinged WHERE work = ?1 ORDER BY at",
+         context_tokens, compactions, failed, unpriced FROM pinged WHERE work = ?1 ORDER BY at",
         w,
         |row| {
             Ok(Pinged {
@@ -509,6 +510,7 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
                     output_tokens: row.get(7)?,
                     context_tokens: row.get(8)?,
                     compactions: row.get(9)?,
+                    unpriced: row.get(11)?,
                 },
                 failed: row.get(10)?,
             })
@@ -516,8 +518,8 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
     )?;
     out.forked = rows(
         db,
-        "SELECT at, run, round, usd_micros, uncached_tokens, cache_written_tokens, cached_tokens, output_tokens \
-         FROM forked WHERE work = ?1 ORDER BY at",
+        "SELECT at, run, round, usd_micros, uncached_tokens, cache_written_tokens, cached_tokens, output_tokens, \
+         unpriced FROM forked WHERE work = ?1 ORDER BY at",
         w,
         |row| {
             Ok(Forked {
@@ -525,6 +527,7 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
                 run: RunId(row.get(1)?),
                 round: row.get(2)?,
                 usd_micros: row.get(3)?,
+                unpriced: row.get(8)?,
                 uncached_tokens: row.get(4)?,
                 cache_written_tokens: row.get(5)?,
                 cached_tokens: row.get(6)?,
@@ -936,7 +939,8 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     for ((run, round), s) in spent {
         db.execute(
             "INSERT INTO spent (work, run, round, usd_micros, uncached_tokens, cache_written_tokens, cached_tokens, \
-             output_tokens, context_tokens, compactions) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+             output_tokens, context_tokens, compactions, unpriced) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 w,
                 run.0,
@@ -947,7 +951,8 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
                 s.cached_tokens,
                 s.output_tokens,
                 s.context_tokens,
-                s.compactions
+                s.compactions,
+                s.unpriced
             ],
         )?;
     }
@@ -1016,8 +1021,8 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
         let s = &p.spent;
         db.execute(
             "INSERT INTO pinged (work, at, line, session, usd_micros, uncached_tokens, cache_written_tokens, \
-             cached_tokens, output_tokens, context_tokens, compactions, failed) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+             cached_tokens, output_tokens, context_tokens, compactions, failed, unpriced) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 w,
                 p.at.0,
@@ -1030,14 +1035,15 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
                 s.output_tokens,
                 s.context_tokens,
                 s.compactions,
-                p.failed
+                p.failed,
+                s.unpriced
             ],
         )?;
     }
     for f in forked {
         db.execute(
             "INSERT INTO forked (work, at, run, round, usd_micros, uncached_tokens, cache_written_tokens, \
-             cached_tokens, output_tokens) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+             cached_tokens, output_tokens, unpriced) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 w,
                 f.at.0,
@@ -1047,7 +1053,8 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
                 f.uncached_tokens,
                 f.cache_written_tokens,
                 f.cached_tokens,
-                f.output_tokens
+                f.output_tokens,
+                f.unpriced
             ],
         )?;
     }

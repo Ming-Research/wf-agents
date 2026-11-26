@@ -304,6 +304,8 @@ impl Driver {
         let n = self.ended;
         Spent {
             usd_micros: 7 * n,
+            // Some rounds have calls whose cost is not known.
+            unpriced: n.is_multiple_of(5),
             uncached_tokens: 11 * n,
             // Told by no round of a file made before this version: the work is read back from such files as written.
             cache_written_tokens: None,
