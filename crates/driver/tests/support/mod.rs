@@ -1181,8 +1181,20 @@ impl H {
         self.kept_pending(todo.work).contains(&todo.effect)
     }
 
-    /// What the event answers is answered: the round it ends, or the call it gives the result of.
+    /// What the event answers is answered: the round it ends, or the call it gives the result of. A call said to be
+    /// held is taken back, not answered: it has no result, and is given again, as once, after the wait the engine made
+    /// for it.
     fn answered(&mut self, work: WorkNumber, event: &Event) {
+        if let Event::Held { call, .. } = event {
+            let at = (self.outstanding.iter())
+                .position(|t| t.work == work && matches!(t.effect, Effect::Call { call: c, .. } if c == *call));
+            let todo = self
+                .outstanding
+                .remove(at.expect("a call held was given and not yet answered"));
+            let once = self.once(&todo);
+            assert!(self.ever.remove(&once), "a call held was given: {todo:?}");
+            return;
+        }
         let answers = |todo: &Todo| {
             todo.work == work
                 && match (event, &todo.effect) {
