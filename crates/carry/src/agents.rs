@@ -2179,10 +2179,12 @@ fn limit_met(lines: &[u8], report: Option<String>, words: &flow::agents::Program
     failure::of(&report, &no.said, no.spent.as_ref()) == Failure::UsageLimit
 }
 
-/// What two calls of a program took together: their costs and tokens added, and the context the second ended with.
+/// What two calls of a program took together: their costs and tokens added, some of the cost not known where some of
+/// either's is, and the context the second ended with.
 fn plus(first: Spent, second: Spent) -> Spent {
     Spent {
         usd_micros: first.usd_micros + second.usd_micros,
+        unpriced: first.unpriced || second.unpriced,
         uncached_tokens: first.uncached_tokens + second.uncached_tokens,
         cache_written_tokens: match (first.cache_written_tokens, second.cache_written_tokens) {
             (Some(a), Some(b)) => Some(a + b),
