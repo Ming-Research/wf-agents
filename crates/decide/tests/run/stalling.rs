@@ -31,6 +31,25 @@ fn step_asking(rounds: Vec<Round>, spec: &Spec, blocks: &[&str]) -> (Step, Asks)
     (step, asked.into_inner())
 }
 
+/// What the run does next on these rounds, the walk saying the work is stuck unless the run writes this block.
+fn step_unless_written(rounds: Vec<Round>, spec: &Spec, block: &str) -> Step {
+    let stuck = |_: &[BlockId], writes: &[Write]| -> Vec<BlockId> {
+        match writes.iter().any(|w| w.block.as_str() == block) {
+            true => Vec::new(),
+            false => vec![block.into()],
+        }
+    };
+    let requires = Requires {
+        stuck: Some(Stuck(&stuck)),
+        ..spec.requires()
+    };
+    let log = Log {
+        rounds,
+        ..Log::default()
+    };
+    next(&log, requires, Hold::Nothing)
+}
+
 fn would_stall(blocks: &[&str]) -> Unmet {
     Unmet::WouldStall {
         blocks: blocks.iter().map(|&b| b.into()).collect(),
@@ -81,6 +100,19 @@ fn what_a_round_committed_is_among_what_the_check_is_told_the_run_would_write() 
     let (step, asked) = step_asking(vec![reading(&["plan"])], &spec(), &[]);
     assert_eq!(step, finish(vec![prose("plan")]));
     assert_eq!(asked[0].1, [prose("plan")]);
+}
+
+#[test]
+fn a_return_that_only_hands_in_a_commit_is_taken_where_the_block_it_commits_ends_the_stall() {
+    // The check answers from what the run would write: without the block the work is stuck, with it it is not.
+    assert_eq!(
+        step_unless_written(vec![handed_in(vec![])], &spec(), "plan"),
+        send_back(vec![would_stall(&["plan"])])
+    );
+    assert_eq!(
+        step_unless_written(vec![reading(&["plan"])], &spec(), "plan"),
+        finish(vec![prose("plan")])
+    );
 }
 
 #[test]
