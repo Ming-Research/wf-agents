@@ -662,7 +662,12 @@ fn a_work_waiting_for_a_precondition_the_owner_makes_hold_is_a_line() {
 
 /// A flow whose check, a cell that reads main, writes `checked`, which the merge waits to be yes.
 fn checked() -> flow::Compiled {
-    let flow = r#"
+    checked_flow(false)
+}
+
+/// The same flow, its writer waiting for the items its item depends on to have merged where `after_items`.
+fn checked_flow(after_items: bool) -> flow::Compiled {
+    let mut flow = r#"
         name = "checked"
         order = ["write", "check", "merge"]
         [limits]
@@ -687,8 +692,9 @@ fn checked() -> flow::Compiled {
         kind = "all"
         reads = ["checked"]
         is = "yes"
-    "#;
-    let write = r#"
+    "#
+    .to_string();
+    let mut write = r#"
         title = "Write"
         kind = "agent"
         line = "main"
@@ -700,7 +706,27 @@ fn checked() -> flow::Compiled {
         [kinds]
         start = "last_and_latest"
         request = "last_and_latest"
-    "#;
+    "#
+    .to_string();
+    if after_items {
+        flow.push_str(
+            r#"
+        [blocks.deps]
+        values = ["waiting", "merged"]
+        outside = "dependencies"
+        writes = { merged = "Every item this one depends on has merged.", waiting = "Waits for the items {items} to merge.", between = ", " }
+        [tests.ready]
+        says = "Every item this one depends on has merged"
+        kind = "all"
+        reads = ["deps"]
+        is = "merged"
+    "#,
+        );
+        write = write.replace(
+            "effort = \"high\"",
+            "effort = \"high\"\n        requires = { test = \"ready\" }",
+        );
+    }
     let check = r#"
         title = "Check"
         kind = "agent"
@@ -722,7 +748,7 @@ fn checked() -> flow::Compiled {
         watches = ["text", "checked"]
         outputs = ["merged"]
     "#;
-    compiled(flow, &[("write", write), ("check", check), ("merge", merge)])
+    compiled(&flow, &[("write", write.as_str()), ("check", check), ("merge", merge)])
 }
 
 // A work whose check says that what it wrote waits for main waits for main, no one's to answer, and is no line for
@@ -888,6 +914,34 @@ fn a_red_main_is_a_line_once_for_each_time_it_came_to_be_and_a_pass_on_main_ends
             },
             since: began,
         }]
+    );
+}
+
+// A work that depends on one that waits for main is not idle: the work it waits for is going on, whoever is to mend
+// main, and a red main changes no work's standing. Well under a second alone; no other test holds a work that depends
+// on one waiting for main.
+#[test]
+fn a_work_that_depends_on_one_waiting_for_main_is_not_idle() {
+    let mut h = H::with(vec![checked_flow(true)]);
+    let (a, wa) = h.add(new_item("a", &[], "checked"));
+    let (_, wb) = h.add(new_item("b", &[a], "checked"));
+    h.outside("main", "Main is at m1.");
+    comes_to_its_check(&mut h, wa);
+    finds_main_red(&mut h, wa, "run/1/round/1", "own1", "m1");
+    h.let_on(wb);
+    assert!(
+        matches!(h.decision(wb), Decision::Wait { .. }),
+        "the work waits for the item: {:?}",
+        h.decision(wb)
+    );
+    assert_eq!(
+        heeds(&since(&h, None)),
+        vec![Heed::MainRed {
+            project: PROJECT.to_string(),
+            tests: red_tests("m1"),
+            works: vec![wa],
+        }],
+        "no line says the work {wb:?} is idle, and it does not wait for main"
     );
 }
 
