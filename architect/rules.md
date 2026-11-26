@@ -178,6 +178,8 @@ reports (`wf-agents wait`):
   messages to the owner), is plain and exact: short sentences, and each sentence names its subject. A pronoun such as
   "it", "this" or "that" appears only where the reader cannot mistake what the pronoun stands for; otherwise the
   sentence names the thing again.
+- **A change to a text agents are given** changes the words of the sentence that was misread. It adds words only where
+  no sentence there can carry the meaning, and the architect tells the owner why each added word is needed.
 - **Title**, of an item and of an observation alike: in `owner.language`. It says the work to be done, never a state
   that reads as done. At most as many words as `items.title_max` says, a Chinese character counting as one, and the
   limit is no length to fill. No conditions, numbers or internal names.
