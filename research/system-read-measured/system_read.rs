@@ -145,14 +145,30 @@ async fn the_system_is_read_over_works_going_on_with_many_waits() {
         let running = running_scripted(Box::new(store), dir, script);
         let router = &running.router;
         add_works(router, 1, WORKS, true).await;
-        // Each plan has been sent back three times and reached its limit: the owner lets each go on, and it merges.
-        pass(6_000).await;
-        act_on(router, 1, WORKS, json!({ "kind": "letGo", "cell": "plan" })).await;
+        // Each plan is sent back three times and reaches its limit, where its work waits for the owner: the owner lets each
+        // go on, as soon as it is there, and it merges.
+        for work in 1..=WORKS {
+            let mut tries = 0;
+            loop {
+                let done = post(
+                    router,
+                    &format!("/api/v1/works/{work}/acts"),
+                    &json!({ "kind": "letGo", "cell": "plan" }),
+                )
+                .await;
+                if done == (StatusCode::NO_CONTENT, Value::Null) {
+                    break;
+                }
+                tries += 1;
+                assert!(tries < 30, "work {work} reached the limit of its plan: {done:?}");
+                pass(2_000).await;
+            }
+        }
         pass(10 * 60_000).await;
         add_works(router, WORKS + 1, WORKS + WAITING, false).await;
         let (live_from, live_to) = (WORKS + WAITING + 1, WORKS + WAITING + LIVE);
         add_works(router, live_from, live_to, true).await;
-        pass(6_000).await;
+        pass(60_000).await;
         for _ in 0..CYCLES {
             act_on(router, live_from, live_to, json!({ "kind": "pause" })).await;
             pass(1_000).await;
