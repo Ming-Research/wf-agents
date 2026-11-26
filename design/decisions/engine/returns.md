@@ -49,7 +49,7 @@ A return names a group of blocks the cell watches in `dealt_with` by the group's
 - rejected: an agent proposed letting the cell go on past its limit from the page; the owner rejected it, because the fault was in the engine and was to be fixed there, not worked around.
 
 ### decision a-sent-back-return-is-completed-by-what-is-missing
-A return sent back is completed by the next, which gives only what the send-back lists; one that asked for calls or could not be read is given whole again. Each return is kept as it came.
+A return sent back is completed by the next, which gives only what is listed; where the next asks for calls, what stood is written; one that asked for calls or was unread is given whole again.
 - replaced: Sending a return back to be handed in whole again was on main; the owner changed it, because each send-back made the cell write again what was right, and the cell could write something else wrong in doing so.
 - rejected: an agent proposed keeping the return whole as it was and no completing, only no longer sending back for names that change nothing; the owner rejected it, because a real error still made the cell rewrite the whole return, and it might write another part wrong.
 
@@ -57,6 +57,10 @@ A return sent back is completed by the next, which gives only what the send-back
 A return with no call must hand in the blocks its cell must write, unless it asks a question its cell waits for, only answers the owner, or is of a round entered while it waits or told to hand in.
 - replaced: Requiring those blocks of every return that asks for no call, including one with a question its cell waits for, was on main; the owner changed it, because a cell stopped by a question then had to force a value, and the work stops at the cell until the answer comes.
 - rejected: the owner proposed deleting the rule, so that a cell testing the change would not give its verdict before any result; the owner rejected it, because the rule asks for the blocks only in a return that makes no call, so a review that asks for the tests gives its verdict after the results.
+
+### decision a-return-that-leaves-the-work-stuck-is-sent-back
+A return that would leave the work waiting for blocks cells write, none of which will run, is sent back naming the blocks of its cell that would end it, as the walk decides with the return taken.
+- rejected: an agent proposed declaring in the flow which blocks a value or a cell must come with, as `with_nothing_but` is; the owner rejected it, because it covers only the cells thought of, and each other cell or flow with the same gap needs a rule written again.
 
 ### decision normalise-shape-only
 If a return is not in the form's shape but means it, like a list written as a string or the form wrapped in one more object, the engine puts it into shape before reading it; its content never changes.

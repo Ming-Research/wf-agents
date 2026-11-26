@@ -1229,11 +1229,160 @@ fn the_research_s_hand_over_holding_a_question_is_sent_back_saying_what_else_it_
     assert!(!decide::applies(&sim.flow.flow, &sim.work.records, &CellId::from("R1")));
 }
 
+// A return that meets everything else but would leave the work unable to go on is sent back, naming the blocks of its
+// cell that would end it (decision a-return-that-leaves-the-work-stuck-is-sent-back): the research that says no deeper
+// look is needed and hands in no plan, which nothing would run the reviews of, so that the implementation waits for them
+// for good. Its next return completes what stood, giving the plan, and the work goes on to the reviews' predecessor.
+#[test]
+fn a_research_that_says_no_deeper_look_and_hands_in_no_plan_is_sent_back_naming_the_plan() {
+    let (mut sim, research) = until("R1");
+    tried(&mut sim, &research);
+    sim.returns(
+        &research,
+        Came::hands_in(vec![handed("deep_needed", "", Some("no"))]),
+        0,
+    );
+    let again = sim.round().unwrap_or_else(|| {
+        panic!(
+            "the research is entered again: {:?}",
+            decide::decide(&sim.flow.flow, &sim.work.records)
+        )
+    });
+    assert_eq!((again.cell.as_str(), again.run, again.number), ("R1", research.run, 2));
+    assert!(
+        sim.versions("deep_needed").is_empty(),
+        "nothing of the sent-back return was taken"
+    );
+    let entered = sim.enter(&again, sim.begins(&again));
+    let said = "none of these blocks has a version yet: `plan_owner`, `plan_agent`, `acceptance`.";
+    assert!(entered.text.contains(said), "{}", entered.text);
+    assert!(entered.text.contains(ONLY_WHAT_IS_LISTED), "{}", entered.text);
+    sim.tries(&again, 1, entered.fills);
+    let plan = vec![
+        handed("plan_owner", "Greet by name.", None),
+        handed("plan_agent", "Add the name to the greeting.", None),
+        handed("acceptance", "The greeting names the user.", None),
+    ];
+    sim.returns(&again, Came::hands_in(plan), 0);
+    // What stood of the first return, the choice, is written with the plan, and the work goes on.
+    assert_eq!(sim.versions("deep_needed").len(), 1);
+    assert_eq!(sim.versions("plan_owner").len(), 1);
+    let next = sim.round().expect("the work goes on");
+    assert_ne!(next.cell.as_str(), "R1");
+}
+
+// The same for the deep research, whose return hands in no plan where none was written before.
+#[test]
+fn a_deep_research_that_hands_in_no_plan_is_sent_back_naming_the_plan() {
+    let (mut sim, deep) = deeply_until("D1");
+    tried(&mut sim, &deep);
+    sim.returns(&deep, Came::hands_in(vec![]), 0);
+    let again = sim.round().unwrap_or_else(|| {
+        panic!(
+            "the deep research is entered again: {:?}",
+            decide::decide(&sim.flow.flow, &sim.work.records)
+        )
+    });
+    assert_eq!((again.cell.as_str(), again.run, again.number), ("D1", deep.run, 2));
+    let entered = sim.enter(&again, sim.begins(&again));
+    let said = "`plan_owner`, `plan_agent`, `acceptance`";
+    assert!(entered.text.contains(said), "{}", entered.text);
+}
+
+// Where the plan has a version, the research that answers a point of the plan's review without writing the plan again
+// leaves the work able to go on, the review running again on the point's answer, so its return is taken.
+#[test]
+fn a_research_that_answers_a_point_without_writing_the_plan_it_wrote_before_is_taken() {
+    let (mut sim, review) = until("P1");
+    tried(&mut sim, &review);
+    sim.hands_in(
+        &review,
+        &[("plan_ok", "", Some("no")), ("plan_review", "A: the name.", None)],
+    );
+    let research = sim.round().expect("the research is woken by the point");
+    assert_eq!(research.cell.as_str(), "R1");
+    tried(&mut sim, &research);
+    sim.hands_in(
+        &research,
+        &[("deep_needed", "", Some("no")), ("plan_review", "A: done.", None)],
+    );
+    assert_eq!(sim.versions("plan_review").len(), 2, "the answer was taken");
+    let next = sim.round().expect("the work goes on");
+    assert_ne!(next.run, research.run, "the return was sent back");
+}
+
+// What a return sent back said stands where the next return asks for calls, which ends the run (decision
+// a-sent-back-return-is-completed-by-what-is-missing): the engine wrote it, the deep research did not hand it in again.
+#[test]
+fn what_a_sent_back_return_left_standing_is_written_when_the_next_return_asks_for_calls() {
+    let (mut sim, deep) = deeply_until("D1");
+    tried(&mut sim, &deep);
+    let plan = vec![
+        handed("plan_owner", "Greet by name.", None),
+        handed("plan_agent", "Add the name to the greeting.", None),
+        handed("acceptance", "The greeting names the user.", None),
+    ];
+    // Sent back for a block that is no output of the cell, and so not for the plan.
+    let mut first = Came::hands_in(plan);
+    first.found = vec![decide::run::Unmet::NotAnOutput {
+        block: BlockId::from("place"),
+    }];
+    sim.returns(&deep, first, 0);
+    let again = sim.round().expect("the deep research is entered again");
+    assert_eq!((again.cell.as_str(), again.run, again.number), ("D1", deep.run, 2));
+    assert!(sim.versions("plan_owner").is_empty());
+    let entered = sim.enter(&again, sim.begins(&again));
+    sim.tries(&again, 1, entered.fills);
+    let asks = engine::Ask::Tool {
+        name: "query".to_string(),
+        input: "{}".to_string(),
+    };
+    sim.returns(&again, Came::asks(vec![asks]), 0);
+    for block in ["plan_owner", "plan_agent", "acceptance"] {
+        assert_eq!(sim.versions(block).len(), 1, "{block} was not written");
+    }
+}
+
+// Reference: decision a-sent-back-return-is-completed-by-what-is-missing (what a return sent back left standing is
+// written where the next return asks for calls, which ends the run dealing with nothing) and the walk's rule that what
+// a run did not deal with runs its cell again: the research sent back for leaving the work stuck, whose next return only
+// asks for a call, leaves its choice written and the research to run again, so the work is not left without a plan.
+#[test]
+fn a_research_sent_back_for_stalling_whose_next_return_asks_for_calls_is_run_again_with_its_choice_written() {
+    let (mut sim, research) = until("R1");
+    tried(&mut sim, &research);
+    sim.returns(
+        &research,
+        Came::hands_in(vec![handed("deep_needed", "", Some("no"))]),
+        0,
+    );
+    let again = sim.round().expect("the research is entered again");
+    assert_eq!((again.cell.as_str(), again.run), ("R1", research.run));
+    let entered = sim.enter(&again, sim.begins(&again));
+    sim.tries(&again, 1, entered.fills);
+    let asks = engine::Ask::Tool {
+        name: "query".to_string(),
+        input: "{}".to_string(),
+    };
+    sim.returns(&again, Came::asks(vec![asks]), 0);
+    assert_eq!(
+        sim.versions("deep_needed").len(),
+        1,
+        "the choice that stood was written"
+    );
+    assert!(sim.versions("plan_owner").is_empty());
+    let call = *sim.calls().last().expect("the call");
+    sim.done(call, "1");
+    let next = sim.round().expect("the work goes on");
+    assert_eq!(next.cell.as_str(), "R1", "the research runs again for the plan");
+    assert_ne!(next.run, research.run);
+}
+
 const ONLY_WHAT_IS_LISTED: &str =
     "Return again with only what is listed here. What you returned before and is not listed stands.";
 const WHOLE_AGAIN: &str = "Return again, with everything this return should say in one return.";
 
-// A return that asks for calls stands alone: the run completes none with it and none with the one after it (decision
+// A return that asks for calls stands for nothing of what the one after it gives (decision
 // a-sent-back-return-is-completed-by-what-is-missing), so a return sent back that asked for a call, or that could not be
 // read, is told to be given whole again, and one that did the cell's work to give only what is listed.
 #[test]
@@ -1254,6 +1403,11 @@ fn a_return_that_asked_for_calls_or_could_not_be_read_is_told_to_be_given_whole_
     let entered = sim.enter(&again, sim.begins(&again));
     assert!(entered.text.contains(WHOLE_AGAIN), "{}", entered.text);
     assert!(!entered.text.contains(ONLY_WHAT_IS_LISTED), "{}", entered.text);
+    assert!(
+        entered.situation.whole,
+        "the situation says it: {:?}",
+        entered.situation
+    );
     sim.tries(&again, 1, entered.fills);
     // What could not be read stands for nothing either, and a return that did the cell's work after it is told so
     // again only where it is sent back.
@@ -1263,6 +1417,11 @@ fn a_return_that_asked_for_calls_or_could_not_be_read_is_told_to_be_given_whole_
     let entered = sim.enter(&third, sim.begins(&third));
     assert!(entered.text.contains(WHOLE_AGAIN), "{}", entered.text);
     assert!(!entered.text.contains(ONLY_WHAT_IS_LISTED), "{}", entered.text);
+    assert!(
+        entered.situation.whole,
+        "the situation says it: {:?}",
+        entered.situation
+    );
 }
 
 // The cell that takes charge from another watches that cell's questions (design document `data-and-context`, 28): the

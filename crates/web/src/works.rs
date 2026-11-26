@@ -5381,12 +5381,14 @@ pub(crate) mod tests {
             (
                 UnmetOf::TreeUnchanged {
                     name: "tree_question".to_string(),
+                    blocks: vec![block("tree_answer")],
                 },
                 "tree_unchanged",
                 vec![("name", "tree_question")],
             ),
             (
                 UnmetOf::NotAnEntry {
+                    block: Some(block("tree_entries")),
                     line: "an entry".to_string(),
                 },
                 "not_an_entry",
@@ -5396,6 +5398,13 @@ pub(crate) mod tests {
                 UnmetOf::Unanswered { block: block("plan") },
                 "unanswered",
                 vec![("block", "plan")],
+            ),
+            (
+                UnmetOf::WouldStall {
+                    blocks: vec![block("plan_owner"), block("acceptance")],
+                },
+                "would_stall",
+                vec![("blocks", "plan_owner"), ("blocks", "acceptance")],
             ),
         ];
         for (unmet, key, values) in cases {
