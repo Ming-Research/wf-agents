@@ -179,6 +179,21 @@ CREATE TABLE done (
     FOREIGN KEY (work, call) REFERENCES called (work, call)
 );
 
+-- A call was held: the host could not carry it out for now, for the reason `obstacle` names (`limit`, GitHub's limit on its
+-- requests; `fault`, a fault of GitHub's own; `no_runner`, no machine of the project's CI taking the run asked for;
+-- `network`, a fault of the network), and the engine made the call `wait`, an engine's call of the work's run that has
+-- its result once the time it waits for has come. The call is asked for again once `wait` has its result.
+CREATE TABLE held (
+    work INTEGER NOT NULL,
+    at INTEGER NOT NULL,
+    call INTEGER NOT NULL,
+    wait INTEGER NOT NULL,
+    obstacle TEXT NOT NULL,
+    PRIMARY KEY (work, at),
+    FOREIGN KEY (work, call) REFERENCES called (work, call),
+    FOREIGN KEY (work, wait) REFERENCES called (work, call)
+);
+
 -- A run finished, writing the blocks of `writes`. `dealt_with` is what its return says it has dealt with (JSON: a list
 -- of names, each of a block of the run's `basis` or one put in to it, in the order the return named them, empty where
 -- it dealt with nothing); null where the return did not say, as none of the form before it did: such a run dealt with

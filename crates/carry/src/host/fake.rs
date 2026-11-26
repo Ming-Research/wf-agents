@@ -27,6 +27,8 @@ pub(crate) struct Fake {
     asked: Mutex<Vec<Asked>>,
     /// What it says of the tests it is asked to run; its reason for running none where there are none.
     tests: Mutex<Option<String>>,
+    /// The failures it gives, in order, each to one request to run tests, before it says what it says of them.
+    failing: Mutex<VecDeque<Failed>>,
     /// The title of each branch it was given, in order.
     titles: Mutex<Vec<String>>,
     /// What asked for each verdict and each run of the tests, in order.
@@ -69,6 +71,7 @@ impl Fake {
             unreadable: Mutex::new(None),
             asked: Mutex::new(Vec::new()),
             tests: Mutex::new(None),
+            failing: Mutex::new(VecDeque::new()),
             titles: Mutex::new(Vec::new()),
             askings: Mutex::new(Vec::new()),
             continuing: Mutex::new(None),
@@ -106,6 +109,12 @@ impl Fake {
     /// Says these words of the tests it is asked to run.
     pub(crate) fn runs(self, said: &str) -> Fake {
         *lock(&self.tests) = Some(said.to_string());
+        self
+    }
+
+    /// Fails the next request to run tests with this, before it says what it says of them.
+    pub(crate) fn fails(self, failed: Failed) -> Fake {
+        lock(&self.failing).push_back(failed);
         self
     }
 
@@ -180,12 +189,15 @@ impl Host for Fake {
         named: &Named,
         asking: Asking,
         _: &mut Stop,
-    ) -> Result<Option<String>, String> {
+    ) -> Result<Option<String>, Failed> {
         self.given(branch);
         lock(&self.askings).push(asking);
         lock(&self.asked).push(Asked::RunTests(named.clone()));
+        if let Some(failed) = lock(&self.failing).pop_front() {
+            return Err(failed);
+        }
         let said = lock(&self.tests).clone();
-        said.map(Some).ok_or_else(|| NO_TOOLS.to_string())
+        said.map(Some).ok_or_else(|| Failed::from(NO_TOOLS))
     }
 
     async fn end(&self, branch: &Branch<'_>, merged: bool) -> Result<(), String> {

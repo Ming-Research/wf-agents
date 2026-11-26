@@ -581,6 +581,42 @@ pub enum Unrun {
     Held {},
 }
 
+/// A call the host could not carry out for now, and held: the engine asks for it again once its wait is over.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HeldCall {
+    /// When the engine's wait ends, in milliseconds since 1970.
+    pub until: u64,
+    /// How many times in a row the call was held.
+    pub failed: u32,
+    pub obstacle: Obstacle,
+}
+
+/// What kept the host from carrying a call out for now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Obstacle {
+    /// GitHub's limit on the requests it takes.
+    Limit,
+    /// A fault of GitHub's own.
+    Fault,
+    /// No machine of the project's CI took the run asked for.
+    NoRunner,
+    /// A fault of the network.
+    Network,
+}
+
+impl Obstacle {
+    fn of(obstacle: decide::Obstacle) -> Obstacle {
+        match obstacle {
+            decide::Obstacle::Limit => Obstacle::Limit,
+            decide::Obstacle::Fault => Obstacle::Fault,
+            decide::Obstacle::NoRunner => Obstacle::NoRunner,
+            decide::Obstacle::Network => Obstacle::Network,
+        }
+    }
+}
+
 /// What a work waits for.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
@@ -598,6 +634,10 @@ pub enum Waited {
         at: Option<String>,
         #[serde(default)]
         queued_for: Option<String>,
+        /// Where the call is held because the host could not carry it out for now, until when the engine waits to
+        /// ask for it again.
+        #[serde(default)]
+        held: Option<HeldCall>,
     },
     /// A key of the cell's `requires` does not hold: the named test, or the block's key as the cell's file writes it
     /// (`dependencies = merged`); the words shown for it, the test's or the same key; and each who can make it hold, by
@@ -2734,7 +2774,9 @@ impl Now {
                     .map(|waited| {
                         Ok(match waited {
                             WaitedOf::Call { call, on } => {
-                                let (at, queued_for) = runs_at(
+                                let held = held_call(work, *call);
+                                let (at, queued_for) = call_runs_at(
+                                    held.as_ref(),
                                     (along.iter())
                                         .find(|(under, _)| *under == Under::Call(*call))
                                         .map(|(_, said)| *said),
@@ -2746,6 +2788,7 @@ impl Now {
                                     made: made(work, *call)?,
                                     at,
                                     queued_for,
+                                    held,
                                 }
                             }
                             // The work waits for those of the items its item depends on that have not ended.
@@ -3442,6 +3485,12 @@ fn runs_at(said: Option<&Along>) -> (Option<String>, Option<String>) {
     }
 }
 
+/// The link and the runner of a call as [`runs_at`] says them, none where the call is held: it is carried out nowhere
+/// until its wait is over, and the run it last said it ran as is no longer where it stands.
+fn call_runs_at(held: Option<&HeldCall>, said: Option<&Along>) -> (Option<String>, Option<String>) {
+    if held.is_some() { (None, None) } else { runs_at(said) }
+}
+
 /// When the call was made.
 fn made(work: &Work, call: CallId) -> Result<u64, Broken> {
     let at = (work.records.called.iter())
@@ -3516,6 +3565,24 @@ fn outside(work: &Work, source: &str, run: RunId, block: &BlockId) -> Result<Wai
         source: source.to_string(),
         cell: cell_of(work, run)?,
         why: why.clone(),
+    })
+}
+
+/// The call as held, where the host could not carry it out for now and the engine's wait for asking again is not over:
+/// the wait it was last held until, how many times it was held in a row, and why.
+fn held_call(work: &Work, call: CallId) -> Option<HeldCall> {
+    let records = &work.records;
+    if !records.is_held(call) {
+        return None;
+    }
+    let held = records.held.iter().rev().find(|held| held.call == call)?;
+    let Some(CallOf::Wait { until, .. }) = work.calls.get(&held.wait) else {
+        return None;
+    };
+    Some(HeldCall {
+        until: until.0,
+        failed: u32::try_from(records.holds(call)).unwrap_or(u32::MAX),
+        obstacle: Obstacle::of(held.obstacle),
     })
 }
 
@@ -3953,6 +4020,48 @@ pub(crate) mod tests {
         };
         assert_eq!(QuestionPage::ahead(&questions, &[held]), 1);
         assert_eq!(QuestionPage::ahead(&questions, &[]), 2);
+    }
+
+    /// A call the host could not carry out for now is said with the wait it is held until, how many times in a row it
+    /// was held and why, until the wait has its result; a call never held is said with none.
+    #[test]
+    fn a_call_held_is_said_with_its_wait_until_the_wait_has_its_result() {
+        use decide::{Called, Done, Held, Obstacle as Why, Seq};
+        let mut work = Work::default();
+        let called = |call, at| Called {
+            call: CallId(call),
+            run: decide::RunId(1),
+            on: None,
+            at: Seq(at),
+        };
+        work.records.called = vec![called(2, 1), called(3, 3)];
+        work.calls.insert(
+            CallId(3),
+            CallOf::Wait {
+                until: Time(9_000),
+                failed: 1,
+            },
+        );
+        assert_eq!(held_call(&work, CallId(2)), None, "never held");
+        work.records.held = vec![Held {
+            call: CallId(2),
+            wait: CallId(3),
+            at: Seq(4),
+            obstacle: Why::Fault,
+        }];
+        assert_eq!(
+            held_call(&work, CallId(2)),
+            Some(HeldCall {
+                until: 9_000,
+                failed: 1,
+                obstacle: Obstacle::Fault,
+            })
+        );
+        work.records.done.push(Done {
+            call: CallId(3),
+            at: Seq(5),
+        });
+        assert_eq!(held_call(&work, CallId(2)), None, "its wait has its result");
     }
 
     /// A call recorded as a question for a person, which the engine no longer makes, is read as it was recorded.
@@ -5371,6 +5480,14 @@ pub(crate) mod tests {
         );
         assert_eq!(runs_at(Some(&runs)), (Some(link.to_string()), None));
         assert_eq!(runs_at(None), (None, None));
+        // A call held is carried out nowhere until its wait is over, whatever it last said.
+        let held = HeldCall {
+            until: 9_000,
+            failed: 1,
+            obstacle: Obstacle::NoRunner,
+        };
+        assert_eq!(call_runs_at(Some(&held), Some(&waits)), (None, None));
+        assert_eq!(call_runs_at(None, Some(&waits)), runs_at(Some(&waits)));
         let call = |(at, queued_for)| Waited::Call {
             call: 4,
             who: None,
@@ -5381,6 +5498,7 @@ pub(crate) mod tests {
             made: 9,
             at,
             queued_for,
+            held: None,
         };
         let said = serde_json::to_value(call(runs_at(Some(&waits)))).expect("it is JSON");
         assert_eq!(
