@@ -519,6 +519,46 @@ fn a_declaration_of_ci_that_lacks_one_of_its_two_workflows_or_a_time_limit_is_re
     );
 }
 
+// The fast workflow's inputs for the budget and the work's number are none where a declaration names none, so that
+// the engine gives a workflow only what it takes; a budget of the project's own is a time of a second or more, and
+// one that is none is refused with its key. The budget every project has is in run_tests.toml, read with the flows.
+#[test]
+fn a_declaration_may_name_the_inputs_of_the_budget_and_the_work_and_a_budget_of_its_own_of_a_second_or_more() {
+    let text = declaration_text();
+    let ci = |extra: &str| {
+        format!(
+            "{text}\n[ci.fast]\nworkflow = \"fast.yml\"\nrunner = \"github\"\ntoo_long = \"25m\"\n{extra}\n[ci.full]\n\
+             workflows = [\"ci.yml\"]\nrunner = \"github\"\ntoo_long = \"2h\"\n"
+        )
+    };
+    let fast = declared(&ci("")).unwrap().ci.expect("it declares both").fast;
+    assert_eq!(
+        (fast.budget_input.as_str(), fast.work_input.as_str(), fast.budget),
+        ("", "", None)
+    );
+    let named = "budget_input = \"budget_seconds\"\nwork_input = \"work\"\nbudget = \"90s\"\n";
+    let fast = declared(&ci(named)).unwrap().ci.expect("it declares both").fast;
+    assert_eq!(
+        (
+            fast.budget_input.as_str(),
+            fast.work_input.as_str(),
+            fast.budget.as_deref()
+        ),
+        ("budget_seconds", "work", Some("90s"))
+    );
+    for wrong in ["0s", "ten minutes"] {
+        let refused = declared(&ci(&format!("budget = \"{wrong}\"\n"))).unwrap_err();
+        assert!(refused.contains("ci.fast.budget"), "{wrong}: {refused}");
+    }
+    assert_eq!(agents::budget_of("10m"), Ok(600));
+    assert_eq!(agents::budget_of(" 1s "), Ok(1));
+    assert!(agents::budget_of("0m").is_err());
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+    let read = agents::read(&root).expect("what is written beside the flows is read");
+    let fast = (read.tools.get("run_tests").and_then(|tool| tool.fast.as_ref())).expect("run_tests has [fast]");
+    assert_eq!(agents::budget_of(&fast.budget), Ok(600), "the budget every project has");
+}
+
 // A project that measures declares a measure workflow beside the fast and the full one, which it must still have: one that
 // declares none is read with none, one that declares it is read with the names of the inputs the engine gives it, and one
 // that does not say how long a run may take, or declares it with no other workflow, is refused. Well under a millisecond

@@ -77,7 +77,8 @@ export const PITCH = 370;
 /// The room between the items of one item and those of the next in a column, in rows.
 const APART = 0.7;
 /// The map at the top left: each column a bar of this width, this far apart, the map this high, set this far in from
-/// the corner and padded this much inside.
+/// the corner and padded this much inside. The height is the page's token `--map-high`, which the styles lay the list
+/// of projects under the map by; this is what it is where the page's tokens give none.
 const MAP_STRIP = 12;
 const MAP_APART = 5;
 const MAP_HIGH = 72;
@@ -424,6 +425,13 @@ export function beatOf(): { ms: number; faint: number } {
   const ms = millisecondsOf('--pulse');
   const faint = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--pulse-faint'));
   return { ms: ms > 0 ? ms : PULSE_MS, faint: Number.isFinite(faint) ? faint : DARK };
+}
+
+/// A length the page's tokens give, in pixels; `fallback` where the token is none or is not in pixels.
+function pixelsOf(name: string, fallback: number): number {
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const m = /^([+-]?(?:\d+\.?\d*|\.\d+))px$/.exec(v);
+  return m === null ? fallback : Number.parseFloat(m[1]);
 }
 
 /// A time the page's tokens give, in milliseconds, in whichever unit the styles write it: the page's build writes
@@ -1320,6 +1328,7 @@ export class SnapScene {
   /// Told how wide the map is each time that changes, in pixels: what stands beside the map stands past it.
   onMapWidth: ((width: number) => void) | null = null;
   private mapWide = 0;
+  private mapHigh = MAP_HIGH;
   /// The items as last shown, by their place in the tree.
   private shownItems: Shown[] = [];
   private shadowsOf = new Map<number, number[]>();
@@ -2839,12 +2848,13 @@ export class SnapScene {
   /// either end in the middle.
   private buildMap(t: Tree) {
     this.map.removeChildren();
+    this.mapHigh = pixelsOf('--map-high', MAP_HIGH);
     let longest = 1;
     for (let d = 0; d < t.columns.length; d += 1) {
       const n = t.columns[d].length;
       longest = Math.max(longest, this.slot(d, n - 1) + this.rowsAt(d, n - 1));
     }
-    this.mapRow = (MAP_HIGH - 2 * MAP_PAD) / (2 * longest);
+    this.mapRow = (this.mapHigh - 2 * MAP_PAD) / (2 * longest);
     const wide = 2 * MAP_PAD + t.columns.length * MAP_STRIP + (t.columns.length - 1) * MAP_APART;
     if (wide !== this.mapWide) {
       this.mapWide = wide;
@@ -2852,12 +2862,12 @@ export class SnapScene {
     }
     this.mapFrame
       .clear()
-      .roundRect(0, 0, wide, MAP_HIGH, MAP_CORNER)
+      .roundRect(0, 0, wide, this.mapHigh, MAP_CORNER)
       .fill(PALETTE.page)
       .stroke({ color: PALETTE.line, width: 1 });
     this.mapMask
       .clear()
-      .rect(MAP_PAD / 2, MAP_PAD / 2, wide - MAP_PAD, MAP_HIGH - MAP_PAD)
+      .rect(MAP_PAD / 2, MAP_PAD / 2, wide - MAP_PAD, this.mapHigh - MAP_PAD)
       .fill(0xffffff);
     this.mapBars.mask = this.mapMask;
     this.map.addChild(this.mapFrame, this.mapMask, this.mapBars);
@@ -2870,7 +2880,7 @@ export class SnapScene {
   /// the tree the screen shows: from the first column it shows of to the last, as many rows as it holds round the
   /// middle, where each column's place on the screen is. What it drew is kept, for the tests.
   private drawMap(t: Tree) {
-    const mid = MAP_HIGH / 2;
+    const mid = this.mapHigh / 2;
     const { width, height } = this.app.screen;
     const barAt = (d: number) => MAP_PAD + d * (MAP_STRIP + MAP_APART);
     this.mapBars.clear();

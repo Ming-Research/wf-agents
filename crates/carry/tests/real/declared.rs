@@ -139,7 +139,7 @@ fn each_project_is_carried_with_its_own_heavy_commands_and_a_time_no_one_can_cou
     let heavy = "commands = [\"cargo\", \"rustc\", \"rustup\", \"npm\", \"npx\", \"node --test\", \"tsc\", \"vitest\", \"hyperfine\"]";
     assert!(good.contains(heavy), "the declaration names its heavy commands");
     let other = good.replace(heavy, "commands = [\"make\"]");
-    let huge = good.replacen("too_long = \"2h\"", "too_long = \"213503982334602d\"", 1);
+    let huge = good.replacen("too_long = \"25m\"", "too_long = \"213503982334602d\"", 1);
     assert_ne!(huge, good, "the fast workflow's time is written as the test expects");
     let projects = vec![
         ("with", good.clone().into_bytes()),

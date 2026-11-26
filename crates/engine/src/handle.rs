@@ -6,8 +6,8 @@ use std::collections::BTreeMap;
 use decide::run::{self, Answer, Failure, Pausing, Requires, Step, Told, Unmet};
 use decide::{
     Abandoned, BlockId, CallId, Called, CellId, Decision, Done, End, Finished, Held, LetGo, Obstacle, Outsider, Pause,
-    Pauser, PutIn, Retry, Returned, Room, Round, RunId, Seq, Started, Who, Write, Written, decide, decide_in, hold_in,
-    told,
+    Pauser, PutIn, Retry, Returned, Room, Round, RunId, Seq, Started, Waited, Who, Write, Written, decide, decide_in,
+    hold_in, told,
 };
 use flow::{Compiled, Kind};
 
@@ -16,8 +16,8 @@ use crate::event::{Effect, Event, Gate, Hold, Refused};
 use crate::handed_in;
 use crate::spoken;
 use work::{
-    Ask, Back, Call, Filled, Forked, Given, Left, LeftBehind, Measured, Moment, Pinged, Pulled, Ran, Session, Time,
-    Timed, Work,
+    Ask, Back, Call, Filled, Forked, Given, Left, LeftBehind, Measured, Moment, Pinged, Pulled, Ran, Session,
+    ShortOfTime, Time, Timed, Work,
 };
 
 /// Takes one thing that happened to the work, at the time the driver's clock gives, and gives what is to be done for
@@ -310,6 +310,7 @@ fn take(flow: &Compiled, work: &mut Work, now: Time, event: Event, effects: &mut
         | Event::Forked { .. }
         | Event::Pulled { .. }
         | Event::Timed { .. }
+        | Event::ShortOfTime { .. }
         | Event::NotReleased { .. }
         | Event::Released) => {
             take_kept(&|work| end_of(flow, work), &flow.waits.paused.let_go, work, event)?;
@@ -391,6 +392,16 @@ fn take(flow: &Compiled, work: &mut Work, now: Time, event: Event, effects: &mut
         Event::LetGo { cell } => {
             if flow.flow.place(&cell).is_none() {
                 return Err(Refused::NoSuchCell(cell));
+            }
+            // A cell is let go on only where the work waits at it past its limit.
+            let at_its_limit = match decide(&flow.flow, &work.records) {
+                Decision::Wait { at, on } => {
+                    at == cell && (on.iter()).any(|w| matches!(w, Waited::Limit { .. } | Waited::Calls { .. }))
+                }
+                _ => false,
+            };
+            if !at_its_limit {
+                return Err(Refused::NotAtItsLimit(cell));
             }
             let at = work.tick();
             work.records.let_go.push(LetGo { cell, at });
@@ -715,6 +726,7 @@ fn take_kept(end: &dyn Fn(&Work) -> Option<End>, let_go: &str, work: &mut Work, 
                 run,
                 round,
                 usd_micros: spent.usd_micros,
+                unpriced: spent.unpriced,
                 uncached_tokens: spent.uncached_tokens,
                 cache_written_tokens: spent.cache_written_tokens,
                 cached_tokens: spent.cached_tokens,
@@ -738,6 +750,25 @@ fn take_kept(end: &dyn Fn(&Work) -> Option<End>, let_go: &str, work: &mut Work, 
             work.timed.push(Timed {
                 at,
                 reading: reading.normalised(),
+            });
+        }
+        Event::ShortOfTime { call, budget, tests } => {
+            if !work.records.called.iter().any(|c| c.call == call) {
+                return Err(Refused::NoSuchCall(call));
+            }
+            // Said again after the engine started again, as the same call reads the same run again, it is kept once.
+            if work.short_of_time.iter().any(|s| s.call == call) {
+                return Ok(());
+            }
+            if done(work, call).is_some() {
+                return Err(Refused::AlreadyDone(call));
+            }
+            let at = work.tick();
+            work.short_of_time.push(ShortOfTime {
+                at,
+                call,
+                budget,
+                tests,
             });
         }
         Event::NotReleased { why } => {

@@ -6,7 +6,7 @@ use decide::run::{Failure, Unmet};
 use decide::{BlockId, CallId, CellId, End, Obstacle, Outsider, Pauser, Retry, RunId, Seq};
 use flow::{Compiled, Kind};
 
-use work::{Ask, Call, Fill, Given, Handed, Left, Measures, Question, RanOn, Reading, Said, Spent, Time, Why};
+use work::{Ask, Call, Fill, Given, Handed, Left, Measures, Question, RanOn, Reading, Said, Short, Spent, Time, Why};
 
 use crate::spoken::{NoOne, Telling, To};
 
@@ -34,7 +34,9 @@ pub enum Event {
         block: BlockId,
         content: String,
     },
-    /// The owner let the cell go on at its limit.
+    /// The owner let the cell go on at its limit: the work waits at the cell for the owner, its last runs in a row
+    /// having reached the cell's limit of ways round or of runs that only ask. Anywhere else it is refused
+    /// ([`Refused::NotAtItsLimit`]).
     LetGo { cell: CellId },
     /// The work was paused: by the owner, who may say why and the items it waits for, or by the engine itself, for this
     /// reason, as when it spent more than it may. A round that fails pauses its work by [`Event::Failed`] instead.
@@ -128,6 +130,14 @@ pub enum Event {
     /// check asked for, and says how long its tests and jobs took, or that it gives no time: kept with the work where
     /// the same run is not kept already.
     Timed { reading: Reading },
+    /// The host ran, or refused before running, a call of `run_tests` whose tests the budget of the project's fast
+    /// workflow kept from their end, as [`work::ShortOfTime`] says: kept with the work, said before the call's result,
+    /// and once for the call.
+    ShortOfTime {
+        call: CallId,
+        budget: u64,
+        tests: Vec<Short>,
+    },
     /// What the work held outside the engine was let go, as [`Effect::Release`] asked.
     Released,
     /// What the work held outside the engine could not be let go, for this reason, as whatever carried out
@@ -335,6 +345,9 @@ pub enum Refused {
     NotAChoice { block: BlockId },
     /// The flow has no such cell.
     NoSuchCell(CellId),
+    /// The work does not wait at this cell for the owner past the cell's limit, which is the only place a cell is let
+    /// go on: a let-go anywhere else would change nothing now and start the count of the cell's limit anew.
+    NotAtItsLimit(CellId),
     /// No round of the run is under way.
     NoRoundUnderWay(RunId),
     /// The work has no such run, or the run has no such round that began.

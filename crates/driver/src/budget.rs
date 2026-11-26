@@ -226,6 +226,7 @@ mod tests {
             run: RunId(1),
             round: 1,
             usd_micros,
+            unpriced: false,
             uncached_tokens: 0,
             cache_written_tokens: None,
             cached_tokens: 0,

@@ -139,6 +139,7 @@ export function cachedShareKey(spent: Spent): string {
 export function spentKeys(spent: Spent): Key[] {
   return [
     [DOLLARS, dollars(spent.usdMicros)],
+    ...(spent.unpriced ? [['unpriced', count(spent.unpriced)] as Key] : []),
     ['input_tokens', count(spent.inputTokens)],
     ['cache_written_tokens', count(spent.cacheWrittenTokens)],
     ...(spent.unsplitTokens > 0 ? [[UNSPLIT, count(spent.unsplitTokens)] as Key] : []),
@@ -161,9 +162,11 @@ export function allTokens(spent: Spent): number {
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-/// What was taken, in one line: `$0.42 · 14k tokens`; how long it took is said where it began.
+/// What was taken, in one line: `$0.42 · 14k tokens`, or `$0.42 and more not known · 14k tokens` where some of the
+/// cost is not known; how long it took is said where it began.
 export function spentWords(spent: Spent): string {
-  return [dollars(spent.usdMicros), `${tokens(allTokens(spent))} tokens`].join(' · ');
+  const cost = spent.unpriced ? `${dollars(spent.usdMicros)} and more not known` : dollars(spent.usdMicros);
+  return [cost, `${tokens(allTokens(spent))} tokens`].join(' · ');
 }
 
 /// The tokens apart, for a panel: `12k in, 3k written to the cache, 8.1k from the cache, 2.1k out`; with, where the

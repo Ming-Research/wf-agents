@@ -127,6 +127,7 @@ impl<H: Host> ToolsTrait for Tools<H> {
         };
         let mut stop = (stop.saying(saying).hosting(hosting))
             .test_time(call.test_time)
+            .fast_medians(call.fast_medians.clone())
             .red_on_main(call.red_on_main.clone());
         let inner = self.inner.clone();
         tokio::spawn(async move {
@@ -815,6 +816,7 @@ mod tests {
             item: store::Item::new(store::ItemNumber(1), work::Time(0), first, Vec::new()),
             kept: Arc::new(work::Work::default()),
             test_time: None,
+            fast_medians: Arc::default(),
             red_on_main: Vec::new(),
         }
     }

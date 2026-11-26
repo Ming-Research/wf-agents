@@ -24,7 +24,7 @@ pub use measured::{BesideKind, Forked, Measured, Measures, Pinged, SpentBeside};
 pub use observations::Observed;
 pub use sessions::{Left, LeftBehind, Ran, RanOn, Session, Why};
 pub use time::{KeptTime, Stretch, TurnSpan, Went};
-pub use timed::{Reading, Source, Timed};
+pub use timed::{Reading, Short, ShortHow, ShortOfTime, Source, Timed};
 
 /// Everything kept of one work.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -66,6 +66,9 @@ pub struct Work {
     pub forked: Vec<Forked>,
     /// What each run of the project's CI said of how long its tests and jobs took, in order (module [`timed`]).
     pub timed: Vec<Timed>,
+    /// Each call of `run_tests` whose tests the budget of the fast workflow kept from their end, in order (module
+    /// [`timed`]).
+    pub short_of_time: Vec<ShortOfTime>,
     /// Each pull request the host of the work's repository found the work checked through, in order, where it is
     /// another than the one before: the latest is the work's.
     pub pulls: Vec<Pulled>,
@@ -114,6 +117,7 @@ impl Work {
             .chain(self.pinged.iter().map(|p| p.at))
             .chain(self.forked.iter().map(|f| f.at))
             .chain(self.timed.iter().map(|t| t.at))
+            .chain(self.short_of_time.iter().map(|s| s.at))
             .chain(self.pulls.iter().map(|p| p.at))
             .chain(self.flows.iter().map(|f| f.at))
             .chain(self.kept_time.iter().map(|k| k.at));
@@ -141,6 +145,7 @@ impl Work {
             kind: BesideKind::Fork,
             spent: Spent {
                 usd_micros: f.usd_micros,
+                unpriced: f.unpriced,
                 uncached_tokens: f.uncached_tokens,
                 cache_written_tokens: f.cache_written_tokens,
                 cached_tokens: f.cached_tokens,
@@ -213,8 +218,14 @@ pub struct Moment {
 /// takes none of these: its round is reported with all of them at nothing.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Spent {
-    /// Its cost, in millionths of a dollar.
+    /// Its cost, in millionths of a dollar: what the agents' program reported, and what the calls it reported no cost
+    /// of came to at their model's prices, as earlier reports of the model tell them ([`unpriced`](Spent::unpriced)).
     pub usd_micros: u64,
+    /// Whether some of its cost is not known: calls of it that the agents' program reported no cost of, of a model no
+    /// earlier report prices, of which `usd_micros` holds nothing. It cost more than `usd_micros`, by how much is not
+    /// known, and it is never taken as having cost nothing more.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unpriced: bool,
     /// The tokens sent that were not read from the cache: those sent fresh and those written to it.
     pub uncached_tokens: u64,
     /// Of `uncached_tokens`, those written to the cache. None where what the round took was kept before the
@@ -445,6 +456,7 @@ mod tests {
     fn cost(usd_micros: u64) -> Spent {
         Spent {
             usd_micros,
+            unpriced: false,
             uncached_tokens: 1,
             cache_written_tokens: Some(1),
             cached_tokens: 2,
@@ -471,6 +483,7 @@ mod tests {
             run: RunId(1),
             round: 1,
             usd_micros: usd,
+            unpriced: false,
             uncached_tokens: 1,
             cache_written_tokens: Some(1),
             cached_tokens: 2,

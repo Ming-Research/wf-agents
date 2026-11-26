@@ -16,12 +16,20 @@
 //! - full: the workflows that hold every job required to merge; the check before a merge runs them, once, on the
 //!   commit to merge, and nothing else does.
 //!
+//! A request of `run_tests` has a budget: the time the tests it names may take together, the project's `ci.fast.budget`
+//! or else the one `run_tests.toml` gives every project. Where the medians of their times in the project's earlier fast
+//! runs say that one of them, or all of them together, would take longer, nothing is run ([`over_budget`]); otherwise
+//! the fast workflow is given the budget, where it takes it, and stops the tests when it is used up. A test with no
+//! time in an earlier fast run is never refused. What the budget kept from running to its end is said apart from what
+//! failed, and is no failure the check before a merge runs again: that check's runs are given no budget.
+//!
 //! What is said of a run: each test, with what became of it, how long it took and what a failed one said; and each
 //! job of the workflow, with how it ended and, where it ran to a conclusion, the wall time GitHub records for it. A
 //! run that uploaded no JUnit the engine can read is said so: no result is guessed from a log. A job that failed with
 //! no failed test of its own to say why, as a lint, is said with the end of what the step that failed it printed, read
 //! from its log on GitHub with the engine's token (`log`); a log that cannot be read is said so, and nothing else.
 
+use std::collections::BTreeSet;
 use std::time::Duration;
 
 use driver::red_main::RedTest;
@@ -164,9 +172,15 @@ struct StepEnd {
 /// ([`results::job_of`]), as a lint that reports no test, or a job whose own step failed before its tests; and each
 /// that failed, where the results could not be read.
 fn unexplained<'a>(jobs: &'a [Check], read: &'a Result<results::Run, String>) -> impl Iterator<Item = &'a Check> {
+    // A test the budget stopped or did not start says why its job failed as a failed test does.
+    let ended = |outcome: results::Outcome| {
+        matches!(
+            outcome,
+            results::Outcome::Failed | results::Outcome::Stopped | results::Outcome::NotStarted
+        )
+    };
     let own_failed = move |job: &Check| {
-        (read.as_ref())
-            .is_ok_and(|run| (run.cases.iter()).any(|c| c.job == job.name && c.outcome == results::Outcome::Failed))
+        (read.as_ref()).is_ok_and(|run| (run.cases.iter()).any(|c| c.job == job.name && ended(c.outcome)))
     };
     (jobs.iter()).filter(move |&job| matches!(job.outcome, Outcome::Failed(_)) && !own_failed(job))
 }
@@ -256,7 +270,7 @@ fn reading(ran: &Ran, source: Source, workflow: &str, request: Request<'_>) -> R
         .collect();
     let tests = match &ran.results {
         Ok(run) => (run.cases.iter())
-            .filter(|case| case.outcome != results::Outcome::Skipped)
+            .filter(|case| !matches!(case.outcome, results::Outcome::Skipped | results::Outcome::NotStarted))
             .filter_map(|case| {
                 case.millis.map(|millis| Test {
                     unit: case.test.unit.clone(),
@@ -288,6 +302,110 @@ pub(super) fn test_stop(input: &str, stop: &Stop) -> Option<(String, String)> {
     Some((input.to_string(), stop.test_seconds()?.to_string()))
 }
 
+/// A test a request names whose median, by the project's earlier fast runs, is over the budget, or which a request is
+/// refused with: its name, and its median in milliseconds, none where no fast run timed it.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct Refused<'a> {
+    pub(super) name: &'a str,
+    pub(super) median: Option<f64>,
+}
+
+/// The tests of a request known to take longer than the budget, in whole seconds, together or one alone, by the median
+/// of each one's times in the project's earlier fast runs: each test named, once, trimmed, in the order named, where
+/// the request is refused; none where it is not. A test no fast run timed counts for nothing, and is never refused for
+/// itself.
+pub(super) fn over_budget<'a>(
+    tests: &'a [String],
+    budget: u64,
+    median: impl Fn(&str) -> Option<f64>,
+) -> Option<Vec<Refused<'a>>> {
+    let mut seen = BTreeSet::new();
+    let named: Vec<Refused<'a>> = (tests.iter())
+        .map(|t| t.trim())
+        .filter(|t| seen.insert(*t))
+        .map(|name| Refused {
+            name,
+            median: median(name),
+        })
+        .collect();
+    let limit = budget as f64 * 1000.0;
+    let sum: f64 = named.iter().filter_map(|t| t.median).sum();
+    (sum > limit).then_some(named)
+}
+
+/// Whole seconds of a time in milliseconds, rounded up: a time over a budget is said over it.
+fn seconds_up(millis: f64) -> u64 {
+    (millis / 1000.0).ceil() as u64
+}
+
+/// What a request refused for its budget is told, in the words of the tool's file: each test named with why.
+fn refused_words(
+    github: &flow::agents::GithubWords,
+    result: &ResultWords,
+    refused: &[Refused<'_>],
+    budget: u64,
+) -> String {
+    let budget_s = budget.to_string();
+    let sum = seconds_up(refused.iter().filter_map(|t| t.median).sum()).to_string();
+    let lines: Vec<String> = (refused.iter())
+        .map(|t| {
+            let why = match t.median {
+                Some(median) => {
+                    let median_s = seconds_up(median).to_string();
+                    let word = if median > budget as f64 * 1000.0 {
+                        &github.refused_over
+                    } else {
+                        &github.refused_sum
+                    };
+                    fill(word, &[("median", &median_s), ("sum", &sum), ("budget", &budget_s)])
+                }
+                None => github.refused_untimed.clone(),
+            };
+            fill(&result.test, &[("name", t.name), ("became", &why), ("time", "")])
+        })
+        .collect();
+    fill(
+        &github.over_budget,
+        &[("budget", &budget_s), ("tests", &lines.join("\n"))],
+    )
+}
+
+/// The record of what a request refused for its budget kept from running: every test named.
+fn refused_record(refused: &[Refused<'_>]) -> Vec<work::Short> {
+    (refused.iter())
+        .map(|t| work::Short {
+            name: t.name.to_string(),
+            how: work::ShortHow::Refused,
+            millis: t.median.map(|m| m.round() as u64),
+        })
+        .collect()
+}
+
+/// The record of what the budget of a run kept from running to its end: each test named, once, that it stopped or did
+/// not start, with how long a stopped one ran, its cases' times together.
+fn short_record(tests: &[String], run: &results::Run) -> Vec<work::Short> {
+    let mut seen = BTreeSet::new();
+    (results::rows(tests, run).into_iter())
+        .filter(|row| seen.insert(row.named.trim()))
+        .filter_map(|row| {
+            let how = match row.became {
+                Became::Stopped => work::ShortHow::Stopped,
+                Became::NotStarted => work::ShortHow::NotStarted,
+                _ => return None,
+            };
+            let times: Vec<u64> = (row.matched.iter())
+                .filter(|c| c.outcome == results::Outcome::Stopped)
+                .filter_map(|c| c.millis)
+                .collect();
+            Some(work::Short {
+                name: row.named.trim().to_string(),
+                how,
+                millis: (!times.is_empty()).then(|| times.iter().sum()),
+            })
+        })
+        .collect()
+}
+
 /// What a request is run by.
 pub(super) enum Role<'a> {
     Fast(&'a CiFast),
@@ -303,6 +421,49 @@ impl<A: Api> GitHub<A> {
             .tool
             .as_ref()
             .ok_or_else(|| "the words of run_tests (agents/tools/run_tests.toml) are not given".to_string())
+    }
+
+    /// The budget of what asked, in whole seconds: for a call of `run_tests`, the project's `ci.fast.budget`, or else
+    /// the one the tool's file gives every project; none for a round of the check before a merge, whose runs again of
+    /// what failed run whole, as the full workflows did.
+    pub(super) fn budget(&self, asking: Asking) -> Result<Option<u64>, String> {
+        if matches!(asking, Asking::Round(..)) {
+            return Ok(None);
+        }
+        let own = (self.config.ci.as_ref()).and_then(|ci| ci.fast.budget.as_deref());
+        let (key, text) = match own {
+            Some(own) => ("ci.fast.budget", own),
+            None => {
+                let fast = (self.tool()?.fast.as_ref())
+                    .ok_or("the words of run_tests (agents/tools/run_tests.toml) have no [fast]")?;
+                ("fast.budget of run_tests", fast.budget.as_str())
+            }
+        };
+        flow::agents::budget_of(text)
+            .map(Some)
+            .map_err(|why| format!("{key}: {why}"))
+    }
+
+    /// What a request of `run_tests` whose tests are known by the project's earlier fast runs to take longer than its
+    /// budget is told, where it is ([`over_budget`]), said as kept from running; none where it may run, or where it
+    /// names no test. Nothing has run or been pushed.
+    pub(super) fn refused_for_time(
+        &self,
+        named: &Named,
+        asking: Asking,
+        stop: &Stop,
+    ) -> Result<Option<String>, String> {
+        let Some(budget) = self.budget(asking)? else {
+            return Ok(None);
+        };
+        let Some(refused) = over_budget(&named.tests, budget, |test| stop.fast_median(test)) else {
+            return Ok(None);
+        };
+        let tool = self.tool()?;
+        let github = (tool.github.as_ref()).ok_or("the words of run_tests have no [github]")?;
+        let result = (tool.result.as_ref()).ok_or("the words of run_tests have no [result]")?;
+        stop.short_of_time(asking, budget, refused_record(&refused));
+        Ok(Some(refused_words(github, result, &refused, budget)))
     }
 
     /// Why a runner is not one this installation has, in the words of the tool's file; none where it is.
@@ -454,6 +615,15 @@ impl<A: Api> GitHub<A> {
                     inputs.push((fast.checks_input.clone(), checks));
                 }
                 inputs.extend(test_stop(&fast.test_stop_input, stop));
+                let budget = self.budget(request.asking)?;
+                if let Some(budget) = budget
+                    && !fast.budget_input.is_empty()
+                {
+                    inputs.push((fast.budget_input.clone(), budget.to_string()));
+                }
+                if !fast.work_input.is_empty() {
+                    inputs.push((fast.work_input.clone(), request.work.0.to_string()));
+                }
                 let limit = flow::agents::span(&fast.too_long).map_err(|why| format!("ci.fast.too_long: {why}"))?;
                 let plan = Plan {
                     workflow: &fast.workflow,
@@ -466,6 +636,9 @@ impl<A: Api> GitHub<A> {
                 match self.execute(&plan, commit, stop).await? {
                     Some(one) => {
                         stop.timed(reading(&one, Source::Fast, &fast.workflow, request));
+                        if let (Some(budget), Ok(run)) = (budget, &one.results) {
+                            stop.short_of_time(request.asking, budget, short_record(&named.tests, run));
+                        }
                         ran.push(one);
                     }
                     None => return Ok(None),
@@ -1041,6 +1214,7 @@ fn said(
     let urls: Vec<&str> = ran.iter().map(|r| r.run.url.as_str()).collect();
     let mut lines = Vec::new();
     let mut tests: Vec<String> = Vec::new();
+    let mut short: Vec<String> = Vec::new();
     let mut green: Vec<String> = Vec::new();
     let (mut total, mut passed) = (0, 0);
     let mut unread: Vec<String> = Vec::new();
@@ -1060,10 +1234,10 @@ fn said(
                     total += 1;
                     passed += usize::from(row.became == Became::Passed);
                     let lines = test_lines(words, &row, run, measuring, on_main);
-                    if row.became == Became::Passed {
-                        green.extend(lines);
-                    } else {
-                        tests.extend(lines);
+                    match row.became {
+                        Became::Passed => green.extend(lines),
+                        Became::Stopped | Became::NotStarted => short.extend(lines),
+                        _ => tests.extend(lines),
                     }
                 }
             }
@@ -1129,6 +1303,9 @@ fn said(
     lines.extend(unread);
     if !tests.is_empty() {
         lines.push(format!("{}\n{}", words.tests_title, tests.join("\n")));
+    }
+    if !short.is_empty() {
+        lines.push(format!("{}\n{}", words.short_title, short.join("\n")));
     }
     let missing: Vec<&String> = match role {
         Role::Fast(_) => (named.checks.iter())
@@ -1224,6 +1401,8 @@ fn case_lines(words: &ResultWords, case: &Case, measuring: bool, also: Option<St
         results::Outcome::Passed => &words.passed,
         results::Outcome::Failed => &words.failed,
         results::Outcome::Skipped => &words.skipped,
+        results::Outcome::Stopped => &words.stopped,
+        results::Outcome::NotStarted => &words.not_started,
     };
     let line = if measuring { &words.measure_case } else { &words.test };
     let mut lines = vec![fill(
@@ -1284,7 +1463,14 @@ fn test_lines(
                 &[("name", row.named), ("became", &became), ("time", "")],
             ));
         }
-        Became::Passed | Became::Failed => {
+        // The budget's own words say why a test did not start, which is no failure and has no output to give.
+        Became::NotStarted => {
+            lines.push(fill(
+                &words.test,
+                &[("name", row.named), ("became", &words.not_started), ("time", "")],
+            ));
+        }
+        Became::Passed | Became::Failed | Became::Stopped => {
             for case in &row.matched {
                 lines.extend(case_lines(
                     words,

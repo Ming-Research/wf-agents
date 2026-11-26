@@ -78,12 +78,62 @@
   /* The works page: how high an opened content grows in the panel before it scrolls. */
   --content-height: 320px;
 
+  /* The glyph that tells a datum's kind in the chart is drawn in a box of 24 units a side (Chart.tsx), not in pixels of the
+     page: the width of the line of a ring or a mark (and a precondition's thinner line) and the size of a kind's
+     letter, in those units. How far a mark reaches (REACH in Chart.tsx) is worked out from the width. */
+  --glyph-line: 2;
+  --glyph-line-thin: 1.5;
+  --glyph-text: 13px;
+  /* The height of a table cell that is to be no taller than what it holds, the corner of the chart's table. */
+  --cell-least: 1px;
+  /* A part of a page that is there for a reader that cannot see it, no bigger than a dot. */
+  --visually-hidden: 1px;
+  /* The width of the strip of a window's edge that takes the pointer for a drag. */
+  --grip: 6px;
+  /* The hatching of a stretch of time whose wait is not known: how wide a stripe is, and how far apart they are. */
+  --stripe-width: 2px;
+  --stripe-period: 5px;
+  /* The dashed line across a work's history that divides what was done: the dash, and where the next begins. */
+  --divider-dash: 6px;
+  --divider-period: 10px;
+  /* The columns of a run's facts: how long it took, its level, its effort. */
+  --run-took: 6em;
+  --run-level: 3em;
+  --run-effort: 4em;
+  /* The track of where a work's time went, in the console's window. */
+  --track-width: 140px;
+  /* The question the page asks before a command: how wide. */
+  --dialog-width: 480px;
+
+  /* The console: the box of the search (how wide, and the two lights round it: the near one's blur and spread, the far
+     one's), the glow round the tree of the project that was chosen in the overview (blur and spread), the height of the
+     map at the top left, which the canvas reads too (snap.ts, MAP_HIGH), the column of a line's number in a diff and the
+     room after it, the height of a question folded, and a key of the keyboard drawn as a cap: its size, the thicker
+     edge at its foot, its corner and its line (as high as its letters, so that they sit in the middle of the cap). */
+  --find-width: 600px;
+  --find-glow-near: 12px;
+  --find-glow-near-spread: 4px;
+  --find-glow-far: 48px;
+  --find-glow-far-spread: 16px;
+  --overview-glow: 24px;
+  --overview-glow-spread: 4px;
+  --map-high: 72px;
+  --diff-number: 5ch;
+  --diff-number-gap: 1ch;
+  --folded-height: calc(3 * var(--line-height) * 1em);
+  --key: 18px;
+  --key-edge: 2px;
+  --key-corner: 4px;
+  --key-line: 1;
+
   /* Colour, light. The ground the page is laid on, and the white of what is read on it, as the console's paper. */
   --ground: #f6f7f9;
   --card: #ffffff;
   --text: #1f2937;
   --muted: #6b7280;
   --line: #e3e6ea;
+  /* The dimming of the page under a dialog (the page's question, a diagram opened larger), the same in light and dark. */
+  --scrim: rgb(31 35 40 / 35%);
   /* The accent: what is chosen, a link and the focus, what runs, and a way back. The default is a blue. A colour the
      owner picks in the Settings view gives each tone of the accent here an `--own-` one, worked out from it
      (accent.ts), `--own-<tone>` in light and `--own-<tone>-dark` in dark, each `#rrggbb`, set on the root; a tone

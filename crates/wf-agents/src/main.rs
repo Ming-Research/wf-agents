@@ -530,9 +530,10 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// Lets what reached its limit go on: with a cell, the cell, which runs again past its limit; with --call, the
-    /// run whose call at its limit waits for the owner, which the engine gives its own result, so that the run's next
-    /// round begins. `wf-agents show` of the work says which call waits.
+    /// Lets what reached its limit go on: with a cell, the cell the work waits at past its limit, which runs again; with
+    /// --call, the run whose call at its limit waits for the owner, which the engine gives its own result, so that the
+    /// run's next round begins. A cell or a call that is not at its limit is refused. `wf-agents show` of the work says
+    /// which cell or call waits.
     LetGo {
         work: u64,
         /// The cell that reached its limit, by its id.

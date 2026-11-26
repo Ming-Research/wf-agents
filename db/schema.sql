@@ -479,15 +479,18 @@ CREATE TABLE results (
     FOREIGN KEY (work, call) REFERENCES called (work, call)
 );
 
--- What a round of a run that ended took, the first round being one: its cost in millionths of a dollar, its tokens (the
--- tokens sent and not read from the cache, sent fresh or written to it; of them, those written to it, NULL where what
--- the round took was kept before the written ones were kept apart; those read from the cache; and those that came
--- back), the context it ended with in tokens (NULL where it is not known), and how often its session was compacted.
+-- What a round of a run that ended took, the first round being one: its cost in millionths of a dollar, whether some of
+-- its cost is not known (1 where calls of it that the agents' program reported no cost of could not be priced by any
+-- earlier report of their model, `usd_micros` holding nothing of them), its tokens (the tokens sent and not read from
+-- the cache, sent fresh or written to it; of them, those written to it, NULL where what the round took was kept before
+-- the written ones were kept apart; those read from the cache; and those that came back), the context it ended with in
+-- tokens (NULL where it is not known), and how often its session was compacted.
 CREATE TABLE spent (
     work INTEGER NOT NULL,
     run INTEGER NOT NULL,
     round INTEGER NOT NULL,
     usd_micros INTEGER NOT NULL,
+    unpriced INTEGER NOT NULL DEFAULT 0,
     uncached_tokens INTEGER NOT NULL,
     cache_written_tokens INTEGER,
     cached_tokens INTEGER NOT NULL,
@@ -574,14 +577,15 @@ CREATE TABLE left_behind (
 );
 
 -- A keep-warm ping of the session of a line, its sessions counted from none, which keeps its prompt cache while the
--- line waits: what it took, its tokens as a round's are told in `spent`, and why it failed where it did (NULL where it
--- did not), which may name paths of the machine.
+-- line waits: what it took, its cost and tokens as a round's are told in `spent`, and why it failed where it did (NULL
+-- where it did not), which may name paths of the machine.
 CREATE TABLE pinged (
     work INTEGER NOT NULL REFERENCES works (number),
     at INTEGER NOT NULL,
     line TEXT NOT NULL,
     session INTEGER NOT NULL,
     usd_micros INTEGER NOT NULL,
+    unpriced INTEGER NOT NULL DEFAULT 0,
     uncached_tokens INTEGER NOT NULL,
     cache_written_tokens INTEGER,
     cached_tokens INTEGER NOT NULL,
@@ -593,13 +597,14 @@ CREATE TABLE pinged (
 );
 
 -- A fork of a round's session asked a question, whether it answered or not: the run and the round whose session it was
--- forked from, and what it took, its tokens as a round's are told in `spent`.
+-- forked from, and what it took, its cost and tokens as a round's are told in `spent`.
 CREATE TABLE forked (
     work INTEGER NOT NULL REFERENCES works (number),
     at INTEGER NOT NULL,
     run INTEGER NOT NULL,
     round INTEGER NOT NULL,
     usd_micros INTEGER NOT NULL,
+    unpriced INTEGER NOT NULL DEFAULT 0,
     uncached_tokens INTEGER NOT NULL,
     cache_written_tokens INTEGER,
     cached_tokens INTEGER NOT NULL,
@@ -663,6 +668,35 @@ CREATE TABLE timed_tests (
     millis INTEGER NOT NULL,
     PRIMARY KEY (work, at, test),
     FOREIGN KEY (work, at) REFERENCES timed (work, at)
+);
+
+-- A call of `run_tests` whose tests the budget of the project's fast workflow kept from running to their end: the
+-- engine refused it before anything ran, its tests known by the medians of their times in the project's earlier fast
+-- runs to take longer than the budget, or the run stopped a test as the budget ran out and did not start those after
+-- it. `budget` is the request's budget in whole seconds. Kept once for a call.
+CREATE TABLE short_of_time (
+    work INTEGER NOT NULL,
+    at INTEGER NOT NULL,
+    call INTEGER NOT NULL,
+    budget INTEGER NOT NULL,
+    PRIMARY KEY (work, at),
+    FOREIGN KEY (work, call) REFERENCES called (work, call)
+);
+
+-- Each test, the `n`th the request named counting from none, that the budget of a call kept in `short_of_time` kept
+-- from its end, by the name it was asked for by: `how` is `stopped` (the run stopped it as the budget ran out),
+-- `not_started` (the run did not start it, the budget used up) or `refused` (the engine refused the request before
+-- it ran); `millis` is how long a stopped test ran, or a refused test's median in the project's earlier fast runs,
+-- and null where neither is known.
+CREATE TABLE short_tests (
+    work INTEGER NOT NULL,
+    at INTEGER NOT NULL,
+    n INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    how TEXT NOT NULL CHECK (how IN ('stopped', 'not_started', 'refused')),
+    millis INTEGER,
+    PRIMARY KEY (work, at, n),
+    FOREIGN KEY (work, at) REFERENCES short_of_time (work, at)
 );
 
 -- A thing that happened to the work was taken at `time`, and its entries begin at the place `place`.

@@ -347,7 +347,7 @@ mod tests {
         let ci = project.ci.expect("it declares its workflows");
         assert_eq!(
             (ci.fast.workflow.as_str(), ci.fast.too_long.as_str()),
-            ("fast.yml", "2h")
+            ("fast.yml", "25m")
         );
         let full = ci.full;
         assert_eq!(

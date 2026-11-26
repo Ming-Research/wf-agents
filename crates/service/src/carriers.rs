@@ -211,6 +211,11 @@ impl std::fmt::Display for ForkFailed {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.why)?;
         match &self.spent {
+            Some(spent) if spent.unpriced => write!(
+                f,
+                " It cost more than ${:.4}: what some of its calls cost is not known.",
+                spent.usd_micros as f64 / 1e6
+            ),
             Some(spent) => write!(f, " It cost ${:.4}.", spent.usd_micros as f64 / 1e6),
             None => Ok(()),
         }
@@ -877,6 +882,10 @@ pub struct ToolCall {
     /// For a call of the tool that runs the project's tests: how long one test may run before it is stopped, in
     /// milliseconds, as the history of the project's merged checks says it (crate `driver`, module `timed`).
     pub test_time: Option<f64>,
+    /// For a call of the tool that runs the project's tests: the median of each test's times in the project's earlier
+    /// fast runs, in milliseconds, by the name a request asks for it by (crate `driver`, module `timed`); empty for
+    /// any other call.
+    pub fast_medians: Arc<BTreeMap<String, f64>>,
     /// For a call of the tool that runs the project's tests: the tests that are red on the main of the work's project,
     /// which a failed test of the result is said to be among (crate `driver`, module `red_main`).
     pub red_on_main: Vec<driver::red_main::RedTest>,
@@ -1043,6 +1052,15 @@ impl Hosting {
     pub fn timed(&self, reading: work::Reading) {
         let event = Event::Timed { reading };
         // Where the loop has ended, the process is stopping: what is given again reads the run again.
+        let _ = self.to.send(Message::Happened { work: self.work, event });
+    }
+
+    /// The call of `run_tests`, of this budget in whole seconds, had these of its tests kept from their end by the
+    /// budget: refused before anything ran, or stopped or not started by the run; said before the call's result, and
+    /// kept once.
+    pub fn short_of_time(&self, call: CallId, budget: u64, tests: Vec<work::Short>) {
+        let event = Event::ShortOfTime { call, budget, tests };
+        // Where the loop has ended, the process is stopping: what is given again says it again.
         let _ = self.to.send(Message::Happened { work: self.work, event });
     }
 

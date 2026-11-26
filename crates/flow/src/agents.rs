@@ -374,6 +374,8 @@ pub struct WorkWords {
     pub time: String,
     /// What it has spent is over the budget the settings give.
     pub budget: String,
+    /// What some of what it has spent cost is not known.
+    pub unpriced: String,
     pub started: String,
     pub let_on: String,
     pub between: String,
@@ -526,6 +528,11 @@ impl Declaration {
                     faults.push(format!("{key}: {why}"));
                 }
             }
+            if let Some(budget) = &ci.fast.budget
+                && let Err(why) = budget_of(budget)
+            {
+                faults.push(format!("ci.fast.budget: {why}"));
+            }
         }
         faults
     }
@@ -547,6 +554,19 @@ pub fn span(text: &str) -> Result<std::time::Duration, String> {
     };
     let seconds = number.checked_mul(seconds).ok_or_else(none)?;
     Ok(std::time::Duration::from_secs(seconds))
+}
+
+/// The time the tests a request of `run_tests` names may take together in a run of the fast workflow, in whole
+/// seconds: a time as [`span`] reads it, of a second or more; or why it is none.
+pub fn budget_of(text: &str) -> Result<u64, String> {
+    let seconds = span(text)?.as_secs();
+    if seconds == 0 {
+        return Err(format!(
+            "{:?} is no time the tests can run in: a budget is a second or more",
+            text.trim()
+        ));
+    }
+    Ok(seconds)
 }
 
 /// `[format]` of `agents/tree.toml`: how an entry of a design tree is found and referred to, as the tree's rules write
@@ -840,6 +860,19 @@ pub struct CiFast {
     /// workflow takes none.
     #[serde(default = "test_stop_input")]
     pub test_stop_input: String,
+    /// The input that takes the budget of a run asked for by `run_tests`, the time the tests it names may take
+    /// together, in whole seconds; empty, as where it is left out, where the workflow takes none.
+    #[serde(default)]
+    pub budget_input: String,
+    /// The input that takes the number of the work a run is asked for, such as `205`, by which the workflow keeps
+    /// what it builds for that work; empty, as where it is left out, where the workflow takes none.
+    #[serde(default)]
+    pub work_input: String,
+    /// The budget of a run asked for by `run_tests`, such as `10m`, where the project's differs from the one
+    /// `agents/tools/run_tests.toml` gives every project (`[fast] budget`). A request whose tests are known by their
+    /// earlier fast runs to take longer is refused before anything runs.
+    #[serde(default)]
+    pub budget: Option<String>,
     /// The checks it runs when named, each the name of a job of the workflow, such as the lint.
     #[serde(default)]
     pub checks: Vec<String>,
@@ -1350,6 +1383,18 @@ pub struct Tool {
     pub github: Option<GithubWords>,
     /// What it says where the host is the local repository.
     pub local: Option<LocalWords>,
+    /// How the fast workflow is run for it, the same for every project.
+    pub fast: Option<FastRun>,
+}
+
+/// `[fast]` of `agents/tools/run_tests.toml`: what every project's fast workflow is run with for a request of
+/// `run_tests`, where its declaration sets nothing else.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FastRun {
+    /// The time the tests a request names may take together, such as `10m`, as [`budget_of`] reads it; a project's
+    /// `ci.fast.budget` takes its place.
+    pub budget: String,
 }
 
 /// What a result of `run_tests` says of the tests and checks a run found. `{...}` are filled in a run.
@@ -1424,6 +1469,13 @@ pub struct ResultWords {
     pub no_such_test_unbuilt: String,
     /// Each test a name has was skipped.
     pub all_skipped: String,
+    /// The title of the tests the budget of a fast run did not let run to their end, apart from those that did not
+    /// pass.
+    pub short_title: String,
+    /// A test the run stopped as its budget ran out, said as `{became}` of `test`.
+    pub stopped: String,
+    /// A test the run did not start, its budget used up, said as `{became}` of `test`.
+    pub not_started: String,
 }
 
 /// What `run_tests` says where the host is GitHub.
@@ -1451,6 +1503,16 @@ pub struct GithubWords {
     pub no_measure: String,
     /// The commit is left on GitHub: `{commit}`, and `{branch}` the branch it is on. Said before what the request ran.
     pub published: String,
+    /// The tests named are known by their earlier fast runs to take longer than the budget, so nothing is run:
+    /// `{budget}` in seconds, `{tests}` each as a line of `test` of `[result]` with `{became}` one of the following.
+    pub over_budget: String,
+    /// A test whose own median is over the budget: `{median}` and `{budget}`, in whole seconds.
+    pub refused_over: String,
+    /// A test whose median is not over the budget, but whose medians with the others' are: `{median}`, `{sum}` and
+    /// `{budget}`, in whole seconds.
+    pub refused_sum: String,
+    /// A test no earlier fast run timed, named with others that are refused.
+    pub refused_untimed: String,
 }
 
 /// What `run_tests` says where the host is the local repository.
@@ -2007,6 +2069,14 @@ pub fn read(root: &Path) -> Result<Agents, String> {
             let (lacks, more) = (lacks.join(", "), more.join(", "));
             let what = format!("[texts] lacks: {lacks}; has what the engine does not say: {more}");
             return Err(format!("{}: {what}", file.display()));
+        }
+    }
+    for (name, tool) in &tools {
+        if let Some(fast) = &tool.fast
+            && let Err(why) = budget_of(&fast.budget)
+        {
+            let file = at.join("tools").join(format!("{name}.toml"));
+            return Err(format!("{}: fast.budget: {why}", file.display()));
         }
     }
     let message_file = at.join("message").join("message.toml");

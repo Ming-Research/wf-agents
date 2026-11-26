@@ -10,7 +10,7 @@ use decide::{
 use rusqlite::{Connection, Row, params};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use work::timed::{Job, Reading, Source, Test};
+use work::timed::{Job, Reading, Short, ShortHow, ShortOfTime, Source, Test};
 use work::{
     Filled, Forked, KeptTime, LeftBehind, Measured, Measures, Moment, Observed, OnFlow, Pinged, Pulled, Ran, RanOn,
     Session, Spent, Time, Timed, Work,
@@ -389,7 +389,7 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
     out.spent = rows(
         db,
         "SELECT run, round, usd_micros, uncached_tokens, cache_written_tokens, cached_tokens, output_tokens, \
-         context_tokens, compactions FROM spent WHERE work = ?1",
+         context_tokens, compactions, unpriced FROM spent WHERE work = ?1",
         w,
         |row| {
             let spent = Spent {
@@ -400,6 +400,7 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
                 output_tokens: row.get(6)?,
                 context_tokens: row.get(7)?,
                 compactions: row.get(8)?,
+                unpriced: row.get(9)?,
             };
             Ok(((RunId(row.get(0)?), row.get(1)?), spent))
         },
@@ -494,7 +495,7 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
     out.pinged = rows(
         db,
         "SELECT at, line, session, usd_micros, uncached_tokens, cache_written_tokens, cached_tokens, output_tokens, \
-         context_tokens, compactions, failed FROM pinged WHERE work = ?1 ORDER BY at",
+         context_tokens, compactions, failed, unpriced FROM pinged WHERE work = ?1 ORDER BY at",
         w,
         |row| {
             Ok(Pinged {
@@ -509,6 +510,7 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
                     output_tokens: row.get(7)?,
                     context_tokens: row.get(8)?,
                     compactions: row.get(9)?,
+                    unpriced: row.get(11)?,
                 },
                 failed: row.get(10)?,
             })
@@ -516,8 +518,8 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
     )?;
     out.forked = rows(
         db,
-        "SELECT at, run, round, usd_micros, uncached_tokens, cache_written_tokens, cached_tokens, output_tokens \
-         FROM forked WHERE work = ?1 ORDER BY at",
+        "SELECT at, run, round, usd_micros, uncached_tokens, cache_written_tokens, cached_tokens, output_tokens, \
+         unpriced FROM forked WHERE work = ?1 ORDER BY at",
         w,
         |row| {
             Ok(Forked {
@@ -525,6 +527,7 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
                 run: RunId(row.get(1)?),
                 round: row.get(2)?,
                 usd_micros: row.get(3)?,
+                unpriced: row.get(8)?,
                 uncached_tokens: row.get(4)?,
                 cache_written_tokens: row.get(5)?,
                 cached_tokens: row.get(6)?,
@@ -611,6 +614,42 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
                 tests: tests.remove(&at).unwrap_or_default(),
             },
         });
+    }
+    let mut short: BTreeMap<Seq, Vec<Short>> = BTreeMap::new();
+    for (at, name, how, millis) in rows(
+        db,
+        "SELECT at, name, how, millis FROM short_tests WHERE work = ?1 ORDER BY at, n",
+        w,
+        |row| {
+            Ok((
+                Seq(row.get(0)?),
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<u64>>(3)?,
+            ))
+        },
+    )? {
+        let how = ShortHow::named(&how).ok_or_else(|| Fault::Value {
+            table: "short_tests",
+            message: format!("{how:?} is nothing the budget did to a test"),
+        })?;
+        short.entry(at).or_default().push(Short { name, how, millis });
+    }
+    out.short_of_time = rows(
+        db,
+        "SELECT at, call, budget FROM short_of_time WHERE work = ?1 ORDER BY at",
+        w,
+        |row| {
+            Ok(ShortOfTime {
+                at: Seq(row.get(0)?),
+                call: CallId(row.get(1)?),
+                budget: row.get(2)?,
+                tests: Vec::new(),
+            })
+        },
+    )?;
+    for s in &mut out.short_of_time {
+        s.tests = short.remove(&s.at).unwrap_or_default();
     }
     out.flows = rows(
         db,
@@ -737,6 +776,9 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     let forked = grown("forked", &held.forked, &given.forked, |f| Entry::At(f.at))?;
     let pulls = grown("pulls", &held.pulls, &given.pulls, |p| Entry::At(p.at))?;
     let timed = grown("timed", &held.timed, &given.timed, |t| Entry::At(t.at))?;
+    let short_of_time = grown("short_of_time", &held.short_of_time, &given.short_of_time, |s| {
+        Entry::At(s.at)
+    })?;
     let on_flow = grown("on_flow", &held.flows, &given.flows, |f| Entry::At(f.at))?;
     let kept_time = grown("kept_time", &held.kept_time, &given.kept_time, |k| Entry::At(k.at))?;
 
@@ -936,7 +978,8 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     for ((run, round), s) in spent {
         db.execute(
             "INSERT INTO spent (work, run, round, usd_micros, uncached_tokens, cache_written_tokens, cached_tokens, \
-             output_tokens, context_tokens, compactions) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+             output_tokens, context_tokens, compactions, unpriced) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 w,
                 run.0,
@@ -947,7 +990,8 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
                 s.cached_tokens,
                 s.output_tokens,
                 s.context_tokens,
-                s.compactions
+                s.compactions,
+                s.unpriced
             ],
         )?;
     }
@@ -1016,8 +1060,8 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
         let s = &p.spent;
         db.execute(
             "INSERT INTO pinged (work, at, line, session, usd_micros, uncached_tokens, cache_written_tokens, \
-             cached_tokens, output_tokens, context_tokens, compactions, failed) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+             cached_tokens, output_tokens, context_tokens, compactions, failed, unpriced) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 w,
                 p.at.0,
@@ -1030,14 +1074,15 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
                 s.output_tokens,
                 s.context_tokens,
                 s.compactions,
-                p.failed
+                p.failed,
+                s.unpriced
             ],
         )?;
     }
     for f in forked {
         db.execute(
             "INSERT INTO forked (work, at, run, round, usd_micros, uncached_tokens, cache_written_tokens, \
-             cached_tokens, output_tokens) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+             cached_tokens, output_tokens, unpriced) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 w,
                 f.at.0,
@@ -1047,7 +1092,8 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
                 f.uncached_tokens,
                 f.cache_written_tokens,
                 f.cached_tokens,
-                f.output_tokens
+                f.output_tokens,
+                f.unpriced
             ],
         )?;
     }
@@ -1079,6 +1125,18 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
                 "INSERT OR IGNORE INTO timed_tests (work, at, test, passed, millis) \
                  VALUES (?1, ?2, (SELECT test FROM test_names WHERE unit = ?3 AND name = ?4), ?5, ?6)",
                 params![w, t.at.0, test.unit, test.name, test.passed, test.millis],
+            )?;
+        }
+    }
+    for s in short_of_time {
+        db.execute(
+            "INSERT INTO short_of_time (work, at, call, budget) VALUES (?1, ?2, ?3, ?4)",
+            params![w, s.at.0, s.call.0, s.budget],
+        )?;
+        for (n, test) in s.tests.iter().enumerate() {
+            db.execute(
+                "INSERT INTO short_tests (work, at, n, name, how, millis) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![w, s.at.0, n, test.name, test.how.as_str(), test.millis],
             )?;
         }
     }

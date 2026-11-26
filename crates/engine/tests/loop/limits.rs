@@ -1,6 +1,7 @@
 //! The limits, through the loop: of returns within a run, at which the owner is called, and once the owner lets the run
 //! go on what was held is taken up and the count starts anew; of ways round and of runs that only ask, at which the
-//! work waits at the cell until the owner lets it go on.
+//! work waits at the cell until the owner lets it go on. A cell the work does not wait at past its limit is not let go
+//! on: the let-go is refused, and the count of its limit runs on.
 
 use super::*;
 
@@ -79,26 +80,73 @@ fn a_cell_entered_again_and_again_only_to_ask_waits_for_the_owner_at_its_limit_o
     assert_eq!(asking_until_it_waits(&mut w, run), 3);
 }
 
-#[test]
-fn a_cell_gone_round_to_its_limit_waits_for_the_owner_and_runs_once_let_go_on() {
-    let (mut w, mut write, _) = W::requested();
-    // The writer hands in, the judge writes an opinion for it, and so round: three ways round are allowed.
-    for _ in 0..4 {
+/// The writer hands in and the judge writes an opinion for it, so that the writer goes round, this many times or until
+/// the work waits at the writer; the writer's run whose round is under way, where one is.
+fn going_round(w: &mut W, mut write: RunId, times: usize) -> Option<RunId> {
+    for _ in 0..times {
         let judge = round(&w.returns(write, hands_in(&[("text", None)]))).0;
         let effects = w.returns(judge, hands_in(&[("opinions", None)]));
         if effects.is_empty() {
-            break;
+            return None;
         }
         write = round(&effects).0;
     }
-    let ways_round = (w.work.records.started.iter())
+    Some(write)
+}
+
+/// How many of the writer's runs were ways round: none of their reasons a change that people, the outside or a cell
+/// before it made.
+fn ways_round(w: &W) -> usize {
+    (w.work.records.started.iter())
         .filter(|s| s.cell.as_str() == "write" && s.because.iter().all(|c| !c.forward()))
-        .count();
-    assert_eq!(ways_round, 3);
+        .count()
+}
+
+#[test]
+fn a_cell_gone_round_to_its_limit_waits_for_the_owner_and_runs_once_let_go_on() {
+    let (mut w, write, _) = W::requested();
+    // Three ways round are allowed.
+    assert_eq!(going_round(&mut w, write, 4), None);
+    assert_eq!(ways_round(&w), 3);
+    let waits = decide::Decision::Wait {
+        at: "write".into(),
+        on: vec![decide::Waited::Limit { runs: 3 }],
+    };
+    assert_eq!(w.decision(), waits);
     let effects = w.on(Event::LetGo { cell: "write".into() });
     let (run, cell, number, given) = round(&effects);
     assert_eq!((cell.as_str(), number, given), ("write", 1, Given::Task));
     assert!(start_of(&w, run).0.iter().all(|c| !c.forward()));
+    let let_go: Vec<&str> = w.work.records.let_go.iter().map(|l| l.cell.as_str()).collect();
+    assert_eq!(let_go, ["write"]);
+}
+
+#[test]
+fn a_cell_not_at_its_limit_is_not_let_go_on_and_its_count_runs_on() {
+    let (mut w, write, _) = W::requested();
+    // Before the writer has run, and after it has gone round twice, one way round short of its limit: the let-go is
+    // refused and leaves the work as it was.
+    assert_eq!(
+        w.refused(Event::LetGo { cell: "write".into() }),
+        Refused::NotAtItsLimit("write".into())
+    );
+    let write = going_round(&mut w, write, 2).expect("the writer runs again");
+    assert_eq!(ways_round(&w), 2);
+    assert_eq!(
+        w.refused(Event::LetGo { cell: "write".into() }),
+        Refused::NotAtItsLimit("write".into())
+    );
+    // The count was not started anew: one more way round, and the work waits at the writer.
+    assert_eq!(going_round(&mut w, write, 2), None);
+    assert_eq!(ways_round(&w), 3);
+    // Waiting there, a cell it does not wait at is not let go on either; the writer is.
+    assert_eq!(
+        w.refused(Event::LetGo { cell: "judge".into() }),
+        Refused::NotAtItsLimit("judge".into())
+    );
+    assert_eq!(w.work.records.let_go, vec![]);
+    let (_, cell, ..) = round(&w.on(Event::LetGo { cell: "write".into() }));
+    assert_eq!(cell, "write");
 }
 
 #[test]

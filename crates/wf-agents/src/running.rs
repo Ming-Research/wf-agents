@@ -996,9 +996,9 @@ mod tests {
         // A fast workflow given less time than the CI is given to start (the settings' `github.start_minutes`, 10 for a
         // project that names none) is held; one given exactly that time is carried. The first `too_long` of the
         // declaration is the fast workflow's.
-        let first = good.find("too_long = \"2h\"").expect("the declaration gives a time");
+        let first = good.find("too_long = \"25m\"").expect("the declaration gives a time");
         assert!(good.find("[ci.fast]").unwrap() < first && first < good.find("[ci.full]").unwrap());
-        let fast_limit = |limit: &str| good.replacen("too_long = \"2h\"", &format!("too_long = \"{limit}\""), 1);
+        let fast_limit = |limit: &str| good.replacen("too_long = \"25m\"", &format!("too_long = \"{limit}\""), 1);
         with_project(&mut settings, dir.path(), "short", Some(&fast_limit("5m")), true);
         with_project(&mut settings, dir.path(), "exact", Some(&fast_limit("10m")), true);
         let beside = beside(&[flows().join("engineer")], &[]).expect("the files beside the flows");

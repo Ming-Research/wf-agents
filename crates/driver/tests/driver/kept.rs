@@ -5,6 +5,16 @@
 
 use super::*;
 
+/// Whether the work waits at its writer for the owner past the writer's limit.
+fn writer_at_its_limit(h: &H, work: WorkNumber) -> bool {
+    match h.decision(work) {
+        Decision::Wait { at, on } => {
+            at.as_str() == "write" && (on.iter()).any(|w| matches!(w, Waited::Limit { .. } | Waited::Calls { .. }))
+        }
+        _ => false,
+    }
+}
+
 /// The calls given, of those given.
 fn calls_of(todos: &[Todo]) -> Vec<CallId> {
     (todos.iter())
@@ -41,6 +51,21 @@ fn after_every_call_the_store_holds_what_the_driver_shows() {
     for call in asked {
         h.answer(wa, call);
     }
+    // Entered again for their results, the writer asks for a tool and deals with nothing, run after run, until it has
+    // done so in as many runs in a row as its limit allows: the work waits at it until the owner lets it go on.
+    for name in ["e", "f", "g"] {
+        if writer_at_its_limit(&h, wa) {
+            break;
+        }
+        let todos = h.returns(wa, Came::asks(vec![tool(name)]));
+        h.answer(wa, calls_of(&todos)[0]);
+    }
+    assert!(
+        writer_at_its_limit(&h, wa),
+        "the writer never reached its limit of calls"
+    );
+    let todos = h.on(wa, Event::LetGo { cell: "write".into() });
+    assert_eq!(rounds(&todos), [(wa, "write".to_string(), 1)]);
     let todos = h.hands_in(wa, &[("text", None)]);
     assert_eq!(rounds(&todos), [(wa, "judge".to_string(), 1)]);
     // The judge's round is under way when the work is paused; the tool it asks for is made and its result taken.
@@ -66,7 +91,6 @@ fn after_every_call_the_store_holds_what_the_driver_shows() {
     // Once the tool has its result, the judge is entered again, for the result and the new text.
     let todos = h.answer(wa, asked);
     assert_eq!(rounds(&todos), [(wa, "judge".to_string(), 1)]);
-    h.on(wa, Event::LetGo { cell: "write".into() });
     // The judge writes opinions: the writer runs again for them, and the work is cancelled with its round under way.
     let todos = h.hands_in(wa, &[("opinions", None), ("verdict", Some("no"))]);
     assert_eq!(rounds(&todos), [(wa, "write".to_string(), 1)]);

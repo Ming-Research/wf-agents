@@ -220,7 +220,8 @@ pub enum Act {
         content: String,
         value: Option<String>,
     },
-    /// Lets the cell go on at its limit.
+    /// Lets the cell go on at its limit: the work waits at the cell for the owner past the cell's limit. Any other cell
+    /// is refused.
     LetGo {
         cell: CellId,
     },
@@ -1074,6 +1075,10 @@ impl Service {
                     test_time: (name == driver::timed::RUN_TESTS)
                         .then(|| self.driver.test_time(work))
                         .flatten(),
+                    fast_medians: Arc::new(match name == driver::timed::RUN_TESTS {
+                        true => self.driver.fast_medians(work),
+                        false => BTreeMap::new(),
+                    }),
                     red_on_main: if name == driver::timed::RUN_TESTS {
                         self.driver.red_tests(work)
                     } else {
@@ -1112,6 +1117,7 @@ impl Service {
                         item: kept.item.clone(),
                         kept: Arc::new(kept.work.clone()),
                         test_time: None,
+                        fast_medians: Arc::default(),
                         red_on_main: Vec::new(),
                     };
                     self.carriers

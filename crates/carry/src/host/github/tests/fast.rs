@@ -1295,3 +1295,228 @@ async fn a_commit_published_is_left_on_a_branch_of_the_works_own_and_nothing_is_
         .collect();
     assert_eq!(calls.len(), 1, "the call's own branch was deleted: {calls:?}");
 }
+
+/// The tests' project's fast workflow as one that takes the budget and the work's number.
+fn takes_budget_and_work(config: &mut Config) {
+    let fast = &mut config.ci.as_mut().expect("a declaration").fast;
+    fast.budget_input = "budget_seconds".to_string();
+    fast.work_input = "work".to_string();
+}
+
+/// A stop through which what the host says reaches the loop for this call, knowing these medians of the project's
+/// earlier fast runs; and the way to hear what it said.
+fn hosted(call: Asking, medians: &[(&str, f64)]) -> (Stop, tokio::sync::mpsc::UnboundedReceiver<service::Message>) {
+    let Asking::Call(id) = call else {
+        panic!("a call of run_tests is asked for");
+    };
+    let (to, said) = tokio::sync::mpsc::unbounded_channel();
+    let reply = service::CallReply::new(WORK, id, to);
+    let medians: std::collections::BTreeMap<String, f64> = (medians.iter())
+        .map(|(name, millis)| (name.to_string(), *millis))
+        .collect();
+    let stop = Stop::never()
+        .hosting(reply.hosting())
+        .fast_medians(std::sync::Arc::new(medians));
+    (stop, said)
+}
+
+// A call of run_tests gives the fast workflow its budget in whole seconds, the one run_tests.toml gives every project,
+// and the work's number, each as the input the declaration names; a workflow that names neither is given neither, as
+// the other tests of this file show.
+#[tokio::test]
+async fn a_call_gives_the_fast_workflow_its_budget_and_the_works_number_where_the_declaration_names_their_inputs() {
+    let hub = Hub::new().with(takes_budget_and_work);
+    let head = hub.committed().await;
+    hub.github()
+        .fast(&head, vec![passed("test")], Some(("test-results", junit_green())));
+    (hub.named_check(&named(&["tools::tests::a"], &[])).await)
+        .expect("run")
+        .expect("nothing stopped it");
+    let mut want = inputs(&head, "tools::tests::a\n", None);
+    want.push(("budget_seconds".to_string(), "600".to_string()));
+    want.push(("work".to_string(), WORK.0.to_string()));
+    let asked = hub.dispatched_as_said();
+    assert!(
+        matches!(asked.as_slice(), [Asked::Dispatch { inputs, .. }] if *inputs == want),
+        "{asked:?}"
+    );
+}
+
+// The project's own budget takes the place of the one every project has; the check before a merge, which runs again
+// what its full workflows failed, has none, so that what it runs again runs whole as the full workflows ran it.
+#[test]
+fn a_call_has_its_projects_budget_or_else_the_tools_and_a_round_of_the_check_has_none() {
+    let hub = Hub::new();
+    assert_eq!(hub.host.budget(hub.call()), Ok(Some(600)), "run_tests.toml's 10m");
+    assert_eq!(hub.host.budget(hub.round()), Ok(None));
+    let hub = hub.with(|config| config.ci.as_mut().expect("a declaration").fast.budget = Some("90s".to_string()));
+    assert_eq!(hub.host.budget(hub.call()), Ok(Some(90)));
+    assert_eq!(hub.host.budget(hub.round()), Ok(None));
+}
+
+// A request is refused where the medians of its tests' times in earlier fast runs, one alone or together, are over the
+// budget; never at the budget, never for a test no fast run timed, and each name counts once, trimmed.
+#[test]
+fn a_request_is_refused_where_one_median_or_their_sum_is_over_the_budget_and_an_untimed_test_counts_for_nothing() {
+    let medians: std::collections::BTreeMap<&str, f64> =
+        std::collections::BTreeMap::from([("a", 30_000.0), ("b", 31_000.0), ("c", 61_000.0), ("whole", 60_000.0)]);
+    let median = |test: &str| medians.get(test).copied();
+    let refused = |tests: &[&str]| {
+        let tests: Vec<String> = tests.iter().map(|t| t.to_string()).collect();
+        super::super::fast::over_budget(&tests, 60, median).map(|refused| {
+            (refused.iter())
+                .map(|t| (t.name.to_string(), t.median))
+                .collect::<Vec<_>>()
+        })
+    };
+    assert_eq!(refused(&["a"]), None);
+    assert_eq!(refused(&["whole"]), None, "a median at the budget is not over it");
+    assert_eq!(
+        refused(&["a", "never_timed"]),
+        None,
+        "a test no fast run timed counts for nothing"
+    );
+    assert_eq!(refused(&[]), None);
+    assert_eq!(
+        refused(&["c"]),
+        Some(vec![("c".to_string(), Some(61_000.0))]),
+        "one test over the budget alone"
+    );
+    assert_eq!(
+        refused(&["a", " b ", "a", "never_timed"]),
+        Some(vec![
+            ("a".to_string(), Some(30_000.0)),
+            ("b".to_string(), Some(31_000.0)),
+            ("never_timed".to_string(), None),
+        ]),
+        "together over it, each named once and in order"
+    );
+}
+
+// A request known to take longer than the budget runs nothing and pushes nothing: it says why for each test it named,
+// and is said to the loop as short of time, each test with its median.
+#[tokio::test]
+async fn a_request_known_to_run_over_the_budget_runs_nothing_and_says_why_for_each_test() {
+    let hub = Hub::new()
+        .with(takes_budget_and_work)
+        .with(|config| config.ci.as_mut().expect("a declaration").fast.budget = Some("60s".to_string()));
+    hub.committed().await;
+    let medians = [("long", 75_000.0), ("short", 20_000.0), ("shorter", 44_500.0)];
+    let place = hub.place();
+    let call = hub.call();
+    let (mut stop, mut said) = hosted(call, &medians);
+    let asked = named(&["long", "never_timed"], &[]);
+    let result = (hub.host.run_tests(&branch(&place), &asked, call, &mut stop).await)
+        .expect("answered")
+        .expect("nothing stopped it");
+    assert_eq!(
+        result,
+        "Nothing was run, and nothing was pushed: by their times in this project's earlier fast runs, the tests you named \
+         would take longer than the fast check's budget of 60 s. Name fewer or shorter tests; the check before the merge \
+         runs every test.\n\
+         - long: refused: its median of 75 s is over the budget of 60 s\n\
+         - never_timed: not run with the others, though not refused itself: no earlier fast run timed it"
+    );
+    assert!(hub.trials().is_empty(), "nothing was pushed");
+    assert!(hub.github().asked().is_empty(), "GitHub was asked nothing");
+    let Asking::Call(id) = call else { unreachable!() };
+    let short = |name: &str, millis: Option<u64>| work::Short {
+        name: name.to_string(),
+        how: work::ShortHow::Refused,
+        millis,
+    };
+    assert_eq!(
+        super::ends::heard(&mut said),
+        [engine::Event::ShortOfTime {
+            call: id,
+            budget: 60,
+            tests: vec![short("long", Some(75_000)), short("never_timed", None)],
+        }]
+    );
+    // Two tests each under the budget and over it together are refused, each saying what they come to.
+    let call = hub.call();
+    let (mut stop, _) = hosted(call, &medians);
+    let asked = named(&["short", "shorter"], &[]);
+    let result = (hub.host.run_tests(&branch(&place), &asked, call, &mut stop).await)
+        .expect("answered")
+        .expect("nothing stopped it");
+    for line in [
+        "- short: refused: its median of 20 s brings the tests named to 65 s, over the budget of 60 s",
+        "- shorter: refused: its median of 45 s brings the tests named to 65 s, over the budget of 60 s",
+    ] {
+        assert!(result.contains(line), "{line}\n\n{result}");
+    }
+    assert!(hub.github().asked().is_empty(), "GitHub was asked nothing");
+}
+
+/// The JUnit of a run whose budget ran out: `tools::tests::a` passed, `slow` was stopped as the budget ran out, and
+/// `later` was not started; in the file of the job `test`, which failed for it.
+fn junit_short_of_time() -> Vec<(String, Vec<u8>)> {
+    let xml = r#"<testsuites><testsuite name="carry">
+  <testcase name="tools::tests::a" time="0.12"/>
+  <testcase name="slow" time="58.5"><error message="stopped: the fast check's time ran out after 60 s"/></testcase>
+  <testcase name="later"><skipped message="not run: the fast check's time was used up"/></testcase>
+</testsuite></testsuites>"#;
+    vec![("test.xml".to_string(), xml.as_bytes().to_vec())]
+}
+
+// What the budget kept from running to its end is said apart from what did not pass, in the budget's own words, and is
+// no failure: the call has its result, its job's failure needs no log, and the loop is told the tests it kept short.
+#[tokio::test]
+async fn the_tests_a_run_stopped_or_did_not_start_for_its_budget_are_said_apart_from_failures_and_kept() {
+    let hub = Hub::new().with(takes_budget_and_work);
+    let head = hub.committed().await;
+    let test = job("test", Outcome::Failed("failure".into()), 5);
+    hub.github()
+        .fast(&head, vec![test], Some(("test-results", junit_short_of_time())));
+    let place = hub.place();
+    let call = hub.call();
+    let (mut stop, mut said) = hosted(call, &[]);
+    let asked = named(&["tools::tests::a", "slow", "later"], &[]);
+    let result = (hub.host.run_tests(&branch(&place), &asked, call, &mut stop).await)
+        .expect("answered")
+        .expect("nothing stopped it");
+    assert!(result.contains("1 of the 3 tests passed."), "{result}");
+    assert!(
+        result.contains(
+            "The tests the fast check's time did not let finish:\n\
+             - slow: stopped: the fast check's time ran out in 58.5 s\n\
+             - later: not run: the fast check's time was used up"
+        ),
+        "{result}"
+    );
+    assert!(!result.contains("The tests that did not pass"), "{result}");
+    assert!(hub.github().logs_asked().is_empty(), "the stop says why its job failed");
+    let Asking::Call(id) = call else { unreachable!() };
+    let events = super::ends::heard(&mut said);
+    let timed: Vec<&work::Reading> = (events.iter())
+        .filter_map(|e| match e {
+            engine::Event::Timed { reading } => Some(reading),
+            _ => None,
+        })
+        .collect();
+    let tests: Vec<&str> = timed[0].tests.iter().map(|t| t.name.as_str()).collect();
+    assert_eq!(tests, ["slow", "tools::tests::a"], "a test not started has no time");
+    let short: Vec<&engine::Event> = (events.iter())
+        .filter(|e| matches!(e, engine::Event::ShortOfTime { .. }))
+        .collect();
+    assert_eq!(
+        short,
+        [&engine::Event::ShortOfTime {
+            call: id,
+            budget: 600,
+            tests: vec![
+                work::Short {
+                    name: "slow".to_string(),
+                    how: work::ShortHow::Stopped,
+                    millis: Some(58_500),
+                },
+                work::Short {
+                    name: "later".to_string(),
+                    how: work::ShortHow::NotStarted,
+                    millis: None,
+                },
+            ],
+        }]
+    );
+}
