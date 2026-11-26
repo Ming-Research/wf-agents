@@ -28,6 +28,20 @@ fn a_version_the_owner_read_is_kept_once_by_the_place_that_wrote_it_and_changes_
 }
 
 #[test]
+fn a_read_of_nothing_is_taken_and_adds_no_entry_and_takes_no_place() {
+    let (mut w, write, _) = W::requested();
+    w.returns(write, hands_in(&[("text", None)]));
+    let place = w.work.records.next_place();
+    w.on(Event::Read { versions: Vec::new() });
+    assert!(
+        w.work.records.owner_reads.is_empty(),
+        "a read of nothing kept an entry: {:?}",
+        w.work.records.owner_reads
+    );
+    assert_eq!(w.work.records.next_place(), place, "a read of nothing took a place");
+}
+
+#[test]
 fn versions_read_together_are_one_entry_in_the_order_the_store_reads_them_back() {
     let (mut w, write, first_request) = W::requested();
     w.returns(write, hands_in(&[("text", None)]));
