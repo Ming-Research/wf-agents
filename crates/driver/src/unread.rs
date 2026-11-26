@@ -10,7 +10,7 @@
 
 use std::collections::BTreeSet;
 
-use decide::{BlockId, Outsider, Records, Seq};
+use decide::{BlockId, Records, Seq};
 
 use crate::Kept;
 
@@ -73,14 +73,14 @@ fn versions(records: &Records, block: &BlockId) -> Vec<Version> {
 }
 
 /// The replies of the work, each by its block and version: of each of these cells' words blocks, a version a run wrote
-/// with something in it after the first version a person wrote there with something in it, which is the owner's
-/// speaking to the cell.
+/// with something in it after the first version written there from outside with something in it, which is the owner's
+/// speaking to the cell: the engine writes the owner's words to a words block as the outside, whoever said them.
 pub fn replies(records: &Records, words: &[BlockId]) -> Vec<(BlockId, Seq)> {
     let mut found = Vec::new();
     let mut seen = BTreeSet::new();
     for block in words.iter().filter(|block| seen.insert(*block)) {
         let spoken = (records.written.iter())
-            .filter(|written| &written.block == block && written.by == Outsider::Person && !written.empty)
+            .filter(|written| &written.block == block && !written.empty)
             .map(|written| written.at)
             .min();
         let Some(spoken) = spoken else {
@@ -185,7 +185,7 @@ mod tests {
     //! The owner's reading of a work, on histories made by hand: what is new, what has changed, what is a reply and what
     //! is read. Each case would give another count were the rule it names broken.
 
-    use decide::{Finished, OwnerRead, RunId, Write, Written};
+    use decide::{Finished, Outsider, OwnerRead, RunId, Write, Written};
     use flow::{Compiled, Has, Source, compile};
     use store::{First, Item, ItemNumber, WorkHead, WorkNumber};
     use work::{Time, Work};
@@ -201,6 +201,19 @@ mod tests {
         records.written.push(Written {
             block: block(name),
             by: Outsider::Person,
+            matters: true,
+            value: None,
+            empty,
+            said_to: None,
+            at: Seq(at),
+        });
+    }
+
+    /// The owner's words to a cell, as the engine writes them: to the cell's words block, from outside the work.
+    fn spoken(records: &mut Records, name: &str, at: u64, empty: bool) {
+        records.written.push(Written {
+            block: block(name),
+            by: Outsider::Outside,
             matters: true,
             value: None,
             empty,
@@ -282,7 +295,7 @@ mod tests {
         // A version the cell wrote before the owner spoke is no reply to anything.
         run(&mut records, "r1_words", 2, false);
         assert!(replies(&records, &words()).is_empty());
-        person(&mut records, "r1_words", 3, false);
+        spoken(&mut records, "r1_words", 3, false);
         // The owner's own words are no reply, and a reply with nothing in it is none.
         run(&mut records, "r1_words", 4, true);
         assert!(replies(&records, &words()).is_empty());
@@ -309,7 +322,7 @@ mod tests {
     #[test]
     fn words_the_owner_wrote_with_nothing_in_them_are_not_the_owner_speaking() {
         let mut records = Records::default();
-        person(&mut records, "r1_words", 3, true);
+        spoken(&mut records, "r1_words", 3, true);
         run(&mut records, "r1_words", 5, false);
         assert!(replies(&records, &words()).is_empty());
     }
@@ -419,7 +432,7 @@ mod tests {
         let on = crate::On::installed_flow(&flow);
         let mut work = Work::default();
         person(&mut work.records, "request", 1, false);
-        person(&mut work.records, "write_words", 3, false);
+        spoken(&mut work.records, "write_words", 3, false);
         // A run answers the owner and writes the text; a later run answers with nothing but the engine's own words; and
         // another writes a block that is no cell's words.
         run(&mut work.records, "text", 5, false);
