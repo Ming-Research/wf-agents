@@ -820,18 +820,27 @@ fn main_at<'a>(flow: &'a Compiled, main: &'a str) -> impl Fn(&str) -> Option<(Bl
 }
 
 /// What is wrong with the flow for the watch of main, each in words with the file that says what is written there: the
-/// block of [`MAIN`] gives in its `writes` the `text` the watch fills, so that none is written empty. A flow with any of
-/// these is not run, whatever carries its works out.
+/// block of [`MAIN`] gives in its `writes` the `text` the watch fills, so that none is written empty, and that text
+/// holds the head (`{head}`), which is how the driver tells whether a run of the tests was on the head main has now
+/// ([`driver::red_main`]). A flow with any of these is not run, whatever carries its works out.
 pub fn main_faults(flow: &Compiled) -> Vec<String> {
-    (flow.blocks.iter())
-        .filter(|(_, block)| block.writers.outside.as_deref() == Some(MAIN) && block.writes.get("text").is_none())
-        .map(|(name, block)| {
+    let mut faults = Vec::new();
+    for (name, block) in (flow.blocks.iter()).filter(|(_, block)| block.writers.outside.as_deref() == Some(MAIN)) {
+        let fault = |what: &str| {
             format!(
-                "the flow {}, {}: the block {name} (from {MAIN}): its writes must give text",
+                "the flow {}, {}: the block {name} (from {MAIN}): {what}",
                 flow.name, block.file
             )
-        })
-        .collect()
+        };
+        match block.writes.get("text") {
+            None => faults.push(fault("its writes must give text")),
+            Some(text) if !text.contains("{head}") => {
+                faults.push(fault("its text must say the head of main, as {head}"));
+            }
+            Some(_) => {}
+        }
+    }
+    faults
 }
 
 /// What is wrong with the flow for the acts, each in words with the cell: the cell of `check` has one choice among its
@@ -1161,6 +1170,12 @@ mod tests {
         assert_eq!(
             faults,
             ["the flow watched, flow.toml: the block main (from main): its writes must give text"]
+        );
+        // Words that do not say the head leave the driver unable to tell which head a run of the tests was on.
+        let faults = main_faults(&compiled("writes = { text = \"Main moved.\" }\n"));
+        assert_eq!(
+            faults,
+            ["the flow watched, flow.toml: the block main (from main): its text must say the head of main, as {head}"]
         );
     }
 
