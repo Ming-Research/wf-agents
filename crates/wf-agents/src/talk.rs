@@ -2296,6 +2296,19 @@ fn waited(waited: &Waited) -> String {
             call,
             who: None,
             what,
+            held: Some(held),
+            ..
+        } => format!(
+            "call {call}, {}, held until {} ({} in a row): {}",
+            called(what),
+            utc(held.until),
+            held.failed,
+            obstacle(held.obstacle),
+        ),
+        Waited::Call {
+            call,
+            who: None,
+            what,
             at,
             ..
         } => match at {
@@ -2502,6 +2515,16 @@ fn utc(ms: u64) -> String {
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = yoe + era * 400 + i64::from(m <= 2);
     format!("{y:04}-{m:02}-{d:02} {:02}:{:02} UTC", rest / 3600, rest % 3600 / 60)
+}
+
+/// What kept the host from carrying a call out for now, as a clause.
+fn obstacle(obstacle: web::works::Obstacle) -> &'static str {
+    match obstacle {
+        web::works::Obstacle::Limit => "GitHub's limit on its requests",
+        web::works::Obstacle::Fault => "GitHub failed",
+        web::works::Obstacle::NoRunner => "no machine took the run",
+        web::works::Obstacle::Network => "the network failed",
+    }
 }
 
 /// What a call is, as a clause.

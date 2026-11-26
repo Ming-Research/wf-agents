@@ -7,9 +7,19 @@
 //! passing; any other pauses the work, as one the act cannot get past. An act of a host no network reaches, as the
 //! local repository, fails for no network.
 
+use decide::Obstacle;
 use decide::run::Failure;
 
 use crate::host::Failed;
+
+/// A failure of what a git command or `gh` gave no kind for: where its words are the network's, it only keeps the host
+/// from doing what it was asked for now, and what asked is held and asked again after a wait; any other is as it is.
+pub(crate) fn told_by_its_words(why: String) -> Failed {
+    if network(&why) {
+        return Failed::held(why, Obstacle::Network, None);
+    }
+    Failed::from(why)
+}
 
 /// The kind of cause of a failed act: the one the act said, or by the words it failed with, the act's host being looked
 /// at only where they are the network's. `reached` looks, and gives none where the host is reached by no network.

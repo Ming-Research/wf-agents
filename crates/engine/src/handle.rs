@@ -5,8 +5,9 @@ use std::collections::BTreeMap;
 
 use decide::run::{self, Answer, Failure, Pausing, Requires, Step, Told, Unmet};
 use decide::{
-    Abandoned, BlockId, CallId, Called, CellId, Decision, Done, End, Finished, LetGo, Outsider, Pause, Pauser, PutIn,
-    Returned, Room, Round, RunId, Seq, Started, Who, Write, Written, decide, decide_in, hold_in, told,
+    Abandoned, BlockId, CallId, Called, CellId, Decision, Done, End, Finished, Held, LetGo, Obstacle, Outsider, Pause,
+    Pauser, PutIn, Retry, Returned, Room, Round, RunId, Seq, Started, Who, Write, Written, decide, decide_in, hold_in,
+    told,
 };
 use flow::{Compiled, Kind};
 
@@ -83,11 +84,22 @@ pub fn handle_then(
         Event::Returned { run, .. } => Some(*run),
         _ => None,
     };
+    let result_of = match &event {
+        Event::Done { call, .. } => Some(*call),
+        _ => None,
+    };
     let from = work.tick();
     let releasing = release(end_of(flow, work), work).is_some();
     let ended = end_of(flow, work).is_some();
     let mut effects = Vec::new();
-    take(flow, work, event, &mut effects)?;
+    match event {
+        Event::Held { call, obstacle, retry } => hold_call(flow, work, now, (call, obstacle, retry), &mut effects)?,
+        event => take(flow, work, event, &mut effects)?,
+    }
+    // A call held is asked for again once its wait has its result.
+    if let Some(wait) = result_of {
+        asked_again(flow, work, wait, &mut effects);
+    }
     // What a round returned is taken as the round ends: where it meets everything the flow requires, the run finishes
     // here, before the walk, so that no cell before it comes between.
     if let Some(run) = returned
@@ -146,6 +158,8 @@ pub fn handle_ended(end: End, let_go: &str, work: &mut Work, now: Time, event: E
     let from = work.tick();
     let releasing = release(Some(end), work).is_some();
     match event {
+        // A call of a work that has ended is withdrawn, and is not held.
+        Event::Held { .. } => {}
         // What a round of a run abandoned came to is dropped, as [`take`] drops it; what it took is kept.
         Event::Returned { run, spent, .. } | Event::Failed { run, spent, .. } => {
             if began(work, run) == ended(work, run) {
@@ -215,6 +229,8 @@ pub fn pending_after(end: Option<End>, work: &Work) -> Vec<Effect> {
         for call in open_calls(work, run) {
             if unwanted.contains(&call) {
                 effects.push(Effect::Withdraw { call });
+            } else if work.records.is_held(call) {
+                // Held: it is asked for again once the wait it was held until has its result.
             } else if let Some(what) = work.calls.get(&call) {
                 effects.push(Effect::Call {
                     call,
@@ -1051,12 +1067,73 @@ fn latest_handed(work: &Work, run: RunId, round: usize, block: &BlockId) -> Opti
 }
 
 /// Records a call of the run, and gives it to be made.
-fn call(work: &mut Work, run: RunId, on: Option<Who>, what: Call, effects: &mut Vec<Effect>) {
+fn call(work: &mut Work, run: RunId, on: Option<Who>, what: Call, effects: &mut Vec<Effect>) -> CallId {
     let call = CallId(work.name());
     let at = work.tick();
     work.records.called.push(Called { call, run, on, at });
     work.calls.insert(call, what.clone());
     effects.push(Effect::Call { call, run, what });
+    call
+}
+
+/// Holds a call the host could not carry out for now: the engine makes a wait of its own, as long as the host's retry
+/// and the number of times the call was held in a row say ([`run::held_wait`]), and records that the call is held until
+/// it has its result. A call of a work that has ended or of a run abandoned is withdrawn and not held, and one held
+/// already, which was said again, stays as it is.
+fn hold_call(
+    flow: &Compiled,
+    work: &mut Work,
+    now: Time,
+    (held, obstacle, retry): (CallId, Obstacle, Option<Retry>),
+    effects: &mut Vec<Effect>,
+) -> Result<(), Refused> {
+    let Some(called) = work.records.called.iter().find(|c| c.call == held) else {
+        return Err(Refused::NoSuchCall(held));
+    };
+    let of_run = called.run;
+    if done(work, held).is_some() {
+        return Err(Refused::AlreadyDone(held));
+    }
+    if end_of(flow, work).is_some() || abandoned(work, of_run) || work.records.is_held(held) {
+        return Ok(());
+    }
+    let times = u32::try_from(work.records.holds(held))
+        .unwrap_or(u32::MAX)
+        .saturating_add(1);
+    let waiting = run::held_wait(times, retry);
+    let until = Time(now.0.saturating_add(waiting.ms).max(waiting.not_before.unwrap_or(0)));
+    let wait = call(work, of_run, None, Call::Wait { until, failed: times }, effects);
+    let at = work.tick();
+    work.records.held.push(Held {
+        call: held,
+        wait,
+        at,
+        obstacle,
+    });
+    Ok(())
+}
+
+/// Asks for the calls held until this wait, which has its result now, again, unless their run was abandoned or the work
+/// has ended and withdraws them.
+fn asked_again(flow: &Compiled, work: &Work, wait: CallId, effects: &mut Vec<Effect>) {
+    if end_of(flow, work).is_some() {
+        return;
+    }
+    for held in work.records.held.iter().filter(|h| h.wait == wait) {
+        let Some(called) = work.records.called.iter().find(|c| c.call == held.call) else {
+            continue;
+        };
+        if done(work, held.call).is_some() || abandoned(work, called.run) {
+            continue;
+        }
+        if let Some(what) = work.calls.get(&held.call) {
+            effects.push(Effect::Call {
+                call: held.call,
+                run: called.run,
+                what: what.clone(),
+            });
+        }
+    }
 }
 
 /// The values of each block of the flow that is a choice.

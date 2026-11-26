@@ -8,9 +8,11 @@ import type {
   CallRow,
   Cause,
   Failure,
+  HeldCall,
   Limit,
   Line,
   Maker,
+  Obstacle,
   Outage,
   Person,
   RanOn,
@@ -318,6 +320,21 @@ export function outageWords(outage: Outage): string | null {
   return `${capital(failureWords(down.failure))} since ${clock(outage.since)}.${why} ${heldWords(outage.service, down.failure, outage.mayMove)}`;
 }
 
+/// What kept the host from carrying a call out for now, as a clause.
+const obstacleWords = (obstacle: Obstacle): string =>
+  ({
+    limit: "GitHub's limit on its requests",
+    fault: 'GitHub failed',
+    noRunner: 'no machine took the run',
+    network: 'the network failed',
+  })[obstacle];
+
+/// The engine's wait before a tool's call, which the host could not carry out for now, is asked for again, said as the
+/// wait before a round that failed in passing is, with why.
+export function heldCallWords(tool: string, held: HeldCall): string {
+  return `the engine's wait until ${clock(held.until)}, before the tool ${tool} is asked for again: ${obstacleWords(held.obstacle)} (${held.failed} in a row)`;
+}
+
 /// What a work waits for, in words; a question's own words are shown beside them, in full.
 export function waitedWords(waited: Waited): string {
   switch (waited.kind) {
@@ -326,6 +343,7 @@ export function waitedWords(waited: Waited): string {
       if (what.kind === 'question') return `${personWords(what.who)}'s answer to a question`;
       if (what.kind === 'atLimit') return `the owner to let the run go on: it reached its limit, ${limitWords(what.limit)}`;
       if (what.kind === 'wait') return callWords(what);
+      if (waited.held) return heldCallWords(what.name, waited.held);
       return `the result of the tool ${what.name}${waited.who ? ` from ${personWords(waited.who)}` : ''}`;
     }
     case 'precondition':

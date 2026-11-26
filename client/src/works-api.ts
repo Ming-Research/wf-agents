@@ -58,6 +58,18 @@ export type Call =
   | { kind: 'atLimit'; limit: Limit }
   | { kind: 'wait'; until: number; failed: number };
 
+/// What kept the host from carrying a call out for now: GitHub's limit on its requests, a fault of GitHub's own, no
+/// machine of the project's CI taking the run asked for, or a fault of the network.
+export type Obstacle = 'limit' | 'fault' | 'noRunner' | 'network';
+
+/// A call the host could not carry out for now, held until the engine's wait is over: when it ends, how many times in a
+/// row the call was held, and why.
+export interface HeldCall {
+  until: number;
+  failed: number;
+  obstacle: Obstacle;
+}
+
 /// The kind of cause of a round that failed, as what carried it out told it apart.
 export type Failure =
   | 'passing'
@@ -124,7 +136,16 @@ export type Waited =
   /// The result of a call a run rests at: from this person, or from the engine where there is none; made at this time,
   /// and, for a tool that runs as a CI run, the run's link, as the tool says as it goes. Absent from an engine that does
   /// not give them yet.
-  | { kind: 'call'; call: number; who: Person | null; what: Call; made?: number; at?: string | null }
+  | {
+      kind: 'call';
+      call: number;
+      who: Person | null;
+      what: Call;
+      made?: number;
+      at?: string | null;
+      /// Where the host could not carry the call out for now: the engine asks for it again once its wait is over.
+      held?: HeldCall | null;
+    }
   /// A precondition of the cell does not hold: the named test, the words shown for it, and each who can make it hold,
   /// by writing a block that keeps it from holding.
   | { kind: 'precondition'; test: string; words: string; by: Maker[] }

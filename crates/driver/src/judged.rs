@@ -273,6 +273,22 @@ fn tool(work: &Work, call: CallId) -> Option<&str> {
     }
 }
 
+/// How long the waits a call was held until took, in milliseconds, up to `until` for one not over: what the call took
+/// beside, as the host could not carry it out for now, is no time of the call's own.
+fn waited(work: &Work, call: CallId, until: Time) -> u64 {
+    (work.records.held.iter())
+        .filter(|held| held.call == call)
+        .filter_map(|held| {
+            let wait = work.records.called.iter().find(|c| c.call == held.wait)?;
+            let from = work.time_of(wait.at)?;
+            let to = (work.records.done.iter().find(|d| d.call == held.wait))
+                .and_then(|d| work.time_of(d.at))
+                .unwrap_or(until);
+            Some(to.0.min(until.0).saturating_sub(from.0))
+        })
+        .sum()
+}
+
 /// The work's values of the history: its agents' rounds that are history, the rounds of its acts that handed something
 /// in, and its calls of tools that had their results, each where the records tell when.
 fn values<'a>(of: &Of<'a>) -> Vec<Value<'a>> {
@@ -317,6 +333,7 @@ fn values<'a>(of: &Of<'a>) -> Vec<Value<'a>> {
             continue;
         }
         if let (Some(took), Some(at)) = (ms(called.at, done.at), work.time_of(done.at)) {
+            let took = took - waited(work, called.call, at) as f64;
             out.push(Value {
                 ended: at.0,
                 work: of.number,
@@ -377,7 +394,11 @@ fn judging<'a>(of: &Of<'a>, now: Time) -> Vec<Judging<'a>> {
             what: What::Call {
                 call: called.call,
                 tool: name,
-                time: ended.unwrap_or(now).0.saturating_sub(made.0) as f64,
+                time: ended.unwrap_or(now).0.saturating_sub(made.0).saturating_sub(waited(
+                    work,
+                    called.call,
+                    ended.unwrap_or(now),
+                )) as f64,
                 size,
             },
         });

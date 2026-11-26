@@ -712,11 +712,19 @@ fn check(records: &Records) -> Result<(), RecordFault> {
             return Err(RecordFault::DoneTwice(d.call));
         }
     }
+    for h in &records.held {
+        for call in [h.call, h.wait] {
+            if !records.called.iter().any(|c| c.call == call) {
+                return Err(RecordFault::UnknownCall(call));
+            }
+        }
+    }
     let places = (records.started.iter().map(|e| e.at))
         .chain(records.rounds.iter().map(|e| e.at))
         .chain(records.returned.iter().map(|e| e.at))
         .chain(records.called.iter().map(|e| e.at))
         .chain(records.done.iter().map(|e| e.at))
+        .chain(records.held.iter().map(|e| e.at))
         .chain(records.finished.iter().map(|e| e.at))
         .chain(records.abandoned.iter().map(|e| e.at))
         .chain(records.put_in.iter().map(|e| e.at))

@@ -222,6 +222,59 @@ fn a_call_of_a_tool_is_judged_by_the_calls_of_its_tool_that_had_their_results_as
     assert!(!size.past(), "the results are alike in size: {size:?}");
 }
 
+// The time a call was held, because the host could not carry it out for now, until a wait of the engine's was over is no
+// time of the call's own: a call that took a minute, fifty seconds of them held, took what is left, and is judged so.
+#[test]
+fn the_time_a_call_was_held_is_left_out_of_the_time_it_is_judged_by() {
+    let mut h = harness();
+    let mut calls = Vec::new();
+    for ms in [5_000, 10_000] {
+        calls.push(call(&mut h, Some((ms, "result".to_string()))));
+    }
+    let (work, held) = call(&mut h, None);
+    h.clock += 4_000;
+    let todos = h.on(
+        work,
+        Event::Held {
+            call: held,
+            obstacle: decide::Obstacle::Limit,
+            retry: None,
+        },
+    );
+    let wait = (todos.iter())
+        .find_map(|todo| match &todo.effect {
+            Effect::Call {
+                call,
+                what: Call::Wait { .. },
+                ..
+            } => Some(*call),
+            _ => None,
+        })
+        .expect("the engine makes a wait");
+    h.clock += 50_000;
+    h.on(
+        work,
+        Event::Done {
+            call: wait,
+            result: "over".to_string(),
+        },
+    );
+    h.clock += 5_000;
+    h.on(
+        work,
+        Event::Done {
+            call: held,
+            result: "result".to_string(),
+        },
+    );
+    let judged: Judged = h.d().judged(None, Time(h.clock));
+    let against = judged.calls[&held].time.expect("its time is judged");
+    assert!(
+        against.value < 15_000.0,
+        "the fifty seconds it was held are left out: {against:?}"
+    );
+}
+
 #[test]
 fn the_size_of_a_calls_result_is_judged_by_the_sizes_of_the_results_of_its_tool_as_it_was_made() {
     let mut h = harness();

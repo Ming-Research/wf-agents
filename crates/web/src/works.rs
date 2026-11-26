@@ -570,6 +570,42 @@ pub enum Unrun {
     Held {},
 }
 
+/// A call the host could not carry out for now, and held: the engine asks for it again once its wait is over.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HeldCall {
+    /// When the engine's wait ends, in milliseconds since 1970.
+    pub until: u64,
+    /// How many times in a row the call was held.
+    pub failed: u32,
+    pub obstacle: Obstacle,
+}
+
+/// What kept the host from carrying a call out for now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Obstacle {
+    /// GitHub's limit on the requests it takes.
+    Limit,
+    /// A fault of GitHub's own.
+    Fault,
+    /// No machine of the project's CI took the run asked for.
+    NoRunner,
+    /// A fault of the network.
+    Network,
+}
+
+impl Obstacle {
+    fn of(obstacle: decide::Obstacle) -> Obstacle {
+        match obstacle {
+            decide::Obstacle::Limit => Obstacle::Limit,
+            decide::Obstacle::Fault => Obstacle::Fault,
+            decide::Obstacle::NoRunner => Obstacle::NoRunner,
+            decide::Obstacle::Network => Obstacle::Network,
+        }
+    }
+}
+
 /// What a work waits for.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
@@ -584,6 +620,10 @@ pub enum Waited {
         made: u64,
         #[serde(default)]
         at: Option<String>,
+        /// Where the call is held because the host could not carry it out for now, until when the engine waits to
+        /// ask for it again.
+        #[serde(default)]
+        held: Option<HeldCall>,
     },
     /// A key of the cell's `requires` does not hold: the named test, or the block's key as the cell's file writes it
     /// (`dependencies = merged`); the words shown for it, the test's or the same key; and each who can make it hold, by
@@ -2659,6 +2699,7 @@ impl Now {
                                         .find(|(under, _)| *under == Under::Call(*call))
                                         .map(|(_, said)| *said),
                                 ),
+                                held: held_call(work, *call),
                             },
                             // The work waits for those of the items its item depends on that have not ended.
                             waited if driver::attention::on_items(waited) => Waited::Items {
@@ -3425,6 +3466,24 @@ fn outside(work: &Work, source: &str, run: RunId, block: &BlockId) -> Result<Wai
     })
 }
 
+/// The call as held, where the host could not carry it out for now and the engine's wait for asking again is not over:
+/// the wait it was last held until, how many times it was held in a row, and why.
+fn held_call(work: &Work, call: CallId) -> Option<HeldCall> {
+    let records = &work.records;
+    if !records.is_held(call) {
+        return None;
+    }
+    let held = records.held.iter().rev().find(|held| held.call == call)?;
+    let Some(CallOf::Wait { until, .. }) = work.calls.get(&held.wait) else {
+        return None;
+    };
+    Some(HeldCall {
+        until: until.0,
+        failed: u32::try_from(records.holds(call)).unwrap_or(u32::MAX),
+        obstacle: Obstacle::of(held.obstacle),
+    })
+}
+
 /// What the call is.
 fn call_of(work: &Work, call: CallId) -> Result<Call, Broken> {
     Ok(match work.calls.get(&call) {
@@ -3859,6 +3918,48 @@ pub(crate) mod tests {
         };
         assert_eq!(QuestionPage::ahead(&questions, &[held]), 1);
         assert_eq!(QuestionPage::ahead(&questions, &[]), 2);
+    }
+
+    /// A call the host could not carry out for now is said with the wait it is held until, how many times in a row it was
+    /// held and why, until the wait has its result; a call never held is said with none.
+    #[test]
+    fn a_call_held_is_said_with_its_wait_until_the_wait_has_its_result() {
+        use decide::{Called, Done, Held, Obstacle as Why, Seq};
+        let mut work = Work::default();
+        let called = |call, at| Called {
+            call: CallId(call),
+            run: decide::RunId(1),
+            on: None,
+            at: Seq(at),
+        };
+        work.records.called = vec![called(2, 1), called(3, 3)];
+        work.calls.insert(
+            CallId(3),
+            CallOf::Wait {
+                until: Time(9_000),
+                failed: 1,
+            },
+        );
+        assert_eq!(held_call(&work, CallId(2)), None, "never held");
+        work.records.held = vec![Held {
+            call: CallId(2),
+            wait: CallId(3),
+            at: Seq(4),
+            obstacle: Why::Fault,
+        }];
+        assert_eq!(
+            held_call(&work, CallId(2)),
+            Some(HeldCall {
+                until: 9_000,
+                failed: 1,
+                obstacle: Obstacle::Fault,
+            })
+        );
+        work.records.done.push(Done {
+            call: CallId(3),
+            at: Seq(5),
+        });
+        assert_eq!(held_call(&work, CallId(2)), None, "its wait has its result");
     }
 
     /// A call recorded as a question for a person, which the engine no longer makes, is read as it was recorded.

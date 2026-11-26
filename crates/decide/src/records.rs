@@ -41,6 +41,10 @@ pub struct Records {
     pub called: Vec<Called>,
     /// Each call that has its result.
     pub done: Vec<Done>,
+    /// Each time a call the host could not carry out for now was held, to be asked again once a wait of the engine's
+    /// had its result. Records kept before calls were held so have none, and read so.
+    #[serde(default)]
+    pub held: Vec<Held>,
     /// Each run that handed in its return and passed everything the flow requires of it, with the blocks it wrote.
     pub finished: Vec<Finished>,
     /// Each run that was abandoned, leaving no record.
@@ -138,6 +142,7 @@ impl Records {
             returned: kept(&self.returned, |e| e.at, place),
             called: kept(&self.called, |e| e.at, place),
             done: kept(&self.done, |e| e.at, place),
+            held: kept(&self.held, |e| e.at, place),
             finished: kept(&self.finished, |e| e.at, place),
             abandoned: kept(&self.abandoned, |e| e.at, place),
             put_in: kept(&self.put_in, |e| e.at, place),
@@ -151,6 +156,20 @@ impl Records {
             reopens: kept(&self.reopens, |at| *at, place),
             releases: kept(&self.releases, |at| *at, place),
         }
+    }
+
+    /// How many times the call was held.
+    pub fn holds(&self, call: CallId) -> usize {
+        self.held.iter().filter(|h| h.call == call).count()
+    }
+
+    /// Whether the call is held now: it has no result, and the wait its latest holding made has none either, so the
+    /// call is not asked again yet.
+    pub fn is_held(&self, call: CallId) -> bool {
+        let Some(held) = self.held.iter().rev().find(|h| h.call == call) else {
+            return false;
+        };
+        !self.done.iter().any(|d| d.call == call) && !self.done.iter().any(|d| d.call == held.wait)
     }
 
     /// The cancel that stands: the latest cancel, where no reopen came after it.
@@ -207,6 +226,37 @@ pub struct Called {
     /// The person who gives the result; `None` when the engine makes the call itself, as it does a tool.
     pub on: Option<Who>,
     pub at: Seq,
+}
+
+/// What kept the host from carrying out a call for now, though it will let the call be carried out once it has passed:
+/// GitHub's limit on its requests, a fault of GitHub's own, no machine of the project's CI taking the run asked for, or
+/// a fault of the network.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Obstacle {
+    Limit,
+    Fault,
+    NoRunner,
+    Network,
+}
+
+/// When the host said a call may be asked for again, as it said it: in this many seconds, or at this time in seconds
+/// since 1970.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Retry {
+    In(u64),
+    At(u64),
+}
+
+/// A call was held: the host could not carry it out for now, for this reason, and the engine made the call `wait`,
+/// which has its result once the time has come. The call is asked for again once it has.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Held {
+    pub call: CallId,
+    /// The engine's wait the call is held until.
+    pub wait: CallId,
+    pub at: Seq,
+    pub obstacle: Obstacle,
 }
 
 /// A call has its result.

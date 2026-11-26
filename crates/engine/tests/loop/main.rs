@@ -11,6 +11,7 @@ mod events;
 mod failing;
 mod failing_kinds;
 mod given;
+mod held;
 mod limits;
 mod must_write;
 mod named_tests;

@@ -688,11 +688,11 @@ fn cancelled(hub: &Hub) -> Vec<u64> {
         .collect()
 }
 
-// A full run no runner took is the engine's own to cancel, and fails the round in passing: what stops it is no work's,
-// and asked for again after a wait it may start. A project that declares no workflows has no check, which only its
-// owner mends.
+// A full run no runner took is left queued and fails the round in passing: what stops it is no work's, and asked for
+// again after a wait the same run is found, and it may start. A project that declares no workflows has no check, which
+// only its owner mends.
 #[tokio::test]
-async fn a_full_run_no_runner_took_is_cancelled_and_fails_in_passing_and_a_project_with_no_workflows_has_no_check() {
+async fn a_full_run_no_runner_took_is_left_queued_and_fails_in_passing_and_a_project_with_no_workflows_has_no_check() {
     let hub = Hub::new();
     let head = hub.committed().await;
     hub.github().no_runner();
@@ -703,9 +703,8 @@ async fn a_full_run_no_runner_took_is_cancelled_and_fails_in_passing_and_a_proje
         )),
         "{failed}"
     );
-    assert!(failed.why.ends_with("and the engine cancelled it"), "{failed}");
     assert_eq!(failed.kind, Some(Failure::Passing));
-    assert_eq!(cancelled(&hub), [1000], "the run asked for is cancelled");
+    assert!(cancelled(&hub).is_empty(), "the run asked for is left queued");
     let hub = Hub::new().with(|config| config.ci = None);
     let head = hub.committed().await;
     let failed = hub.failing(&head).await.expect_err("the round fails");

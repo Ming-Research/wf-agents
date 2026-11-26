@@ -35,6 +35,7 @@ use crate::git;
 use crate::held::Stop;
 use crate::host::{Asking, Failed, Named, Verdict};
 use crate::process;
+use decide::Obstacle;
 use service::Along;
 use work::timed::{Job, Reading, Source, Test};
 
@@ -291,7 +292,7 @@ impl<A: Api> GitHub<A> {
         request: Request<'_>,
         named: &Named,
         stop: &mut Stop,
-    ) -> Result<Option<String>, String> {
+    ) -> Result<Option<String>, Failed> {
         let Some(ran) = self.execute_role(&role, request, named, stop).await? else {
             return Ok(None);
         };
@@ -640,9 +641,9 @@ impl<A: Api> GitHub<A> {
     /// dispatched for now with the plan's inputs. Of two runs of the request, the first asked for is waited for, which
     /// began first. None where it was told to stop.
     ///
-    /// A run that never started, GitHub listing none or no runner taking it in the time the CI may take to start, is
-    /// cancelled where it is listed, so that it does not run later for nothing, and fails in passing: what stops it is
-    /// no work's (GitHub, or a runner offline), and asked for again after a wait it may start. A run not complete in the
+    /// A run that never started, GitHub listing none or no runner taking it in the time the CI may take to start, holds
+    /// what asked ([`Failed::held`]): what stops it is no work's (GitHub, or a runner offline), and asked for again after
+    /// a wait the same run is found, left queued where it keeps its place, and it may start. A run not complete in the
     /// time it may take is cancelled, and is what it found: its jobs not complete said so, and no test's result known.
     ///
     /// The runs are looked at by the look every wait on the workflow shares ([`super::looks`]): the first time by one
@@ -678,22 +679,28 @@ impl<A: Api> GitHub<A> {
             let waited = began.elapsed();
             match mine {
                 Some(run) if run.completed => break run,
-                // Listed at once as queued where no runner is online: given up as never started, not waited for
-                // until the run would time out.
+                // Listed and queued where no runner is online: it is left queued, where it keeps its place in GitHub's
+                // queue, and what asked is held and asks again after a wait, finding the same run again.
                 Some(run) if !run.started && waited >= self.config.start => {
-                    self.api.cancel(run.id).await?;
-                    return Err(Failed::passing(format!(
-                        "the run of {workflow} asked for on {commit} never started: no runner took it after {} ({}), \
-                         and the engine cancelled it",
-                        super::span(self.config.start),
-                        run.url
-                    )));
+                    return Err(Failed::held(
+                        format!(
+                            "the run of {workflow} asked for on {commit} never started: no runner took it after {} ({})",
+                            super::span(self.config.start),
+                            run.url
+                        ),
+                        Obstacle::NoRunner,
+                        None,
+                    ));
                 }
                 None if waited >= self.config.start => {
-                    return Err(Failed::passing(format!(
-                        "the run of {workflow} asked for on {commit} never started: GitHub listed none after {}",
-                        super::span(self.config.start)
-                    )));
+                    return Err(Failed::held(
+                        format!(
+                            "the run of {workflow} asked for on {commit} never started: GitHub listed none after {}",
+                            super::span(self.config.start)
+                        ),
+                        Obstacle::Fault,
+                        None,
+                    ));
                 }
                 // Its jobs are read before it is cancelled, so that those still under way are said not complete.
                 Some(run) if run.started && waited >= plan.limit => {
@@ -703,7 +710,7 @@ impl<A: Api> GitHub<A> {
                         "the run did not complete within {}, the time it may take, and the engine cancelled it",
                         super::span(plan.limit)
                     ));
-                    let ends = self.step_ends(&jobs, &results).await;
+                    let ends = self.step_ends(&jobs, &results).await?;
                     return Ok(Some(Ran {
                         run,
                         jobs,
@@ -722,9 +729,11 @@ impl<A: Api> GitHub<A> {
         let results = match self.api.artifact(run.id, plan.results).await {
             Ok(Some(files)) => results::read(&files).map_err(|why| format!("the artifact {}: {why}", plan.results)),
             Ok(None) => Err(format!("the run uploaded no artifact {}", plan.results)),
+            // GitHub's limit, or its own fault, keeps the results from being read for now: not a run without results.
+            Err(failed) if failed.held.is_some() => return Err(failed),
             Err(why) => Err(format!("the artifact {} could not be fetched: {why}", plan.results)),
         };
-        let ends = self.step_ends(&jobs, &results).await;
+        let ends = self.step_ends(&jobs, &results).await?;
         Ok(Some(Ran {
             run,
             jobs,
@@ -735,16 +744,18 @@ impl<A: Api> GitHub<A> {
 
     /// What the log of each job of a run that failed with nothing in the results to say why says of the step that
     /// failed it ([`unexplained`]); a log that cannot be read is said so, and fails nothing else.
-    async fn step_ends(&self, jobs: &[Check], read: &Result<results::Run, String>) -> Vec<StepEnd> {
+    async fn step_ends(&self, jobs: &[Check], read: &Result<results::Run, String>) -> Result<Vec<StepEnd>, Failed> {
         let mut ends = Vec::new();
         for job in unexplained(jobs, read) {
             let said = match self.api.log(job.id).await {
                 Ok(text) => Ok(log::failed_step(&text)),
+                // GitHub's limit, or its own fault, keeps the log from being read for now: the run is read again.
+                Err(failed) if failed.held.is_some() => return Err(failed),
                 Err(failed) => Err(failed.why),
             };
             ends.push(StepEnd { job: job.id, said });
         }
-        ends
+        Ok(ends)
     }
 
     /// The runs by hand of the plan's workflow on main whose name holds the plan's value, as the shared look found them

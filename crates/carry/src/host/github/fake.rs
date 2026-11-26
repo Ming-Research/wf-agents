@@ -37,6 +37,8 @@ struct Kept {
     of_workflow: BTreeMap<(String, String), ByHand>,
     /// Why a run by hand is refused, where every one is.
     refuses_dispatch: Option<String>,
+    /// Why reading what a run uploaded is refused, where it is.
+    refuses_artifact: Option<String>,
     /// Whether another request runs the workflow on the same branch and commit right after each one asked here, as
     /// another check of the same work may.
     another_call: bool,
@@ -172,6 +174,11 @@ impl Fake {
     /// Refuses every run by hand, with these words.
     pub(crate) fn refuse_dispatch(&self, why: &str) {
         self.kept().refuses_dispatch = Some(why.to_string());
+    }
+
+    /// Refuses to give what a run uploaded, with these words, until it is told otherwise.
+    pub(crate) fn refuse_artifact(&self, why: Option<&str>) {
+        self.kept().refuses_artifact = why.map(str::to_string);
     }
 
     /// Keeps every run by hand queued, never started, as with no runner online.
@@ -338,7 +345,8 @@ fn answered(why: &str) -> Failed {
         .and_then(|rest| rest.split(|c: char| !c.is_ascii_digit()).next())
         .and_then(|digits| digits.parse().ok());
     match status {
-        Some(status) if status >= 500 || status == 429 => Failed::passing(why),
+        Some(status) if status >= 500 => Failed::held(why, decide::Obstacle::Fault, None),
+        Some(429) => Failed::held(why, decide::Obstacle::Limit, None),
         _ => Failed::refused(why),
     }
 }
@@ -574,6 +582,9 @@ impl Api for Fake {
 
     async fn artifact(&self, run: u64, name: &str) -> Result<Option<Vec<File>>, Failed> {
         let kept = self.kept();
+        if let Some(why) = &kept.refuses_artifact {
+            return Err(answered(why));
+        }
         let asked = (kept.runs.iter()).find(|d| d.run.id == run && !d.another && !d.run.cancelled);
         let artifact = asked.and_then(|d| kept.given(d).and_then(|(_, a)| a.clone()));
         Ok(artifact.filter(|(n, _)| n == name).map(|(_, files)| files))

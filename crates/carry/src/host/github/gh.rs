@@ -15,6 +15,7 @@ use tokio::io::AsyncWriteExt;
 
 use super::api::{Api, Check, File, Listed, OPEN_PULLS, Outcome, Pull, Run, State};
 use crate::host::Failed;
+use decide::{Obstacle, Retry};
 
 /// GitHub's REST API, through `gh`, in one repository.
 #[derive(Clone)]
@@ -42,15 +43,21 @@ impl std::fmt::Debug for Gh {
     }
 }
 
-/// What GitHub answered: the status, and the body; whether its headers say it limits the requests it takes, none
-/// remaining of them or a time given to try again after; and the entity tag they give the answer, where they give one.
+/// What GitHub answered: the status, and the body; whether it says it limits the requests it takes, by its headers
+/// (none remaining of them, or a time given to try again after) or by its words (a secondary limit gives neither); when
+/// it may be asked again where it says; and the entity tag its headers give the answer, where they give one.
 #[derive(Debug, PartialEq, Eq)]
 struct Answer {
     status: u16,
     body: String,
     limited: bool,
+    retry: Option<Retry>,
     tag: Option<String>,
 }
+
+/// How long a secondary limit is waited out when GitHub says nothing of when it may be asked again, in seconds: at
+/// least a minute, as GitHub's guide to its limits says.
+const SECONDARY_LIMIT: u64 = 60;
 
 impl Gh {
     /// `gh` as this command, in the repository `owner/name`, with the engine's token, keeping its configuration in
@@ -457,12 +464,23 @@ pub(crate) fn environment(
 fn included(out: &str) -> Option<Answer> {
     let (head, body) = (out.split_once("\r\n\r\n")).or_else(|| out.split_once("\n\n"))?;
     let mut lines = head.lines();
-    let status = lines.next()?.split_whitespace().nth(1)?.parse().ok()?;
+    let status: u16 = lines.next()?.split_whitespace().nth(1)?.parse().ok()?;
     let headers: Vec<(String, &str)> = (lines.filter_map(|line| line.split_once(':')))
         .map(|(name, value)| (name.trim().to_ascii_lowercase(), value.trim()))
         .collect();
-    let limited = (headers.iter())
-        .any(|(name, value)| name == "retry-after" || (name == "x-ratelimit-remaining" && *value == "0"));
+    let header = |wanted: &str| headers.iter().find(|(name, _)| name == wanted).map(|(_, value)| *value);
+    let after = header("retry-after");
+    let exhausted = header("x-ratelimit-remaining") == Some("0");
+    // A secondary limit answers 403 or 429 and says so in its words, with neither header.
+    let named = (status == 403 || status == 429) && body.to_ascii_lowercase().contains("rate limit");
+    let retry = match (after.and_then(|seconds| seconds.parse().ok()), exhausted) {
+        (Some(seconds), _) => Some(Retry::In(seconds)),
+        (None, true) => header("x-ratelimit-reset")
+            .and_then(|epoch| epoch.parse().ok())
+            .map(Retry::At),
+        (None, false) => (named && after.is_none()).then_some(Retry::In(SECONDARY_LIMIT)),
+    };
+    let limited = after.is_some() || exhausted || named;
     let tag = (headers.iter())
         .find(|(name, value)| name == "etag" && !value.is_empty())
         .map(|(_, value)| value.to_string());
@@ -470,17 +488,20 @@ fn included(out: &str) -> Option<Answer> {
         status,
         body: body.to_string(),
         limited,
+        retry,
         tag,
     })
 }
 
 /// GitHub's refusal, of the kind its status tells: a fault of GitHub's own (5xx) or its limit on the requests it takes
-/// (429, or another refusal whose headers say it limits them) passes by itself; any other is a refusal no wait mends,
-/// whatever its words.
+/// (429, or another refusal that says it limits them) passes by itself, and only keeps what asked from being done for
+/// now, with when it may be asked again where GitHub says; any other is a refusal no wait mends, whatever its words.
 fn refused(answer: &Answer) -> Failed {
     let why = refusal(answer);
-    if answer.status >= 500 || answer.status == 429 || answer.limited {
-        Failed::passing(why)
+    if answer.status >= 500 {
+        Failed::held(why, Obstacle::Fault, None)
+    } else if answer.status == 429 || answer.limited {
+        Failed::held(why, Obstacle::Limit, answer.retry)
     } else {
         Failed::refused(why)
     }

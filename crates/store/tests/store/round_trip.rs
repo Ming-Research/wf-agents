@@ -321,6 +321,8 @@ fn runs_of_the_new_form_load_back_with_what_they_dealt_with_what_was_put_in_and_
     assert_eq!(mattering, ["Integer(1)", "Integer(0)"]);
     assert_eq!(rows["put_in"].len(), 1);
     assert_eq!(rows["hurried"].len(), 1);
+    assert_eq!(rows["held"].len(), 1, "the call held until a wait of the engine's");
+    assert_eq!(r.held[0].obstacle, decide::Obstacle::Limit);
     // Each try that was filled, the round tried twice among them.
     assert_eq!(rows["filled"].len(), 5);
     assert!(new.filled.iter().any(|f| f.attempt == 2));

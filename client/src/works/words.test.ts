@@ -177,6 +177,25 @@ describe('what a work does now, in words', () => {
     });
   });
 
+  it('says a tool call the host could not carry out for now as the engine\'s wait before it is asked for again, with why', () => {
+    const until = 1_700_000_000_000;
+    const held = (obstacle: 'limit' | 'fault' | 'noRunner' | 'network', failed = 1): Waited => ({
+      kind: 'call',
+      call: 2,
+      who: null,
+      what: { kind: 'tool', name: 'run_tests', input: '' },
+      held: { until, failed, obstacle },
+    });
+    const wait = `the engine's wait until ${clock(until)}, before the tool run_tests is asked for again: `;
+    expect(waitedWords(held('limit'))).toBe(`${wait}GitHub's limit on its requests (1 in a row)`);
+    expect(waitedWords(held('fault', 2))).toBe(`${wait}GitHub failed (2 in a row)`);
+    expect(waitedWords(held('noRunner'))).toBe(`${wait}no machine took the run (1 in a row)`);
+    expect(waitedWords(held('network'))).toBe(`${wait}the network failed (1 in a row)`);
+    // A call not held is said as it was.
+    const plain: Waited = { kind: 'call', call: 2, who: null, what: { kind: 'tool', name: 'run_tests', input: '' } };
+    expect(waitedWords(plain)).toBe('the result of the tool run_tests');
+  });
+
   it('says each kind of thing a work waits for, each work by its number as W12', () => {
     const tool: Waited = { kind: 'call', call: 2, who: null, what: { kind: 'tool', name: 'shell', input: 'ls' } };
     const returns: Waited = { kind: 'call', call: 3, who: 'owner', what: { kind: 'atLimit', limit: { of: 'returns', sentBack: 2 } } };
