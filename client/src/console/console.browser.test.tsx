@@ -622,6 +622,18 @@ describe('the tree in columns', () => {
     expect(scene.drawnStrip(2)).not.toBeNull();
   });
 
+  it('draws a card whose state the engine could not work out in the red of a halt, among plain cards', () => {
+    const fault: Now = { kind: 'fault', words: 'No session' };
+    const broken: Now = { kind: 'broken', words: 'the driver names no turn' };
+    const stopped = (k: number, now: Now): Shown => ({ ...card(k), work: { ...running(k), now, from: null } });
+    scene.show([stopped(1, fault), stopped(2, broken), card(3)]);
+    const [halted, unworked, plain] = [1, 2, 3].map((id) => scene.cardLook(id));
+    expect([unworked?.fill, unworked?.edge]).toEqual([halted?.fill, halted?.edge]);
+    expect(unworked?.fill).not.toBe(plain?.fill);
+    expect(unworked?.edge).not.toBe(plain?.edge);
+    expect(unworked?.rows).toBe(1);
+  });
+
   it('lights the way to a work the engine runs a call for, as to one whose round runs, and to no work that waits for the owner or is paused', () => {
     const call: Now = {
       kind: 'waits',

@@ -153,6 +153,7 @@ const NOT_OWNERS: [string, Now][] = [
   ['a pause of the owner', { kind: 'paused', at: 'plan', by: 'owner', why: null }],
   ['a pause of everything by the owner', { kind: 'everything', at: 'plan', by: 'owner' }],
   ['a fault', { kind: 'fault', words: 'Two entries at 3' }],
+  ['a state the engine could not work out', { kind: 'broken', words: 'the driver names no turn' }],
   ['a free slot', { kind: 'waits', at: 'plan', on: [{ kind: 'slot' }] }],
   ['a stalled work', STALLED],
   ['the wait every work shares for the usage limit, which the engine lifts', shared('usageLimit')],
@@ -300,6 +301,7 @@ describe("the work's state line", () => {
       return { word, cell, keys };
     };
     expect(said({ kind: 'fault', words: 'Two entries at 3' })).toEqual({ word: 'Halted', cell: null, keys: null });
+    expect(said({ kind: 'broken', words: 'the driver names no turn' })).toEqual({ word: 'Broken', cell: null, keys: null });
     expect(said(STALLED)).toEqual({ word: 'Halted', cell: 'merge', keys: null });
     expect(said({ kind: 'paused', at: 'plan', by: 'owner', why: null })).toEqual({
       word: 'Paused',
@@ -331,9 +333,10 @@ describe('the pause of every work', () => {
 });
 
 describe('a stop that no one waits on', () => {
-  it('is a card in the same look, saying what is wrong, for a fault and for a stall, and counts nothing', () => {
+  it('is a card in the same look, saying what is wrong, for a fault, a state that cannot be worked out and a stall, and counts nothing', () => {
     for (const [now, why] of [
       [{ kind: 'fault', words: 'Two entries at 3' } as Now, 'Two entries at 3'],
+      [{ kind: 'broken', words: 'the driver names no turn' } as Now, 'the driver names no turn'],
       [STALLED, 'It waits for checked = yes, which only check can make hold, and check does not run, because nothing new runs it.'],
     ] as const) {
       const container = draw(now, [], undefined, none);
@@ -352,6 +355,12 @@ describe('a stop that no one waits on', () => {
       4, 3, 2, 1,
     ]);
     expect(standingOf(summary(STALLED))).toBe('halted');
+    // A state that cannot be worked out is a stop in the same red, and stands in a tile of its own, not the halted one.
+    const broken: Now = { kind: 'broken', words: 'the driver names no turn' };
+    expect(moodOf({ now: broken, cells: [], waits: [] })).toBe(moodOf({ now: fault, cells: [], waits: [] }));
+    expect(nowTone(summary(broken))).toBe(nowTone(summary(fault)));
+    expect(standingOf(summary(broken))).toBe('broken');
+    expect(stateOf(summary(broken)).word).not.toBe(stateOf(summary(fault)).word);
     expect(stateOf(summary(STALLED)).word).toBe(stateOf(summary(fault)).word);
   });
 });
