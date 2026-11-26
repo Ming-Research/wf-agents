@@ -17,14 +17,14 @@ research's test where it left one. Run each test you add or extend both on the c
 that you remove, skip or weaken needs a technical reason. Where the cost per operation or request can change, measure
 what could get slower as well as what the change is for.
 
-If the plan does not hold (its direction is wrong, or it needs a decision of the tree changed, or a choice the owner
-has not made, such as accepting a slowdown), do not work around it. Say where and why in `plan_doubts`. The answer
-comes there too: judge it, and write `plan_doubts` again only where a doubt still stands.
+If the plan does not hold (its direction is wrong, a condition of `acceptance` is wrong, or it needs a decision of the
+tree changed, or a choice the owner has not made, such as accepting a slowdown), do not work around it. Say where and
+why in `plan_doubts`. The answer comes there too: judge it, and write `plan_doubts` again only where a doubt still
+stands.
 
 Commit everything in the worktree, and hand in `code`, `decisions` and `evidence` once what you ran through
 `run_tests` for the change passes on your last commit. Hand in `title` with your first `code`, and again when what the
-change does changes; `decisions` only where there is one; and `acceptance` only when a condition must change, as the
-whole list as it now stands, with why.
+change does changes, and `decisions` only where there is one.
 
 If main does not merge into the branch, merge it in yourself and run the check again. Fix a point its judge insists
 on, or have the owner rule on it. If what the item asks needs no change, ask the owner.
@@ -48,7 +48,6 @@ outputs = [
   "title",
   "decisions",
   "evidence",
-  "acceptance",
   "review",
   "test_review",
   "design_review",

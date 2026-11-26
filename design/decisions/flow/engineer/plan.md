@@ -19,7 +19,8 @@ The acceptance conditions are numbered sentences, each plainly true or false and
 - replaced: A condition verified by a fast-CI job was on main; the owner changed it, because the fast CI only makes CI faster, and which CI runs a test is the engine's choice, not the plan's.
 
 ### decision acceptance-may-change
-The conditions a work is accepted by are not locked: they may change while the work goes on, and each review is given what changed in them since the version it last saw.
+The conditions a work is accepted by may change while the work goes on, only the plan's writer changes them, and each review is given what changed in them since the version it last saw.
+- replaced: The implementation changing the conditions itself, by handing in `acceptance`, was on main; the owner changed it, because the cell that writes the code would set its own standard.
 - replaced: Locking the conditions once the first design set them, so that an agent could not quietly loosen them, was on main; the owner changed it, because locking was too strict, and a review found too loose can be tightened later.
 
 ### decision each-choice-of-the-owners-is-asked-in-a-question-of-its-own
