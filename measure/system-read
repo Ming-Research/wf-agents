@@ -1,4 +1,0 @@
-# The measurement `system-read`: `system-read-build` with three hundred reads of the system more, after the first, which
-# works every work's part out. The time of the reads is this measurement's less that one's.
-set -euo pipefail
-SYSTEM_READS=300 bash "$(dirname "$0")/system-read-build"
