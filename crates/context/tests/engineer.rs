@@ -1343,6 +1343,39 @@ fn what_a_sent_back_return_left_standing_is_written_when_the_next_return_asks_fo
     }
 }
 
+// Reference: decision a-sent-back-return-is-completed-by-what-is-missing (what a return sent back left standing is
+// written where the next return asks for calls, which ends the run dealing with nothing) and the walk's rule that what
+// a run did not deal with runs its cell again: the research sent back for leaving the work stuck, whose next return only
+// asks for a call, leaves its choice written and the research to run again, so the work is not left without a plan.
+#[test]
+fn a_research_sent_back_for_stalling_whose_next_return_asks_for_calls_is_run_again_with_its_choice_written() {
+    let (mut sim, research) = until("R1");
+    tried(&mut sim, &research);
+    sim.returns(
+        &research,
+        Came::hands_in(vec![handed("deep_needed", "", Some("no"))]),
+        0,
+    );
+    let again = sim.round().expect("the research is entered again");
+    assert_eq!((again.cell.as_str(), again.run), ("R1", research.run));
+    let entered = sim.enter(&again, sim.begins(&again));
+    sim.tries(&again, 1, entered.fills);
+    let asks = engine::Ask::Tool {
+        name: "query".to_string(),
+        input: "{}".to_string(),
+    };
+    sim.returns(&again, Came::asks(vec![asks]), 0);
+    assert_eq!(
+        sim.versions("deep_needed").len(),
+        1,
+        "the choice that stood was written"
+    );
+    assert!(sim.versions("plan_owner").is_empty());
+    let next = sim.round().expect("the work goes on");
+    assert_eq!(next.cell.as_str(), "R1", "the research runs again for the plan");
+    assert_ne!(next.run, research.run);
+}
+
 const ONLY_WHAT_IS_LISTED: &str =
     "Return again with only what is listed here. What you returned before and is not listed stands.";
 const WHOLE_AGAIN: &str = "Return again, with everything this return should say in one return.";

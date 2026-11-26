@@ -174,3 +174,47 @@ fn a_return_sent_back_for_something_else_is_not_asked_whether_it_would_stall() {
 fn a_cell_given_no_such_check_takes_its_return_as_it_did() {
     assert_eq!(step(vec![handed_in(vec![])], &spec()), finish(vec![]));
 }
+
+// Reference: decision a-sent-back-return-is-completed-by-what-is-missing (what a return sent back left standing is
+// part of what the next return gives), and the item's own rule that the check judges what the run would finish with: the
+// check is told the writes of the finish, those that stood included, not only those of the last return.
+#[test]
+fn the_check_is_told_what_stood_of_the_returns_sent_back_beside_what_the_last_return_writes() {
+    let first = Round {
+        sent_back: vec![Unmet::NotHandedIn {
+            block: "verdict".into(),
+        }],
+        ..handed_in(vec![prose("plan")])
+    };
+    let rounds = vec![first, handed_in(vec![valued("verdict", "no")])];
+    let (step, asked) = step_asking(rounds, &spec(), &[]);
+    assert_eq!(step, finish(vec![prose("plan"), valued("verdict", "no")]));
+    assert_eq!(
+        asked,
+        [(
+            vec![BlockId::from("request"), BlockId::from("opinions")],
+            vec![prose("plan"), valued("verdict", "no")]
+        )]
+    );
+}
+
+// Reference: decision a-sent-back-return-is-completed-by-what-is-missing, first line (where the next return asks for
+// calls, what stood is written), and decision a-return-is-tools-or-outcome (a return that asks for calls holds nothing
+// else, so it is not held to what the cell must hand in). A return sent back for stalling stands like any other, and the
+// return that asks for calls after it is not asked whether the work would stall.
+#[test]
+fn what_stood_of_a_return_sent_back_for_stalling_is_written_when_the_next_return_asks_for_calls() {
+    let stuck = Round {
+        sent_back: vec![would_stall(&["plan"])],
+        ..handed_in(vec![valued("verdict", "no")])
+    };
+    let (step, asked) = step_asking(vec![stuck, asks(1)], &spec(), &["plan"]);
+    assert_eq!(
+        step,
+        Step::Finish {
+            dealt_with: vec![],
+            writes: vec![valued("verdict", "no")],
+        }
+    );
+    assert!(asked.is_empty(), "a return that asks for calls is not asked: {asked:?}");
+}
