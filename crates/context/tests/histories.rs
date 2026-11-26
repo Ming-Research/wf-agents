@@ -1675,6 +1675,18 @@ fn given(sim: &Sim, cell: &CellSpec) -> Vec<Datum> {
     data
 }
 
+/// What bounds the search that is held to the small flow's real rounds: the tool's rounds, no end for a stretch of rounds
+/// without a new line, and an archive four times as large. On the small flow the tool's own bounds end the search at
+/// 11136 rounds with 118 lines, 5500 rounds after its last, and one line its histories reach is left out; with the
+/// plateau lifted it takes all 22000 rounds and still leaves it out, and with this archive it finds it by about 15000
+/// rounds and no line after it (research/situations-search-measured.md, section 9).
+const SMALL_FLOW_BOUNDS: witness::Bounds = witness::Bounds {
+    rounds: witness::BOUNDS.rounds,
+    plateau: witness::BOUNDS.rounds,
+    archive: 4 * witness::BOUNDS.archive,
+    draws: witness::BOUNDS.draws,
+};
+
 #[test]
 fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() {
     let mut reached = Reached::default();
@@ -1745,9 +1757,11 @@ fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() 
     // What the tool writes is held to real rounds: the search carries works of the flow out and keeps, for each line a
     // round stood in, a script that carries such a round out, and each situation written is one of them, which its script,
     // run again, carries out. The histories above choose what they do apart from the search, so that every line a round
-    // of theirs stood in is one the search found, or the search leaves out what a work can reach.
+    // of theirs stood in is one the search found, or the search leaves out what a work can reach. The bounds are those
+    // of [`SMALL_FLOW_BOUNDS`], not the tool's, since the tool's end the search on the small flow before it has found
+    // all that its histories reach.
     let sim = support::sim_of(support::limited(), support::words());
-    let found = witness::search(&sim.flow, &sim.words, &sim.compared, None, &witness::BOUNDS);
+    let found = witness::search(&sim.flow, &sim.words, &sim.compared, None, &SMALL_FLOW_BOUNDS);
     let spent = witness::spent();
     let written = support::written(&sim, &found);
     let gaps = missing(&reached.real, &written.lines);
