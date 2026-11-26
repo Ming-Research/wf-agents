@@ -100,8 +100,11 @@ struct Seen {
     head: String,
 }
 
-/// Each reading of the work that ran on the head of main, with the time and the place it was kept at.
-fn on_main(work: &Work) -> Vec<(Time, Seq, &work::timed::Reading)> {
+/// A reading of a run on the head of main, with the time and the place of the entry that kept it.
+type OnMain<'a> = (Time, Seq, &'a work::timed::Reading);
+
+/// Each reading of the work that ran on the head of main.
+fn on_main(work: &Work) -> Vec<OnMain<'_>> {
     let mut asked: BTreeMap<&str, Vec<&work::timed::Timed>> = BTreeMap::new();
     for timed in &work.timed {
         if timed.reading.asking.starts_with("run/") {
@@ -167,8 +170,7 @@ pub fn of_project(project: &str, members: &[Member<'_>], waiting: impl Fn(WorkNu
     let heads: BTreeSet<&str> = going.iter().filter_map(|m| latest_main(m)).collect();
     let current = |commit: &str| !commit.is_empty() && heads.iter().any(|head| head.contains(commit));
     let mut seen: BTreeMap<(&str, &str), Vec<Seen>> = BTreeMap::new();
-    let readings: Vec<(WorkNumber, Vec<(Time, Seq, &work::timed::Reading)>)> =
-        members.iter().map(|m| (m.number, on_main(m.work))).collect();
+    let readings: Vec<(WorkNumber, Vec<OnMain<'_>>)> = members.iter().map(|m| (m.number, on_main(m.work))).collect();
     for (work, readings) in &readings {
         for (time, place, reading) in readings {
             let on_head = current(&reading.commit);

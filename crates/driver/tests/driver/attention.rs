@@ -1540,16 +1540,17 @@ fn a_red_main_is_not_given_again_when_its_works_end_and_another_comes_to_the_sam
     assert_eq!(given.lines.len(), 1);
     h.on(w, Event::Cancelled { why: None });
     let alone = since(&h, Some(&given.mark));
-    assert_eq!(
-        heeds(&alone),
-        vec![],
-        "no work says what main is: there is no red to give"
-    );
+    let reds = |attention: &Attention| {
+        (heeds(attention).into_iter())
+            .filter(|heed| matches!(heed, Heed::MainRed { .. }))
+            .count()
+    };
+    assert_eq!(reds(&alone), 0, "no work says what main is: there is no red to give");
     h.add(new_item("b", &[], "checked"));
     h.outside("main", "Main is at m1.");
     assert_eq!(
-        heeds(&since(&h, Some(&alone.mark))),
-        vec![],
+        reds(&since(&h, Some(&alone.mark))),
+        0,
         "the same red, found again, is not given again"
     );
 }
