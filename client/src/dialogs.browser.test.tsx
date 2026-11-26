@@ -46,6 +46,7 @@ describe.each(['light', 'dark'] as const)('the page’s dialogs in the %s theme'
     return host.querySelector(selector) as HTMLDialogElement;
   }
 
+  // The parts of a look are asserted softly, so that a run says every part that is wrong and not only the first.
   it('draws the question before a command in the body size, with square corners, the window shadow and buttons of the control height and corner', async () => {
     const dialog = draw(
       <Confirm title="Cancel this work?" verb="Cancel work" onAnswer={() => undefined}>
@@ -54,15 +55,19 @@ describe.each(['light', 'dark'] as const)('the page’s dialogs in the %s theme'
       'dialog.confirm',
     );
     await expect.poll(() => dialog.open).toBe(true);
+    const body = named('font-size', 'var(--size-body)');
     const look = getComputedStyle(dialog);
-    expect(look.fontSize).toBe(named('font-size', 'var(--size-body)'));
-    expect(look.borderRadius).toBe('0px');
-    expect(look.boxShadow).toBe(named('box-shadow', 'var(--window-shadow)'));
+    expect.soft(look.fontSize).toBe(body);
+    expect.soft(look.borderRadius).toBe('0px');
+    expect.soft(look.boxShadow).toBe(named('box-shadow', 'var(--window-shadow)'));
+    expect.soft(getComputedStyle(dialog.querySelector('.confirm-body') as HTMLElement).fontSize).toBe(body);
     const buttons = [...dialog.querySelectorAll<HTMLButtonElement>('.confirm-buttons .button')];
     expect(buttons).toHaveLength(2);
     for (const button of buttons) {
-      expect(getComputedStyle(button).height).toBe(named('height', 'var(--control)'));
-      expect(getComputedStyle(button).borderRadius).toBe(named('border-radius', 'var(--corner)'));
+      const ours = getComputedStyle(button);
+      expect.soft(ours.fontSize).toBe(body);
+      expect.soft(ours.height).toBe(named('height', 'var(--control)'));
+      expect.soft(ours.borderRadius).toBe(named('border-radius', 'var(--corner)'));
     }
   });
 
@@ -73,8 +78,8 @@ describe.each(['light', 'dark'] as const)('the page’s dialogs in the %s theme'
     );
     await expect.poll(() => dialog.open).toBe(true);
     const look = getComputedStyle(dialog);
-    expect(look.fontSize).toBe(named('font-size', 'var(--size-body)'));
-    expect(look.borderRadius).toBe('0px');
-    expect(look.boxShadow).toBe(named('box-shadow', 'var(--window-shadow)'));
+    expect.soft(look.fontSize).toBe(named('font-size', 'var(--size-body)'));
+    expect.soft(look.borderRadius).toBe('0px');
+    expect.soft(look.boxShadow).toBe(named('box-shadow', 'var(--window-shadow)'));
   });
 });

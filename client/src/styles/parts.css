@@ -67,8 +67,8 @@ button {
 
 .visually-hidden {
   position: absolute;
-  width: var(--visually-hidden);
-  height: var(--visually-hidden);
+  width: 1px;
+  height: 1px;
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
@@ -654,8 +654,8 @@ textarea:disabled {
 
 .cw-edge {
   flex: none;
-  width: var(--grip);
-  margin-left: calc(var(--grip) / -2);
+  width: 6px;
+  margin-left: -3px;
   cursor: col-resize;
 }
 
@@ -838,25 +838,29 @@ textarea:disabled {
   vertical-align: baseline;
 }
 
-/* The page's own question before a command: a card over the page, the page under it dimmed and out of reach. The
-   question is a head with a line under it, what follows, the buttons at the right; in the page's own sizes, with square
-   corners and the shadow of the window that floats over a view. */
+/* The page's own question before a command: a card over the page, the page under it dimmed and out of reach. Laid
+   out as Primer's confirmation dialog is: the question as a head with a line under it, what follows, the buttons at
+   the right. */
 .confirm {
-  width: min(var(--dialog-width), calc(100vw - var(--space-16) * 2));
+  width: min(480px, calc(100vw - var(--space-16) * 2));
   padding: 0;
   border: 0;
+  border-radius: 12px;
   background: var(--card);
-  box-shadow: var(--window-shadow);
+  box-shadow:
+    0 0 0 var(--hairline) var(--line),
+    0 8px 16px rgb(0 0 0 / 8%),
+    0 24px 48px rgb(0 0 0 / 16%);
   color: var(--text);
   font-family: var(--font);
   font-size: var(--size-body);
-  line-height: var(--line-height);
+  line-height: 1.5;
   /* It is drawn from inside the bar, whose words do not wrap; its own do. */
   white-space: normal;
 }
 
 .confirm::backdrop {
-  background: var(--scrim);
+  background: rgb(31 35 40 / 35%);
 }
 
 .confirm-box {
@@ -874,6 +878,7 @@ textarea:disabled {
 
 .confirm-body {
   padding: var(--space-16);
+  font-size: 14px;
 }
 
 /* What the question asks the owner to write, under its words. */
@@ -889,7 +894,10 @@ textarea:disabled {
 }
 
 .confirm-buttons .button {
+  height: 32px;
   padding: 0 var(--space-12);
+  border-radius: 6px;
+  font-size: 14px;
 }
 
 /* A diagram in a passage (diagram.tsx), at its own size, or as narrow as its place when wider (never larger, never
@@ -949,8 +957,12 @@ textarea:disabled {
   max-height: none;
   padding: 0;
   border: 0;
+  border-radius: 12px;
   background: var(--card);
-  box-shadow: var(--window-shadow);
+  box-shadow:
+    0 0 0 var(--hairline) var(--line),
+    0 8px 16px rgb(0 0 0 / 8%),
+    0 24px 48px rgb(0 0 0 / 16%);
   color: var(--text);
   font-family: var(--font);
   font-size: var(--size-body);
@@ -962,7 +974,7 @@ textarea:disabled {
 }
 
 .diagram-window::backdrop {
-  background: var(--scrim);
+  background: rgb(31 35 40 / 35%);
 }
 
 .diagram-window-head {
@@ -1131,9 +1143,5 @@ textarea:disabled {
 /* A stretch nothing ran in whose wait is not known, of a work whose flow's version was not kept: hatched, so that it
    reads as no wait at all rather than as one of the colours a wait is known by. */
 .us-unknown {
-  background: repeating-linear-gradient(
-    45deg,
-    var(--track-gap) 0 var(--stripe-width),
-    transparent var(--stripe-width) var(--stripe-period)
-  );
+  background: repeating-linear-gradient(45deg, var(--track-gap) 0 2px, transparent 2px 5px);
 }
