@@ -2885,6 +2885,27 @@ fn system_said(system: &System, going: &[Going], days: u64, limit: usize) -> Str
     if system.left_behind.len() > limit {
         lines.push(more(system.left_behind.len() - limit));
     }
+    if !system.short_of_time.is_empty() {
+        lines.push(
+            "Calls of run_tests the fast check's budget kept tests of from their end, by day, the latest first:"
+                .to_string(),
+        );
+    }
+    for day in system.short_of_time.iter().take(limit) {
+        lines.push(format!(
+            "  {} on the day from {}: {} {}; tests stopped {}, not started {}, refused {}",
+            day.project.as_deref().unwrap_or("no project"),
+            utc(day.day),
+            day.calls,
+            if day.calls == 1 { "call" } else { "calls" },
+            day.stopped,
+            day.not_started,
+            day.refused
+        ));
+    }
+    if system.short_of_time.len() > limit {
+        lines.push(more(system.short_of_time.len() - limit));
+    }
     for tests in &system.tests {
         lines.extend(tests_said(tests, days, limit));
     }
@@ -3523,6 +3544,53 @@ mod tests {
         assert!(list(&waiting, &Listing::default(), 0).starts_with("#1 "));
     }
 
+    // The system view says, by project and day, the latest first and bounded as every list is, how many calls of
+    // run_tests the fast check's budget kept tests of from their end, and how many tests it stopped, did not start and
+    // refused. Microseconds.
+    #[test]
+    fn the_system_says_by_project_and_day_how_often_the_fast_budget_kept_tests_from_their_end() {
+        let day = |day: u64, calls: usize| web::system::ShortDay {
+            project: Some("Firn-wf".to_string()),
+            day,
+            calls,
+            stopped: 2,
+            not_started: 3,
+            refused: 0,
+        };
+        let system = System {
+            now: 0,
+            from: None,
+            spent: Spent::default(),
+            pinged: Spent::default(),
+            weeks: Vec::new(),
+            by_project: Vec::new(),
+            by_cell: Vec::new(),
+            by_model: Vec::new(),
+            by_work: Vec::new(),
+            merged: Vec::new(),
+            cancelled: Vec::new(),
+            added: Vec::new(),
+            sent_back: Vec::new(),
+            failed: Vec::new(),
+            past: Vec::new(),
+            under_way: Vec::new(),
+            tests: Vec::new(),
+            left_behind: Vec::new(),
+            short_of_time: vec![day(2 * 86_400_000, 1), day(86_400_000, 4), day(0, 2)],
+            stopping: None,
+        };
+        let said = system_said(&system, &[], 7, 2);
+        assert!(
+            said.ends_with(
+                "Calls of run_tests the fast check's budget kept tests of from their end, by day, the latest first:\n  \
+                 Firn-wf on the day from 1970-01-03 00:00 UTC: 1 call; tests stopped 2, not started 3, refused 0\n  \
+                 Firn-wf on the day from 1970-01-02 00:00 UTC: 4 calls; tests stopped 2, not started 3, refused 0\n  \
+                 And 1 more: wf-agents system --days 7 --limit 3"
+            ),
+            "{said}"
+        );
+    }
+
     // The system view lists what each program run for a work left running and had stopped, the latest first, saying
     // which program it was: a try of a round, the check of an act's round or of a call, a keep-warm ping or a fork.
     // Microseconds.
@@ -3601,6 +3669,7 @@ mod tests {
                     1,
                 ),
             ],
+            short_of_time: Vec::new(),
             stopping: None,
         };
         let said = system_said(&system, &[], 7, 10);
@@ -4546,6 +4615,7 @@ mod tests {
             under_way: Vec::new(),
             tests: Vec::new(),
             left_behind: Vec::new(),
+            short_of_time: Vec::new(),
             stopping: None,
         };
         let said = system_said(&system, &[], 7, 10);
@@ -4683,6 +4753,7 @@ mod tests {
             under_way: vec![round(3), round(4)],
             tests: Vec::new(),
             left_behind: Vec::new(),
+            short_of_time: Vec::new(),
             stopping: None,
         };
         let going = [Going {
@@ -4751,6 +4822,7 @@ mod tests {
             ],
             tests: Vec::new(),
             left_behind: Vec::new(),
+            short_of_time: Vec::new(),
             stopping: None,
         };
         let listed =
@@ -4851,6 +4923,7 @@ mod tests {
             under_way: Vec::new(),
             tests: Vec::new(),
             left_behind: Vec::new(),
+            short_of_time: Vec::new(),
             stopping: None,
         };
         let said = system_said(&system, &[], 7, 10);

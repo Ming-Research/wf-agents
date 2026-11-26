@@ -1073,6 +1073,10 @@ impl Service {
                     test_time: (name == driver::timed::RUN_TESTS)
                         .then(|| self.driver.test_time(work))
                         .flatten(),
+                    fast_medians: Arc::new(match name == driver::timed::RUN_TESTS {
+                        true => self.driver.fast_medians(work),
+                        false => BTreeMap::new(),
+                    }),
                 };
                 self.carriers
                     .tools
@@ -1106,6 +1110,7 @@ impl Service {
                         item: kept.item.clone(),
                         kept: Arc::new(kept.work.clone()),
                         test_time: None,
+                        fast_medians: Arc::default(),
                     };
                     self.carriers
                         .tools

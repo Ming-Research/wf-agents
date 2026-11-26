@@ -12,7 +12,7 @@
 //! fails after it was told to stop has been stopped, and ends as a stop does.
 
 use std::collections::BTreeMap;
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use service::{Along, Hosting, Saying};
 use tokio::sync::oneshot;
@@ -56,6 +56,9 @@ pub(crate) struct Stop {
     /// How long one test of the project's CI may run before it is stopped, in milliseconds, as the history of the
     /// project's merged checks says it; none where that history is too short.
     test_time: Option<f64>,
+    /// The median of each test's times in the project's earlier fast runs, in milliseconds, by its name; empty where
+    /// none was given.
+    fast_medians: Arc<BTreeMap<String, f64>>,
 }
 
 impl Stop {
@@ -71,6 +74,7 @@ impl Stop {
             saying: None,
             hosting: None,
             test_time: None,
+            fast_medians: Arc::default(),
         }
     }
 
@@ -92,6 +96,18 @@ impl Stop {
         self
     }
 
+    /// The stop, which gives the host the median of each test's times in the project's earlier fast runs.
+    pub(crate) fn fast_medians(mut self, fast_medians: Arc<BTreeMap<String, f64>>) -> Stop {
+        self.fast_medians = fast_medians;
+        self
+    }
+
+    /// The median of a test's times in the project's earlier fast runs, in milliseconds; none where no fast run timed
+    /// it.
+    pub(crate) fn fast_median(&self, test: &str) -> Option<f64> {
+        self.fast_medians.get(test).copied()
+    }
+
     /// How long one test may run before it is stopped, in whole seconds rounded up, at least one; none where the
     /// history says none.
     pub(crate) fn test_seconds(&self) -> Option<u64> {
@@ -110,6 +126,16 @@ impl Stop {
     pub(crate) fn timed(&self, reading: work::Reading) {
         if let Some(hosting) = &self.hosting {
             hosting.timed(reading);
+        }
+    }
+
+    /// Says that the call of `run_tests` that asked, of this budget in whole seconds, had these of its tests kept from
+    /// their end by the budget; nothing where none was, or where a round asked, which is given no budget.
+    pub(crate) fn short_of_time(&self, asking: Asking, budget: u64, tests: Vec<work::Short>) {
+        if let (Some(hosting), Asking::Call(call)) = (&self.hosting, asking)
+            && !tests.is_empty()
+        {
+            hosting.short_of_time(call, budget, tests);
         }
     }
 

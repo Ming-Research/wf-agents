@@ -82,6 +82,11 @@ unit_not_built = "{unit}: {why}"
 no_such_test = "no test in the run has this name: a name is a test's name exactly as the results give it, with nothing added"
 no_such_test_unbuilt = "no test in the run has this name, but these units were not built, so it may be in one of them: {units}"
 all_skipped = "each test it names was skipped"
+# The tests the budget of a fast run did not let finish, said apart from those that did not pass: one the run stopped as
+# the budget ran out, and one it did not start, the budget used up.
+short_title = "The tests the fast check's time did not let finish:"
+stopped = "stopped: the fast check's time ran out"
+not_started = "not run: the fast check's time was used up"
 
 # What it says where the host is GitHub. `merge_under_way`, `uncommitted` and `untracked` are said only where no commit
 # is named: a commit that is named is the one run, whatever the worktree holds.
@@ -97,6 +102,19 @@ runner_missing = "Nothing was run: the workflow runs on {runner}, and this insta
 no_measure = "Nothing was run: the project declares no workflow that times measurements, so none can be named. Nothing was pushed."
 # Said before what a request that publishes the commit found, or alone: `{commit}` the commit, `{branch}` the branch on GitHub.
 published = "The commit {commit} is on GitHub as the branch {branch} until the work ends; start a workflow on it with that branch as its ref."
+# Said where the tests named are known by the medians of their times in the project's earlier fast runs to take longer
+# than the budget, so that nothing is run: `{budget}` in seconds, `{tests}` each as `test` of [result] says it, its
+# `{became}` one of the three below, `{median}` and `{sum}` in whole seconds.
+over_budget = "Nothing was run, and nothing was pushed: by their times in this project's earlier fast runs, the tests you named would take longer than the fast check's budget of {budget} s. Name fewer or shorter tests; the check before the merge runs every test.\n{tests}"
+refused_over = "refused: its median of {median} s is over the budget of {budget} s"
+refused_sum = "refused: its median of {median} s brings the tests named to {sum} s, over the budget of {budget} s"
+refused_untimed = "not run with the others, though not refused itself: no earlier fast run timed it"
+
+# How the fast workflow is run for a request, where the project's declaration says nothing else. `budget`: the time the
+# tests named may take together in the run, which the workflow is given where it takes it (`ci.fast.budget_input`) and
+# stops the tests at; a project's `ci.fast.budget` takes its place.
+[fast]
+budget = "10m"
 
 # What it says where the host is the local repository.
 [local]

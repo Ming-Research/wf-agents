@@ -1,8 +1,9 @@
 //! `GET /api/v1/system`: how the whole system went over a span of time, for the System view: what was produced (works
 //! merged and cancelled, items added), what was spent and on what (by week, by project, by cell, by model, by work),
 //! what was wasted or went wrong (rounds sent back, rounds failed), and how well it ran: the rounds and the calls of
-//! tools that went past the lines of their history, and what is under way now against its own (crate `driver`, module
-//! `judged`). What else goes on now the view reads from the items and the engine, as the bar and the works do.
+//! tools that went past the lines of their history, what is under way now against its own (crate `driver`, module
+//! `judged`), and how often the budget of each project's fast workflow kept tests from their end, day by day. What else
+//! goes on now the view reads from the items and the engine, as the bar and the works do.
 //!
 //! `GET /api/v1/system/under-way` gives, apart from it and light to read, what the calls of each agent's round under way
 //! have come to so far against the lines the run guard judges the round by ([`Going`]): it changes with every call, which
@@ -108,6 +109,10 @@ pub struct System {
     /// latest first: what they did no one read, and what they took is counted nowhere.
     #[serde(default)]
     pub left_behind: Vec<LeftBehind>,
+    /// How often the budget of each project's fast workflow kept the tests of a call of `run_tests` from their end, by
+    /// project and by day, the latest day first: only the days of the span on which it did.
+    #[serde(default)]
+    pub short_of_time: Vec<ShortDay>,
     /// The stop the engine was asked for, while it stands, with how long it is expected to take to end.
     #[serde(default)]
     pub stopping: Option<Stop>,
@@ -413,6 +418,33 @@ pub struct LeftBehind {
     pub processes: usize,
 }
 
+/// One project's calls of `run_tests` on one day whose tests the budget of its fast workflow kept from their end
+/// ([`work::ShortOfTime`]): how many calls, and how many of their tests the runs stopped as the budget ran out, the
+/// runs did not start as it was used up, and the engine refused before they ran. A day begins at the start of its week
+/// of the span, as the page cut it, and every 24 hours after it; with no week given, at midnight UTC. A call counts on
+/// the day it was kept.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShortDay {
+    pub project: Option<String>,
+    /// When the day begins, in milliseconds since 1970.
+    pub day: u64,
+    pub calls: usize,
+    pub stopped: usize,
+    pub not_started: usize,
+    pub refused: usize,
+}
+
+/// How long a day is, in milliseconds.
+const DAY: u64 = 86_400_000;
+
+/// The day a time falls in ([`ShortDay`]): counted in whole days from the start of the latest week given that begins at
+/// it or before, or from 1970 where none is given.
+fn day_of(weeks: &[u64], at: u64) -> u64 {
+    let from = weeks.iter().copied().filter(|start| *start <= at).max().unwrap_or(0);
+    from + (at - from) / DAY * DAY
+}
+
 /// What a program that left processes running was run for ([`work::Left`]), with the cell of the run it was run for.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
@@ -592,6 +624,9 @@ struct Part {
     beside: Vec<(u64, work::BesideKind, Spent)>,
     /// Each program run for it that left processes running, the earliest first, with when it ended.
     left_behind: Vec<(u64, LeftOf, usize)>,
+    /// Each call of `run_tests` whose tests the budget kept from their end, with when it was kept, and how many of its
+    /// tests were stopped, not started and refused.
+    short_of_time: Vec<(u64, [usize; 3])>,
     /// Its runs, in the order they started.
     runs: Vec<PartRun>,
     /// How it ended, where it has.
@@ -703,6 +738,18 @@ impl Part {
                 left_behind.push((at, of, left.processes));
             }
         }
+        let short_of_time = (kept.work.short_of_time.iter())
+            .filter_map(|short| {
+                let at = kept.work.time_of(short.at)?.0;
+                let count = |how: work::ShortHow| short.tests.iter().filter(|t| t.how == how).count();
+                let counts = [
+                    count(work::ShortHow::Stopped),
+                    count(work::ShortHow::NotStarted),
+                    count(work::ShortHow::Refused),
+                ];
+                Some((at, counts))
+            })
+            .collect();
         let ending = match ended(driver, kept, &runs, at_once)? {
             Some(Ending::Merged(at)) => Some(Ended::Merged {
                 at,
@@ -755,6 +802,7 @@ impl Part {
             added: kept.item.added.0,
             beside: crate::works::beside_rounds(kept.work, &|_| true)?,
             left_behind,
+            short_of_time,
             runs,
             ending,
         })
@@ -836,9 +884,11 @@ impl System {
             under_way: Vec::new(),
             tests: driver.tested().into_iter().map(TestTimes::of).collect(),
             left_behind: Vec::new(),
+            short_of_time: Vec::new(),
             stopping: None,
         };
         let judged = driver.judged(None, now);
+        let mut short_days: BTreeMap<(u64, Option<String>), ShortDay> = BTreeMap::new();
         let mut counted: BTreeMap<u64, Week> = (weeks.iter())
             .map(|&start| {
                 (
@@ -885,6 +935,21 @@ impl System {
                     at: *at,
                     processes: *processes,
                 });
+            }
+            for &(at, [stopped, not_started, refused]) in part.short_of_time.iter().filter(|(at, _)| within(*at)) {
+                let day = day_of(weeks, at);
+                let counted = (short_days.entry((day, part.project.clone()))).or_insert_with(|| ShortDay {
+                    project: part.project.clone(),
+                    day,
+                    calls: 0,
+                    stopped: 0,
+                    not_started: 0,
+                    refused: 0,
+                });
+                counted.calls += 1;
+                counted.stopped += stopped;
+                counted.not_started += not_started;
+                counted.refused += refused;
             }
             let mut of_work = beside.all().as_no_round();
             for run in &part.runs {
@@ -1060,6 +1125,11 @@ impl System {
         system.past.sort_by_key(|x| std::cmp::Reverse(x.ended()));
         system.under_way.sort_by_key(UnderWay::began);
         system.left_behind.sort_by_key(|x| std::cmp::Reverse(x.at));
+        // The latest day first, and on one day the projects in the order of their names.
+        system.short_of_time = short_days.into_values().collect();
+        system
+            .short_of_time
+            .sort_by(|a, b| b.day.cmp(&a.day).then_with(|| a.project.cmp(&b.project)));
         // The engine ends once the last round under way has: as the latest of their rests says.
         system.stopping = driver.stopping().map(|stop| Stop {
             since: stop.since.0,

@@ -66,13 +66,14 @@ No cell of a flow runs the tests a cell asks for: they stay a call within that c
 - rejected: an agent proposed a cell of the engine that runs the tests each cell asks for, with the request and the result as data; the owner rejected it, because it was there only to show a cell's CI run on the page, and a row for each tool on the chart shows that just as well.
 
 ### decision every-project-meets-one-contract-for-its-tests
-Every project meets one contract for its tests: JUnit results, one name for a test, and, with `[ci]`, a fast and a full workflow (taking a commit, a call and a test's stop), and a measure one if any.
+Every project meets one contract for its tests: JUnit results, one name for a test, and, with `[ci]`, a fast and a full workflow taking the inputs the declaration names, and a measure one if any.
 - rejected: an agent proposed that each project describe its own CI (its workflows, and how they are dispatched, read and name their tests) and the engine run it as described; the owner rejected it, because the projects are all his, and any of them can be changed to one general, reasonable design.
 - replaced: Matching a named test to a log's tests by its whole name, a `::` ending or its binary's name was on main; the owner changed it, because the name the results give a test is the name an agent asks for it by and the name the fast workflow filters by.
 - replaced: The fast workflow running lint besides the named tests was on main; the owner changed it, because a fast run should only build and run the tests needed, and everything else goes to the full workflows, run once at the end.
 - replaced: The fast workflow declared in the installation's settings was on main; the owner changed it, because the installation keeps only what belongs to the machine: its tokens and the runners it has.
 - rejected: an agent proposed having no fast workflow, with every check running the whole suite, which took two or three minutes; the owner rejected it, because much work had gone into the fast CI, with a machine of his kept to run what an agent needs within half a minute.
 - replaced: A contract of workflows that take only a commit, a call, tests and checks was on main; the owner changed it, because how long a test may run comes from the history of the tests' times, which only the engine holds.
+- replaced: A fast workflow that takes a commit, a call, the tests, the checks and a test's stop was on main; the owner changed it, because a fast run must keep to the budget the engine gives it, and keep what it builds for a work across that work's runs.
 - replaced: A declaration that may leave out the fast or the full workflow was on main; the owner changed it, because `run_tests` runs only the fast workflow and the check before the merge only the full ones, so a project without one cannot have its tests run or its work checked.
 
 ### decision each-workflow-runs-where-the-project-says
