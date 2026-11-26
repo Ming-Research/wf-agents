@@ -72,6 +72,8 @@ async fn the_pause_of_everything_holds_back_a_work_added_and_lifted_lets_it_on()
         get_json(router, "/api/v1/works/1").await["summary"]["now"],
         json!({ "kind": "everything", "at": "plan", "by": "owner" })
     );
+    // The owner's own pause is the owner's to lift, and no wait of the installation's: it waits on the owner for nothing.
+    assert_eq!(get_json(router, "/api/v1/items").await["waits"], json!([]));
     pass(1000).await;
     assert_eq!(
         post(router, "/api/v1/engine/acts", &json!({ "kind": "resume" })).await,
@@ -194,9 +196,23 @@ async fn started_on_a_work_going_on_the_engine_says_it_holds_everything_until_th
         "{work}"
     );
     assert_eq!(work["waits"], json!([]), "{work}");
+    // The installation waits for the owner for it, once however many works it holds, and says so beside the works' own
+    // waits, since when, and what ends it.
+    let items = get_json(router, "/api/v1/items").await;
+    let installation = items["waits"].as_array().unwrap();
+    assert_eq!(installation.len(), 1, "{items}");
+    assert_eq!(installation[0]["key"], "everything", "{items}");
+    assert_eq!(installation[0]["since"], json!(START), "{items}");
+    assert_eq!(installation[0]["ends"], json!({ "kind": "resume" }), "{items}");
+    assert!(
+        installation[0]["why"].as_str().is_some_and(|why| !why.is_empty()),
+        "{items}"
+    );
     assert_eq!(
         post(router, "/api/v1/engine/acts", &json!({ "kind": "resume" })).await,
         (StatusCode::NO_CONTENT, Value::Null)
     );
     assert_eq!(get_json(router, "/api/v1/engine").await["paused"], Value::Null);
+    // Lifted, nothing of it is left to wait for.
+    assert_eq!(get_json(router, "/api/v1/items").await["waits"], json!([]));
 }

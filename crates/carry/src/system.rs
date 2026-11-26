@@ -144,7 +144,8 @@ const MEASURE: &str = "measure";
 /// check named: by the project's fast workflow alone (`ci.fast` of its declaration), and only one it runs by name
 /// (`checks`), each between backticks for `{checks}` in `named`, or `none_named` where it runs none by name; where the
 /// project declares no workflows, nothing is run, `whole`. `{measure}` is filled with `declared` of its tool's file's words
-/// where the project declares a measure workflow (`ci.measure`), and with `none` where it does not.
+/// where the project declares measurements (`ci.measure.<name>`), `{measurements}` in it each as `each` says it
+/// ([`measurements`]), and with `none` where it declares none.
 pub fn filling(settings: &Settings, beside: &Agents, declaration: &Declaration) -> Filling {
     let ways = beside.tools.values().find_map(|tool| tool.places.get(NAMED_CHECKS));
     let fast = declaration.ci.as_ref().map(|ci| &ci.fast);
@@ -156,10 +157,16 @@ pub fn filling(settings: &Settings, beside: &Agents, declaration: &Declaration) 
         Some(_) => ways.get("none_named").cloned(),
         None => ways.get("whole").cloned(),
     });
-    let measures = declaration.ci.as_ref().is_some_and(|ci| ci.measure.is_some());
-    let measure = (beside.tools.values())
-        .find_map(|tool| tool.places.get(MEASURE))
-        .and_then(|ways| ways.get(if measures { "declared" } else { "none" }).cloned());
+    let measure = beside.tools.values().find_map(|tool| {
+        let ways = tool.places.get(MEASURE)?;
+        match declaration.ci.as_ref().filter(|ci| !ci.measure.is_empty()) {
+            Some(ci) => {
+                let each = measurements(ways, tool.measurement.as_ref(), &ci.measure)?;
+                (ways.get("declared")).map(|words| words.replace("{measurements}", &each))
+            }
+            None => ways.get("none").cloned(),
+        }
+    });
     let store = crate::store(beside);
     Filling {
         named: named(settings, beside, declaration),
@@ -167,6 +174,42 @@ pub fn filling(settings: &Settings, beside: &Agents, declaration: &Declaration) 
         measure,
         store,
     }
+}
+
+/// The measurements a project declares, each as `each` of the words for `{measure}` says it, joined by `; `: its name,
+/// what it measures, its workflow and runner, the inputs an agent may set as `open` says them, each between backticks,
+/// where it may set any, and each metric with its unit as `unit` of the tool's `[measurement]` says it, joined as it
+/// says. None where those words are not given.
+fn measurements(
+    ways: &std::collections::BTreeMap<String, String>,
+    said: Option<&flow::agents::MeasurementWords>,
+    declared: &std::collections::BTreeMap<String, flow::agents::Measurement>,
+) -> Option<String> {
+    let (each, open, said) = (ways.get("each")?, ways.get("open")?, said?);
+    let lines: Vec<String> = (declared.iter())
+        .map(|(name, measurement)| {
+            let inputs: Vec<String> = measurement.open.iter().map(|input| format!("`{input}`")).collect();
+            let open = match inputs.is_empty() {
+                true => String::new(),
+                false => flow::agents::fill(open, &[("inputs", &inputs.join(", "))]),
+            };
+            let metrics: Vec<String> = (measurement.metrics.iter())
+                .map(|(metric, unit)| flow::agents::fill(&said.unit, &[("metric", metric), ("unit", unit)]))
+                .collect();
+            flow::agents::fill(
+                each,
+                &[
+                    ("name", name),
+                    ("about", &measurement.about),
+                    ("workflow", &measurement.workflow),
+                    ("runner", &measurement.runner),
+                    ("open", &open),
+                    ("metrics", &metrics.join(&said.units_join)),
+                ],
+            )
+        })
+        .collect();
+    Some(lines.join("; "))
 }
 
 /// What fills each place of the texts the engine fills, by its name, for a line whose agents are told `your_line` of
@@ -276,18 +319,6 @@ pub fn faults(settings: &Settings, beside: &Agents, declaration: &Declaration, f
                 false,
             );
         }
-    }
-    // The words name how a measurement is named, as the project's own setting says: a project with a measure workflow
-    // that gives none would send its agents the bare name of a setting.
-    let measures = declaration.ci.as_ref().is_some_and(|ci| ci.measure.is_some());
-    if measures && !declaration.project.contains_key("measure_names") {
-        add(
-            format!(
-                "{}: declares [ci.measure] and gives no `measure_names` in [project], which the words of run_tests name",
-                flow::agents::DECLARATION
-            ),
-            true,
-        );
     }
     // The flow's texts a message sends, and the words of what a cell returns, which a message gives each setting they
     // name with its value as the system prompt does.

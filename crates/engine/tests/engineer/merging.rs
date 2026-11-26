@@ -264,15 +264,28 @@ fn the_check_waits_for_the_answer_to_an_early_protected_question() {
     assert_eq!(runs(&w, "I1"), implementing, "the implementation does not run again");
 }
 
-// The research hands in its choices alone: no plan is judged, so nothing is built, and the reviews of the change never
-// run. The work waits before the implementation for the plan's verdicts (decision
-// the-implementation-waits-for-the-plans-verdicts), and the check, behind it, runs on no move of main.
+// The owner rules the plan no while the tree's review is judging, as the owner may in a judge's place: the work waits
+// before the implementation for the plan's verdicts (decision the-implementation-waits-for-the-plans-verdicts), and the
+// check, behind it, runs on no move of main. The tree's review, whose return could not end that wait, is taken.
 #[test]
 fn the_check_waits_for_the_reviews_yes_whatever_main_does() {
     let mut w = W::started();
     w.hands_in("S1", &[("place", None)], Vec::new());
     w.hands_in("R0", &[("tree_entries", None)], Vec::new());
-    w.hands_in("R1", &[("deep_needed", Some("no"))], Vec::new());
+    w.hands_in(
+        "R1",
+        &[
+            ("deep_needed", Some("no")),
+            ("plan_owner", None),
+            ("plan_agent", None),
+            ("acceptance", None),
+        ],
+        Vec::new(),
+    );
+    w.hands_in("R2", &[], Vec::new());
+    w.hands_in("P1", &[("plan_ok", Some("yes"))], Vec::new());
+    w.on(wrote("plan_ok", Outsider::Person, Some("no")));
+    w.hands_in("P2", &[("tree_ok", Some("yes"))], Vec::new());
     for _ in 0..3 {
         let Decision::Wait { at, on } = w.decision() else {
             panic!("the work does not wait: {:?}", w.decision());

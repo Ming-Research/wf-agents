@@ -146,6 +146,7 @@ fn file(named: &Named, system: &str, message: &str, form: &str) -> String {
     }
     let _ = writeln!(text, "results = {}", list(&s.results));
     let _ = writeln!(text, "sent_back = {}", s.sent_back);
+    let _ = writeln!(text, "whole = {}", s.whole);
     let _ = writeln!(text, "\n[data]");
     for (block, stands) in &s.data {
         let _ = writeln!(text, "{block} = {:?}", stands.name());

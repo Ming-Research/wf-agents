@@ -18,14 +18,14 @@ words_local = '''
   whether the command passed and what it said.'''
 
 # What a request that cannot be read as that shape is told, nothing having been run: `{error}` what the reading said.
-unread = "Nothing was run: the request is not `{\"tests\": [...], \"checks\": [...], \"commit\": \"...\"}`, with `\"measure\": [...]` where the project times measurements and `\"publish\": true` to leave the commit on GitHub; each list holds names, the commit is one name, and each may be left out: {error}."
+unread = "Nothing was run: the request is not `{\"tests\": [...], \"checks\": [...], \"commit\": \"...\"}`, with `\"measure\": [{\"name\": \"...\", \"inputs\": {...}}]` where the project declares measurements and `\"publish\": true` to leave the commit on GitHub; `tests` and `checks` hold names, the commit is one name, and each may be left out: {error}."
 
 # What it is told where the check could not be run at all, whatever the host: `{why}` what stopped it.
 could_not_check = "The check could not be run: {why}"
 
 [request]
 type = "object"
-properties = { tests = { type = "array", items = { type = "string" } }, checks = { type = "array", items = { type = "string" } }, measure = { type = "array", items = { type = "string" } }, commit = { type = "string" }, publish = { type = "boolean" } }
+properties = { tests = { type = "array", items = { type = "string" } }, checks = { type = "array", items = { type = "string" } }, measure = { type = "array", items = { type = "object", properties = { name = { type = "string" }, inputs = { type = "object", additionalProperties = { type = "string" } } }, required = ["name"], additionalProperties = false } }, commit = { type = "string" }, publish = { type = "boolean" } }
 additionalProperties = false
 
 # How much of a result is given. The engine keeps it whole in its records, and in a file in the temporary directory, and
@@ -41,18 +41,13 @@ cut = "(The result is cut here: {given} of its {size} bytes are given. The whole
 head = "The {which} ran on the commit {commit} ({url}): {came}."
 which_fast = "fast workflow"
 which_full = "full workflows"
-which_measure = "measure workflow"
 came_tests = "{passed} of the {total} tests passed"
-came_measures = "{passed} of the {total} measurements ran"
 came_checks = "{passed} of the {total} checks passed"
 came_join = "; "
 tests_title = "The tests that did not pass:"
 passed_title = "The tests that passed:"
-timings_title = "The timings of the measurements that ran:"
 jobs_title = "The jobs:"
 test = "- {name}: {became}{time}"
-# A timing of a measurement: what was timed, between brackets, since the timings of one name differ only by it.
-measure_case = "- {name} [{unit}]: {became}{time}"
 # A test's time, and a job's wall time as GitHub records it from its start to its end.
 time = " in {time} s"
 passed = "passed"
@@ -89,6 +84,17 @@ short_title = "The tests the fast check's time did not let finish:"
 stopped = "stopped: the fast check's time ran out"
 not_started = "not run: the fast check's time was used up"
 
+# What a result says of a measurement it ran: its run and its jobs, said as [result] says jobs, and what it measured, as
+# the CSV file its run uploaded holds it. `{...}` are filled in a run.
+[measurement]
+head = "The measurement {name} ran {workflow} on the commit {commit}, whose change began from {base} ({url}): {came}."
+came_passed = "every job of it passed"
+came_failed = "not every job of it passed, as its jobs below say"
+measured = "It wrote {rows} rows to {file}, whose metrics are {units}:\n{table}"
+unit = "`{metric}` in {unit}"
+units_join = ", "
+unread = "What it measured is not known, and the engine reads no log to guess it: {why}."
+
 # What it says where the host is GitHub. `merge_under_way`, `uncommitted` and `untracked` are said only where no commit
 # is named: a commit that is named is the one run, whatever the worktree holds.
 [github]
@@ -100,7 +106,10 @@ commit_unknown = "Nothing was run: git finds no commit in your worktree by the n
 no_fast = "Nothing was run: the project declares no workflows, so nothing can be run through run_tests."
 unknown_checks = "Nothing was run: the fast workflow runs only these checks by name: {runs}; not {unknown}."
 runner_missing = "Nothing was run: the workflow runs on {runner}, and this installation has only {have}."
-no_measure = "Nothing was run: the project declares no workflow that times measurements, so none can be named. Nothing was pushed."
+no_measure = "Nothing was run: the project declares no measurement, so none can be named. Nothing was pushed."
+unknown_measure = "Nothing was run: the project declares no measurement {name}; it declares {declared}. Nothing was pushed."
+not_open = "Nothing was run: the measurement {name} does not let you set {inputs}; it lets you set {open}. Nothing was pushed."
+none_open = "no input"
 # Said before what a request that publishes the commit found, or alone: `{commit}` the commit, `{branch}` the branch on GitHub.
 published = "The commit {commit} is on GitHub as the branch {branch} until the work ends; start a workflow on it with that branch as its ref."
 # Said where the tests named are known by the medians of their times in the project's earlier fast runs to take longer
@@ -128,10 +137,15 @@ no_commit = "Nothing was run: the check runs on your worktree as it is, so no co
 no_measure = "Nothing was run: the check runs the project's tests alone, so no measurement can be named."
 no_publish = "Nothing was run: this repository has no host to leave a commit on, so none can be published."
 
-# What fills `{measure}` in the words: `declared`, where the project declares a measure workflow (`[ci.measure]` of
-# wf-agents.toml), and `none` where it declares none or its host is the local repository, whose words say nothing of it.
+# What fills `{measure}` in the words: `declared`, where the project declares measurements (`[ci.measure.<name>]` of
+# wf-agents.toml), `{measurements}` each as `each` says it, joined by `; `; and `none` where it declares none or its host
+# is the local repository, whose words say nothing of them. In `each`, `{name}`, `{about}`, `{workflow}` and `{runner}`
+# are the declaration's, `{metrics}` each metric as `unit` of [measurement] says it, and `{open}` as `open` says the
+# inputs an agent may set, `{inputs}` each between backticks, or nothing where it may set none.
 [places.measure]
-declared = "\n  Add `\"measure\": [...]` to time measurements: name them as `project.measure_names` says. Each is timed in one run, on the commit your change began from and on `commit`, and every timing comes back in seconds."
+declared = "\n  Add `\"measure\": [{\"name\": \"...\", \"inputs\": {...}}]` to run measurements this project declares on `commit`: {measurements}. `inputs` sets inputs the measurement lets you set, each a text of letters, digits, spaces and `_-.,/:=+`; one you leave out takes the default its workflow's file in `.github/workflows/` gives. A measurement on the project's own machine runs only while no other measurement runs there, so it may wait its turn. The result gives what it measured as its run wrote it."
+each = "`{name}`, {about} ({workflow} on {runner}{open}; metrics {metrics})"
+open = "; you may set {inputs}"
 none = ""
 
 # What fills `{named_checks}`, the checks an agent may name, as the project declares its fast workflow (`[ci.fast]` of

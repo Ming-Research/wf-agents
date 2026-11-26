@@ -107,6 +107,36 @@ fn two_entries_at_one_place_are_a_fault() {
     assert_eq!(w.decide(), Decision::Fault(RecordFault::PlaceTwice(at)));
 }
 
+// What the owner read takes a place of its own like every other entry of the records.
+#[test]
+fn a_read_at_the_place_of_another_entry_or_of_another_read_is_a_fault() {
+    let mut w = World::with_gate(vec![cell("a", &["p"], &[])]);
+    let at = w.person_writes("p");
+    w.records.owner_reads.push(decide::OwnerRead {
+        versions: vec![("p".into(), at)],
+        at,
+    });
+    assert_eq!(w.decide(), Decision::Fault(RecordFault::PlaceTwice(at)));
+    let moved = w.tick();
+    w.records.owner_reads[0].at = moved;
+    let again = w.records.owner_reads[0].clone();
+    w.records.owner_reads.push(again);
+    let twice = w.records.owner_reads[0].at;
+    assert_eq!(w.decide(), Decision::Fault(RecordFault::PlaceTwice(twice)));
+}
+
+#[test]
+fn the_place_after_the_last_read_is_the_next_place() {
+    let mut w = World::with_gate(vec![cell("a", &["p"], &[])]);
+    let version = w.person_writes("p");
+    let at = w.tick();
+    w.records.owner_reads.push(decide::OwnerRead {
+        versions: vec![("p".into(), version)],
+        at,
+    });
+    assert_eq!(w.records.next_place(), Seq(at.0 + 1));
+}
+
 /// A version of `p` put into the round of `a` under way: `a` reads `p`, a person writes it while the round is under
 /// way, and it is put in after. The records hold no fault.
 fn put_in_while_under_way() -> (World, RunId, Seq) {
@@ -352,4 +382,50 @@ fn the_engines_wait_for_a_call_held_is_made_after_its_run_finished_and_no_other_
         obstacle: decide::Obstacle::Fault,
     });
     assert!(!matches!(w.decide(), Decision::Fault(_)), "{:?}", w.decide());
+}
+
+/// A work whose run asked for a call as its return was taken and then finished, and the engine's wait for that call held,
+/// made after the finish: the wait's call is the last entry of the records, and the place it took is given.
+fn with_the_wait_for_a_call_held() -> (World, Seq) {
+    let mut w = World::with_gate(vec![cell("a", &["p"], &["q"])]);
+    w.person_writes("p");
+    let run = w.start("a");
+    w.returns("a");
+    called(&mut w, run);
+    w.finish("a", &[]);
+    let at = w.tick();
+    w.records.called.push(decide::Called {
+        call: CallId(100),
+        run,
+        on: None,
+        at,
+    });
+    (w, at)
+}
+
+fn held_at(at: Seq) -> decide::Held {
+    decide::Held {
+        call: CallId(99),
+        wait: CallId(100),
+        at,
+        obstacle: decide::Obstacle::Fault,
+    }
+}
+
+// A call held takes a place of its own like every other entry of the records.
+#[test]
+fn a_call_held_at_the_place_of_another_entry_is_a_fault() {
+    let (mut w, at) = with_the_wait_for_a_call_held();
+    w.records.held.push(held_at(at));
+    assert_eq!(w.decide(), Decision::Fault(RecordFault::PlaceTwice(at)));
+}
+
+// The place the next entry would take is after every entry's, a call held's among them: what is added to the records at
+// that place, as the check of a return does with a finish, shares the place of none.
+#[test]
+fn the_place_the_next_entry_would_take_is_after_that_of_a_call_held() {
+    let (mut w, _) = with_the_wait_for_a_call_held();
+    let at = w.tick();
+    w.records.held.push(held_at(at));
+    assert!(w.records.next_place() > at);
 }

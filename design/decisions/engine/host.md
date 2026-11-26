@@ -67,6 +67,15 @@ A run no job of which has started that waits for a runner past `github.start_min
 A run is under way once a job of it has started, as its jobs say where GitHub says the run is queued, and it is never cancelled as never started.
 - replaced: Judging whether a run started by GitHub's status of the run alone was on main; the owner changed it, because GitHub says a run queued again once a job has run and the next waits for a runner, and such runs were cancelled with their tests done.
 
+### decision one-measurement-at-a-time-on-a-machine
+On a self-hosted runner's machine the engine runs one measurement at a time, of any project: a request waits in the order asked, and while GitHub lists a measurement's run there not yet ended.
+- replaced: The measure workflow taking a lock on the machine as it timed was on main; the owner changed it, because only that workflow's runs took turns, two works' runs of another project's benchmark met there and one killed the other, and works asked him if the machine was free.
+
+### decision a-measurement-times-while-no-other-job-runs-on-its-machine
+A measurement on a self-hosted machine takes the machine's gate and waits for the jobs running there to end; each runner's job-started hook waits while the gate is held.
+- rejected: an agent proposed that the engine hold back every run on the runner's label while a measurement times, and that the timings taken beside a job be taken again; the owner rejected it, because jobs the engine does not start, such as a pull request's, could not be held back.
+- rejected: an agent proposed that a measurement's workflow take every runner of its label with placeholder jobs before it times; the owner rejected it, because every project's workflow would carry them, the count of runners would be given it, and two measurements would each hold some.
+
 ### decision a-run-is-timed-only-while-it-is-not-waiting-for-a-runner
-A workflow's `too_long` counts the time its run is not waiting for a runner, as the run's jobs say, and the time it waits while none of its label is online.
+A workflow's `too_long` counts the time its run is not waiting for a runner, as its jobs say, or for a measurement that holds its machine, and the time it waits while none of its label is online.
 - replaced: Counting a run's time from the moment it was asked for, the queue included, was on main; the owner changed it, because a run whose jobs queued behind a busy machine was cut as too long for the time it waited, not the time it ran.

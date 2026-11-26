@@ -2,8 +2,9 @@
 // shows is mock, and each is replaced by the engine's own once it gives it, without changing the drawing code.
 //
 // Mock, field by field:
-// - On a card and in the window: `unseen` (the item is new to the owner, and the passages changed since they read it),
-//   `unread` (messages from others the owner has not read), and marking the item read (kept in this page only).
+// - On a card and in the window: `fresh` (the item is new to the owner, and the passages changed since they read it),
+//   `repliesUnread` (replies of the cells the owner has not read), and marking the item read (kept in this page only).
+//   With the mocks off the engine gives both (`Summary.fresh`, `Summary.repliesUnread`).
 // - In the window's item line: the item's `tier`, and whether it is a `goal`.
 // - In the window's work tab: the work's `tier`, and the `verdicts` of its judges (item 262 only).
 // - In the item tab: the body (Background, Problem, Plan), the plan's choices, which of them the owner
@@ -14,7 +15,7 @@
 // work's state, cells, rounds, cost, start, time bar and returns sent back; what it waits at; and the messages the owner
 // sends, which are written into a block of the work.
 
-import type { Item } from '../works-api';
+import type { Fresh, Item } from '../works-api';
 import { type Body, type Message, type Part, quoteOf } from './window';
 
 const HOUR = 3600000;
@@ -493,9 +494,9 @@ export function markRead(item: number) {
 /// What the console shows of an item that the engine does not give.
 export type ItemMock = {
   /// New to the owner, or changed since they last read it.
-  unseen: boolean;
-  /// Messages from others in its work's conversations that the owner has not read.
-  unread: number;
+  fresh: Fresh;
+  /// Replies from the cells in its work's conversations that the owner has not read.
+  repliesUnread: number;
   /// Its tier, none where it has none.
   tier: string | null;
   /// The verdicts of its work's judges so far, each a row of the work's facts: the judge, and what it said.
@@ -504,11 +505,12 @@ export type ItemMock = {
 
 export function itemMock(item: Item): ItemMock {
   const open = item.work.now.kind !== 'merged' && item.work.now.kind !== 'cancelled';
+  const unread = open && item.number % 4 === 1 && !read.has(item.number);
   return {
-    unseen: open && item.number % 4 === 1 && !read.has(item.number),
-    // How many things are new: some wherever the item is new to the owner, none elsewhere, so that the line and the
+    fresh: unread ? 'changed' : 'none',
+    // How many replies are new: some wherever the item is new to the owner, none elsewhere, so that the line and the
     // number always go together.
-    unread: open && item.number % 4 === 1 && !read.has(item.number) ? 1 + (item.number % 3) : 0,
+    repliesUnread: unread ? 1 + (item.number % 3) : 0,
     tier: '2',
     verdicts: is262(item) ? VERDICTS_262 : [],
   };
@@ -555,7 +557,7 @@ export function bodyMock(item: Item): Body {
     ...rich,
   };
   // Read, or never new: no passage is marked changed.
-  const fresh = !read.has(item.number) && itemMock(item).unseen;
+  const fresh = !read.has(item.number) && itemMock(item).fresh !== 'none';
   const clear = (ps: Part[]): Part[] => (fresh ? ps : ps.map((p) => ({ ...p, changed: false })));
   return {
     sections: [

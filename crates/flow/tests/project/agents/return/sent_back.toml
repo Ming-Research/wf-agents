@@ -41,6 +41,7 @@ tree_form = "The tree is not in form:\n{faults}"
 unanswered = "`{block}` is not answered: commit, or ask."
 word_owed = "`{name}` owes its answer, none of {watched} changed."
 no_point = "`{block}` is `{value}` with no `{name}`."
+would_stall = "The work cannot go on without {blocks}."
 
 [unread]
 not_of_its_form = "Not of its form: {error}"

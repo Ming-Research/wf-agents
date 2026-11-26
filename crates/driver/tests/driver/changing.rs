@@ -342,6 +342,50 @@ fn a_cancelled_item_is_reopened_paused_and_let_on_makes_its_place_again() {
     assert_eq!(h.d().work(wa).unwrap().work.records.releases.len(), 2);
 }
 
+// The cancel of an item withdraws a call its work's run asked for and that has no result: the letting go the cancel
+// begins is not done while the call is under way, and the item is not reopened meanwhile, as the call would be asked
+// for again though it was withdrawn.
+#[test]
+fn a_cancelled_item_is_not_reopened_while_a_call_withdrawn_for_its_cancel_has_no_result() {
+    let mut h = H::new();
+    let (a, wa) = h.add(new_item("a", &[], "plain"));
+    h.let_on(wa);
+    let todos = h.returns(wa, Came::asks(vec![tool("tool 0")]));
+    let calls: Vec<CallId> = (todos.iter())
+        .filter_map(|todo| match &todo.effect {
+            Effect::Call { call, .. } => Some(*call),
+            _ => None,
+        })
+        .collect();
+    let [call] = calls[..] else {
+        panic!("one call is asked for: {todos:?}")
+    };
+    let (_, todos) = h.changes(vec![(a, Asked::Cancel)]).expect("a is cancelled");
+    assert_eq!(
+        todos,
+        vec![Todo {
+            work: wa,
+            effect: Effect::Withdraw { call }
+        }]
+    );
+    assert_eq!(
+        refused(&mut h, vec![(a, Asked::Reopen)]),
+        unchangeable(a, Unchangeable::LettingGo)
+    );
+    // The call has its result: the work lets go of what it held, and the item is reopened once that is done.
+    let todos = h.answer(wa, call);
+    assert!(
+        (todos.iter()).any(|t| matches!(t.effect, Effect::Release { .. })),
+        "the cancelled work lets go of what it held: {todos:?}"
+    );
+    assert_eq!(
+        refused(&mut h, vec![(a, Asked::Reopen)]),
+        unchangeable(a, Unchangeable::LettingGo)
+    );
+    h.released(todos);
+    h.changes(vec![(a, Asked::Reopen)]).expect("a is reopened");
+}
+
 #[test]
 fn an_item_reopened_is_waited_for_again_by_those_that_depend_on_it_and_have_not_started() {
     let mut h = H::new();

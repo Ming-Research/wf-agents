@@ -27,7 +27,7 @@ use store::WorkNumber;
 
 use crate::git;
 use crate::held::{Held, Stop};
-use crate::host::{Asking, Branch, Failed, Host, Named};
+use crate::host::{Asking, Branch, Failed, Host, Measure, Named};
 use crate::settings::Project;
 
 pub use query::{Limits, QUERY, Querying};
@@ -393,15 +393,25 @@ struct Request {
     #[serde(default)]
     checks: Vec<String>,
     #[serde(default)]
-    measure: Vec<String>,
+    measure: Vec<MeasureAsked>,
     #[serde(default)]
     commit: Option<String>,
     #[serde(default)]
     publish: bool,
 }
 
-/// What a request names, each name trimmed and taken once, a blank one left out; an input with nothing in it names
-/// nothing. Or why the input is not a request, as the reading says it.
+/// A measurement a request names: its name, and the inputs of its workflow it sets, left out where it sets none.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MeasureAsked {
+    name: String,
+    #[serde(default)]
+    inputs: BTreeMap<String, String>,
+}
+
+/// What a request names, each test and check trimmed and taken once, a blank one left out, and each measurement in the
+/// order named, its name and its inputs' names trimmed; an input with nothing in it names nothing. Or why the input is
+/// not a request, as the reading says it.
 fn asked(input: &str) -> Result<Named, String> {
     if input.trim().is_empty() {
         return Ok(Named::default());
@@ -416,13 +426,34 @@ fn asked(input: &str) -> Result<Named, String> {
         }
         taken
     };
-    let measure = once(request.measure);
-    // A measurement is named, never written as a command: a name is data to the workflow that times it (principle
-    // agent-writing-is-data), so none holds a character a shell would treat specially.
-    if let Some(wrong) = measure.iter().find(|name| !name.chars().all(measurement_character)) {
-        return Err(format!(
-            "the measurement {wrong:?} holds a character that is none of a letter, a digit, and `_-./:`"
-        ));
+    // A measurement and an input are named, and an input's value is data to the workflow that measures (principle
+    // agent-writing-is-data): none holds a character a shell would treat specially.
+    let mut measure = Vec::new();
+    for asked in request.measure {
+        let name = asked.name.trim().to_string();
+        if !flow::agents::is_a_name(&name) {
+            return Err(format!(
+                "the measurement {name:?} is no name: a name holds letters, digits, `_` and `-`"
+            ));
+        }
+        let mut inputs = BTreeMap::new();
+        for (input, value) in asked.inputs {
+            let input = input.trim().to_string();
+            if !flow::agents::is_a_name(&input) {
+                return Err(format!(
+                    "the input {input:?} of the measurement {name} is no name: a name holds letters, digits, `_` \
+                     and `-`"
+                ));
+            }
+            if !value.chars().all(value_character) {
+                return Err(format!(
+                    "the value {value:?} of the input {input} of the measurement {name} holds a character that is none \
+                     of a letter, a digit, a space and `_-.,/:=+`"
+                ));
+            }
+            inputs.insert(input, value);
+        }
+        measure.push(Measure { name, inputs });
     }
     Ok(Named {
         tests: once(request.tests),
@@ -433,9 +464,9 @@ fn asked(input: &str) -> Result<Named, String> {
     })
 }
 
-/// Whether a character may be in the name of a measurement.
-fn measurement_character(c: char) -> bool {
-    c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '/' | ':')
+/// Whether a character may be in the value an agent gives an input of a measurement's workflow.
+fn value_character(c: char) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, ' ' | '_' | '-' | '.' | ',' | '/' | ':' | '=' | '+')
 }
 
 #[cfg(test)]
@@ -1037,21 +1068,53 @@ mod tests {
         }
     }
 
-    // The measurements a request names are names, each once and trimmed, and a name is data: one that holds a character a
-    // shell would treat specially, or white space inside it, is refused saying which, and nothing is named. Well under
-    // a millisecond alone; no other test holds what a measurement's name may hold.
+    // The measurements a request names are names, in the order named, with the inputs each sets, and both are data: a
+    // name that holds a character a shell would treat specially, or white space inside it, is refused saying which, and
+    // so is an input's value with such a character, though a value may hold spaces; nothing is named then. A
+    // measurement named twice runs twice, as with other inputs it measures something else. Well under a millisecond
+    // alone; no other test holds what a measurement's name and its inputs may hold.
     #[test]
-    fn a_request_names_measurements_each_once_and_none_that_a_shell_would_read_as_more_than_a_name() {
-        let named = asked(r#"{"measure": ["design-lint", " design-lint ", "", "a/b.c:d_e"]}"#).expect("read");
-        assert_eq!(named.measure, ["design-lint", "a/b.c:d_e"]);
+    fn a_request_names_measurements_with_their_inputs_and_none_that_a_shell_would_read_as_more_than_data() {
+        let input = r#"{"measure": [{"name": " compare ", "inputs": {"tests": "set get", "cpus": "0-15,16"}},
+            {"name": "compare"}]}"#;
+        let named = asked(input).expect("read");
+        let set = BTreeMap::from([
+            ("cpus".to_string(), "0-15,16".to_string()),
+            ("tests".to_string(), "set get".to_string()),
+        ]);
+        assert_eq!(
+            named.measure,
+            [
+                Measure {
+                    name: "compare".to_string(),
+                    inputs: set
+                },
+                Measure {
+                    name: "compare".to_string(),
+                    inputs: BTreeMap::new()
+                },
+            ]
+        );
         assert!(named.tests.is_empty() && named.checks.is_empty() && !named.is_empty());
         for wrong in [
-            "a b", "a;b", "$HOME", "a`b`", "a\"b", "a'b", "a|b", "a&b", "a>b", "(a)", "a*",
+            "a b", "a;b", "$HOME", "a`b`", "a\"b", "a'b", "a|b", "a&b", "a>b", "(a)", "a*", "a/b", "",
         ] {
-            let input = serde_json::json!({ "measure": [wrong] }).to_string();
+            let input = serde_json::json!({ "measure": [{ "name": wrong }] }).to_string();
+            let said = asked(&input).expect_err(wrong);
+            assert!(said.contains(&format!("{wrong:?}")), "{wrong}: {said}");
+            let input = serde_json::json!({ "measure": [{ "name": "m", "inputs": { wrong: "1" } }] }).to_string();
             let said = asked(&input).expect_err(wrong);
             assert!(said.contains(&format!("{wrong:?}")), "{wrong}: {said}");
         }
+        for wrong in [
+            "a;b", "$HOME", "a`b`", "a\"b", "a'b", "a|b", "a&b", "a>b", "(a)", "a*", "{commit}", "a\nb",
+        ] {
+            let input = serde_json::json!({ "measure": [{ "name": "m", "inputs": { "tests": wrong } }] }).to_string();
+            let said = asked(&input).expect_err(wrong);
+            assert!(said.contains(&format!("{wrong:?}")), "{wrong}: {said}");
+        }
+        // A list of bare names is the form of an earlier engine, and no request now.
+        assert!(asked(r#"{"measure": ["design-lint"]}"#).is_err());
     }
 
     #[tokio::test]
@@ -1126,7 +1189,13 @@ mod tests {
         git::start(&repo.project, &repo.place(WORK), "main", "main")
             .await
             .unwrap();
-        let said = answered_with(&repo, RUN_TESTS, r#"{"tests": ["a"], "measure": ["design-lint"]}"#, &[]).await;
+        let said = answered_with(
+            &repo,
+            RUN_TESTS,
+            r#"{"tests": ["a"], "measure": [{"name": "scripts"}]}"#,
+            &[],
+        )
+        .await;
         assert_eq!(
             said,
             "Nothing was run: the check runs the project's tests alone, so no measurement can be named."

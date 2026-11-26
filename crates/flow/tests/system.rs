@@ -283,7 +283,7 @@ fn a_tools_place_is_filled_from_its_own_file() {
     // none for one that does not.
     assert!(run_tests.words.contains("{measure}"), "{}", run_tests.words);
     let ways: Vec<&str> = run_tests.places["measure"].keys().map(String::as_str).collect();
-    assert_eq!(ways, ["declared", "none"]);
+    assert_eq!(ways, ["declared", "each", "none", "open"]);
     assert!(run_tests.places["measure"]["none"].is_empty());
     let declared = &run_tests.places["measure"]["declared"];
     assert!(

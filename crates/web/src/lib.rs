@@ -12,7 +12,8 @@
 //!   part by part in the order sent ([`given::Given`]): the system prompt and the message as the engine makes them,
 //!   every form of each part.
 //! - With the engine running, the items and the works ([`interface`], whose types are in [`works`], the items kept
-//!   between reads in [`items_cache`]), and what needs whoever plans the work since a mark ([`attention`]).
+//!   between reads in [`items_cache`]), and what needs whoever plans the work, what came since a mark and what stands,
+//!   again from time to time ([`attention`]).
 //! - `GET /api/v1/backup`: how the copies of the database stand ([`copies`]).
 //! - The observations of the installation, and the owner's reading of each ([`observations`]).
 //! - `GET /api/v1/system`: how the whole system went over a span of time ([`system`]).
@@ -143,14 +144,15 @@ impl Flows {
 }
 
 /// The interface and the page, over these definitions, with the items and the works of the engine's loop, whose items
-/// are added at these levels, to these projects.
+/// are added at these levels, to these projects, and what needs whoever plans the work, by these times.
 pub fn with_works(
     flows: Flows,
     handle: service::Handle,
     levels: service::Levels,
     projects: service::Projects,
+    times: attention::Times,
 ) -> Router {
-    router(flows).merge(interface::router(handle, levels, projects))
+    router(flows).merge(interface::router(handle, levels, projects, times))
 }
 
 /// [`with_works`], reading the items through this cache, which the caller keeps to see what it has worked out.
@@ -160,8 +162,9 @@ pub fn with_works_over(
     handle: service::Handle,
     levels: service::Levels,
     projects: service::Projects,
+    times: attention::Times,
 ) -> Router {
-    router(flows).merge(interface::router_over(cache, handle, levels, projects))
+    router(flows).merge(interface::router_over(cache, handle, levels, projects, times))
 }
 
 /// The same, with the route of how the copies of the database stand: of those the engine keeps, or of none.
@@ -170,9 +173,10 @@ pub fn with_works_and_copies(
     handle: service::Handle,
     levels: service::Levels,
     projects: service::Projects,
+    times: attention::Times,
     copies: Option<Copies>,
 ) -> Router {
-    with_works(flows, handle.clone(), levels, projects).merge(copies::router(handle, copies))
+    with_works(flows, handle.clone(), levels, projects, times).merge(copies::router(handle, copies))
 }
 
 /// The interface and the page, over these definitions.

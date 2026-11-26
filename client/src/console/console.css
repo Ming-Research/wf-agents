@@ -63,14 +63,14 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-8);
-  width: min(600px, calc(100% - 2 * var(--space-16)));
+  width: min(var(--find-width), calc(100% - 2 * var(--space-16)));
   padding: var(--space-8);
   border: var(--hairline) solid color-mix(in srgb, var(--accent) 60%, var(--line));
   border-radius: var(--corner);
   background: var(--card);
   box-shadow:
-    0 0 12px 4px color-mix(in srgb, var(--accent) 50%, transparent),
-    0 0 48px 16px color-mix(in srgb, var(--accent) 28%, transparent),
+    0 0 var(--find-glow-near) var(--find-glow-near-spread) color-mix(in srgb, var(--accent) 50%, transparent),
+    0 0 var(--find-glow-far) var(--find-glow-far-spread) color-mix(in srgb, var(--accent) 28%, transparent),
     var(--window-shadow);
   transform: translateX(-50%);
 }
@@ -244,7 +244,7 @@
 /* Where the work's time went, in the track the works page's usage draws too (styles/parts.css). */
 .cw-track {
   display: block;
-  width: 140px;
+  width: var(--track-width);
 }
 
 /* What the owner does to the work: its buttons, under the lines. */
@@ -384,8 +384,8 @@
 
 .cw-diff-number {
   flex: none;
-  width: 5ch;
-  padding-right: 1ch;
+  width: var(--diff-number);
+  padding-right: var(--diff-number-gap);
   color: var(--muted);
   text-align: right;
   user-select: none;
@@ -439,10 +439,10 @@
 /* A question folded shows the first lines of what it asks and nothing else, cut off into the card's ground so that the
    last line reads as cut and not as the end. Three lines are enough to tell one question from another. */
 .cw-choice-few {
-  max-height: calc(3 * var(--line-height) * 1em);
+  max-height: var(--folded-height);
   overflow: hidden;
-  -webkit-mask-image: linear-gradient(to bottom, #000 55%, transparent);
-  mask-image: linear-gradient(to bottom, #000 55%, transparent);
+  -webkit-mask-image: linear-gradient(to bottom, var(--card) 55%, transparent);
+  mask-image: linear-gradient(to bottom, var(--card) 55%, transparent);
 }
 
 /* What folds a card and unfolds it: one button across the card, under what it holds, in the muted text, with a
@@ -925,8 +925,8 @@
 .console-overview-tree.shown {
   border-color: var(--accent);
   box-shadow:
-    0 0 0 1px var(--accent),
-    0 0 24px 4px color-mix(in srgb, var(--accent) 45%, transparent);
+    0 0 0 var(--hairline) var(--accent),
+    0 0 var(--overview-glow) var(--overview-glow-spread) color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .console-overview-name {
@@ -950,11 +950,11 @@
   }
 }
 
-/* Under the map (72px high, 12px in: `MAP_HIGH` and `MAP_INSET` in snap.ts), the list of projects, framed as the boxes
+/* Under the map (`--map-high` high, 12px in: `MAP_HIGH` and `MAP_INSET` in snap.ts), the list of projects, framed as the boxes
    beside the map are: each name after the key that shows its tree, the one shown in the tint of a row chosen. */
 .console-projects {
   position: absolute;
-  top: calc(var(--space-12) + 72px + var(--space-8));
+  top: calc(var(--space-12) + var(--map-high) + var(--space-8));
   left: var(--space-12);
   display: flex;
   flex-direction: column;
@@ -1002,20 +1002,20 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 18px;
-  height: 18px;
+  min-width: var(--key);
+  height: var(--key);
   padding: 0 var(--space-4);
   border: var(--hairline) solid var(--line);
-  border-bottom-width: 2px;
-  border-radius: 4px;
+  border-bottom-width: var(--key-edge);
+  border-radius: var(--key-corner);
   background: var(--card);
   color: var(--muted);
   font-family: var(--mono);
   font-size: var(--size-small);
-  line-height: 1;
+  line-height: var(--key-line);
 }
 
 .key-none {
-  min-width: 18px;
+  min-width: var(--key);
 }
 

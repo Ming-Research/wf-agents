@@ -97,7 +97,7 @@ const glyph = (key: string, child: ReactNode) => (
 );
 
 /// How far each mark of a datum reaches from the middle of its box, in its units: the disc to its edge, and each ring
-/// to the outer edge of its line, half the line's width past its radius.
+/// to the outer edge of its line, half the line's width past its radius (the width is the token `--glyph-line`).
 const REACH = { write: 6, watch: 7.5, read: 9 } as const;
 
 /// The arrow of a way back, in a box's units: as long and half as wide as the tokens `--chart-arrow-length` and

@@ -9,6 +9,7 @@ import {
   clock,
   dollars,
   duration,
+  freshWords,
   isOpen,
   isWayRound,
   itemName,
@@ -27,6 +28,7 @@ import {
   stoppedAt,
   tokens,
   tokensWords,
+  unreadCount,
   waitCount,
   waitCounted,
   waitedWords,
@@ -171,7 +173,7 @@ describe('what a work does now, in words', () => {
     // The act of an engine cell under way, its cell marked as calling, is waited for as a call, by where it runs.
     const act = { ...calling, now: { kind: 'round', cell: 'M1', run: 3, round: 1, since: 5, at: 'https://ci/9' } as Now };
     expect(stateOf(act)).toEqual({ tone: 'calling', word: 'Waiting for CI', cell: 'M1' });
-    expect(callsWaited(act)).toEqual([{ tool: null, ci: 'https://ci/9', queued: null, made: 5 }]);
+    expect(callsWaited(act)).toEqual([{ tool: null, ci: 'https://ci/9', queued: null, machine: null, made: 5 }]);
     expect(stateOf({ ...act, now: { kind: 'round', cell: 'M1', run: 3, round: 1, since: 5 } })).toEqual({
       tone: 'calling',
       word: 'Waiting for the engine',
@@ -213,6 +215,55 @@ describe('what a work does now, in words', () => {
     );
     const act: Now = { kind: 'round', cell: 'M1', run: 3, round: 1, since: 5, at: 'https://ci/9', queuedFor: '14900k' };
     expect(stateOf(calling(act)).word).toBe('Waiting for CI (queued for 14900k)');
+  });
+
+  it('says the machine a measurement waits for its turn on and how long it has waited, which the state words keep current', () => {
+    const since = 1_700_000_000_000;
+    const work = {
+      now: {
+        kind: 'waits',
+        at: 'I1',
+        on: [
+          {
+            kind: 'call',
+            call: 2,
+            who: null,
+            what: { kind: 'tool', name: 'run_tests', input: '{}' },
+            made: since - 60_000,
+            machine: { machine: '14900k', since, behind: 33 },
+          },
+        ],
+      } as Now,
+      cells: [{ cell: 'I1', state: 'calling' as const, finished: 0, record: null, open: 1 }],
+      waits: [],
+    };
+    expect(callsWaited(work)).toEqual([
+      {
+        tool: 'run_tests',
+        ci: null,
+        queued: null,
+        machine: { name: '14900k', since, behind: 33 },
+        made: since - 60_000,
+      },
+    ]);
+    const twelve = since + 12 * 60_000 + 5_000;
+    expect(stateOf(work, twelve).word).toBe(
+      'Waiting for run_tests by the engine (waiting 12m 5s for its turn on 14900k, behind W33)',
+    );
+    expect(stateWords(work, twelve)).toBe(
+      'Waiting for run_tests by the engine (waiting 12m 5s for its turn on 14900k, behind W33) · 13m 5s · I1',
+    );
+    // Once its turn came and its run is asked for, it waits for the run, and the machine is no longer said.
+    const call: Waited = {
+      kind: 'call',
+      call: 2,
+      who: null,
+      what: { kind: 'tool', name: 'run_tests', input: '{}' },
+      at: 'https://ci/9',
+      machine: null,
+    };
+    const running = { ...work, now: { kind: 'waits', at: 'I1', on: [call] } as Now };
+    expect(stateOf(running, twelve).word).toBe('Waiting for run_tests in CI');
   });
 
   it('says a tool call the host could not carry out for now as the engine\'s wait before it is asked for again, with why', () => {
@@ -475,5 +526,21 @@ describe('reasons said one after another', () => {
   it('count what waits for the owner after its number, one way', () => {
     expect(waitCounted(1)).toBe('thing waits for you');
     expect(waitCounted(2)).toBe('things wait for you');
+  });
+});
+
+describe('what the owner has not read of an item, in words', () => {
+  it('counts the replies not read in one way, in the singular for one', () => {
+    expect(unreadCount(1)).toBe('1 reply you have not read');
+    expect(unreadCount(3)).toBe('3 replies you have not read');
+  });
+
+  it('says the item is new, or how many passages of it changed, and how many replies are not read, and nothing where nothing is', () => {
+    expect(freshWords('new', 0, 0)).toBe('New to you');
+    expect(freshWords('changed', 0, 0)).toBe('Changed since you last read it');
+    expect(freshWords('changed', 1, 0)).toBe('1 passage changed since you last read it');
+    expect(freshWords('changed', 2, 1)).toBe('2 passages changed since you last read it · 1 reply you have not read');
+    expect(freshWords('none', 0, 2)).toBe('2 replies you have not read');
+    expect(freshWords('none', 0, 0)).toBe('');
   });
 });

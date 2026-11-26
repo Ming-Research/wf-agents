@@ -12,10 +12,10 @@ import type { ReactNode } from 'react';
 import { ConditionGlyph, DataGlyphs, LineGlyph, ToolGlyph } from './Chart';
 import { type Mark, NO_MARK } from './matrix';
 import { TrackBlock, type TrackKind } from './console/track';
-import { Sign } from './parts';
+import { Sign, TICK } from './parts';
 import { RUN_STATES, type RunState, lookStyle, pulses } from './works/state-marks';
 import type { Held } from './works-api';
-import { NO_LEVEL, keysLine, linesAdded, linesRemoved } from './works/words';
+import { NO_LEVEL, REPLY_READ, keysLine, linesAdded, linesRemoved } from './works/words';
 
 /// A mark the page draws: of the flow's definition, as its files' keys name it; of a line between cells; of who
 /// writes a datum besides the cells; of how a run ended or stands.
@@ -77,6 +77,9 @@ export type ConsoleMark =
   | 'cardDelivers'
   | 'forYou'
   | 'answerAhead'
+  | 'unreadReplies'
+  | 'notTakenIn'
+  | 'takenIn'
   | 'sentBack'
   | 'level'
   | 'cells'
@@ -273,6 +276,16 @@ export const MARKS: Record<MarkKey, Entry> = {
       </span>
     ),
   },
+  unreadReplies: {
+    name: 'replies not read',
+    draw: () => (
+      <span className="tag legend-unread" aria-hidden="true">
+        1
+      </span>
+    ),
+  },
+  notTakenIn: { name: 'not read or taken yet', draw: () => <ReceiptMark taken={false} words={REPLY_READ.unread} /> },
+  takenIn: { name: 'read or taken', draw: () => <ReceiptMark taken words={REPLY_READ.read} /> },
   sentBack: { name: 'sent back', draw: () => <FramedTag count={2} /> },
   level: { name: 'level', draw: () => <LevelMark level="2" raise={0} /> },
   cells: {
@@ -292,6 +305,34 @@ export const MARKS: Record<MarkKey, Entry> = {
   litWay: { name: 'lit way', draw: () => <JoinSample look="lit" /> },
   map: { name: 'map', draw: () => <span className="legend-map" aria-hidden="true" /> },
 };
+
+/// Whether the one a message is for has taken it in: a clock until it has, then the page's tick. On the owner's words it
+/// says whether the cell they went to has taken them; on a cell's reply, whether the owner has read it. `words` says on
+/// pointing which it is.
+export function ReceiptMark({ taken, words }: { taken: boolean; words: string }) {
+  return (
+    <svg
+      className={taken ? 'cw-taken' : 'cw-waiting'}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      role="img"
+      aria-label={words}
+    >
+      <title>{words}</title>
+      {taken ? (
+        <path d={TICK} />
+      ) : (
+        <>
+          <circle cx="12" cy="12" r="8" />
+          <path d="M12 7.5 V12 L15 14" />
+        </>
+      )}
+    </svg>
+  );
+}
 
 /// A mark's name.
 export const markName = (key: MarkKey): string => MARKS[key].name;

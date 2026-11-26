@@ -365,7 +365,8 @@ export interface SentPart {
   /// Of the content of a block, what is sent in its place where the session holds it and the cell never worked from it:
   /// `held_new`.
   heldNew: SentPiece[];
-  /// Of the content of a block, what is sent in place of its text where the session lacks what the text needs.
+  /// Of the content of a block, what is sent in place of its text where the session lacks what the text needs; of why
+  /// a return was sent back, what is sent where the return is given whole again.
   whole: SentPiece[];
   /// Of a part of a list, each item it may hold, by its key, in the order sent: of the part `new`, the line of each
   /// datum or group the cell watches, by its name, sent after `pieces` where it is new to the cell; and then `after`.
