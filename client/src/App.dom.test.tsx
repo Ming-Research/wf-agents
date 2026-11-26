@@ -5,7 +5,10 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { App } from './App';
+import { App, Shell } from './App';
+import { fixtureItems } from './works/fixtures';
+import { INTERFACE, SourceContext } from './works/source';
+import type { InstallationWait } from './works-api';
 
 let unmount: (() => void) | undefined;
 afterEach(() => {
@@ -60,5 +63,48 @@ describe('the page on a server that gives the flow alone', () => {
     expect(container.querySelector('.engine')).toBeNull();
     expect(asked.filter((a) => a.startsWith('GET /api/v1/items') || a.startsWith('GET /api/v1/engine'))).toEqual([]);
     expect(streams).toEqual([]);
+  });
+});
+
+describe('the red count beside Console', () => {
+  const stopped: InstallationWait = {
+    key: 'everything',
+    why: 'The engine paused every work as it started again.',
+    ends: { kind: 'resume' },
+    since: 5000,
+  };
+
+  /// The red count the shell draws beside Console for the items of the fixtures, with these waits of the installation
+  /// in the read of the items (none where the engine gives none).
+  async function redCount(waits: InstallationWait[] | undefined): Promise<number> {
+    const source = {
+      ...INTERFACE,
+      loadItems: async () => ({ ...fixtureItems(), waits }),
+      loadEngine: undefined,
+      changes: () => () => undefined,
+    };
+    const container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+    act(() =>
+      root.render(
+        <SourceContext.Provider value={source}>
+          <Shell route={{ view: 'console' }}>
+            <div />
+          </Shell>
+        </SourceContext.Provider>,
+      ),
+    );
+    for (let i = 0; i < 3; i += 1) await settle();
+    const text = container.querySelector('.bar-count:not(.ahead):not(.unread)')?.textContent;
+    act(() => root.unmount());
+    container.remove();
+    return Number(text ?? 0);
+  }
+
+  it("counts the engine's pause of every work once, beside what the works wait on the owner for, and nothing where the installation waits for none", async () => {
+    const works = await redCount([]);
+    expect(await redCount(undefined)).toBe(works);
+    expect(await redCount([stopped])).toBe(works + 1);
   });
 });
