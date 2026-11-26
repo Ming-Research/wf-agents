@@ -3,7 +3,9 @@
 How wf-agents itself is tested: its own CI workflows, the machines they run on and how they stay within their time.
 
 ### decision wf-agents-ci-runs-on-the-owners-machine
-The jobs of wf-agents' own workflows that build or test run on the owner's machine, on the runners labelled `14900k`; the jobs that build nothing run on GitHub's.
+Jobs that build or test on Linux run on the owner's `14900k` runners, the job that builds the macOS program on GitHub's macOS arm64 machine, and jobs that build nothing on GitHub's.
+- replaced: Every job that builds, the macOS program's included, running on the owner's machine was on main; the owner changed it, because that machine is Linux and the program is for macOS on arm64.
+- rejected: an agent proposed building the macOS program on the 14900k by cross-compiling; the owner rejected it, because it needs Apple's SDK and a C cross compiler for the bundled SQLite, a setup nobody has tried, and a signed program that starts on a Mac.
 - replaced: One job that built nothing off the owner's machine, the job that sums the run up, was on main; the owner changed it, because the job that says what changed and the job that checks the tree build nothing and need none of the eight runners.
 - replaced: The fast CI on GitHub's hosted runners was on main; the owner changed it, because a runner on his build machine changes nothing in the engine, keeps one definition of how tests run, and stays separate from his laptop.
 - replaced: The full CI on GitHub's runners was on main; the owner changed it, because his machine runs it faster, as the old system came to do.
