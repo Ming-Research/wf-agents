@@ -1163,8 +1163,8 @@ pub struct Parts {
     /// Each work's part, with the revision of the work and the generation of what held every work at once that it was
     /// worked out from: the latter matters only to a part read from the flow installed ([`Part::live`]).
     kept: BTreeMap<WorkNumber, (u64, u64, Part)>,
-    /// What held every work at once as the latest read found it, and how many times it changed since the first: the
-    /// stops of a work going on, which it is read by, are worked out again as it changes.
+    /// What held every work at once as the latest read that asked for it found it, and how many times it changed since the
+    /// first: the stops of a work that has not ended, which it is read by, are worked out again as it changes.
     held: Option<HeldAll>,
     generation: u64,
     /// How many works' parts the latest read worked out again.
@@ -1180,18 +1180,31 @@ impl Parts {
     /// Brings the parts to every work the driver shows as it holds them now: a part kept of a work whose revision is
     /// not the one it was worked out from is worked out again, and one of a work the driver no longer shows dropped.
     fn bring_up(&mut self, driver: &Driver, now: Time) -> Result<(), Broken> {
-        let mut kept = BTreeMap::new();
-        let at_once = driver.at_once();
-        let held = HeldAll::of(driver, &at_once);
-        if self.held.as_ref() != Some(&held) {
-            self.held = Some(held);
-            self.generation += 1;
+        let works: Vec<_> = driver
+            .works()
+            .map(|work| (work, driver.revision(work.head.number)))
+            .collect();
+        // What holds every work at once is read only where a part is to be worked out, or one of a work that has not ended
+        // is to be told still current: a read that finds every part kept of works that ended asks the driver for nothing
+        // beyond their revisions.
+        let asks = works
+            .iter()
+            .any(|(work, revision)| match self.kept.get(&work.head.number) {
+                Some((was, _, part)) => Some(*was) != *revision || part.live,
+                None => true,
+            });
+        if asks {
+            let held = HeldAll::of(driver, &driver.agents_at_once());
+            if self.held.as_ref() != Some(&held) {
+                self.held = Some(held);
+                self.generation += 1;
+            }
         }
-        let held = self.held.as_ref().expect("what held every work is kept above");
+        let mut kept = BTreeMap::new();
+        let mut at_once = None;
         self.worked_out = 0;
-        for work in driver.works() {
+        for (work, revision) in works {
             let number = work.head.number;
-            let revision = driver.revision(number);
             match self.kept.remove(&number) {
                 Some((was, generation, part))
                     if Some(was) == revision && (!part.live || generation == self.generation) =>
@@ -1199,7 +1212,12 @@ impl Parts {
                     kept.insert(number, (was, generation, part));
                 }
                 _ => {
-                    let part = Part::of(driver, work, &at_once, held, now)?;
+                    let at_once = at_once.get_or_insert_with(|| driver.at_once());
+                    let held = self
+                        .held
+                        .as_ref()
+                        .expect("what held every work is kept where a part is worked out");
+                    let part = Part::of(driver, work, at_once, held, now)?;
                     self.worked_out += 1;
                     // A work with no revision is worked out again at every read: no revision given is nought.
                     kept.insert(number, (revision.unwrap_or_default(), self.generation, part));

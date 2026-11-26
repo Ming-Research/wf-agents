@@ -2612,6 +2612,20 @@ impl Driver {
         self.shared_waits(at_once).1
     }
 
+    /// What holds every work at once as far as the agents' wait goes ([`AtOnce`] with none of the rest): what
+    /// [`Driver::shared_waits`] reads, for a reader of the waits that asks nothing of the slots taken, the turns and the
+    /// acts' host, whose worth is a scan of the records of every work each.
+    pub fn agents_at_once(&self) -> AtOnce {
+        AtOnce {
+            everything: None,
+            stopping: None,
+            agents: self.agents_wait(),
+            host: None,
+            taking: BTreeSet::new(),
+            turn: BTreeMap::new(),
+        }
+    }
+
     /// [`Driver::cannot_runs`] and [`Driver::downs`], worked out from the records of every work once, for a reader of both.
     pub fn shared_waits(&self, at_once: &AtOnce) -> (Vec<CannotRun>, Vec<Down>) {
         let (mut cannot_run, mut down) = outage::shared_spans(self.rounds());

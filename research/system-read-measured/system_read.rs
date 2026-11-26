@@ -1,8 +1,9 @@
-//! How long `GET /api/v1/system` takes over a hundred merged works, as the page reads it: the first read of an engine,
-//! which works every work's part out, and the median of twenty-one reads after it, each in a new engine over the same
-//! hundred works. The time of each is taken in the test and given in the failure it ends in, which the CI gives back as
-//! what the test said; the test is put into `crates/web/tests/routes/` of each commit measured, beside a line
-//! `mod system_read;` in its `main.rs`, and is in no commit of the repository's history (research/system-read-measured.md).
+//! How long `GET /api/v1/system` takes over a hundred merged works and five that have not ended, as the page reads it:
+//! the first read of an engine, which works every work's part out, and the median of twenty-one reads after it, each in
+//! a new engine over the same works. The time of each is taken in the test and given in the failure it ends in, which
+//! the CI gives back as what the test said; the test is put into `crates/web/tests/routes/` of each commit measured,
+//! beside a line `mod system_read;` in its `main.rs`, and is in no commit of the repository's history
+//! (research/system-read-measured.md).
 
 use std::time::{Duration, Instant};
 
@@ -13,6 +14,8 @@ use store::Store;
 use crate::{START, get_json, pass, post, running_scripted, trial_script};
 
 const WORKS: usize = 100;
+/// Works added and not let on: they have not ended, so that what is read of them is worked out from the flow installed.
+const WAITING: usize = 5;
 const ENGINES: usize = 5;
 const READS: usize = 21;
 const WEEK: u64 = 7 * 24 * 60 * 60 * 1000;
@@ -44,6 +47,16 @@ async fn the_system_is_read_over_a_hundred_merged_works() {
             )
             .await;
             assert_eq!(resumed, (StatusCode::NO_CONTENT, Value::Null));
+        }
+        for work in WORKS + 1..=WORKS + WAITING {
+            let item = json!({
+                "title": format!("Greet the user {work}"),
+                "dependsOn": [],
+                "project": "trial",
+                "flow": "trial",
+                "writes": [{ "block": "request", "content": "Greet the user, please.", "value": null }],
+            });
+            assert_eq!(post(router, "/api/v1/items", &item).await.0, StatusCode::OK);
         }
         pass(10 * 60_000).await;
         // The span cut into the weeks the page gives.
