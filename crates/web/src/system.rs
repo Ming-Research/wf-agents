@@ -1897,4 +1897,338 @@ mod tests {
             (320_000, 23, 102, 18_100, 0)
         );
     }
+
+    /// A part holding only what the waits and the slots are counted from.
+    fn part(stops: Option<Vec<WaitSpan>>, taking: Spans, running: Spans) -> Part {
+        Part {
+            work: 1,
+            item: 1,
+            project: None,
+            flow: "trial".to_string(),
+            added: 0,
+            beside: Vec::new(),
+            left_behind: Vec::new(),
+            short_of_time: Vec::new(),
+            runs: Vec::new(),
+            ending: None,
+            stops,
+            live: false,
+            ci: Vec::new(),
+            queued: Vec::new(),
+            taking,
+            running,
+        }
+    }
+
+    fn stop(from: u64, until: u64, cause: Cause, open: bool) -> WaitSpan {
+        WaitSpan {
+            from,
+            until,
+            cause,
+            open,
+        }
+    }
+
+    const OWNER: Cause = Cause::Wait(WaitReason::Owner);
+    const SLOT: Cause = Cause::Wait(WaitReason::Slot);
+    const TURN: Cause = Cause::Wait(WaitReason::Turn);
+
+    fn stretch(from: u64, until: u64, went: work::Went) -> work::Stretch {
+        work::Stretch {
+            from: Time(from),
+            until: Time(until),
+            went,
+        }
+    }
+
+    // What a work stopped for is what it kept as it ended: each stretch it waited in, the stretches of one cause that
+    // follow one another one stop, a pause and a stop of the engine both a pause, an empty stretch none, and what ran
+    // no stop. What was kept before a wait for a slot was told apart holds such waits in its `Other`, which are then a
+    // cause of their own, never a slot's; where it tells them apart, `Other` is no cause the view counts. A work on no
+    // version kept that kept nothing is not known. Milliseconds.
+    #[test]
+    fn what_a_work_stopped_for_is_what_it_kept_by_cause_with_the_stretches_of_one_cause_made_one_stop() {
+        use work::Went;
+        let stretches = vec![
+            stretch(0, 1_000, Went::Model),
+            stretch(1_000, 2_000, Went::Owner),
+            stretch(2_000, 3_000, Went::Owner),
+            stretch(3_000, 4_000, Went::Tools),
+            stretch(4_000, 4_500, Went::Slot),
+            stretch(5_000, 6_000, Went::Stopping),
+            stretch(6_000, 7_000, Went::Paused),
+            stretch(8_000, 9_000, Went::Other),
+            stretch(9_000, 9_000, Went::Turn),
+            stretch(10_000, 11_000, Went::Items),
+        ];
+        let installed = flow();
+        let none = driver::On::NotKept { end: End::Merged };
+        let stored = Stored::new(&installed.name);
+        let held = HeldAll {
+            everything: Vec::new(),
+            stops: Vec::new(),
+            cannot_run: Vec::new(),
+            down: Vec::new(),
+            turns: Vec::new(),
+        };
+        let paused = Cause::Wait(WaitReason::Paused);
+        let items = Cause::Wait(WaitReason::Items);
+        for separated in [true, false] {
+            let mut work = Work::default();
+            work.kept_time.push(work::KeptTime {
+                at: decide::Seq(9),
+                stretches: stretches.clone(),
+                turn: None,
+                separated,
+            });
+            let (stops, live) = stops_of(stored.kept(&installed, &none, &work), &held, false, Time(20_000));
+            let mut expected = vec![
+                stop(1_000, 3_000, OWNER, false),
+                stop(4_000, 4_500, SLOT, false),
+                stop(5_000, 7_000, paused, false),
+                stop(10_000, 11_000, items, false),
+            ];
+            if !separated {
+                expected.insert(3, stop(8_000, 9_000, Cause::Unseparated, false));
+            }
+            assert_eq!(stops, Some(expected), "separated: {separated}");
+            assert!(!live, "what was kept is not worked out again");
+        }
+        let work = Work::default();
+        let (stops, live) = stops_of(stored.kept(&installed, &none, &work), &held, false, Time(20_000));
+        assert_eq!((stops, live), (None, false), "a work that kept nothing, on no version");
+    }
+
+    // The stops of each cause that ended in the span are counted once, each in full, however many weeks they cross; the
+    // time of every stop in the span, one still going on counted to now, is added up; a work whose waits are not
+    // known is counted in `uncounted`, never as one that did not wait. The stops: the owner 0..10 s, 30..60 s and
+    // 5..25 s, a slot 10..12 s, the turn from 90 s to now (100 s, the part kept to 95 s), and 40..50 s the work kept
+    // before a wait for a slot was told apart. Milliseconds, worked out by hand.
+    #[test]
+    fn the_stops_of_each_cause_are_counted_where_they_ended_and_their_time_where_it_lies() {
+        let mut first = part(
+            Some(vec![
+                stop(0, 10_000, OWNER, false),
+                stop(10_000, 12_000, SLOT, false),
+                stop(30_000, 60_000, OWNER, false),
+                stop(90_000, 95_000, TURN, true),
+            ]),
+            Some(vec![(0, Some(40_000))]),
+            Some(vec![(0, Some(50_000))]),
+        );
+        first.ci = vec![(1_000, 5_000), (50_000, 51_000)];
+        first.queued = vec![(3_000, 5_000), (60_000, 15_000)];
+        let mut second = part(
+            Some(vec![
+                stop(5_000, 25_000, OWNER, false),
+                stop(40_000, 50_000, Cause::Unseparated, false),
+            ]),
+            Some(vec![(20_000, Some(60_000))]),
+            Some(vec![(0, None)]),
+        );
+        second.ci = vec![(2_000, 8_000), (45_000, 55_000)];
+        second.queued = vec![(70_000, 9_000), (150_000, 99_000)];
+        let unknown = part(None, None, None);
+        let parts = [first, second, unknown];
+        let history = [
+            store::SlotsRecord { slots: 4, at: Time(0) },
+            store::SlotsRecord {
+                slots: 6,
+                at: Time(70_000),
+            },
+        ];
+        let stopped = |stops, total_ms, median_ms, longest_ms| Stopped {
+            stops,
+            total_ms,
+            median_ms,
+            longest_ms,
+        };
+        let none = stopped(0, 0, None, None);
+        let waited = Waited::of(parts.iter(), Some(0), 100_000, &history);
+        assert_eq!(
+            waited.by,
+            [
+                WaitedBy {
+                    reason: WaitReason::Owner,
+                    stopped: stopped(3, 60_000, Some(20_000), Some(30_000)),
+                },
+                WaitedBy {
+                    reason: WaitReason::Items,
+                    stopped: none,
+                },
+                WaitedBy {
+                    reason: WaitReason::Slot,
+                    stopped: stopped(1, 2_000, Some(2_000), Some(2_000)),
+                },
+                WaitedBy {
+                    reason: WaitReason::Turn,
+                    // Going on: its time counts to now, and it is no stop that ended.
+                    stopped: stopped(0, 10_000, None, None),
+                },
+                WaitedBy {
+                    reason: WaitReason::Paused,
+                    stopped: none,
+                },
+            ]
+        );
+        assert_eq!(waited.unseparated, stopped(1, 10_000, Some(10_000), Some(10_000)));
+        assert_eq!(waited.uncounted, 1, "the work whose waits are not known");
+        // Four calls and rounds that waited for CI took 4, 1, 6 and 10 s; three jobs said how long they waited for a
+        // runner, the one read after the span's end not counted.
+        assert_eq!(
+            waited.ci,
+            CiWaited {
+                waited: stopped(4, 21_000, Some(5_000), Some(10_000)),
+                jobs: 3,
+                queued_median_ms: Some(9_000),
+                queued_longest_ms: Some(15_000),
+            }
+        );
+        // The span with no first week begins where the earliest of what the works did does.
+        assert_eq!(Waited::of(parts.iter(), None, 100_000, &history), waited);
+        // Slots held: one from 0 to 20 s, two to 40 s, one to 60 s; ran: two to 50 s, then one, the round under way
+        // counted to now.
+        assert_eq!(
+            waited.occupancy,
+            Occupancy {
+                taking_avg: 800,
+                taking_peak: 2,
+                running_avg: 1_500,
+                running_peak: 2,
+                slots: Some(6),
+                recorded: true,
+            }
+        );
+        // The week from 20 to 50 s has only the time of each stop that lies in it, and a stop is counted where it
+        // ended: the owner's 30..60 s stop is none of this week's though most of it is.
+        let week = (20_000, 50_000);
+        assert_eq!(
+            WeekWaited::of(parts.iter(), week, 100_000, &history),
+            WeekWaited {
+                total_ms: [25_000, 0, 0, 0, 0],
+                ci_ms: 5_000,
+                occupancy: Occupancy {
+                    taking_avg: 1_666,
+                    taking_peak: 2,
+                    running_avg: 2_000,
+                    running_peak: 2,
+                    slots: Some(4),
+                    recorded: true,
+                },
+            }
+        );
+        let ended = tallies(parts.iter(), week, 100_000);
+        let count = |cause: Cause| ended.get(&cause).map_or(0, |tally| tally.ended.len());
+        assert_eq!(
+            [count(OWNER), count(SLOT), count(TURN), count(Cause::Unseparated)],
+            [1, 0, 0, 0],
+            "only the owner's stop that ended at 25 s ended in the week; the one that ended at its end is the next week's"
+        );
+    }
+
+    // The slots are known only from when the engine first kept them, a stretch's end that touches the next stretch's
+    // start counts the ends first so that nothing is counted twice, and no slots kept is none, not a number.
+    #[test]
+    fn the_slots_there_were_and_how_many_ran_at_once_are_read_from_what_was_kept_and_from_each_stretch() {
+        let kept = |slots: usize, at: u64| store::SlotsRecord { slots, at: Time(at) };
+        assert_eq!(slots_in(&[], (0, 100)), (None, false));
+        assert_eq!(
+            slots_in(&[kept(4, 30)], (0, 100)),
+            (Some(4), false),
+            "kept from part of the window"
+        );
+        assert_eq!(slots_in(&[kept(4, 0)], (10, 100)), (Some(4), true));
+        assert_eq!(
+            slots_in(&[kept(4, 0), kept(6, 70)], (80, 100)),
+            (Some(6), true),
+            "the latest alone"
+        );
+        assert_eq!(
+            slots_in(&[kept(4, 0), kept(6, 70)], (0, 60)),
+            (Some(4), true),
+            "none yet set to 6"
+        );
+        assert_eq!(
+            slots_in(&[kept(4, 200)], (0, 100)),
+            (None, false),
+            "kept only after the window"
+        );
+        let touching = [(0, Some(10_000)), (10_000, Some(20_000))];
+        assert_eq!(crowd(touching.into_iter(), (0, 20_000), 20_000), (1_000, 1));
+        assert_eq!(crowd([].into_iter(), (0, 20_000), 20_000), (0, 0));
+        assert_eq!(
+            crowd([(0, None)].into_iter(), (0, 0), 0),
+            (0, 0),
+            "a window with no length"
+        );
+    }
+
+    /// A run of a cell with these rounds and tool calls, each from a time to its end, as the page reads one.
+    fn run_of(cell: &str, rounds: &[(u64, Option<u64>)], calls: &[(u64, Option<u64>)]) -> Run {
+        let rounds: Vec<_> = (rounds.iter().enumerate())
+            .map(|(i, (began, ended))| {
+                serde_json::json!({
+                    "number": i + 1, "began": began, "ended": ended, "given": { "kind": "task" },
+                    "compactions": 0, "tries": [],
+                })
+            })
+            .collect();
+        let calls: Vec<_> = (calls.iter().enumerate())
+            .map(|(i, (made, done))| {
+                serde_json::json!({
+                    "call": i + 1, "what": { "kind": "tool", "name": "ci", "input": "" }, "made": made, "done": done,
+                })
+            })
+            .collect();
+        serde_json::from_value(serde_json::json!({
+            "run": 1, "cell": cell, "at": 1, "time": 0, "because": [], "basis": [], "rounds": rounds, "calls": calls,
+            "end": null, "spent": serde_json::to_value(Spent::default()).expect("nothing spent is said"),
+        }))
+        .expect("a run is read")
+    }
+
+    // A round holds a slot where the version its work is on says its cell is an agent's, whichever flow is installed
+    // now, and a round or a call of a tool is running whichever its cell is. The cell `old` is an agent's in the
+    // version the work is on and in none installed; `merge` is an act in both. Read by the version installed, `old`
+    // would take no slot; a work on none kept has no outline to read, so it is none, not nothing.
+    #[test]
+    fn a_work_held_a_slot_in_the_rounds_of_the_cells_its_own_version_says_an_agent_runs() {
+        let installed = flow();
+        let mut outline = flow::Outline::of(&installed);
+        let merge = (outline.cells.iter_mut())
+            .find(|c| c.id.as_str() == "merge")
+            .expect("the merge");
+        merge.agent = false;
+        let mut old = merge.clone();
+        old.id = CellId::from("old");
+        old.agent = true;
+        outline.cells.push(old);
+        let runs = [
+            run_of(
+                "old",
+                &[(1_000, Some(5_000)), (4_000, Some(9_000))],
+                &[(9_000, Some(12_000))],
+            ),
+            run_of("merge", &[(2_000, Some(3_000))], &[]),
+            run_of("old", &[(20_000, None)], &[]),
+        ];
+        let work = Work::default();
+        let stored = Stored::new(&installed.name);
+        let on = earlier(outline);
+        assert_eq!(
+            held_slots(stored.kept(&installed, &on, &work), &runs),
+            (
+                Some(vec![(1_000, Some(9_000)), (20_000, None)]),
+                Some(vec![(1_000, Some(12_000)), (20_000, None)])
+            )
+        );
+        let now = driver::On::installed_flow(&installed);
+        assert_eq!(
+            held_slots(stored.kept(&installed, &now, &work), &runs),
+            (Some(Vec::new()), Some(vec![(1_000, Some(12_000)), (20_000, None)])),
+            "read by the version installed, where `old` is no cell"
+        );
+        let none = driver::On::NotKept { end: End::Merged };
+        assert_eq!(held_slots(stored.kept(&installed, &none, &work), &runs), (None, None));
+    }
 }
