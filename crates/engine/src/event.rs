@@ -6,7 +6,7 @@ use decide::run::{Failure, Unmet};
 use decide::{BlockId, CallId, CellId, End, Obstacle, Outsider, Pauser, Retry, RunId, Seq};
 use flow::{Compiled, Kind};
 
-use work::{Ask, Call, Fill, Given, Handed, Left, Measures, Question, RanOn, Reading, Said, Spent, Time, Why};
+use work::{Ask, Call, Fill, Given, Handed, Left, Measures, Question, RanOn, Reading, Said, Short, Spent, Time, Why};
 
 use crate::spoken::{NoOne, Telling, To};
 
@@ -128,6 +128,14 @@ pub enum Event {
     /// check asked for, and says how long its tests and jobs took, or that it gives no time: kept with the work where
     /// the same run is not kept already.
     Timed { reading: Reading },
+    /// The host ran, or refused before running, a call of `run_tests` whose tests the budget of the project's fast
+    /// workflow kept from their end, as [`work::ShortOfTime`] says: kept with the work, said before the call's result,
+    /// and once for the call.
+    ShortOfTime {
+        call: CallId,
+        budget: u64,
+        tests: Vec<Short>,
+    },
     /// What the work held outside the engine was let go, as [`Effect::Release`] asked.
     Released,
     /// What the work held outside the engine could not be let go, for this reason, as whatever carried out

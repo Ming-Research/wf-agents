@@ -69,8 +69,9 @@ expected = ["crates/carry/tests/fixtures/", "crates/flow/tests/project/"]
 workflow = "fast.yml"
 runner = "14900k"
 checks = ["lint"]
-# A run not complete by then is cancelled, and said as what it found.
-too_long = "2h"
+# A run not complete by then is cancelled, and said as what it found. Its time waiting for a runner does not count, so
+# this fits a job of at most 20 minutes and the jobs before and after it.
+too_long = "25m"
 
 [ci.full]
 # Every job required to merge, run once before the merge.
