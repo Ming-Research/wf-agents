@@ -1371,6 +1371,8 @@ fn a_research_sent_back_for_stalling_whose_next_return_asks_for_calls_is_run_aga
         "the choice that stood was written"
     );
     assert!(sim.versions("plan_owner").is_empty());
+    let call = *sim.calls().last().expect("the call");
+    sim.done(call, "1");
     let next = sim.round().expect("the work goes on");
     assert_eq!(next.cell.as_str(), "R1", "the research runs again for the plan");
     assert_ne!(next.run, research.run);
