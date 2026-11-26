@@ -36,16 +36,28 @@
 //!
 //! A check of the outside, and a look at the network, is no record: it is what the outside says at a moment, which the
 //! driver keeps only while its wait stands. Lost in a stop, it is taken again.
+//!
+//! What a wait reads of one work's rounds is worked out from the work's records each time the work grows, and the driver
+//! keeps it with the work ([`Rounds`]): of the rounds that came back, only the latest to begin under each account, and
+//! every round that did not. The wait that stands is then worked out from what every work keeps so, without reading any
+//! work's records, and at a cost that does not grow with the rounds that came back.
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use decide::RunId;
 use decide::run::Failure;
+use decide::{RunId, Seq};
 use flow::Outline;
 use store::WorkNumber;
 use work::{Back, Time, Work};
 
 use crate::accounts::Accounts;
+
+#[cfg(test)]
+thread_local! {
+    /// How many times a wait every work shares was worked out on this thread ([`outage`]): what a test of what a step
+    /// of the driver costs reads.
+    pub(crate) static WORKED_OUT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 
 /// How long after the latest round that failed for a cause outside every work the outside is first checked; and how
 /// often the network to the acts' host is looked at while it cannot be reached.
@@ -68,16 +80,6 @@ pub enum Service {
     Agents,
     /// The host of the project's repository, as the engine's acts reach it: the rounds of the engine's own cells.
     Host,
-}
-
-impl Service {
-    /// Whether the service serves the rounds of a cell, an agent's or else an act of the engine's.
-    fn serves(self, agent: bool) -> bool {
-        match self {
-            Service::Agents => agent,
-            Service::Host => !agent,
-        }
-    }
 }
 
 /// What a check of the outside of the agents' rounds found: what the rounds need from outside every work, an account
@@ -378,7 +380,42 @@ pub fn move_on(
         .map_or(Move::Stay, |(at, name)| Move::Check { name: name.clone(), at })
 }
 
-/// A round of a cell, as the outage reads it.
+/// A work's rounds as the waits every work shares read them, of each service: worked out from the work's records each
+/// time the work grows, and kept with the work by the driver, so that a wait is worked out from every work without
+/// reading any work's records again.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Rounds {
+    /// Of the cells an agent carries out.
+    agents: Served,
+    /// Of the engine's own acts.
+    host: Served,
+}
+
+/// A work's rounds of the cells one service serves.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct Served {
+    /// Of the rounds that came back, the latest to begin under each account: all that a wait reads of them.
+    came: Vec<Latest>,
+    /// Each round that did not come back: under way, failed, or dropped as its run was abandoned. In the order of their
+    /// runs' starts, and in each run in the order of their numbers.
+    open: Vec<Taken>,
+    /// When each round began, whether or not it came back: what tells when a wait in which the agents' command line
+    /// could not run was over ([`cannot_run_spans`]).
+    began: Vec<Time>,
+}
+
+/// Of a work's rounds under one account that came back, the latest to begin: when it began, and the place of the entry
+/// of its beginning, each the latest of any of them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Latest {
+    /// The account the rounds ran under, as their last tries recorded it; none where they ran under none.
+    account: Option<String>,
+    began: Time,
+    at: Seq,
+}
+
+/// A round of a cell that did not come back, as the outage reads it.
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct Taken {
     work: WorkNumber,
     run: RunId,
@@ -387,25 +424,125 @@ struct Taken {
     account: Option<String>,
     began: Time,
     /// The place of the entry of its beginning, in its work.
-    began_at: decide::Seq,
+    began_at: Seq,
     /// When it ended, and what came back; none while it is under way. What came back is none for a round whose run
-    /// was abandoned, when it was dropped.
-    ended: Option<(Time, decide::Seq, Option<Back>)>,
+    /// was abandoned, when it was dropped, and else is its failure.
+    ended: Option<(Time, Seq, Option<Back>)>,
 }
 
-/// The wait of the service every work shares, from the records of these works on the flows they run on, each round's
-/// account read from its last try, the rounds the service answered while under way, each of a work and run by its
-/// number, and the account in use, if one stands. What the outside says of it, its checks and looks, and when the
-/// account in use was taken, is the driver's to add.
+impl Rounds {
+    /// The rounds of the work of this number, from its records, each served as the version the work is on has its cell,
+    /// with the account its last try ran under: none of a work on no version kept, of whose cells that version does not
+    /// say which an agent carries out.
+    pub fn of(number: WorkNumber, outline: Option<&Outline>, work: &Work) -> Rounds {
+        let mut rounds = Rounds::default();
+        let Some(outline) = outline else {
+            return rounds;
+        };
+        let r = &work.records;
+        // The account of each round, by its run and number, as its last try recorded it: the tries in the order they
+        // began.
+        let mut accounts: BTreeMap<(RunId, usize), Option<&str>> = BTreeMap::new();
+        for ran in &work.ran {
+            accounts.insert((ran.run, ran.round), ran.on.account.as_deref());
+        }
+        // Where each round of each run began, and where each ended, in order: the round of each number ended at the end
+        // of that number, where the run has one.
+        let mut began: BTreeMap<RunId, Vec<Seq>> = BTreeMap::new();
+        for round in &r.rounds {
+            began.entry(round.run).or_default().push(round.at);
+        }
+        let mut ended: BTreeMap<RunId, Vec<Seq>> = BTreeMap::new();
+        for end in &r.returned {
+            ended.entry(end.run).or_default().push(end.at);
+        }
+        for started in &r.started {
+            let Some(cell) = outline.cell(&started.cell) else {
+                continue;
+            };
+            let served = match cell.agent {
+                true => &mut rounds.agents,
+                false => &mut rounds.host,
+            };
+            let ends = ended.get(&started.run).map_or(&[][..], Vec::as_slice);
+            for (i, at) in began.get(&started.run).into_iter().flatten().enumerate() {
+                let key = (started.run, i + 1);
+                let account = accounts.get(&key).copied().flatten();
+                let time = work.time_of(*at).unwrap_or_default();
+                served.began.push(time);
+                let end = (ends.get(i)).map(|end| (work.time_of(*end).unwrap_or_default(), *end, work.back.get(&key)));
+                match end {
+                    Some((_, _, Some(Back::Asked(_) | Back::HandedIn(_) | Back::Returned { .. }))) => {
+                        served.came_back(account, time, *at);
+                    }
+                    end => served.open.push(Taken {
+                        work: number,
+                        run: started.run,
+                        number: i + 1,
+                        account: account.map(str::to_string),
+                        began: time,
+                        began_at: *at,
+                        ended: end.map(|(time, at, back)| (time, at, back.cloned())),
+                    }),
+                }
+            }
+        }
+        rounds
+    }
+
+    /// The rounds of the cells the service serves.
+    fn served(&self, service: Service) -> &Served {
+        match service {
+            Service::Agents => &self.agents,
+            Service::Host => &self.host,
+        }
+    }
+}
+
+impl Served {
+    /// Takes a round that came back, under this account, that began at this time and place.
+    fn came_back(&mut self, account: Option<&str>, began: Time, at: Seq) {
+        match (self.came.iter_mut()).find(|latest| latest.account.as_deref() == account) {
+            Some(latest) => {
+                latest.began = latest.began.max(began);
+                latest.at = latest.at.max(at);
+            }
+            None => self.came.push(Latest {
+                account: account.map(str::to_string),
+                began,
+                at,
+            }),
+        }
+    }
+
+    /// Of the rounds that came back, or that the service answered while they were under way, each account with when one
+    /// began and the place of the entry of one's beginning: for those that came back, the latest of each under each
+    /// account.
+    fn back<'s>(
+        &'s self,
+        answered: &'s BTreeSet<(WorkNumber, RunId, usize)>,
+    ) -> impl Iterator<Item = (Option<&'s str>, Time, Seq)> + 's {
+        let came = (self.came.iter()).map(|latest| (latest.account.as_deref(), latest.began, latest.at));
+        let answered = (self.open.iter())
+            .filter(move |r| answered.contains(&(r.work, r.run, r.number)))
+            .map(|r| (r.account.as_deref(), r.began, r.began_at));
+        came.chain(answered)
+    }
+}
+
+/// The wait of the service every work shares, from the rounds of these works ([`Rounds`]), the rounds the service
+/// answered while under way, each of a work and run by its number, and the account in use, if one stands. What the
+/// outside says of it, its checks and looks, and when the account in use was taken, is the driver's to add.
 pub fn outage<'a>(
     service: Service,
-    works: impl IntoIterator<Item = (WorkNumber, &'a Outline, &'a Work)>,
+    works: impl Iterator<Item = &'a Rounds> + Clone,
     answered: &BTreeSet<(WorkNumber, RunId, usize)>,
     in_use: Option<&str>,
 ) -> Option<Outage> {
-    let rounds = rounds(service, works);
+    #[cfg(test)]
+    WORKED_OUT.with(|worked_out| worked_out.set(worked_out.get() + 1));
     // A usage limit holds the rounds only while its account is in use.
-    let standing: Vec<Met> = (standing(&rounds, answered).into_iter())
+    let standing: Vec<Met> = (standing(service, works.clone(), answered).into_iter())
         .filter(|m| m.failure != Failure::UsageLimit || m.round.account.as_deref() == in_use)
         .collect();
     // The latest of those not over, which says the cause; of two that ended at one time, the later in its work, and of
@@ -416,7 +553,7 @@ pub fn outage<'a>(
     let first = standing.iter().min_by_key(key)?;
     // A round under way that began after the latest: as a round that came back ends the wait, one of another work that
     // began at the same time may have begun before it ended.
-    let trying = (rounds.iter())
+    let trying = (works.flat_map(|rounds| rounds.served(service).open.iter()))
         .filter(|r| r.ended.is_none())
         .find(|r| r.began > latest.time || (r.work == latest.round.work && r.began_at > latest.at))
         .map(|r| r.work);
@@ -440,14 +577,13 @@ pub fn outage<'a>(
 }
 
 /// The usage limit of each account that stands, by the account's name, whether or not the account is in use, from the
-/// records of these works and the rounds the agents' service answered while under way.
+/// rounds of these works ([`Rounds`]) and the rounds the agents' service answered while under way.
 pub fn limits<'a>(
-    works: impl IntoIterator<Item = (WorkNumber, &'a Outline, &'a Work)>,
+    works: impl Iterator<Item = &'a Rounds> + Clone,
     answered: &BTreeSet<(WorkNumber, RunId, usize)>,
 ) -> BTreeMap<String, Limit> {
-    let rounds = rounds(Service::Agents, works);
     let mut limits: BTreeMap<String, (Limit, Time)> = BTreeMap::new();
-    for m in standing(&rounds, answered) {
+    for m in standing(Service::Agents, works, answered) {
         let Some(account) = m.round.account.clone().filter(|_| m.failure == Failure::UsageLimit) else {
             continue;
         };
@@ -476,18 +612,20 @@ pub struct CannotRun {
     pub why: String,
 }
 
-/// Each wait in which the agents' command line could not run that is over, from the records of these works: it stands
-/// from the end of a round of an agent that failed so, a round another work had under way when the first one failed and
-/// that failed so too joining it, until the first round of an agent, of any work, that began after the latest of them.
-/// The wait that stands now, which no round has begun after, is the driver's ([`crate::Driver::outage`]): what the records of
-/// rounds say of it is the same, and it is drawn from the time its first round failed so, whichever kind of cause the
-/// failures before it in the wait had. What the failed rounds recorded is kept whole, so that a wait is read the same
-/// whenever it is asked (principle `state-from-records`).
-pub fn cannot_run_spans<'a>(works: impl IntoIterator<Item = (WorkNumber, &'a Outline, &'a Work)>) -> Vec<CannotRun> {
-    let rounds = rounds(Service::Agents, works);
-    let mut begins: Vec<Time> = rounds.iter().map(|r| r.began).collect();
+/// Each wait in which the agents' command line could not run that is over, from the rounds of these works ([`Rounds`]):
+/// it stands from the end of a round of an agent that failed so, a round another work had under way when the first one
+/// failed and that failed so too joining it, until the first round of an agent, of any work, that began after the latest
+/// of them. The wait that stands now, which no round has begun after, is the driver's ([`crate::Driver::outage`]): what
+/// the records of rounds say of it is the same, and it is drawn from the time its first round failed so, whichever kind
+/// of cause the failures before it in the wait had. What the failed rounds recorded is kept whole, so that a wait is read
+/// the same whenever it is asked (principle `state-from-records`).
+pub fn cannot_run_spans<'a>(works: impl Iterator<Item = &'a Rounds> + Clone) -> Vec<CannotRun> {
+    let served = works.map(|rounds| &rounds.agents);
+    let mut begins: Vec<Time> = (served.clone())
+        .flat_map(|served| served.began.iter().copied())
+        .collect();
     begins.sort();
-    let mut failed: Vec<(Time, &String)> = (rounds.iter())
+    let mut failed: Vec<(Time, &String)> = (served.flat_map(|served| served.open.iter()))
         .filter_map(|r| match &r.ended {
             Some((
                 time,
@@ -524,39 +662,36 @@ pub fn cannot_run_spans<'a>(works: impl IntoIterator<Item = (WorkNumber, &'a Out
     waits
 }
 
-/// Every round of the works' runs of cells the service serves.
-fn rounds<'a>(service: Service, works: impl IntoIterator<Item = (WorkNumber, &'a Outline, &'a Work)>) -> Vec<Taken> {
-    let mut rounds = Vec::new();
-    for (number, outline, work) in works {
-        rounds.extend(rounds_of(service, number, outline, work));
+/// Each round of these works that failed for a cause every work shares and is not over, with when and where in its work
+/// it ended. A failure is over where a round that began after it came back, or the service answered it: one that began
+/// later, or later in the same work, a round of another work that began at the same time having perhaps begun before it
+/// ended; a usage limit only where that round ran under the same account. So it is over where the latest such round of
+/// any work, of the account where it is a usage limit, began later, or the latest of its own work began later in it.
+fn standing<'r>(
+    service: Service,
+    works: impl Iterator<Item = &'r Rounds> + Clone,
+    answered: &BTreeSet<(WorkNumber, RunId, usize)>,
+) -> Vec<Met<'r>> {
+    let served = works.map(move |rounds| rounds.served(service));
+    // When the latest round that came back, or that the service answered while under way, began under each account, of
+    // any work.
+    let mut latest: Vec<(Option<&str>, Time)> = Vec::new();
+    for (account, began, _) in (served.clone()).flat_map(|served| served.back(answered)) {
+        match (latest.iter_mut()).find(|(of, _)| *of == account) {
+            Some((_, time)) => *time = (*time).max(began),
+            None => latest.push((account, began)),
+        }
     }
-    rounds
-}
-
-/// Each round that failed for a cause every work shares and is not over, with when and where in its work it ended. A
-/// failure is over where a round that began after it came back, or the service answered it: one that began later, or
-/// later in the same work, a round of another work that began at the same time having perhaps begun before it ended;
-/// a usage limit only where that round ran under the same account.
-fn standing<'r>(rounds: &'r [Taken], answered: &BTreeSet<(WorkNumber, RunId, usize)>) -> Vec<Met<'r>> {
-    let back: Vec<&Taken> = (rounds.iter())
-        .filter(|r| {
-            let came = matches!(
-                &r.ended,
-                Some((_, _, Some(Back::Asked(_) | Back::HandedIn(_) | Back::Returned { .. })))
-            );
-            came || answered.contains(&(r.work, r.run, r.number))
-        })
-        .collect();
     let over = |m: &Met| {
-        (back.iter()).any(|r| {
-            let same = m.failure != Failure::UsageLimit || r.account == m.round.account;
-            same && (r.began > m.time || (r.work == m.round.work && r.began_at > m.at))
-        })
+        let same = |account: Option<&str>| m.failure != Failure::UsageLimit || account == m.round.account.as_deref();
+        (latest.iter()).any(|(account, began)| same(*account) && *began > m.time)
+            || (m.served.back(answered)).any(|(account, _, at)| same(account) && at > m.at)
     };
-    (rounds.iter())
-        .filter_map(|r| match &r.ended {
+    (served.flat_map(|served| served.open.iter().map(move |round| (served, round))))
+        .filter_map(|(served, round)| match &round.ended {
             Some((time, at, Some(Back::Failed { why, failure, resets }))) if failure.shared() => Some(Met {
-                round: r,
+                served,
+                round,
                 time: *time,
                 at: *at,
                 why,
@@ -571,53 +706,15 @@ fn standing<'r>(rounds: &'r [Taken], answered: &BTreeSet<(WorkNumber, RunId, usi
 
 /// A round that failed for a cause every work shares, as the outage reads it.
 struct Met<'a> {
+    /// The rounds of its work of the service it failed with.
+    served: &'a Served,
     round: &'a Taken,
     /// When it ended, and the place of the entry of its end in its work.
     time: Time,
-    at: decide::Seq,
+    at: Seq,
     why: &'a String,
     failure: Failure,
     resets: Option<Time>,
-}
-
-/// Every round of the work's runs of cells the service serves, as the version the work is on has them, with the
-/// account its last try ran under, when it began and ended and what came back.
-fn rounds_of(service: Service, number: WorkNumber, outline: &Outline, work: &Work) -> Vec<Taken> {
-    let r = &work.records;
-    // The account of each round, by its run and number, as its last try recorded it: the tries in the order they began.
-    let mut accounts: BTreeMap<(RunId, usize), Option<&str>> = BTreeMap::new();
-    for ran in &work.ran {
-        accounts.insert((ran.run, ran.round), ran.on.account.as_deref());
-    }
-    let mut out = Vec::new();
-    for started in &r.started {
-        let served = (outline.cell(&started.cell)).is_some_and(|cell| service.serves(cell.agent));
-        if !served {
-            continue;
-        }
-        let began = r.rounds.iter().filter(|x| x.run == started.run);
-        let mut ended = r.returned.iter().filter(|x| x.run == started.run);
-        for (i, round) in began.enumerate() {
-            let end = ended.next().map(|e| {
-                let back = work.back.get(&(started.run, i + 1)).cloned();
-                (work.time_of(e.at).unwrap_or_default(), e.at, back)
-            });
-            out.push(Taken {
-                work: number,
-                run: started.run,
-                number: i + 1,
-                account: accounts
-                    .get(&(started.run, i + 1))
-                    .copied()
-                    .flatten()
-                    .map(str::to_string),
-                began: work.time_of(round.at).unwrap_or_default(),
-                began_at: round.at,
-                ended: end,
-            });
-        }
-    }
-    out
 }
 
 #[cfg(test)]
@@ -893,5 +990,492 @@ mod tests {
             move_on(&at_limit(None), &accounts, never, &spoken, now),
             Move::Take { name, .. } if name == "a"
         ));
+    }
+
+    /// The accounts a round's try runs under in these tests.
+    const ACCOUNTS: [Option<&str>; 3] = [None, Some("p"), Some("q")];
+
+    /// The kinds of cause a round fails for in these tests: those every work shares, and two of a work's own.
+    const KINDS: [Failure; 6] = [
+        Failure::UsageLimit,
+        Failure::CannotRun,
+        Failure::Offline,
+        Failure::Unavailable,
+        Failure::Passing,
+        Failure::Other,
+    ];
+
+    /// The draws of a test, the same for the same seed.
+    struct Draw(u64);
+
+    impl Draw {
+        fn new(seed: u64) -> Draw {
+            Draw(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1)
+        }
+
+        /// A number below `n`.
+        fn below(&mut self, n: u64) -> u64 {
+            self.0 ^= self.0 >> 12;
+            self.0 ^= self.0 << 25;
+            self.0 ^= self.0 >> 27;
+            (self.0.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 32) % n
+        }
+
+        fn pick<T: Copy>(&mut self, of: &[T]) -> T {
+            of[self.below(of.len() as u64) as usize]
+        }
+    }
+
+    /// A version with the agent's cell `a` and the engine's act `e`; a run of `x` is of a cell it does not have.
+    fn outline() -> Outline {
+        let cell = |id: &str, agent: bool| flow::outline::OutlinedCell {
+            id: id.into(),
+            title: id.to_string(),
+            line: agent.then(|| "main".to_string()),
+            agent,
+            given: Vec::new(),
+            watches: Vec::new(),
+            reads: Vec::new(),
+            words: None,
+            questions: None,
+        };
+        Outline {
+            name: "small".to_string(),
+            cells: vec![cell("a", true), cell("e", false)],
+            lines: Vec::new(),
+            groups: Vec::new(),
+            card: Vec::new(),
+            earlier_ids: Vec::new(),
+            own: Vec::new(),
+            from: BTreeMap::new(),
+        }
+    }
+
+    /// What a round that ended with a return came back with.
+    fn returned() -> Back {
+        Back::Returned {
+            dealt_with: Vec::new(),
+            handed: Vec::new(),
+            asks: Vec::new(),
+            found: Vec::new(),
+            said: work::Said::default(),
+            engine: Vec::new(),
+            waits_for: None,
+            read: Vec::new(),
+            protected: BTreeMap::new(),
+        }
+    }
+
+    /// A work's records as they grow: each entry at the place after the last, at the time it is given.
+    #[derive(Default)]
+    struct Growing {
+        work: Work,
+        next: u64,
+    }
+
+    impl Growing {
+        /// The next place, for an entry of what happened at this time.
+        fn place(&mut self, at: u64) -> Seq {
+            self.next += 1;
+            let place = Seq(self.next);
+            if self.work.moments.last().is_none_or(|moment| moment.at != Time(at)) {
+                self.work.moments.push(work::Moment {
+                    from: place,
+                    at: Time(at),
+                });
+            }
+            place
+        }
+
+        /// A run of the cell starts at this time.
+        fn start(&mut self, cell: &str, at: u64) -> RunId {
+            let run = RunId(self.work.records.started.len() as u64 + 1);
+            let at = self.place(at);
+            self.work.records.started.push(decide::Started {
+                run,
+                cell: cell.into(),
+                at,
+                because: Vec::new(),
+                basis: BTreeMap::new(),
+            });
+            run
+        }
+
+        /// The run's next round begins at this time, its tries under these accounts in turn; gives its number.
+        fn begin(&mut self, run: RunId, tries: &[Option<&str>], at: u64) -> usize {
+            let place = self.place(at);
+            self.work.records.rounds.push(decide::Round { run, at: place });
+            let round = (self.work.records.rounds.iter()).filter(|r| r.run == run).count();
+            for (attempt, account) in tries.iter().enumerate() {
+                let at = self.place(at);
+                self.work.ran.push(work::Ran {
+                    at,
+                    run,
+                    round,
+                    attempt: attempt + 1,
+                    on: work::RanOn {
+                        level: "1".to_string(),
+                        model: "model".to_string(),
+                        effort: None,
+                        directory: None,
+                        account: account.map(str::to_string),
+                    },
+                });
+            }
+            round
+        }
+
+        /// The round of the run under way ends at this time, with what came back; none where its run was abandoned.
+        fn end(&mut self, run: RunId, round: usize, back: Option<Back>, at: u64) {
+            let place = self.place(at);
+            self.work.records.returned.push(decide::Returned { run, at: place });
+            if let Some(back) = back {
+                self.work.back.insert((run, round), back);
+            }
+        }
+    }
+
+    /// Works whose rounds began and ended at times of one clock, often at the same time as another's; of the agent's
+    /// cell, of the act and of a cell their version does not have; each try under an account drawn, the last try of a
+    /// round under another than the one before at times; each round come back, failed for a cause of any kind, dropped
+    /// with its run, or under way; and one work in five on no version kept.
+    fn drawn(draw: &mut Draw) -> Vec<(WorkNumber, Option<Outline>, Work)> {
+        let count = 1 + draw.below(4) as usize;
+        let mut works: Vec<(Growing, Option<(RunId, usize)>)> = (0..count).map(|_| Default::default()).collect();
+        let mut clock = 1_000;
+        for _ in 0..draw.below(60) {
+            clock += draw.below(3);
+            let (work, under_way) = &mut works[draw.below(count as u64) as usize];
+            match under_way.take() {
+                Some((run, round)) => {
+                    let back = match draw.below(6) {
+                        0 => Some(Back::HandedIn(Vec::new())),
+                        1 => Some(Back::Asked(Vec::new())),
+                        2 => Some(returned()),
+                        3 => None,
+                        _ => Some(Back::Failed {
+                            why: format!("failed at {clock}"),
+                            failure: draw.pick(&KINDS),
+                            resets: (draw.below(2) == 0).then_some(Time(clock + 100)),
+                        }),
+                    };
+                    work.end(run, round, back, clock);
+                }
+                None => {
+                    let runs: Vec<RunId> = work.work.records.started.iter().map(|s| s.run).collect();
+                    let run = match runs.is_empty() || draw.below(3) == 0 {
+                        true => work.start(draw.pick(&["a", "a", "e", "x"]), clock),
+                        false => draw.pick(&runs),
+                    };
+                    let tries: Vec<Option<&str>> = (0..=draw.below(2)).map(|_| draw.pick(&ACCOUNTS)).collect();
+                    let round = work.begin(run, &tries, clock);
+                    *under_way = Some((run, round));
+                }
+            }
+        }
+        (works.into_iter().enumerate())
+            .map(|(i, (work, _))| {
+                let on = (draw.below(5) != 0).then(outline);
+                (WorkNumber(i as u64 + 1), on, work.work)
+            })
+            .collect()
+    }
+
+    /// The rounds the service answered while under way, as drawn: one round in four of these works, and one of no work.
+    fn answered_of(
+        draw: &mut Draw,
+        works: &[(WorkNumber, Option<Outline>, Work)],
+    ) -> BTreeSet<(WorkNumber, RunId, usize)> {
+        let mut answered = BTreeSet::from([(WorkNumber(99), RunId(1), 1)]);
+        for (number, _, work) in works {
+            for started in &work.records.started {
+                let rounds = (work.records.rounds.iter()).filter(|r| r.run == started.run).count();
+                for round in 1..=rounds {
+                    if draw.below(4) == 0 {
+                        answered.insert((*number, started.run, round));
+                    }
+                }
+            }
+        }
+        answered
+    }
+
+    /// A round of a cell the service serves, as the waits are defined on the records alone.
+    struct Plain {
+        work: WorkNumber,
+        run: RunId,
+        number: usize,
+        account: Option<String>,
+        began: Time,
+        began_at: Seq,
+        ended: Option<(Time, Seq, Option<Back>)>,
+    }
+
+    /// A round that failed for a cause every work shares and that nothing came back after, as the waits are defined.
+    struct PlainMet<'r> {
+        round: &'r Plain,
+        time: Time,
+        at: Seq,
+        why: &'r String,
+        failure: Failure,
+        resets: Option<Time>,
+    }
+
+    /// When the entry at this place was added: the time of the latest moment that begins at or before it.
+    fn when(work: &Work, place: Seq) -> Time {
+        (work.moments.iter().rev())
+            .find(|moment| moment.from <= place)
+            .map_or(Time::default(), |moment| moment.at)
+    }
+
+    /// Every round of the works on a version kept of the cells the service serves there, in the order of the works, of
+    /// their runs' starts and of the rounds' numbers, with the account its last try ran under.
+    fn plain(service: Service, works: &[(WorkNumber, Option<Outline>, Work)]) -> Vec<Plain> {
+        let mut rounds = Vec::new();
+        for (number, on, work) in works {
+            let Some(outline) = on else {
+                continue;
+            };
+            for started in &work.records.started {
+                let agent = service == Service::Agents;
+                if !outline.cell(&started.cell).is_some_and(|cell| cell.agent == agent) {
+                    continue;
+                }
+                let ends: Vec<Seq> = (work.records.returned.iter())
+                    .filter(|end| end.run == started.run)
+                    .map(|end| end.at)
+                    .collect();
+                let begins = (work.records.rounds.iter()).filter(|round| round.run == started.run);
+                for (i, round) in begins.enumerate() {
+                    let account = (work.ran.iter().rev())
+                        .find(|ran| ran.run == started.run && ran.round == i + 1)
+                        .and_then(|ran| ran.on.account.clone());
+                    let back = work.back.get(&(started.run, i + 1)).cloned();
+                    rounds.push(Plain {
+                        work: *number,
+                        run: started.run,
+                        number: i + 1,
+                        account,
+                        began: when(work, round.at),
+                        began_at: round.at,
+                        ended: ends.get(i).map(|at| (when(work, *at), *at, back)),
+                    });
+                }
+            }
+        }
+        rounds
+    }
+
+    /// Each round that failed for a cause every work shares, with no round that came back, or that the service
+    /// answered, beginning after it: later, or later in its own work; under the same account, for a usage limit.
+    fn plain_standing<'r>(rounds: &'r [Plain], answered: &BTreeSet<(WorkNumber, RunId, usize)>) -> Vec<PlainMet<'r>> {
+        let back = |r: &Plain| {
+            let came = matches!(
+                &r.ended,
+                Some((_, _, Some(Back::Asked(_) | Back::HandedIn(_) | Back::Returned { .. })))
+            );
+            came || answered.contains(&(r.work, r.run, r.number))
+        };
+        (rounds.iter())
+            .filter_map(|round| match &round.ended {
+                Some((time, at, Some(Back::Failed { why, failure, resets }))) if failure.shared() => Some(PlainMet {
+                    round,
+                    time: *time,
+                    at: *at,
+                    why,
+                    failure: *failure,
+                    resets: *resets,
+                }),
+                _ => None,
+            })
+            .filter(|m| {
+                !(rounds.iter()).filter(|b| back(b)).any(|b| {
+                    let same = m.failure != Failure::UsageLimit || b.account == m.round.account;
+                    same && (b.began > m.time || (b.work == m.round.work && b.began_at > m.at))
+                })
+            })
+            .collect()
+    }
+
+    /// The wait of the service, as it is defined on the records alone.
+    fn plain_outage(
+        service: Service,
+        works: &[(WorkNumber, Option<Outline>, Work)],
+        answered: &BTreeSet<(WorkNumber, RunId, usize)>,
+        in_use: Option<&str>,
+    ) -> Option<Outage> {
+        let rounds = plain(service, works);
+        let standing: Vec<PlainMet> = (plain_standing(&rounds, answered).into_iter())
+            .filter(|m| m.failure != Failure::UsageLimit || m.round.account.as_deref() == in_use)
+            .collect();
+        let key = |m: &&PlainMet| (m.time, m.round.work, m.at);
+        let latest = standing.iter().max_by_key(key)?;
+        let first = standing.iter().min_by_key(key)?;
+        let trying = (rounds.iter())
+            .filter(|r| r.ended.is_none())
+            .find(|r| r.began > latest.time || (r.work == latest.round.work && r.began_at > latest.at))
+            .map(|r| r.work);
+        Some(Outage {
+            service,
+            failure: latest.failure,
+            why: latest.why.clone(),
+            work: latest.round.work,
+            run: latest.round.run,
+            round: latest.round.number,
+            since: first.time,
+            met: latest.time,
+            resets: latest.resets,
+            checked: None,
+            reached: None,
+            switched: None,
+            first: first.round.work,
+            trying,
+            may_move: false,
+        })
+    }
+
+    /// The usage limits that stand, as they are defined on the records alone: from the first round under the account
+    /// that met it, with the reset the latest said, of two at one time the later in the order of the rounds.
+    fn plain_limits(
+        works: &[(WorkNumber, Option<Outline>, Work)],
+        answered: &BTreeSet<(WorkNumber, RunId, usize)>,
+    ) -> BTreeMap<String, Limit> {
+        let rounds = plain(Service::Agents, works);
+        let mut limits: BTreeMap<String, (Limit, Time)> = BTreeMap::new();
+        for m in plain_standing(&rounds, answered) {
+            let Some(account) = m.round.account.clone().filter(|_| m.failure == Failure::UsageLimit) else {
+                continue;
+            };
+            let limit = limits.entry(account).or_insert((
+                Limit {
+                    since: m.time,
+                    resets: m.resets,
+                },
+                m.time,
+            ));
+            limit.0.since = limit.0.since.min(m.time);
+            if m.time >= limit.1 {
+                (limit.0.resets, limit.1) = (m.resets, m.time);
+            }
+        }
+        (limits.into_iter()).map(|(name, (limit, _))| (name, limit)).collect()
+    }
+
+    /// The waits in which the agents' command line could not run that are over, as they are defined on the records
+    /// alone.
+    fn plain_cannot_run(works: &[(WorkNumber, Option<Outline>, Work)]) -> Vec<CannotRun> {
+        let rounds = plain(Service::Agents, works);
+        let mut begins: Vec<Time> = rounds.iter().map(|r| r.began).collect();
+        begins.sort();
+        let mut failed: Vec<(Time, &String)> = (rounds.iter())
+            .filter_map(|r| match &r.ended {
+                Some((
+                    time,
+                    _,
+                    Some(Back::Failed {
+                        why,
+                        failure: Failure::CannotRun,
+                        ..
+                    }),
+                )) => Some((*time, why)),
+                _ => None,
+            })
+            .collect();
+        failed.sort_by_key(|(time, _)| *time);
+        let mut waits: Vec<CannotRun> = Vec::new();
+        for (time, why) in failed {
+            let until = begins.iter().find(|began| **began > time).copied();
+            match waits.last_mut() {
+                Some(last) if last.until.is_none_or(|over| time <= over) => {
+                    last.until = match (last.until, until) {
+                        (Some(over), Some(until)) => Some(over.max(until)),
+                        _ => None,
+                    };
+                    last.why.clone_from(why);
+                }
+                _ => waits.push(CannotRun {
+                    from: time,
+                    until,
+                    why: why.clone(),
+                }),
+            }
+        }
+        waits.retain(|wait| wait.until.is_some());
+        waits
+    }
+
+    // Milliseconds in all, nothing run: in each of 400 drawn histories of a few works, the wait of each service under
+    // each account in use, the usage limits that stand and the waits in which the command line could not run, worked out
+    // from what each work keeps of its rounds, are those the works' records define.
+    #[test]
+    fn the_waits_worked_out_from_what_each_work_keeps_are_those_its_records_define() {
+        for seed in 0..400 {
+            let mut draw = Draw::new(seed);
+            let works = drawn(&mut draw);
+            let answered = answered_of(&mut draw, &works);
+            let kept: Vec<Rounds> = (works.iter())
+                .map(|(number, on, work)| Rounds::of(*number, on.as_ref(), work))
+                .collect();
+            for service in [Service::Agents, Service::Host] {
+                for in_use in ACCOUNTS {
+                    assert_eq!(
+                        outage(service, kept.iter(), &answered, in_use),
+                        plain_outage(service, &works, &answered, in_use),
+                        "seed {seed}, {service:?}, {in_use:?} in use"
+                    );
+                }
+            }
+            assert_eq!(
+                limits(kept.iter(), &answered),
+                plain_limits(&works, &answered),
+                "seed {seed}"
+            );
+            assert_eq!(cannot_run_spans(kept.iter()), plain_cannot_run(&works), "seed {seed}");
+        }
+    }
+
+    // Microseconds, nothing run: of a work's two hundred rounds that came back, under two accounts, it keeps for the
+    // waits the latest to begin under each, and each round that did not come back, so that what a wait reads of every
+    // work does not grow with the rounds that came back.
+    #[test]
+    fn a_work_keeps_of_its_rounds_that_came_back_only_the_latest_under_each_account() {
+        let mut growing = Growing::default();
+        let run = growing.start("a", 1_000);
+        for i in 0..200 {
+            let round = growing.begin(run, &[ACCOUNTS[1 + i % 2]], 1_000 + 10 * i as u64);
+            growing.end(run, round, Some(Back::HandedIn(Vec::new())), 1_005 + 10 * i as u64);
+        }
+        let round = growing.begin(run, &[Some("p")], 3_000);
+        let failed = Back::Failed {
+            why: "offline".to_string(),
+            failure: Failure::Offline,
+            resets: None,
+        };
+        growing.end(run, round, Some(failed.clone()), 3_001);
+        let work = growing.work;
+        let rounds = Rounds::of(WorkNumber(1), Some(&outline()), &work);
+        let latest = |account: &str, nth: usize| Latest {
+            account: Some(account.to_string()),
+            began: when(&work, work.records.rounds[nth].at),
+            at: work.records.rounds[nth].at,
+        };
+        assert_eq!(rounds.agents.came, vec![latest("p", 198), latest("q", 199)]);
+        let open: Vec<(usize, Option<&str>, Option<&Back>)> = (rounds.agents.open.iter())
+            .map(|r| {
+                (
+                    r.number,
+                    r.account.as_deref(),
+                    r.ended.as_ref().and_then(|e| e.2.as_ref()),
+                )
+            })
+            .collect();
+        assert_eq!(open, vec![(201, Some("p"), Some(&failed))]);
+        assert_eq!(rounds.agents.began.len(), 201);
+        assert_eq!(rounds.host, Served::default());
+        assert_eq!(
+            Rounds::of(WorkNumber(1), None, &work),
+            Rounds::default(),
+            "on no version kept"
+        );
     }
 }
