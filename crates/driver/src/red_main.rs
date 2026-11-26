@@ -13,14 +13,14 @@
 //! ended it. Main has been red since the start of the run of such spans, of all the tests, that overlap or touch, up to
 //! the spans still open: one test passing while another goes on failing leaves main red, and a new red is one that
 //! begins after every span had ended. A reading is on the current head where its commit, the whole id, is in the latest
-//! version of the block of main of a work that has not ended: the engine writes that block into each of them each time the head changes
-//! ([`crate::Driver::outside`]) with the head in its words, and every version of the words holds it. The comparison is
-//! of heads and not of times, so a reading kept after main moved on, of a run on the head it left, is not a reading of
-//! the head main has, and a move of main is a move whatever else happened to the work as it moved. Where the latest
-//! reading of a test failed on a head that main has left, what the project's main is is not known until a check runs the
-//! test on the new head, and it is not said to be red or green; that it is not known is given beside it, so that a red
-//! that comes back as the same one is not told again. The same holds where no work of the project has not ended, and so
-//! nothing tells which head main has.
+//! version of the block of main of a work that has not ended: the engine writes that block into each of them each time
+//! the head changes ([`crate::Driver::outside`]) with the head in its words, and every version of the words holds it.
+//! The comparison is of heads and not of times, so a reading kept after main moved on, of a run on the head it left, is
+//! not a reading of the head main has, and a move of main is a move whatever else happened to the work as it moved.
+//! Where the latest reading of a test failed on a head that main has left, what the project's main is is not known
+//! until a check runs the test on the new head, and it is not said to be red or green; a red that comes back so is the
+//! same one, since the same time. The same holds where no work of the project has not ended, and so nothing tells which
+//! head main has.
 //!
 //! The works of a project that wait for main to pass are given beside it, as what the planner may look at first; main
 //! is red whether any work waits or not.
@@ -55,27 +55,6 @@ pub struct Red {
     pub tests: Vec<RedTest>,
     /// The works of the project that have not ended and wait for main to pass, in the order of their numbers.
     pub waiting: Vec<WorkNumber>,
-}
-
-/// What is known of the main branch of a project.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Main {
-    /// Where main is red.
-    pub red: Option<Red>,
-    /// Whether a test last failed on a head of main that has moved on since, with no run on the new head to say whether
-    /// it still fails, or with no work of the project that has not ended to say which head main has: main is then
-    /// neither red nor green as far as is known, and a red that comes back with the span it had is the same red as
-    /// before.
-    pub unknown: bool,
-}
-
-/// The projects whose main is red, and the projects whose main is not known to be.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Mains {
-    /// The projects whose main is red, in the order of their names.
-    pub red: Vec<Red>,
-    /// The names of the projects whose main is not known to be red or green, having been red.
-    pub unknown: BTreeSet<String>,
 }
 
 /// A work of a project, as far as whether main is red is read from it.
@@ -161,10 +140,10 @@ fn began(mut spans: Vec<(Time, Option<Time>)>) -> Time {
     chain.map(|(start, _)| start).unwrap_or_default()
 }
 
-/// Whether main is red in the project, and where: of its works, with how each waits given by `waiting`. Where no work
-/// of it has not ended, nothing tells what the head of main is: no test is red then, and one that last failed is not
-/// known to be red or green.
-pub fn of_project(project: &str, members: &[Member<'_>], waiting: impl Fn(WorkNumber) -> bool) -> Main {
+/// Where main is red in the project, if it is: of its works, with how each waits given by `waiting`. Where no work of
+/// it has not ended, nothing tells what the head of main is: no test is red then, and one that last failed is not known
+/// to be red or green.
+pub fn of_project(project: &str, members: &[Member<'_>], waiting: impl Fn(WorkNumber) -> bool) -> Option<Red> {
     let going: Vec<&Member<'_>> = members.iter().filter(|m| !m.ended && m.main.is_some()).collect();
     // The works of a project are mostly told one head, so the readings are matched against the distinct words.
     let heads: BTreeSet<&str> = going.iter().filter_map(|m| latest_main(m)).collect();
@@ -190,13 +169,11 @@ pub fn of_project(project: &str, members: &[Member<'_>], waiting: impl Fn(WorkNu
     }
     let mut tests = Vec::new();
     let mut spans: Vec<(Time, Option<Time>)> = Vec::new();
-    let mut unknown = false;
     for ((unit, name), mut list) in seen {
         list.sort_by_key(|s| (s.time, s.work, s.place));
         // Of the readings on the head main has, the latest decides: a test that passed there is not red. Where none is
         // on it, the test last failed on a head main has left, which is not known to be red, or last passed.
         let Some(at) = list.iter().rposition(|s| s.current) else {
-            unknown |= list.last().is_some_and(|last| !last.passed);
             continue;
         };
         // The spans the test failed in up to that reading: each ended by the pass after it, the last open where the
@@ -222,31 +199,23 @@ pub fn of_project(project: &str, members: &[Member<'_>], waiting: impl Fn(WorkNu
         }
     }
     if tests.is_empty() {
-        return Main { red: None, unknown };
+        return None;
     }
     let waiting = (going.iter())
         .map(|m| m.number)
         .filter(|number| waiting(*number))
         .collect();
-    Main {
-        red: Some(Red {
-            project: project.to_string(),
-            since: began(spans),
-            tests,
-            waiting,
-        }),
-        unknown,
-    }
+    Some(Red {
+        project: project.to_string(),
+        since: began(spans),
+        tests,
+        waiting,
+    })
 }
 
 impl Driver {
     /// Each project whose main is red, in the order of the projects' names.
     pub fn red_main(&self) -> Vec<Red> {
-        self.red_in(None).red
-    }
-
-    /// Each project whose main is red, and each whose main is not known to be.
-    pub fn mains_red(&self) -> Mains {
         self.red_in(None)
     }
 
@@ -256,13 +225,13 @@ impl Driver {
         let Some(project) = (self.works.get(&work)).and_then(|held| held.item.project.as_deref()) else {
             return Vec::new();
         };
-        (self.red_in(Some(project)).red.into_iter())
+        (self.red_in(Some(project)).into_iter())
             .flat_map(|red| red.tests)
             .collect()
     }
 
     /// The projects whose main is red, only the project named where one is.
-    fn red_in(&self, only: Option<&str>) -> Mains {
+    fn red_in(&self, only: Option<&str>) -> Vec<Red> {
         let mut by_project: BTreeMap<&str, Vec<Member<'_>>> = BTreeMap::new();
         for held in self.shown() {
             let Some(project) = held
@@ -285,15 +254,9 @@ impl Driver {
                 ended: held.standing != Standing::Going,
             });
         }
-        let mut mains = Mains::default();
-        for (project, members) in by_project {
-            let main = of_project(project, &members, |number| self.waits_for_main(number));
-            mains.red.extend(main.red);
-            if main.unknown {
-                mains.unknown.insert(project.to_string());
-            }
-        }
-        mains
+        (by_project.into_iter())
+            .filter_map(|(project, members)| of_project(project, &members, |number| self.waits_for_main(number)))
+            .collect()
     }
 
     /// Whether the work waits for the head of main to change, as the check before the merge found a test it failed to
@@ -383,7 +346,7 @@ mod tests {
     }
 
     fn red_of(members: &[Member<'_>]) -> Option<Red> {
-        of_project("project", members, |_| false).red
+        of_project("project", members, |_| false)
     }
 
     fn member<'a>(number: u64, work: &'a Work, block: &'a BlockId, ended: bool) -> Member<'a> {
@@ -460,26 +423,12 @@ mod tests {
 
     // Where every work of the project has ended, nothing tells whether main moved, and none is said red.
     #[test]
-    fn a_project_with_no_work_going_has_no_red_and_a_last_failure_is_not_known() {
+    fn a_project_with_no_work_going_has_no_red() {
         let block = BlockId(MAIN_BLOCK.to_string());
         let mut work = work_of(20);
         says(&mut work, 1, "main at A");
         check(&mut work, 5, "1", "C", "A", &[("t", false)], &[("t", false)]);
-        let main = of_project("project", &[member(1, &work, &block, true)], |_| false);
-        assert_eq!(main.red, None);
-        assert!(
-            main.unknown,
-            "nothing says which head main has, and the test last failed"
-        );
-        let mut passing = work_of(20);
-        says(&mut passing, 1, "main at A");
-        check(&mut passing, 5, "1", "C", "A", &[("t", false)], &[("t", true)]);
-        let main = of_project("project", &[member(1, &passing, &block, true)], |_| false);
-        assert_eq!(
-            (main.red, main.unknown),
-            (None, false),
-            "a test that last passed is not unknown"
-        );
+        assert_eq!(red_of(&[member(1, &work, &block, true)]), None);
     }
 
     // A later run of the test on main that passed ends the red, and one that failed again goes on with the same streak.
@@ -507,13 +456,10 @@ mod tests {
         says(&mut work, 1, "main at A");
         check(&mut work, 5, "1", "C", "A", &[("t", false)], &[("t", false)]);
         says(&mut work, 10, "main at B");
-        let main = of_project("project", &[member(1, &work, &block, false)], |_| false);
-        assert_eq!(main.red, None);
-        assert!(main.unknown, "a test last failed on a head that main has left");
-        // A run on the new head that passes says where main stands: it is not red, and it is not unknown either.
+        assert_eq!(red_of(&[member(1, &work, &block, false)]), None);
+        // A run on the new head that passes says where main stands: it is not red.
         check(&mut work, 15, "2", "D", "B", &[("t", false)], &[("t", true)]);
-        let main = of_project("project", &[member(1, &work, &block, false)], |_| false);
-        assert_eq!((main.red, main.unknown), (None, false));
+        assert_eq!(red_of(&[member(1, &work, &block, false)]), None);
     }
 
     // A work added after main went red is told the head of main as its first version, which is the head the readings ran on.
@@ -560,9 +506,11 @@ mod tests {
             version: Some("v2".to_string()),
         });
         says(&mut work, 11, "The head of main is B.");
-        let main = of_project("project", &[member(1, &work, &block, false)], |_| false);
-        assert_eq!(main.red, None);
-        assert!(main.unknown, "the red was read on a head main has left");
+        assert_eq!(
+            red_of(&[member(1, &work, &block, false)]),
+            None,
+            "the red was read on a head main has left"
+        );
     }
 
     // A reading kept after main moved on, of a run on the head main left, is not a reading of the head main has.
@@ -573,9 +521,7 @@ mod tests {
         says(&mut work, 1, "main at A");
         says(&mut work, 5, "main at B");
         check(&mut work, 10, "1", "C", "A", &[("t", false)], &[("t", false)]);
-        let main = of_project("project", &[member(1, &work, &block, false)], |_| false);
-        assert_eq!(main.red, None);
-        assert!(main.unknown);
+        assert_eq!(red_of(&[member(1, &work, &block, false)]), None);
         // A run on the head main has says where it stands, and a late reading of the head it left does not hide that.
         check(&mut work, 15, "2", "D", "B", &[("t", false)], &[("t", false)]);
         check(&mut work, 20, "3", "E", "A", &[("t", false)], &[("t", true)]);
@@ -661,9 +607,7 @@ mod tests {
         let mut work = work_of(20);
         says(&mut work, 1, "main at A");
         check(&mut work, 5, "1", "C", "A", &[("t", false)], &[("t", false)]);
-        let red = of_project("project", &[member(7, &work, &block, false)], |n| n == WorkNumber(7))
-            .red
-            .unwrap();
+        let red = of_project("project", &[member(7, &work, &block, false)], |n| n == WorkNumber(7)).unwrap();
         assert_eq!(red.waiting, [WorkNumber(7)]);
     }
 }

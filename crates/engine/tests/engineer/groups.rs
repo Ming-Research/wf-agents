@@ -147,6 +147,7 @@ fn each_datum_or_group_a_cell_watches_named_as_dealt_with_is_taken_for_any_block
                     nothing_but: &BTreeMap::new(),
                     questions: None,
                     words: None,
+                    stuck: None,
                 };
                 // A maker woken by a point in its dialogue answers it there (design document `data-and-context`, 41).
                 let writes: Vec<decide::Write> = (cell.dialogues.contains_key(block))

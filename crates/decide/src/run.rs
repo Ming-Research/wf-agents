@@ -326,6 +326,25 @@ pub struct Requires<'a> {
     /// Of each verdict the cell hands in as a judge, the value that does not pass and its dialogue
     /// ([`crate::Cell::verdicts`]).
     pub verdicts: &'a BTreeMap<BlockId, crate::Verdict>,
+    /// Which blocks the cell may write, none of which a return of it holds yet, would let the work go on, where the work
+    /// could not go on with the return taken ([`crate::walk::stuck_blocks`]); none where the cell is not an agent's. It
+    /// is given the blocks the run would finish having dealt with and the blocks it would write.
+    pub stuck: Option<Stuck<'a>>,
+}
+
+/// What a return that would otherwise be taken leaves the work unable to do: the blocks of its cell that would let the
+/// work go on, given what the run would finish dealing with and writing. A function of the flow and the records alone.
+#[derive(Clone, Copy)]
+pub struct Stuck<'a>(pub &'a StuckBy<'a>);
+
+/// The function a [`Stuck`] holds: given what a run would finish having dealt with and the blocks it would write, the
+/// blocks of its cell that would let the work go on.
+pub type StuckBy<'a> = dyn Fn(&[BlockId], &[Write]) -> Vec<BlockId> + 'a;
+
+impl std::fmt::Debug for Stuck<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Stuck")
+    }
 }
 
 /// What a run does next.
@@ -473,12 +492,25 @@ pub enum Unmet {
     /// its file), the question of this name is marked `tree` and has the owner's answer to its latest version, and the
     /// work's change against main changes nothing in the project's design tree: as the engine found it, looking at the
     /// branch as the round ended.
-    TreeUnchanged { name: String },
+    ///
+    /// `blocks` are the blocks of the return that this says are wrong: those written with `answers_in_the_tree`. A
+    /// reason kept before they were named has none.
+    TreeUnchanged {
+        name: String,
+        #[serde(default)]
+        blocks: Vec<BlockId>,
+    },
     /// The return writes a block whose lines name entries of the design tree (`names_tree_entries` of its file), and
     /// this line of it is not written as the tree's format (`agents/tree.toml`) refers to an entry, or names one that
     /// the tree at the head of the work's branch does not hold: as the engine found it, looking at the branch as the
     /// round ended.
-    NotAnEntry { line: String },
+    ///
+    /// `block` is the block the line is of, whose write is wrong. A reason kept before it was named has none.
+    NotAnEntry {
+        #[serde(default)]
+        block: Option<BlockId>,
+        line: String,
+    },
     /// The round of a line that may change the work ended with a return that asks for no call, the work's change against
     /// main changes the design tree, and the files of the tree on the branch, as the round left it, have these faults in
     /// their forms, each as a line worded by the flow: as the engine found it, looking at the branch as the round ended.
@@ -488,6 +520,11 @@ pub enum Unmet {
     /// stands for the owner's answer, and nothing that runs it is new to it already ([`Answer`]): the act reads no
     /// words, and would never run again.
     Unanswered { block: BlockId },
+    /// The return meets everything else the flow requires, and with it taken the work could not go on: nothing would
+    /// run to give what a cell after the work's place needs, as the walk reads the records with the return taken
+    /// ([`crate::walk::stuck_blocks`]). Each of these blocks, which the cell may write, has no version yet, and a
+    /// version of it would let the work go on.
+    WouldStall { blocks: Vec<BlockId> },
 }
 
 /// What a thing wrong with a return records, as a value of it.
@@ -538,6 +575,7 @@ impl Unmet {
             Unmet::NotAnEntry { .. } => "not_an_entry",
             Unmet::TreeForm { .. } => "tree_form",
             Unmet::Unanswered { .. } => "unanswered",
+            Unmet::WouldStall { .. } => "would_stall",
         }
     }
 
@@ -600,11 +638,12 @@ impl Unmet {
             | Unmet::NotAnOption { name }
             | Unmet::NotAnswerable { name }
             | Unmet::NotAnswered { name }
-            | Unmet::TreeUnchanged { name } => vec![text("name", name)],
+            | Unmet::TreeUnchanged { name, .. } => vec![text("name", name)],
             Unmet::Unexplained { path } | Unmet::NotATest { path } => vec![text("path", path)],
             Unmet::Uncommitted { changes } | Unmet::Merging { changes } => vec![text("changes", changes)],
-            Unmet::NotAnEntry { line } => vec![text("line", line)],
+            Unmet::NotAnEntry { line, .. } => vec![text("line", line)],
             Unmet::TreeForm { lines } => lines.iter().map(|line| text("faults", line)).collect(),
+            Unmet::WouldStall { blocks } => blocks.iter().map(|b| text("blocks", b.as_str())).collect(),
         }
     }
 }
@@ -652,7 +691,8 @@ fn standing_names(dealt_with: &[BlockId], requires: Requires) -> Vec<BlockId> {
 /// What the returns of a run that came back come to taken together (decision
 /// a-sent-back-return-is-completed-by-what-is-missing): the last return, and, before it, what the returns sent back
 /// earlier said and the round after each was not told was wrong, each part by its name replaced by a later return's of
-/// the same name.
+/// the same name. A return that asks for calls holds, of the blocks and the dealing with, only what stood before it:
+/// what it wrote itself is none of what it asks for, though [`next`] reads it as written.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Together {
     pub dealt_with: Vec<BlockId>,
@@ -666,8 +706,11 @@ pub struct Together {
 }
 
 impl Unmet {
-    /// The blocks of what was returned that this says are wrong: what the next return gives anew, if it means them.
-    fn wrong_blocks(&self) -> Vec<&BlockId> {
+    /// The blocks of what was returned that this says are wrong, and, besides them, the blocks whose write it says is
+    /// wrong where no return completes what stands, as when the run ends in a call. A later return that completes
+    /// the first rechecks the second ([`unmet`]); the call does not. Every kind is named, so that a new one must say
+    /// which blocks it is about.
+    fn blocks(&self) -> (Vec<&BlockId>, Vec<&BlockId>) {
         match self {
             Unmet::NotAnOutput { block }
             | Unmet::WrittenTwice { block }
@@ -675,9 +718,36 @@ impl Unmet {
             | Unmet::NotAValue { block, .. }
             | Unmet::NotAChoice { block }
             | Unmet::WrittenOver { block, .. }
-            | Unmet::ChoiceChanged { block } => vec![block],
-            Unmet::NothingBut { block, besides, .. } => std::iter::once(block).chain(besides).collect(),
-            _ => Vec::new(),
+            | Unmet::ChoiceChanged { block }
+            | Unmet::NotAnEntry { block: Some(block), .. } => (vec![block], Vec::new()),
+            Unmet::NothingBut { block, besides, .. } => (std::iter::once(block).chain(besides).collect(), Vec::new()),
+            Unmet::NoPoint { block, .. } => (Vec::new(), vec![block]),
+            Unmet::TreeUnchanged { blocks, .. } => (Vec::new(), blocks.iter().collect()),
+            Unmet::AsksNothing
+            | Unmet::NotHandedIn { .. }
+            | Unmet::Unreadable { .. }
+            | Unmet::NotRunBy { .. }
+            | Unmet::DealtWithTwice { .. }
+            | Unmet::DealtWithNothing
+            | Unmet::AsksAndWorks
+            | Unmet::WordOwed { .. }
+            | Unmet::NotWatched { .. }
+            | Unmet::NotATool { .. }
+            | Unmet::UnchangedNotWritten { .. }
+            | Unmet::QuestionTaken { .. }
+            | Unmet::NoSuchQuestion { .. }
+            | Unmet::QuestionTwice { .. }
+            | Unmet::NotAnOption { .. }
+            | Unmet::NotAnswerable { .. }
+            | Unmet::NotAnswered { .. }
+            | Unmet::Unexplained { .. }
+            | Unmet::NotATest { .. }
+            | Unmet::Uncommitted { .. }
+            | Unmet::Merging { .. }
+            | Unmet::NotAnEntry { block: None, .. }
+            | Unmet::TreeForm { .. }
+            | Unmet::Unanswered { .. }
+            | Unmet::WouldStall { .. } => (Vec::new(), Vec::new()),
         }
     }
 
@@ -696,15 +766,35 @@ impl Unmet {
 
 impl Together {
     /// What of this the faults it was sent back for do not name: the blocks and questions they name are left out, and
-    /// what it found as it was read is the return's own.
-    fn carried(mut self, faults: &[Unmet], asked_in: Option<&BlockId>) -> Together {
-        let wrong: Vec<&BlockId> = faults.iter().flat_map(Unmet::wrong_blocks).collect();
+    /// what it found as it was read is the return's own. With `unfit` the blocks whose write a later return would
+    /// recheck are left out too ([`Unmet::blocks`]).
+    fn without(mut self, faults: &[Unmet], asked_in: Option<&BlockId>, unfit: bool) -> Together {
+        let mut wrong: Vec<&BlockId> = Vec::new();
+        for fault in faults {
+            let (named, besides) = fault.blocks();
+            wrong.extend(named);
+            if unfit {
+                wrong.extend(besides);
+            }
+        }
         self.writes.retain(|w| !wrong.contains(&&w.block));
         // A fault that says the return must hold none of the cell's questions, `asked_in`, makes each of them wrong.
         let all = asked_in.is_some_and(|block| wrong.contains(&block));
         let questions: Vec<&str> = faults.iter().filter_map(Unmet::wrong_question).collect();
         self.questions.retain(|q| !all && !questions.contains(&q.name.as_str()));
         self
+    }
+
+    /// This, carried, as a later return that asks for no call completes it: what the faults it was sent back for do
+    /// not name.
+    fn carried(self, faults: &[Unmet], asked_in: Option<&BlockId>) -> Together {
+        self.without(faults, asked_in, false)
+    }
+
+    /// This, carried, into a return that asks for calls and so ends the run: what the faults it was sent back for do
+    /// not name, and no write that a later return would have rechecked, since none comes.
+    fn carried_into_calls(self, faults: &[Unmet], asked_in: Option<&BlockId>) -> Together {
+        self.without(faults, asked_in, true)
     }
 
     /// This, carried, completed by a later return: a part of the later one replaces the one of its name.
@@ -726,11 +816,28 @@ impl Together {
         self.read = later.read;
         self
     }
+
+    /// This, carried into a return that asks for calls: what stood stays, and the run deals with nothing. The writes and
+    /// the dealing of the return itself are left out, as it asks for nothing else; where it had any it was sent back
+    /// for that ([`Unmet::AsksAndWorks`]).
+    fn asked_for_calls_by(mut self, later: Together) -> Together {
+        self.dealt_with = Vec::new();
+        self.questions
+            .retain(|q| !later.questions.iter().any(|l| l.name == q.name));
+        self.questions.extend(later.questions);
+        self.protected.extend(later.protected);
+        self.waits = self.questions.iter().any(|q| q.waits && !q.withdrawn) || later.waits;
+        self.calls = later.calls;
+        self.found = later.found;
+        self.read = later.read;
+        self
+    }
 }
 
 /// What the returns of the rounds that came back come to taken together, with the faults the last of them was sent back
-/// for; none where none came back. A round that failed leaves what came before it as it was. Nothing is carried out of a
-/// return that asks for calls, nor into one: a return that asks for calls asks for nothing else.
+/// for; none where none came back. A round that failed leaves what came before it as it was. What stood of a return sent
+/// back is carried into the next, whether that completes it or asks for calls; a return that asks for calls holds only
+/// what stood before it, and the faults of the return before it are what leave a block out of it.
 fn fold<'r>(rounds: &'r [Round], asked_in: Option<&BlockId>) -> Option<(Together, &'r [Unmet])> {
     let mut last: Option<(Together, &[Unmet])> = None;
     for round in rounds {
@@ -757,11 +864,11 @@ fn fold<'r>(rounds: &'r [Round], asked_in: Option<&BlockId>) -> Option<(Together
             read: read.clone(),
             protected: protected.clone(),
         };
-        let now = match last.take() {
-            Some((before, faults)) if before.calls == 0 && now.calls == 0 => {
-                before.carried(faults, asked_in).completed_by(now)
-            }
-            _ => now,
+        let now = match (last.take(), now.calls) {
+            (Some((before, faults)), 0) => before.carried(faults, asked_in).completed_by(now),
+            (Some((before, faults)), _) => before.carried_into_calls(faults, asked_in).asked_for_calls_by(now),
+            (None, 0) => now,
+            (None, _) => Together::default().asked_for_calls_by(now),
         };
         last = Some((now, &round.sent_back));
     }
@@ -775,11 +882,11 @@ pub fn together(rounds: &[Round], asked_in: Option<&BlockId>) -> Option<Together
 }
 
 /// What the next return of the run completes: what the returns that came back come to taken together, but for what the
-/// faults the last of them was sent back for name; nothing where none came back, or the last asked for calls.
+/// faults the last of them was sent back for name; nothing where none came back.
 pub fn carried(rounds: &[Round], asked_in: Option<&BlockId>) -> Together {
     match fold(rounds, asked_in) {
-        Some((taken, faults)) if taken.calls == 0 => taken.carried(faults, asked_in),
-        _ => Together::default(),
+        Some((taken, faults)) => taken.carried(faults, asked_in),
+        None => Together::default(),
     }
 }
 
@@ -847,18 +954,39 @@ pub fn next(log: &Log, requires: Requires, hold: Hold) -> Step {
         // whose cause every work shares has its next round once agents' rounds may begin again; one that paused the
         // work, once it is let on.
         Return::Failed { .. } => return held(Step::Retry, hold),
-        Return::Came { .. } => {
+        Return::Came {
+            dealt_with: own_dealt_with,
+            writes: own_writes,
+            ..
+        } => {
             // What the run has returned, taken together: the last round's return, with what the returns sent back
             // before it did not name as wrong.
             let taken = together(&log.rounds, requires.questions).unwrap_or_default();
+            // A return that asks for calls holds, in `taken`, only what stood before it. It is read as it was written, so
+            // that what is wrong with what it wrote beside its calls is said at once (principle report-all-at-once): what
+            // it wrote, and what stood but for the blocks it wrote again.
+            let beside: Vec<Write>;
+            let (read_dealt_with, read_writes) = if taken.calls == 0 {
+                (&taken.dealt_with[..], &taken.writes[..])
+            } else {
+                beside = (taken.writes.iter())
+                    .filter(|w| !own_writes.iter().any(|own| own.block == w.block))
+                    .chain(own_writes)
+                    .cloned()
+                    .collect();
+                (&own_dealt_with[..], &beside[..])
+            };
             let came = Came {
-                dealt_with: &taken.dealt_with,
-                writes: &taken.writes,
+                dealt_with: read_dealt_with,
+                writes: read_writes,
                 calls: taken.calls,
                 found: &taken.found,
                 waits: taken.waits,
                 questions: &taken.questions,
                 read: &taken.read,
+                // A return that asks for calls holds only what stood before it, so it is the return's own words that
+                // say whether it asks for more.
+                works: !(own_dealt_with.is_empty() && own_writes.is_empty()),
             };
             let unmet = unmet(&came, requires);
             if unmet.is_empty() {
@@ -880,12 +1008,23 @@ pub fn next(log: &Log, requires: Requires, hold: Hold) -> Step {
                         // What the carrier read of the branch, a commit, holds something.
                         empty: false,
                     });
-                return Step::Finish {
-                    dealt_with: consumed(&taken.dealt_with, requires),
-                    writes: taken.writes.iter().cloned().chain(committed).collect(),
+                let dealt_with = consumed(&taken.dealt_with, requires);
+                let writes: Vec<Write> = taken.writes.iter().cloned().chain(committed).collect();
+                // With the return taken the work could not go on: a block its cell may write, which has no version
+                // yet, would let it. Asked of a return held to the blocks its cell must hand in, which asks no
+                // question, since a question's answer and a call's result may run what nothing else would.
+                let holds = held_to_hand_in(&came, requires) && taken.questions.is_empty();
+                let stuck = match requires.stuck {
+                    Some(Stuck(stuck)) if holds => stuck(&dealt_with[..], &writes[..]),
+                    _ => Vec::new(),
                 };
+                if stuck.is_empty() {
+                    return Step::Finish { dealt_with, writes };
+                }
+                vec![Unmet::WouldStall { blocks: stuck }]
+            } else {
+                unmet
             }
-            unmet
         }
     };
     // Every return before this one that was read, or could not be, was sent back: the run would have finished
@@ -991,6 +1130,7 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
         waits,
         questions,
         read,
+        works,
     } = *came;
     let told = requires.told;
     let mut unmet = found.to_vec();
@@ -1076,7 +1216,7 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
         }
     }
     // A return of both kinds was found so as it was read, and is said so once.
-    if calls > 0 && !(dealt_with.is_empty() && writes.is_empty()) && !found.contains(&Unmet::AsksAndWorks) {
+    if calls > 0 && works && !found.contains(&Unmet::AsksAndWorks) {
         unmet.push(Unmet::AsksAndWorks);
     }
     // A question that waits stops the work at the cell, which may leave all that ran it for after the answer.
@@ -1131,13 +1271,7 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
     let misshapen = |block: &BlockId| {
         (found.iter()).any(|u| matches!(u, Unmet::NoValue { block: b } | Unmet::NotAChoice { block: b } if b == block))
     };
-    // A return that deals with the cell's own words alone, writes nothing but its answer in them and asks nothing
-    // answers the owner first, and goes on with the cell's work in later rounds (design document `data-and-context`,
-    // 35).
-    let answers_alone = requires.words.is_some_and(|own| {
-        dealt_with == std::slice::from_ref(own) && writes.iter().all(|w| w.block == *own) && questions.is_empty()
-    });
-    if calls == 0 && !waits && !told.waits && !told.hurried && !answers_alone {
+    if held_to_hand_in(came, requires) {
         for block in requires.must_write {
             if !writes.iter().any(|w| w.block == *block) && !misshapen(block) {
                 unmet.push(Unmet::NotHandedIn { block: block.clone() });
@@ -1186,6 +1320,28 @@ fn unmet(came: &Came<'_>, requires: Requires) -> Vec<Unmet> {
     unmet
 }
 
+/// Whether the return is held to the blocks its cell must hand in each time: it asks for no call, has no question that
+/// waits for the owner's answer, its cell waits for no result, it is not told to hand in what it has, and it does more
+/// than answer the owner in the cell's own words.
+fn held_to_hand_in(came: &Came<'_>, requires: Requires) -> bool {
+    let Came {
+        dealt_with,
+        writes,
+        calls,
+        waits,
+        questions,
+        ..
+    } = *came;
+    // A return that deals with the cell's own words alone, writes nothing but its answer in them and asks nothing
+    // answers the owner first, and goes on with the cell's work in later rounds (design document `data-and-context`,
+    // 35).
+    let named = standing_names(dealt_with, requires);
+    let answers_alone = requires.words.is_some_and(|own| {
+        named == std::slice::from_ref(own) && writes.iter().all(|w| w.block == *own) && questions.is_empty()
+    });
+    calls == 0 && !waits && !requires.told.waits && !requires.told.hurried && !answers_alone
+}
+
 /// What came back of a round as a return, as [`unmet`] reads it.
 #[derive(Clone, Copy)]
 struct Came<'r> {
@@ -1196,4 +1352,7 @@ struct Came<'r> {
     waits: bool,
     questions: &'r [Asking],
     read: &'r [BlockId],
+    /// Whether the return itself deals with something or writes a block, which a return that asks for calls does not.
+    /// Its `writes` hold what stood before it beside what it wrote, so they cannot say.
+    works: bool,
 }

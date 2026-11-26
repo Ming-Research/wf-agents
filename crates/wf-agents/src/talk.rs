@@ -6,7 +6,6 @@
 use std::net::{Ipv4Addr, SocketAddr};
 use std::process::ExitCode;
 
-use driver::attention::Mark;
 use flow::agents::sentence;
 use http_body_util::{BodyExt, Full};
 use hyper::body::Bytes;
@@ -14,7 +13,7 @@ use hyper::{Method, Request, StatusCode, header};
 use hyper_util::rt::TokioIo;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use web::attention::{Attention, Line, Of, Stuck};
+use web::attention::{Asked as AskedAhead, Attention, Line, Mark, Of, Stuck};
 use web::observations::{
     NewObservation, Observation, ObservationAdded, ObservationChangeAsked, ObservationChanges, ObservationsChanged,
     ObservationsPage, TagsPage,
@@ -325,7 +324,6 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
                 }
             }
             Asked::Wait { since, longest } => {
-                let marked = since.is_some();
                 // Read here, so that a mark that is none is refused in its own words and never put in a path.
                 let mut since = (since.as_deref().map(Mark::read).transpose())
                     .map_err(|unreadable| format!("{}.", unreadable.0))?;
@@ -336,7 +334,7 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
                     }
                     let answer: Attention = send(address, Method::GET, &path, None::<&()>).await?;
                     if longest.is_some() || !answer.lines.is_empty() {
-                        break Ok(attention(&answer, marked, clock()));
+                        break Ok(attention(&answer, clock()));
                     }
                     since = Some(Mark::read(&answer.mark).map_err(|_| {
                         format!(
@@ -1957,24 +1955,26 @@ fn short(text: &str) -> Short {
     Short { lines, cut }
 }
 
-/// What needs the planner, a line each, then how many more there are, and how to ask again from here.
-fn attention(answer: &Attention, marked: bool, now: u64) -> String {
+/// What needs the planner, a line each, then how many more there are, and how to ask again from here. An answer that
+/// gives what stands whole says so first, and when it gives it again.
+fn attention(answer: &Attention, now: u64) -> String {
     let mut lines = Vec::new();
-    if answer.lines.is_empty() {
-        lines.push(
-            if marked {
-                "Nothing for the owner since the mark."
-            } else {
-                "Nothing waits for the owner."
-            }
-            .to_string(),
-        );
+    let again = duration(answer.again);
+    match (answer.whole, answer.lines.is_empty()) {
+        (true, true) => lines.push(format!(
+            "Nothing stands to be handled; what comes is given as it comes, and what stands every {again}."
+        )),
+        (false, true) => lines.push("Nothing new since the mark.".to_string()),
+        (true, false) => lines.push(format!(
+            "Everything that stands to be handled, most pressing first, given again every {again} until it is gone:"
+        )),
+        (false, false) => {}
     }
     for line in &answer.lines {
         lines.push(heed(line, now));
     }
     if answer.left_out > 0 {
-        lines.push(format!("And {} more, given again from this mark.", answer.left_out));
+        lines.push(format!("And {} more, given at once from this mark.", answer.left_out));
     }
     lines.push(format!("Next: wf-agents wait --since {}", answer.mark));
     lines.join("\n")
@@ -2012,9 +2012,91 @@ fn heed(line: &Line, now: u64) -> String {
             return shared_wait(o, Some(&held), mend.as_deref());
         }
         // How long first, as what a stall says ends as a sentence.
-        Line::Fault { of, since, now: is } | Line::Stalled { of, since, now: is } => (
+        Line::Fault { of, since, now: is }
+        | Line::Broken { of, since, now: is }
+        | Line::Stalled { of, since, now: is } => (
             of,
             format!("for {}, {}", duration(now.saturating_sub(*since)), self::now(is)),
+        ),
+        Line::Turn {
+            since,
+            project,
+            holder,
+            now: is,
+            waiting,
+        } => {
+            let project = project
+                .as_deref()
+                .map_or_else(String::new, |project| format!(" of {project}"));
+            let waiting: Vec<String> = waiting.iter().map(|of| work_number(of.work)).collect();
+            return format!(
+                "The turn{project} to check and merge is held by item {item} \"{title}\", work {work}, whose round or \
+                 call has been under way for {held}; now {is}. Waiting for the turn: {waiting}.",
+                item = item_number(holder.item),
+                title = cut_title(&holder.title),
+                work = work_number(holder.work),
+                held = duration(now.saturating_sub(*since)),
+                is = self::now(is),
+                waiting = waiting.join(", ")
+            );
+        }
+        Line::Queued {
+            of,
+            since,
+            runner,
+            now: is,
+        } => (
+            of,
+            format!(
+                "has waited for the runner {runner} for {}: {}",
+                duration(now.saturating_sub(*since)),
+                self::now(is)
+            ),
+        ),
+        Line::Ahead { of, questions, .. } => {
+            let asked: Vec<String> = (questions.iter())
+                .map(|AskedAhead { name, since }| format!("{name} ({})", duration(now.saturating_sub(*since))))
+                .collect();
+            let them = if questions.len() == 1 {
+                "a question"
+            } else {
+                "questions"
+            };
+            (
+                of,
+                format!("has {them} the owner may answer ahead: {}", asked.join(", ")),
+            )
+        }
+        Line::Unexplained { of, since, now: is } => (
+            of,
+            format!(
+                "the owner paused it {} ago and said no reason: {}",
+                duration(now.saturating_sub(*since)),
+                self::now(is)
+            ),
+        ),
+        Line::Slots {
+            since,
+            slots,
+            free,
+            items,
+        } => {
+            let items = match *items {
+                1 => "1 item could".to_string(),
+                n => format!("{n} items could"),
+            };
+            return format!(
+                "{free} of {slots} slots are free while {items} be let on, the first of them for {} \
+                 (`wf-agents candidates` lists them).",
+                duration(now.saturating_sub(*since))
+            );
+        }
+        Line::Root { of, since } => (
+            of,
+            format!(
+                "stands at a root and is no deliverable: no item that has not ended depends on it, for {}",
+                duration(now.saturating_sub(*since))
+            ),
         ),
         // What it waits on the owner for, at the cell it stands at, each by why, a question by the first line of what
         // it asks, each a sentence. What the owner does about the agents' command line is said on the line of the wait
@@ -2356,6 +2438,18 @@ fn waited(waited: &Waited) -> String {
             utc(held.until),
             held.failed,
             obstacle(held.obstacle),
+        ),
+        Waited::Call {
+            call,
+            who: None,
+            what,
+            machine: Some(machine),
+            ..
+        } => format!(
+            "call {call}, {}, waiting since {} for its turn on the machine {}, where one measurement runs at a time",
+            called(what),
+            utc(machine.since),
+            machine.machine,
         ),
         Waited::Call {
             call,
@@ -3928,6 +4022,116 @@ mod tests {
         );
     }
 
+    // What holds work back with no one asked, what the owner may answer ahead, a pause with no reason and an item at a
+    // root are each said with how long they have stood; an answer that gives what stands whole says so first, with
+    // when it gives it again.
+    #[test]
+    fn wait_says_each_thing_that_stands_with_how_long_it_has_stood() {
+        let (minute, hour) = (60_000, 3_600_000);
+        let of = |work| web::attention::Of {
+            work,
+            item: work,
+            title: format!("item {work}"),
+        };
+        let round = Now::Round {
+            cell: "merge".to_string(),
+            run: 3,
+            round: 1,
+            since: hour,
+            at: Some("https://ci.example/runs/9".to_string()),
+            queued_for: Some("14900k".to_string()),
+        };
+        let turn = Line::Turn {
+            since: hour,
+            project: Some("Whitefoot".to_string()),
+            holder: of(7),
+            now: round.clone(),
+            waiting: vec![of(8), of(9)],
+        };
+        assert_eq!(
+            heed(&turn, 2 * hour),
+            "The turn of Whitefoot to check and merge is held by item #7 \"item 7\", work W7, whose round or call has \
+             been under way for 1h 00m; now a round of merge is under way, queued for 14900k, round 1 of run 3. Waiting \
+             for the turn: W8, W9."
+        );
+        let queued = Line::Queued {
+            of: of(7),
+            since: hour,
+            runner: "14900k".to_string(),
+            now: round,
+        };
+        assert_eq!(
+            heed(&queued, hour + 20 * minute),
+            "Item #7 \"item 7\", work W7: has waited for the runner 14900k for 20m 00s: a round of merge is under way, \
+             queued for 14900k, round 1 of run 3."
+        );
+        let ahead = Line::Ahead {
+            of: of(3),
+            since: hour,
+            questions: vec![
+                AskedAhead {
+                    name: "scope".to_string(),
+                    since: hour,
+                },
+                AskedAhead {
+                    name: "bench".to_string(),
+                    since: hour + 50 * minute,
+                },
+            ],
+        };
+        assert_eq!(
+            heed(&ahead, 2 * hour),
+            "Item #3 \"item 3\", work W3: has questions the owner may answer ahead: scope (1h 00m), bench (10m 00s)."
+        );
+        let paused = item(4, false, &[], &[]).work.now;
+        let unexplained = Line::Unexplained {
+            of: of(4),
+            since: hour,
+            now: paused,
+        };
+        assert!(
+            heed(&unexplained, 3 * hour)
+                .starts_with("Item #4 \"item 4\", work W4: the owner paused it 2h 00m ago and said no reason: "),
+            "{}",
+            heed(&unexplained, 3 * hour)
+        );
+        let slots = Line::Slots {
+            since: hour,
+            slots: 16,
+            free: 11,
+            items: 121,
+        };
+        assert_eq!(
+            heed(&slots, 2 * hour),
+            "11 of 16 slots are free while 121 items could be let on, the first of them for 1h 00m (`wf-agents \
+             candidates` lists them)."
+        );
+        let root = Line::Root { of: of(5), since: hour };
+        assert_eq!(
+            heed(&root, 26 * hour),
+            "Item #5 \"item 5\", work W5: stands at a root and is no deliverable: no item that has not ended depends on \
+             it, for 1d 01h."
+        );
+        let answer = Attention {
+            whole: true,
+            lines: vec![root],
+            left_out: 2,
+            mark: "1.2.1".to_string(),
+            again: 5 * minute,
+        };
+        let said = attention(&answer, 26 * hour);
+        assert_eq!(
+            said.lines().next(),
+            Some(
+                "Everything that stands to be handled, most pressing first, given again every 5m 00s until it is gone:"
+            )
+        );
+        assert!(
+            said.ends_with("And 2 more, given at once from this mark.\nNext: wf-agents wait --since 1.2.1"),
+            "{said}"
+        );
+    }
+
     #[test]
     fn a_work_waiting_for_items_is_said_to_wait_for_them_to_merge() {
         let items = Waited::Items { items: vec![5, 7] };
@@ -3948,6 +4152,7 @@ mod tests {
             made: 1,
             at: None,
             queued_for: None,
+            machine: None,
             held,
         };
         let held = |obstacle| {
@@ -3969,6 +4174,30 @@ mod tests {
         assert!(said(web::works::Obstacle::NoRunner).ends_with(": no machine took the run"));
         assert!(said(web::works::Obstacle::Network).ends_with(": the network failed"));
         assert_eq!(waited(&call(None)), "call 2, the tool run_tests on \"x\"");
+        // A call that waits for its turn on a machine says which and since when.
+        let waits = Waited::Call {
+            call: 2,
+            who: None,
+            what: Call::Tool {
+                name: "run_tests".to_string(),
+                input: "x".to_string(),
+            },
+            made: 1,
+            at: None,
+            queued_for: None,
+            machine: Some(web::works::MachineWait {
+                machine: "14900k".to_string(),
+                since: 1_700_000_000_000,
+            }),
+            held: None,
+        };
+        assert_eq!(
+            waited(&waits),
+            format!(
+                "call 2, the tool run_tests on \"x\", waiting since {until} for its turn on the machine 14900k, where \
+                 one measurement runs at a time"
+            )
+        );
     }
 
     // A dependency on a cancelled item holds nothing, and the words for it say so; one on an item that has not ended

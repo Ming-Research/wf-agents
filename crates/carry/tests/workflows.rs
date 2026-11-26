@@ -1365,58 +1365,6 @@ fn every_script_of_the_workflows_parses() {
     }
 }
 
-/// The measure workflow the repository's declaration names, as the engine reads that declaration.
-fn declared_measure() -> flow::agents::CiMeasure {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let agents = flow::agents::read(&root.join("flow")).expect("what is written beside the flows is read");
-    let text = std::fs::read_to_string(root.join(flow::agents::DECLARATION)).expect("the declaration is read");
-    let declaration = flow::agents::Declaration::read(&text, flow::agents::DECLARATION, &agents)
-        .expect("the repository's declaration is one");
-    (declaration.ci.expect("the project declares its workflows"))
-        .measure
-        .expect("the project declares a measure workflow")
-}
-
-// The measure workflow runs by hand and by nothing else, as the fast one does: it runs on the owner's machine, and a
-// trigger by a push or a pull request would run anyone's code there. It takes the inputs the declaration names, names
-// its run by the call, has no concurrency group, since each run is a request an agent waits for, and runs on the
-// declared machine, where its job stops at the minutes the declaration says a run may take: the wait for the machine's
-// lock counts in them, and a job with no limit of its own would hold the machine for the six hours GitHub allows. It
-// uploads in the artifact the declaration names. Under a millisecond alone; no other test holds that the file and the
-// declaration say the same.
-#[test]
-fn the_measure_workflow_runs_by_hand_on_the_declared_machine_and_stops_when_the_declaration_says() {
-    let measure = declared_measure();
-    let text = workflow(&measure.workflow);
-    let on = block(&text, "on");
-    assert_eq!(children(&on), ["workflow_dispatch"]);
-    let inputs = children(&under(&under(&on, "workflow_dispatch"), "inputs")[1..]);
-    for input in [
-        &measure.commit_input,
-        &measure.base_input,
-        &measure.call_input,
-        &measure.measure_input,
-    ] {
-        assert!(inputs.contains(input), "no input {input} in {inputs:?}");
-    }
-    let run_name = text.lines().find(|l| l.starts_with("run-name:")).unwrap_or_default();
-    assert!(
-        run_name.contains(&format!("inputs.{}", measure.call_input)),
-        "{run_name:?}"
-    );
-    assert!(block(&text, "concurrency").is_empty(), "a concurrency group");
-    let job = under(&block(&text, "jobs"), "measure").join("\n");
-    assert!(
-        job.contains(&format!("runs-on: [self-hosted, {}]", measure.runner)),
-        "{job}"
-    );
-    let minutes: u64 = (measure.too_long.strip_suffix('m'))
-        .and_then(|m| m.parse().ok())
-        .unwrap_or_else(|| panic!("too_long {:?} is not in minutes", measure.too_long));
-    assert!(job.contains(&format!("timeout-minutes: {minutes}\n")), "{job}");
-    assert!(text.contains(&format!("name: {}\n", measure.results)), "{text}");
-}
-
 /// A repository of two commits, as the measure workflow's job has it checked out at the commit it times: the commit the
 /// work began from, with the measurement `seen`, and the work's, which changes the file `version` the measurements write
 /// and adds the measurement `added`. Both write the `version` of the checkout they run in to a file of the runner's

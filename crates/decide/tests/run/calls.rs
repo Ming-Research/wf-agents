@@ -79,3 +79,67 @@ fn a_return_found_of_both_kinds_as_it_was_read_is_said_so_once() {
     };
     assert_eq!(step(vec![both], &spec()), send_back(vec![Unmet::AsksAndWorks]));
 }
+
+// Reference: principle report-all-at-once (a check reports every problem it finds in one pass), and what the run did
+// with this return before a return sent back was carried into a return that asks for calls: the writes of a return that
+// asks for calls beside them were checked like any other, so that the cell, told to give calls alone, was told of a
+// block it may not write, a value its choice does not take and a block written twice in the same pass.
+#[test]
+fn a_return_that_asks_for_calls_beside_writes_is_sent_back_for_what_is_wrong_with_them_too() {
+    let both = Round {
+        returned: Some(Return::Came {
+            dealt_with: vec![],
+            writes: vec![
+                valued("verdict", "maybe"),
+                prose("stranger"),
+                prose("plan"),
+                prose("plan"),
+            ],
+            calls: 1,
+            found: vec![Unmet::AsksAndWorks],
+            waits: false,
+            questions: Vec::new(),
+            read: Vec::new(),
+            protected: Default::default(),
+        }),
+        sent_back: Vec::new(),
+    };
+    assert_eq!(
+        step(vec![both], &spec()),
+        send_back(vec![
+            Unmet::AsksAndWorks,
+            Unmet::NotAValue {
+                block: "verdict".into(),
+                value: "maybe".to_string(),
+            },
+            Unmet::NotAnOutput {
+                block: "stranger".into(),
+            },
+            Unmet::WrittenTwice { block: "plan".into() },
+        ])
+    );
+}
+
+// What stood before a return that asks for calls is read beside what it wrote, and a block it writes again replaces the
+// one that stood, as a return that completes another does, so that it is not said to be written twice.
+#[test]
+fn a_return_that_asks_for_calls_and_writes_again_a_block_that_stood_is_not_said_to_write_it_twice() {
+    let before = Round {
+        sent_back: vec![Unmet::DealtWithNothing],
+        ..handed_in(vec![prose("plan")])
+    };
+    let both = Round {
+        returned: Some(Return::Came {
+            dealt_with: vec![],
+            writes: vec![prose("plan")],
+            calls: 1,
+            found: vec![],
+            waits: false,
+            questions: Vec::new(),
+            read: Vec::new(),
+            protected: Default::default(),
+        }),
+        sent_back: Vec::new(),
+    };
+    assert_eq!(step(vec![before, both], &spec()), send_back(vec![Unmet::AsksAndWorks]));
+}

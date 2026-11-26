@@ -69,7 +69,9 @@ fn checked() -> Compiled {
     compile(&source, &has(&["main"])).expect("the definition compiles")
 }
 
-/// A work on the checked flow whose writer dealt with the request and handed in nothing: the work is stalled.
+/// A work on the checked flow whose writer wrote the text and whose check dealt with it and handed in nothing: the work
+/// is stalled. The check's one output is a choice, so no block of the check, written, would end the stall, and its
+/// return is taken.
 fn stalled() -> W {
     let mut w = W {
         flow: checked(),
@@ -77,7 +79,9 @@ fn stalled() -> W {
     };
     let (effects, _) = w.person_writes("request");
     let (write, ..) = round(&effects);
-    assert_eq!(w.returns(write, hands_in(&[])), vec![]);
+    let (check, cell, ..) = round(&w.returns(write, hands_in(&[("text", None)])));
+    assert_eq!(cell, "check");
+    assert_eq!(w.returns(check, hands_in(&[])), vec![]);
     w
 }
 
@@ -94,6 +98,33 @@ fn at_the_merge() -> decide::Decision {
             why: decide::Unrun::NothingNew,
         }],
     }
+}
+
+#[test]
+fn a_return_that_would_leave_the_work_stalled_is_sent_back_naming_the_block_that_would_end_it() {
+    let mut w = W {
+        flow: checked(),
+        ..W::new()
+    };
+    let (effects, _) = w.person_writes("request");
+    let (write, ..) = round(&effects);
+    // The writer deals with the request and hands in no text, so that the check never runs and the merge waits for ever.
+    let effects = w.returns(write, hands_in(&[]));
+    assert_eq!(
+        round(&effects),
+        (
+            write,
+            "write".to_string(),
+            2,
+            Given::SentBack(vec![Unmet::WouldStall {
+                blocks: vec!["text".into()]
+            }])
+        )
+    );
+    // Handing in the text, the work can go on: the check runs.
+    let (check, cell, ..) = round(&w.returns(write, hands_in(&[("text", None)])));
+    assert_eq!(cell, "check");
+    assert_ne!(check, write);
 }
 
 #[test]

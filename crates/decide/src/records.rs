@@ -178,6 +178,33 @@ impl Records {
         !self.done.iter().any(|d| d.call == call) && !self.done.iter().any(|d| d.call == held.wait)
     }
 
+    /// The place of every entry of the records, in no order: each entry takes a place of its own.
+    pub(crate) fn entry_places(&self) -> impl Iterator<Item = Seq> + '_ {
+        (self.started.iter().map(|e| e.at))
+            .chain(self.rounds.iter().map(|e| e.at))
+            .chain(self.returned.iter().map(|e| e.at))
+            .chain(self.called.iter().map(|e| e.at))
+            .chain(self.done.iter().map(|e| e.at))
+            .chain(self.held.iter().map(|e| e.at))
+            .chain(self.finished.iter().map(|e| e.at))
+            .chain(self.abandoned.iter().map(|e| e.at))
+            .chain(self.put_in.iter().map(|e| e.at))
+            .chain(self.hurried.iter().map(|e| e.at))
+            .chain(self.written.iter().map(|e| e.at))
+            .chain(self.questions.iter().map(|e| e.at))
+            .chain(self.answers.iter().map(|e| e.at))
+            .chain(self.let_go.iter().map(|e| e.at))
+            .chain(self.pauses.iter().map(|e| e.at))
+            .chain(self.cancels.iter().copied())
+            .chain(self.reopens.iter().copied())
+            .chain(self.releases.iter().copied())
+    }
+
+    /// The place the next entry would take: one after the latest of every entry's.
+    pub fn next_place(&self) -> Seq {
+        Seq(self.entry_places().map(|at| at.0 + 1).max().unwrap_or(0))
+    }
+
     /// The cancel that stands: the latest cancel, where no reopen came after it.
     pub fn cancelled(&self) -> Option<Seq> {
         let cancel = self.cancels.iter().max().copied()?;

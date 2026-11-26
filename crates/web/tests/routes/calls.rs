@@ -65,6 +65,7 @@ async fn a_tools_call_and_an_act_under_way_are_calls_where_they_say_they_run() {
                 "made": made,
                 "at": CI,
                 "queuedFor": null,
+                "machine": null,
                 "held": null,
             }],
         })

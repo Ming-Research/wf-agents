@@ -385,7 +385,8 @@ pub fn running_kept(
         bound,
     ));
     let running = Running {
-        router: web::with_works_over(flows, cache.clone(), handle.clone(), levels, projects()).merge(observations),
+        router: web::with_works_over(flows, cache.clone(), handle.clone(), levels, projects(), times())
+            .merge(observations),
         _dir: dir,
     };
     (running, cache, handle)
@@ -406,6 +407,16 @@ pub fn levels_with_rounds_highest(rounds_highest: &str) -> service::Levels {
     service::Levels::new(levels, "2", Some("2"), Some(rounds_highest))
         .expect("the levels are made")
         .with_title_max(20)
+}
+
+/// What `wf-agents wait` goes by: what stands given whole again 5 minutes after it was, a turn held 30 minutes, and a
+/// wait of 15 minutes for a runner.
+pub fn times() -> web::attention::Times {
+    web::attention::Times {
+        again: 300_000,
+        turn: 1_800_000,
+        queued: 900_000,
+    }
 }
 
 /// The projects an item is added to: `trial`, and `other`.

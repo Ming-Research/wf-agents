@@ -107,9 +107,19 @@ pub fn handle_then(
         let nothing_but = nothing_but(flow);
         let answers = answers(flow, work, run);
         let log = log(flow, work, run, &told);
-        if let Some(requires) = requires(flow, &choices, &nothing_but, &answers, &told, work, run)
-            && let Step::Finish { dealt_with, writes } =
-                run::next(&log, requires, hold_in(&flow.flow, &work.records, run, room))
+        let stuck =
+            |dealt_with: &[BlockId], writes: &[Write]| stuck_blocks(flow, work, &choices, run, dealt_with, writes);
+        if let Some(requires) = requires(
+            flow,
+            &choices,
+            &nothing_but,
+            &answers,
+            &told,
+            Some(run::Stuck(&stuck)),
+            work,
+            run,
+        ) && let Step::Finish { dealt_with, writes } =
+            run::next(&log, requires, hold_in(&flow.flow, &work.records, run, room))
         {
             finish(flow, work, run, &log, dealt_with, writes, &mut effects);
         }
@@ -250,8 +260,8 @@ fn unwanted(ended: bool, work: &Work) -> Vec<CallId> {
         .collect()
 }
 
-/// Whether what the work holds outside is being let go: it has ended, and the letting go is to be done or under way,
-/// and has not been said to be done or to have failed.
+/// Whether what the work holds outside is being let go: it has ended, and the letting go is to be done, once what is
+/// under way of the work has ended, or under way, and has not been said to be done or to have failed.
 pub fn letting_go(flow: &Compiled, work: &Work) -> bool {
     letting_go_after(end_of(flow, work), work)
 }
@@ -259,7 +269,7 @@ pub fn letting_go(flow: &Compiled, work: &Work) -> bool {
 /// Whether what the work holds outside is being let go, as [`letting_go`] says, the work having ended so where `end`
 /// says it has.
 pub fn letting_go_after(end: Option<End>, work: &Work) -> bool {
-    release(end, work).is_some()
+    to_let_go(end, work).is_some()
 }
 
 /// How the work ended, where it has (`end`) and what it holds outside is to be let go: nothing of it is under way, no
@@ -267,6 +277,13 @@ pub fn letting_go_after(end: Option<End>, work: &Work) -> bool {
 /// was last reopened; and no failure to let go waits for the owner, as the engine's pause of the work after its end
 /// that the owner has not let on from.
 fn release(end: Option<End>, work: &Work) -> Option<End> {
+    to_let_go(end, work).filter(|_| at_rest(work))
+}
+
+/// How the work ended, where it has (`end`) and what it holds outside is to be let go, whatever is under way of it
+/// still: the letting go has begun with its end, and a round or a call under way is stopped or withdrawn before it is
+/// done. It is not let go already since the work was last reopened, and no failure to let go waits for the owner.
+fn to_let_go(end: Option<End>, work: &Work) -> Option<End> {
     let r = &work.records;
     if r.released().is_some() {
         return None;
@@ -284,7 +301,7 @@ fn release(end: Option<End>, work: &Work) -> Option<End> {
     {
         return None;
     }
-    at_rest(work).then_some(end)
+    Some(end)
 }
 
 /// Whether nothing of the work is under way: every round of its runs has come back and every call has its result, so
@@ -930,7 +947,17 @@ fn step(flow: &Compiled, work: &mut Work, run: RunId, at: At<'_>, effects: &mut 
     let Some(told) = told(&flow.flow, &work.records, run) else {
         return false;
     };
-    let Some(requires) = requires(flow, &choices, &nothing_but, &answers, &told, work, run) else {
+    let stuck = |dealt_with: &[BlockId], writes: &[Write]| stuck_blocks(flow, work, &choices, run, dealt_with, writes);
+    let Some(requires) = requires(
+        flow,
+        &choices,
+        &nothing_but,
+        &answers,
+        &told,
+        Some(run::Stuck(&stuck)),
+        work,
+        run,
+    ) else {
         return false;
     };
     let Some(started) = work.records.started.iter().find(|s| s.run == run) else {
@@ -1207,12 +1234,14 @@ pub(crate) fn nothing_but(flow: &Compiled) -> BTreeMap<BlockId, BTreeMap<String,
 
 /// What the flow requires of what the run's cell returns, with what its round was told; none where the run's cell is
 /// not in the flow.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn requires<'a>(
     flow: &'a Compiled,
     choices: &'a BTreeMap<BlockId, Vec<String>>,
     nothing_but: &'a BTreeMap<BlockId, BTreeMap<String, Vec<BlockId>>>,
     answered_by: &'a BTreeMap<BlockId, Answer>,
     told: &'a Told,
+    stuck: Option<run::Stuck<'a>>,
     work: &Work,
     run: RunId,
 ) -> Option<Requires<'a>> {
@@ -1232,7 +1261,29 @@ pub(crate) fn requires<'a>(
         nothing_but,
         questions: asked::questions_of(flow, &spec.id),
         words: spoken::words_of(flow, &spec.id),
+        stuck,
     })
+}
+
+/// What a return of the run's cell that meets everything else would leave the work unable to do ([`run::Stuck`]): the
+/// blocks of an agent's cell that would let the work go on, as the walk reads the records with the return taken
+/// ([`decide::stuck_blocks`]). An act of the engine's has none.
+pub(crate) fn stuck_blocks(
+    flow: &Compiled,
+    work: &Work,
+    choices: &BTreeMap<BlockId, Vec<String>>,
+    run: RunId,
+    dealt_with: &[BlockId],
+    writes: &[Write],
+) -> Vec<BlockId> {
+    let agent = (work.records.started.iter().find(|s| s.run == run))
+        .and_then(|s| flow.flow.place(&s.cell))
+        .and_then(|place| flow.cells.get(place))
+        .is_some_and(|spec| spec.kind == Kind::Agent);
+    match agent {
+        true => decide::stuck_blocks(&flow.flow, &work.records, run, dealt_with, writes, choices),
+        false => Vec::new(),
+    }
 }
 
 /// Of each block that runs the run's cell and that an act of the engine's after the cell writes, what runs that act

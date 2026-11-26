@@ -92,7 +92,7 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                     "at": "plan",
                     "on": [{
                         "kind": "call", "call": 2, "who": "owner", "what": at_limit(), "made": asked, "at": null,
-                        "queuedFor": null, "held": null
+                        "queuedFor": null, "machine": null, "held": null
                     }],
                 },
                 "cells": [

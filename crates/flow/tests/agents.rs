@@ -1,5 +1,6 @@
 //! What the engine says to every agent, read from its files beside the flows into their shapes.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -559,51 +560,100 @@ fn a_declaration_may_name_the_inputs_of_the_budget_and_the_work_and_a_budget_of_
     assert_eq!(agents::budget_of(&fast.budget), Ok(600), "the budget every project has");
 }
 
-// A project that measures declares a measure workflow beside the fast and the full one, which it must still have: one that
-// declares none is read with none, one that declares it is read with the names of the inputs the engine gives it, and one
-// that does not say how long a run may take, or declares it with no other workflow, is refused. Well under a millisecond
-// alone; no other test holds the measure workflow's declaration.
+// A project that measures declares each measurement by its name beside the fast and the full workflow, which it must
+// still have: one that declares none is read with none, and one that declares one is read with what it declares, the
+// inputs an agent may set left out where it may set none. One that leaves out what a measurement needs, or declares it
+// with no other workflow, is refused, and so is a measurement that is not well formed: every fault of it said at once,
+// each with its key. Well under a millisecond alone; no other test holds a measurement's declaration.
 #[test]
-fn a_declaration_may_name_a_measure_workflow_which_says_how_long_a_run_may_take() {
+fn a_declaration_may_name_measurements_each_with_its_workflow_inputs_and_metrics() {
     let text = declaration_text();
     let fast = "\n[ci.fast]\nworkflow = \"fast.yml\"\nrunner = \"github\"\ntoo_long = \"2h\"\n";
     let full = "\n[ci.full]\nworkflows = [\"ci.yml\"]\nrunner = \"github\"\ntoo_long = \"2h\"\n";
-    let measure = "\n[ci.measure]\nworkflow = \"measure.yml\"\nrunner = \"14900k\"\ntoo_long = \"30m\"\n";
-    assert_eq!(
-        declared(&format!("{text}{fast}{full}"))
-            .unwrap()
-            .ci
-            .expect("both")
-            .measure,
-        None
-    );
+    let measure = r#"
+[ci.measure.compare]
+about = "the commit's image against where its change began"
+workflow = "redis-bench.yml"
+runner = "14900k"
+too_long = "3h"
+inputs = { mode = "compare", revisions = "base={base} head={commit} head-twin={commit}", call = "{call}" }
+open = ["tests", "passes"]
+artifact = "measurement"
+file = "compare.csv"
+metrics = { rps = "requests/s", p99_ms = "ms" }
+"#;
+    let none = declared(&format!("{text}{fast}{full}"))
+        .unwrap()
+        .ci
+        .expect("both")
+        .measure;
+    assert!(none.is_empty(), "{none:?}");
     let named = declared(&format!("{text}{fast}{full}{measure}"))
         .unwrap()
         .ci
         .expect("all three")
         .measure;
     let text_of = |s: &str| s.to_string();
+    let pairs = |pairs: &[(&str, &str)]| -> BTreeMap<String, String> {
+        pairs.iter().map(|(k, v)| (text_of(k), text_of(v))).collect()
+    };
+    let compare = agents::Measurement {
+        about: text_of("the commit's image against where its change began"),
+        workflow: text_of("redis-bench.yml"),
+        runner: text_of("14900k"),
+        too_long: text_of("3h"),
+        inputs: pairs(&[
+            ("call", "{call}"),
+            ("mode", "compare"),
+            ("revisions", "base={base} head={commit} head-twin={commit}"),
+        ]),
+        open: vec![text_of("tests"), text_of("passes")],
+        artifact: text_of("measurement"),
+        file: text_of("compare.csv"),
+        metrics: pairs(&[("p99_ms", "ms"), ("rps", "requests/s")]),
+    };
+    assert_eq!(named, BTreeMap::from([(text_of("compare"), compare.clone())]));
+    // The engine fills the commit, the base and the call, and gives each input an agent sets as it set it.
+    let set = pairs(&[("tests", "set get")]);
     assert_eq!(
-        named,
-        Some(agents::CiMeasure {
-            workflow: text_of("measure.yml"),
-            runner: text_of("14900k"),
-            too_long: text_of("30m"),
-            commit_input: text_of("commit"),
-            base_input: text_of("base"),
-            call_input: text_of("call"),
-            measure_input: text_of("measure"),
-            results: text_of("test-results"),
-        })
+        compare.inputs_of("c0ffee", "ba5e", "f00d", &set),
+        [
+            (text_of("call"), text_of("f00d")),
+            (text_of("mode"), text_of("compare")),
+            (text_of("revisions"), text_of("base=ba5e head=c0ffee head-twin=c0ffee")),
+            (text_of("tests"), text_of("set get")),
+        ]
     );
-    let lacking = "\n[ci.measure]\nworkflow = \"measure.yml\"\nrunner = \"14900k\"\n";
+    let lacking = measure.replace("too_long = \"3h\"\n", "");
     let refused = declared(&format!("{text}{fast}{full}{lacking}")).unwrap_err();
     assert!(refused.contains("missing field `too_long`"), "{refused}");
     let refused = declared(&format!("{text}{measure}")).unwrap_err();
     assert!(refused.contains("missing field `fast`"), "{refused}");
-    let unreadable = measure.replace("30m", "soon");
-    let refused = declared(&format!("{text}{fast}{full}{unreadable}")).unwrap_err();
-    assert!(refused.contains("ci.measure.too_long"), "{refused}");
+    // The form of an earlier engine, one measure workflow, is no measurement.
+    let earlier = "\n[ci.measure]\nworkflow = \"measure.yml\"\nrunner = \"14900k\"\ntoo_long = \"30m\"\n";
+    assert!(declared(&format!("{text}{fast}{full}{earlier}")).is_err());
+    let wrong = measure
+        .replace("[ci.measure.compare]", "[ci.measure.\"com pare\"]")
+        .replace("3h", "soon")
+        .replace("call = \"{call}\"", "call = \"{run}\"")
+        .replace("head={commit} head-twin={commit}", "head=HEAD")
+        .replace("open = [\"tests\", \"passes\"]", "open = [\"mode\", \"a b\"]")
+        .replace("metrics = { rps = \"requests/s\", p99_ms = \"ms\" }", "metrics = {}")
+        .replace("file = \"compare.csv\"", "file = \" \"");
+    let refused = declared(&format!("{text}{fast}{full}{wrong}")).unwrap_err();
+    for fault in [
+        "ci.measure.com pare: a measurement's name holds only letters, digits, `_` and `-`",
+        "ci.measure.com pare.too_long: \"soon\" is no time such as 90m or 2h",
+        "ci.measure.com pare.file: names nothing",
+        "ci.measure.com pare.inputs.call: a brace outside {commit}, {base} and {call}, which the engine fills",
+        "ci.measure.com pare.inputs: no input holds {call}, by which the engine finds the run it asked for",
+        "ci.measure.com pare.inputs: no input holds {commit}, which is what is measured",
+        "ci.measure.com pare.open: mode is given in inputs as well",
+        "ci.measure.com pare.open: \"a b\" is not an input's name: letters, digits, `_` and `-`",
+        "ci.measure.com pare.metrics: names no column that holds a metric",
+    ] {
+        assert!(refused.contains(fault), "{fault}\n\n{refused}");
+    }
 }
 
 // How an entry of the design tree is found is the tree's rules', the same for every project: a `[format]` in
