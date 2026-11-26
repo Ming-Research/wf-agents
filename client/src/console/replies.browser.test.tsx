@@ -154,6 +154,9 @@ describe('the replies the owner has not read, in the console', () => {
   /// Each wait where a reply is to stay unread lasts the moment a reply must stand in view and a little over: shorter, the
   /// reply would not have been read yet if it were going to be, and no check of staying unread could fail.
   const moment = () => sleep(READ_AFTER_MS + 200);
+  /// How long a reply seen again must stay unread: half of the second it must stand in view, fixed here whatever
+  /// `READ_AFTER_MS` is, so that a delay made shorter, or lost, is found.
+  const NOT_YET_MS = 500;
 
   it('reads a reply that has stood in view for a moment while the page is seen, and none out of view or while it is hidden, a long one once its end is read to', async () => {
     await drawn();
@@ -166,10 +169,10 @@ describe('the replies the owner has not read, in the console', () => {
     await moment();
     expect(unread()).toHaveLength(2);
     expect(acts).toEqual([]);
-    // Seen again, the moment begins then, not before: halfway through it the first is still unread. It is read once the
+    // Seen again, the moment begins then, not before: half a second on, the first is still unread. It is read once the
     // moment is over; the second, longer than the window, of which only the top is in view, is not.
     hidden(false);
-    await sleep(READ_AFTER_MS / 2);
+    await sleep(NOT_YET_MS);
     expect(unread()).toHaveLength(2);
     expect(acts).toEqual([]);
     await expect.poll(() => unread().length, { timeout: 10_000 }).toBe(1);
