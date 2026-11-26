@@ -871,3 +871,102 @@ async fn a_layer_that_is_refused_is_unread_in_githubs_words_and_the_other_is_sti
         ))
     );
 }
+
+/// A `gh` in this directory that fails `gh run download` with this on its standard error, as `gh` does where GitHub
+/// refuses or does not answer, and exits with 1.
+fn gh_whose_download_fails(dir: &std::path::Path, said: &str) -> Gh {
+    let text = format!("#!/bin/sh\nprintf '%s\\n' '{said}' >&2\nexit 1\n");
+    let script = dir.join("gh");
+    std::fs::write(&script, text).unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    Gh::new(&script.display().to_string(), "o/r", "the-token", dir)
+}
+
+// What a run uploaded is fetched by `gh run download`, which says what GitHub refused in words on its standard error and
+// no headers. GitHub's limit and its 5xx pass by themselves (GitHub's guide to its rate limits, and RFC 9110 on 5xx), so
+// a fetch they keep from being done is held, as the same refusal to any other request is, and not a failure of the
+// fetch: the run's results are then read by asking again. A refusal no wait mends is not held.
+#[tokio::test]
+async fn a_download_githubs_limit_or_fault_refuses_is_held_as_any_other_request_they_refuse_is() {
+    use decide::Obstacle;
+    for (said, obstacle) in [
+        (
+            "HTTP 502: Bad Gateway (https://api.github.com/repos/o/r/actions/runs/9/artifacts)",
+            Obstacle::Fault,
+        ),
+        ("HTTP 503: Service Unavailable", Obstacle::Fault),
+        (
+            "HTTP 403: API rate limit exceeded for user ID 1. (https://api.github.com/repos/o/r/actions/runs/9/artifacts)",
+            Obstacle::Limit,
+        ),
+        ("HTTP 429: Too Many Requests", Obstacle::Limit),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let gh = gh_whose_download_fails(dir.path(), said);
+        let failed = gh.artifact(9, "test-results").await.expect_err("refused");
+        assert_eq!(
+            failed.held.map(|held| held.obstacle),
+            Some(obstacle),
+            "{said}: {failed:?}"
+        );
+    }
+    for said in ["HTTP 404: Not Found", "HTTP 401: Bad credentials"] {
+        let dir = tempfile::tempdir().unwrap();
+        let gh = gh_whose_download_fails(dir.path(), said);
+        let failed = gh.artifact(9, "test-results").await.expect_err("refused");
+        assert_eq!(failed.held, None, "{said}: a refusal no wait mends is not held");
+    }
+}
+
+// A fetch of what a run uploaded that the network keeps from being done is the network's failure, held as any other
+// request of the engine's the network fails is (`gh`'s own words, as the module of the acts' failures lists them).
+#[tokio::test]
+async fn a_download_the_network_keeps_from_being_done_is_held() {
+    use decide::Obstacle;
+    let dir = tempfile::tempdir().unwrap();
+    let gh = gh_whose_download_fails(
+        dir.path(),
+        "error connecting to api.github.com\ncheck your internet connection or https://githubstatus.com",
+    );
+    let failed = gh.artifact(9, "test-results").await.expect_err("not fetched");
+    assert_eq!(
+        failed.held.map(|held| held.obstacle),
+        Some(Obstacle::Network),
+        "{failed:?}"
+    );
+}
+
+// GitHub's guide to its rate limits: a primary or secondary limit answers 403 or 429; with `retry-after`, wait that many
+// seconds; with `x-ratelimit-remaining` 0, wait until `x-ratelimit-reset`; otherwise wait at least a minute. So a 429
+// that says nothing of when is not asked again after less than a minute, whatever its words.
+#[test]
+fn a_429_that_says_nothing_of_when_is_asked_again_after_at_least_a_minute() {
+    use decide::Retry;
+    for (head, message) in [
+        ("HTTP/2.0 429 Too Many Requests", "Slow down"),
+        ("HTTP/2.0 429 Too Many Requests\r\nx-ratelimit-remaining: 4999", ""),
+        (
+            "HTTP/2.0 403 Forbidden\r\nx-ratelimit-remaining: 0",
+            "API rate limit exceeded",
+        ),
+    ] {
+        let out = format!("{head}\r\nContent-Type: application/json\r\n\r\n{{\"message\":\"{message}\"}}");
+        let held = refused(&included(&out).expect("an answer")).held.expect("held");
+        let waits = match held.retry {
+            Some(Retry::In(seconds)) => seconds,
+            other => panic!("{head}: a wait of at least a minute, not {other:?}"),
+        };
+        assert!(waits >= 60, "{head}: {waits} s");
+    }
+}
+
+// RFC 9110 10.2.3: a server that answers 503 may say with `Retry-After` how long its client should wait before asking
+// again; asked again sooner, the request is refused again.
+#[test]
+fn a_503_that_says_when_to_ask_again_is_not_asked_again_before_then() {
+    use decide::Retry;
+    let out = "HTTP/2.0 503 Service Unavailable\r\nretry-after: 120\r\n\r\n{\"message\":\"Service Unavailable\"}";
+    let held = refused(&included(out).expect("an answer")).held.expect("held");
+    assert_eq!(held.retry, Some(Retry::In(120)));
+}
