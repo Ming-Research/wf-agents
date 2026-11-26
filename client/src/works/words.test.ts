@@ -9,6 +9,7 @@ import {
   clock,
   dollars,
   duration,
+  freshWords,
   isOpen,
   isWayRound,
   itemName,
@@ -27,6 +28,7 @@ import {
   stoppedAt,
   tokens,
   tokensWords,
+  unreadCount,
   waitCount,
   waitCounted,
   waitedWords,
@@ -475,5 +477,21 @@ describe('reasons said one after another', () => {
   it('count what waits for the owner after its number, one way', () => {
     expect(waitCounted(1)).toBe('thing waits for you');
     expect(waitCounted(2)).toBe('things wait for you');
+  });
+});
+
+describe('what the owner has not read of an item, in words', () => {
+  it('counts the replies not read in one way, in the singular for one', () => {
+    expect(unreadCount(1)).toBe('1 reply you have not read');
+    expect(unreadCount(3)).toBe('3 replies you have not read');
+  });
+
+  it('says the item is new, or how many passages of it changed, and how many replies are not read, and nothing where nothing is', () => {
+    expect(freshWords('new', 0, 0)).toBe('New to you');
+    expect(freshWords('changed', 0, 0)).toBe('Changed since you last read it');
+    expect(freshWords('changed', 1, 0)).toBe('1 passage changed since you last read it');
+    expect(freshWords('changed', 2, 1)).toBe('2 passages changed since you last read it · 1 reply you have not read');
+    expect(freshWords('none', 0, 2)).toBe('2 replies you have not read');
+    expect(freshWords('none', 0, 0)).toBe('');
   });
 });

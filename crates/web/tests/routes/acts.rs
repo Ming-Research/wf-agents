@@ -232,3 +232,48 @@ async fn words_said_and_an_answer_given_are_taken_as_acts_and_refused_naming_wha
         "{json}"
     );
 }
+
+// What the owner has read of a work is an act of the route as the others are: it names versions of the work's blocks by
+// their numbers, and is taken once the work holds each of them, and refused in words that name the first it does not,
+// with nothing kept of the versions beside it. The page of the work tells of each version whether it was read.
+#[tokio::test(start_paused = true)]
+async fn a_read_is_taken_for_the_versions_the_work_holds_and_refused_naming_one_it_does_not() {
+    let running = running();
+    let router = &running.router;
+    greeted(router).await;
+    let done = (StatusCode::NO_CONTENT, Value::Null);
+    let opinion = json!({ "kind": "write", "block": "opinions", "content": "Keep it short.", "value": null });
+    assert_eq!(post(router, ACTS, &opinion).await, done);
+    let read_of = |page: &Value| {
+        page["blocks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|b| b["name"] == "opinions")
+            .unwrap()["versions"][0]["read"]
+            .clone()
+    };
+    let read = |versions: Value| json!({ "kind": "read", "versions": versions });
+    assert_eq!(read_of(&get_json(router, "/api/v1/works/1").await), json!(false));
+    let both = read(json!([{ "block": "opinions", "version": 1 }, { "block": "opinions", "version": 7 }]));
+    assert_eq!(
+        post(router, ACTS, &both).await,
+        (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            json!({ "error": "The work has no version 7 of the block opinions." })
+        )
+    );
+    assert_eq!(
+        read_of(&get_json(router, "/api/v1/works/1").await),
+        json!(false),
+        "a read that is refused keeps nothing"
+    );
+    let one = read(json!([{ "block": "opinions", "version": 1 }]));
+    assert_eq!(post(router, ACTS, &one).await, done);
+    assert_eq!(read_of(&get_json(router, "/api/v1/works/1").await), json!(true));
+    // Read again, it changes nothing and is no refusal.
+    assert_eq!(post(router, ACTS, &one).await, done);
+    let unknown = read(json!([{ "block": "nothing_here", "version": 1 }]));
+    let (status, json) = post(router, ACTS, &unknown).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{json}");
+}

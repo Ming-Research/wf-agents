@@ -13,21 +13,28 @@
 //   write, with no fixed values, that one cell reads) is the owner's, to that cell. In the order of their times.
 // - A ruling: for each block the engine's list of what waits on the owner says the owner may write, its latest version's
 //   content (`readRulings`).
-// Nothing, with the mocks off: an item's unseen mark, unread messages, open questions, tier and verdicts; a work's tier.
+// Nothing, with the mocks off: an item's open questions, tier and verdicts; a work's tier. What the owner has not read of
+// an item is the engine's (`Summary.fresh`, `Summary.repliesUnread`).
 
 import { mocksShown } from '../mock-data';
 import type { SentPiece } from '../api';
 import type { Item, Version, VersionPage, Wait, WorkPage } from '../works-api';
 import { bodyMock, type ItemMock, itemMock, workTierMock } from './mock';
-import type { Body, Message, Part } from './window';
+import { type Body, type Message, type Part, type ReadVersion, passagesOf } from './window';
 
 /// Reads the content of a version of a block, by its number among the block's versions.
 export type LoadVersion = (work: number, block: string, number: number) => Promise<VersionPage>;
 
-/// What a card and the window show of an item that the engine does not give: made up with the mocks, none without.
+/// What a card and the window show of an item: with the mocks, made up; without, what the engine says the owner has not
+/// read, and none of what it does not give.
 export function itemOf(item: Item): ItemMock {
   if (mocksShown()) return itemMock(item);
-  return { unseen: false, unread: 0, tier: null, verdicts: [] };
+  return {
+    fresh: item.work.fresh ?? 'none',
+    repliesUnread: item.work.repliesUnread ?? 0,
+    tier: null,
+    verdicts: [],
+  };
 }
 
 /// The work's tier: made up with the mocks, none without.
@@ -90,15 +97,26 @@ function quoted(content: string): { quote: string | null; text: string } {
 /// The item's body and messages, from its work's blocks as the page read them.
 export async function readBody(page: WorkPage, load: LoadVersion): Promise<Body> {
   const work = page.summary.number;
-  // The current version of a block, as a passage; none where it has none or it is empty.
+  // The current version of a block, as passages: those it has that the last version the owner read has no equal of
+  // marked changed; none where it has none or it is empty.
   const current = async (block: string): Promise<Part[]> => {
-    const last = versionsOf(page, block).at(-1);
+    const versions = versionsOf(page, block);
+    const last = versions.at(-1);
     if (last === undefined) return [];
     const text = await contentOf(load, work, block, last.number);
-    return text.trim() === '' ? [] : [{ kind: 'text', text }];
+    if (text.trim() === '') return [];
+    const seen = versions.filter((v) => v.read === true).at(-1);
+    return passagesOf(text, seen === undefined || seen === last ? null : await contentOf(load, work, block, seen.number));
   };
   // A section for each datum the card of the version the work runs on names, in its order and by its name.
   const sections = await Promise.all(page.outline.card.map(async (title) => ({ title, parts: await current(title) })));
+  // What reading the item marks read: the latest version a run wrote of each datum the card names, where it is not read.
+  const toRead = page.outline.card.flatMap((block): ReadVersion[] => {
+    const latest = versionsOf(page, block)
+      .filter((v) => v.by.kind === 'run')
+      .at(-1);
+    return latest === undefined || latest.read === true ? [] : [{ block, version: latest.number }];
+  });
   // Each cell's own words, as that version names them: the owner's versions, to the cell, and the cell's answers, to
   // the owner.
   const words = page.outline.cells.flatMap((c) => {
@@ -116,29 +134,30 @@ export async function readBody(page: WorkPage, load: LoadVersion): Promise<Body>
       const text = (name: string) => block.writes?.find(([n]) => n === name)?.[1];
       if (v.by.kind === 'run') {
         const answer = placesOf(entry, text('reply'))?.get('reply') ?? entry;
-        return { who: cell, at: v.time, to: ['owner'], quote: null, text: answer, place: v.at };
+        const reply = v.reply === true ? { reply: { block: block.name, version: v.number, read: v.read === true } } : {};
+        return { who: cell, at: v.time, to: ['owner'], quote: null, text: answer, place: v.at, ...reply };
       }
       const { quote, text: said } = quoted(placesOf(entry, text('owner'))?.get('words') ?? entry);
       const taken = takenBy(cell, block.name, v.number);
       return { who: 'owner', at: v.time, to: [cell], quote, text: said, taken, place: v.at };
     }),
   ]);
-  // A cell's reply is part of the talk only where it answers the owner: where the owner wrote to that cell before it.
-  // What a cell writes there with nobody having spoken to it has no words of the owner's to stand under, and is left
-  // out.
-  const spokenTo = new Map<string, number>();
-  for (const m of said) {
-    if (m.who !== 'owner') continue;
-    const cell = m.to[0];
-    spokenTo.set(cell, Math.min(spokenTo.get(cell) ?? Infinity, m.place));
-  }
-  const answers = (m: Message & { place: number }): boolean =>
-    m.who === 'owner' || (spokenTo.get(m.who) ?? Infinity) < m.place;
+  // A cell's words are part of the talk where they are a reply to the owner, as the engine's one definition of a reply
+  // says (`Version.reply`): what a cell writes with nobody having spoken to it has no words of the owner's to stand
+  // under, and is left out, as is an answer that says nothing.
   const messages = said
-    .filter((m) => m.text.trim() !== '' && answers(m))
+    .filter((m) => (m.who === 'owner' ? m.text.trim() !== '' : m.reply !== undefined))
     .sort((a, b) => a.at - b.at || a.place - b.place)
-    .map(({ who, at, to, quote, text, taken }) => ({ who, at, to, quote, text, ...(taken === undefined ? {} : { taken }) }));
-  return { sections, choicesWait: false, messages };
+    .map(({ who, at, to, quote, text, taken, reply }) => ({
+      who,
+      at,
+      to,
+      quote,
+      text,
+      ...(taken === undefined ? {} : { taken }),
+      ...(reply === undefined ? {} : { reply }),
+    }));
+  return { sections, choicesWait: false, messages, toRead };
 }
 
 /// A block the owner may write that keeps a precondition the work waits for from holding, as the engine's list of what

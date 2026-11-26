@@ -110,9 +110,10 @@ While the search is open the tree is dimmed, as round the item under the pointer
 - replaced: Finding an item only by scrolling the tree was on main; the owner changed it, because once many items were imported he could not find one he looked for.
 
 ### decision the-owner-walks-the-stops-by-keys
-n goes to the next of what the red and orange counts count, N to the one before, tree by tree in the list's order, round from the last; Next, left of Discuss on each but the last, does as n.
+n and N go to the next and the previous stop, m and M to the next and the previous reply not read, tree by tree in the list's order, round from the last; Next, left of Discuss on a stop, does as n.
 - replaced: A button Next question on a row of its own under Discuss was on main; the owner changed it, because the two buttons go together on one row, and Next is shorter.
 - replaced: Finding each thing to handle by looking for a card with a count and scrolling its window was on main; the owner changed it, because he works by those counts, and wanted to go from one thing he handles to the next by keys.
+- replaced: Walking by n and N alone, with no key for the replies he had not read, was on main; the owner changed it, because he could not find a reply an agent had written to his words after he left the page, and wanted to go from one unread reply to the next by keys.
 
 ### decision the-map-draws-each-item-and-the-screen
 The map draws each item as a piece of its column's bar in the colour of its card's state, and frames in a thin light line the part of the tree the screen shows.
@@ -123,7 +124,7 @@ The console shows the tree of one project at a time, of the items of that projec
 - replaced: One tree of the items of every project was on main; the owner changed it, because with several projects he wanted a quick way to go from one project to another.
 
 ### decision the-projects-are-listed-under-the-map
-Under the map, the projects stand in a list the owner orders by dragging, each name after the key 1 to 9 that shows its tree, and after it what waits for the owner there, as the bar counts it.
+Under the map, the projects stand in a list the owner orders by dragging, each name after the key 1 to 9 that shows its tree, and after it what waits for the owner in the project's items.
 - rejected: an agent proposed the projects as cards in a column at the tree's left, each with its counts, chosen by the up and down keys; the owner rejected it, because he wanted to switch projects by the keys 1 to 9, from a list under the map he can order.
 
 ### decision another-projects-tree-grows-out-from-behind

@@ -50,7 +50,13 @@ export type Message = {
   text: string;
   /// Of the owner's words to a cell: whether a run of that cell has begun with them; of any other message, none.
   taken?: boolean;
+  /// Of a reply of a cell that the engine counts as one: the block and the number of the version that holds it, and
+  /// whether the owner has read it; of any other message, none.
+  reply?: { block: string; version: number; read: boolean };
 };
+
+/// A version of a block of the work, by its block and its number among the block's versions, as the engine names it.
+export type ReadVersion = { block: string; version: number };
 
 /// A section of the body: a datum the flow's card names, by its name, with the passages of its current version.
 export type BodySection = { title: string; parts: Part[] };
@@ -62,7 +68,59 @@ export type Body = {
   /// Whether the choices of the last section wait for the owner to confirm them.
   choicesWait: boolean;
   messages: Message[];
+  /// The versions the owner reads in reading the item's body: the latest version a run wrote of each datum the card
+  /// names, where the owner has not read it. None where the body is made up.
+  toRead?: ReadVersion[];
 };
+
+/// A text's paragraphs: the runs of lines between blank lines, a fenced block kept whole with the blank lines in it.
+export function paragraphsOf(text: string): string[] {
+  const out: string[] = [];
+  let lines: string[] = [];
+  let fenced = false;
+  const end = () => {
+    if (lines.length > 0) out.push(lines.join('\n'));
+    lines = [];
+  };
+  for (const line of text.split('\n')) {
+    if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
+    if (!fenced && line.trim() === '') end();
+    else lines.push(line);
+  }
+  end();
+  return out;
+}
+
+/// A text as passages against the text the owner last read: each run of its paragraphs that the read text has no equal
+/// of is one passage marked changed, the paragraphs between them passages not marked. With nothing read before, or
+/// nothing changed, the text is one passage unmarked: an item the owner has read nothing of is new as a whole.
+export function passagesOf(text: string, read: string | null): Passage[] {
+  if (read === null) return [{ kind: 'text', text }];
+  const had = new Set(paragraphsOf(read).map((p) => p.trim()));
+  const passages: Passage[] = [];
+  let changes = 0;
+  for (const paragraph of paragraphsOf(text)) {
+    const changed = !had.has(paragraph.trim());
+    const last = passages[passages.length - 1];
+    if (changed) changes += 1;
+    if (last !== undefined && (last.changed === true) === changed) last.text += `\n\n${paragraph}`;
+    else passages.push({ kind: 'text', text: paragraph, ...(changed ? { changed } : {}) });
+  }
+  return changes === 0 ? [{ kind: 'text', text }] : passages;
+}
+
+/// Whether a reply drawn in the box `reply` is in view of the pane `pane`: all of it where it fits in the pane, and, where
+/// it is taller than the pane, its end, which is where the owner has read it to. A box with no height is not drawn.
+export function replySeen(
+  reply: { top: number; bottom: number },
+  pane: { top: number; bottom: number },
+  slack = 1,
+): boolean {
+  const height = reply.bottom - reply.top;
+  if (height <= 0) return false;
+  if (height <= pane.bottom - pane.top) return reply.top >= pane.top - slack && reply.bottom <= pane.bottom + slack;
+  return reply.bottom <= pane.bottom + slack && reply.bottom > pane.top + slack;
+}
 
 /// How many parts of the body changed since the owner last read the item.
 export const changedIn = (b: Body): number =>

@@ -86,8 +86,14 @@ The discussion holds only the owner's words to the work's cells and the cells' a
 - rejected: an agent proposed writing the review of the tree's changes and its back and forth into the item's discussion; the owner rejected it, because he does not want to read them.
 
 ### decision a-message-shows-a-clock-or-a-tick
-Each message the owner sends a cell carries a mark: a clock until a run of the cell has begun with it, then a tick; pointing at either says what it means.
+Each message carries a mark: the owner's to a cell a clock until a run of the cell has begun with it, then a tick; a cell's reply to the owner a clock until the owner has read it, then a tick.
 - replaced: A line at the bottom of the window saying who the words were sent to was on main; the owner changed it, because whether they were taken belongs on the sent message, not at the bottom.
+- replaced: A cell's reply with no mark of whether the owner had read it was on main; the owner changed it, because he wanted each reply marked read beside it, and the two marks already say that the one a message is for has taken it in.
+
+### decision a-reply-counts-as-read-once-it-has-stood-in-view
+A cell's reply counts as read once it has been fully in view of the open window for about a second while the page is seen, or once its end has if it is taller; m and M bring the next one into view.
+- rejected: an agent proposed that only a press counts as read, on a mark by each reply, with R and Mark as read clearing an item; the owner rejected it, because every reply would have to be pressed, and m would come back to the same reply until it was.
+- rejected: an agent proposed that opening the Item tab read everything new in the item and all its replies at once; the owner rejected it, because a reply far down the window would count as read unseen, and he could not find it again.
 
 ### decision the-owners-words-go-to-a-line
 The owner's words go to a line of the work's flow, picked from a row of buttons above the box: one for each line with a cell that takes words, each named by the line and that cell's id.

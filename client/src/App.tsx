@@ -11,8 +11,8 @@ import { Chart, type Chosen, MATRIX_MARKS } from './Chart';
 import { LazyConsolePage } from './console/lazy';
 import { type BarItems, Engine, useBarItems } from './Engine';
 import { ItemTitlesProvider } from './itemNumbers';
-import { aheadCount, waitingCount } from './works/waiting';
-import { aheadCount as aheadWords, waitCount } from './works/words';
+import { aheadCount, installationWaits, repliesUnreadCount, waitingCount } from './works/waiting';
+import { aheadCount as aheadWords, unreadCount, waitCount } from './works/words';
 import { LazyFlowChart } from './graph/lazy';
 import { FLOWCHART_MARKS, chartOf } from './graph/model';
 import { Legend, MARKS, type MarkKey } from './marks';
@@ -192,8 +192,11 @@ export function Shell({ route, serves = 'all', children }: {
   // What waits on the owner, told of by the browser as it comes, on the engine's own page only.
   useNotifications(bar.items, serves === 'all' && !usesFixtures(window.location.search));
   const works = bar.items?.items.map((i) => i.work) ?? [];
-  const waiting = waitingCount(works);
+  // The red count is what each work waits on the owner for and what the installation does, which no work does: the
+  // engine's pause of every work, which the engine says in the items it gives.
+  const waiting = waitingCount(works) + installationWaits(bar.items).length;
   const ahead = aheadCount(works);
+  const unread = repliesUnreadCount(works);
   // Each tab leads back to where it was last, kept in this browser, as a work open in the works or an item selected in
   // the console; the tab shown leads to its own first view, as the list of works from a work.
   const here = tabOf(route);
@@ -202,7 +205,16 @@ export function Shell({ route, serves = 'all', children }: {
   const views = TABS.map((t) => {
     const href = t.href === here ? t.href : (read(`${CHOICE_KEYS.tabAddress}${t.href}`) ?? t.href);
     return t.href === '#/console'
-      ? { ...t, href, count: waiting, countTitle: waitCount(waiting), ahead, aheadTitle: aheadWords(ahead) }
+      ? {
+          ...t,
+          href,
+          count: waiting,
+          countTitle: waitCount(waiting),
+          ahead,
+          aheadTitle: aheadWords(ahead),
+          unread,
+          unreadTitle: unreadCount(unread),
+        }
       : { ...t, href };
   });
   return (

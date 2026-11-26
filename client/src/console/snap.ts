@@ -40,8 +40,9 @@
 // frame where it has none. Nothing is drawn while the page or the console's view is hidden.
 //
 // A card's second row draws the level the work's cell runs at, the works page's strip of the work's cells, and the
-// lines the work changed; an ended item's one row, the lines its work changed. What the interface has nothing for yet
-// (an item new to the owner, messages unread) is read from the console's made-up data (`mock.ts`). The colours are read
+// lines the work changed; an ended item's one row, the lines its work changed. What the owner has not read of an item
+// (new or changed, and its replies) is the engine's word (`Summary.fresh`, `Summary.repliesUnread`); what the interface
+// has nothing for yet is read from the console's made-up data (`mock.ts`). The colours are read
 // from the page's tokens, so that the canvas follows light and dark; the canvas follows the size of what holds it,
 // besides the window's; the links dim with the items they join while an item is lit (`DIM_LINKS`); and the way from
 // each item whose work runs up to its root is lit, with a light running down it (`RUN`).
@@ -64,7 +65,7 @@ import { LINES_LOOKS, levelLook, levelPointed, levelWords } from '../marks';
 import { CELL_LOOKS, MARK, pulsing } from '../works/state-marks';
 import type { CellNow, CellState } from '../works-api';
 import { NO_LEVEL, STATE, itemName, linesAdded, linesRemoved, stateOf, stoppedAt } from '../works/words';
-import { type Fold, STANDINGS, type Shown, type ShownWork, age } from './items';
+import { type Fold, STANDINGS, type Shown, type ShownWork, age, somethingUnread } from './items';
 import { indexTree, type Tree } from './tree';
 
 export const NODE_W = 300;
@@ -1647,8 +1648,9 @@ export class SnapScene {
       i.work === null || i.work.from === null ? 1 : 1 + WORK_ROW,
     );
     this.shape();
-    const unseen = (s: Shown) => s.unseen;
-    this.fresh = tree.columns.map((col) => col.flatMap((i, r) => (unseen(items[i]) || hides(i, unseen) ? [r] : [])));
+    this.fresh = tree.columns.map((col) =>
+      col.flatMap((i, r) => (somethingUnread(items[i]) || hides(i, somethingUnread) ? [r] : [])),
+    );
     // The items a work goes on on, and those above them up to their roots: from the roots one sees which branches
     // have work on.
     this.lit = new Uint8Array(items.length);
@@ -2030,7 +2032,7 @@ export class SnapScene {
     view.addChild(number, title);
     // At the right of the first row: how many things its work waits for from the owner, white on red, the strongest
     // mark a card has, as what the owner looks for first; beside it, how many questions the owner may answer ahead,
-    // which hold the work at nothing yet, white on orange; its messages unread, white on the accent; and its returns
+    // which hold the work at nothing yet, white on orange; its replies unread, white on the accent; and its returns
     // sent back, framed in grey. What an item waits for stands under it in the tree, and no tag counts it again.
     let right = NODE_W - 8;
     const tag = (text: string, fill: string, sign: 'back' | null, solid: boolean) => {
@@ -2061,7 +2063,7 @@ export class SnapScene {
     // colour of the line at the card's left that says something is new.
     if (item.asks > 0) tag(String(item.asks), PALETTE.red, null, true);
     if (item.ahead > 0) tag(String(item.ahead), PALETTE.orange, null, true);
-    if (item.unread > 0) tag(String(item.unread), PALETTE.unseen, null, true);
+    if (item.repliesUnread > 0) tag(String(item.repliesUnread), PALETTE.unseen, null, true);
     if (item.work !== null && item.work.sentBack > 0) tag(String(item.work.sentBack), PALETTE.muted, 'back', false);
     // Of an item whose work has ended, the lines that work added and removed, at the right of its one row, each in its
     // colour (`LINES_LOOKS`), as the item's window says them.

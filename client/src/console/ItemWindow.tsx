@@ -54,7 +54,7 @@ import {
 
 import { linkItemNumbers, useItemTitles } from '../itemNumbers';
 import { CHOICE_KEYS, useKept } from '../kept';
-import { LevelMark, LinesChanged } from '../marks';
+import { LevelMark, LinesChanged, ReceiptMark } from '../marks';
 import { mocksShown } from '../mock-data';
 import { Button, Coded, Confirm, Fold, ListRow, Switch, TICK, Tabs } from '../parts';
 import {
@@ -81,12 +81,14 @@ import {
   CANCEL_WHY,
   ENDS_WORDS,
   OWN_PAUSE,
+  REPLY_READ,
   SHOW_QUESTION,
   TAKEN,
   type Tone as WorkTone,
   UNREAD,
   WRITE_WORDS,
   count,
+  freshWords,
   itemName,
   stateOf,
   stateParts,
@@ -120,6 +122,8 @@ import {
   picks,
   type Pointing,
   quoteOf,
+  type ReadVersion,
+  replySeen,
   type Who,
 } from './window';
 
@@ -337,7 +341,26 @@ export type ItemPanelProps = {
   onNextStop?: (at: number) => void;
   /// Told that the owner chose the stop at `at` by a click on its frame, from which the walk goes on.
   onStopChosen?: (at: number) => void;
+  /// The reply not read that the page asks the window to bring into view, as m and M walk: the first (`way` 1) or the last
+  /// (`way` -1) of the item's replies not read where `begin`, else the next after, or before, the one brought last; asked
+  /// again each time `seq` changes.
+  reply?: { way: 1 | -1; begin: boolean; seq: number };
+  /// Told, for each ask of `reply`, whether the window brought a reply into view; it brings none where the item has no
+  /// other reply not read, from which the walk goes on to the next item.
+  onReply?: (found: boolean) => void;
 };
+
+/// How long a reply stays in full view of the window, while the page is seen, before it counts as read.
+export const READ_AFTER_MS = 1000;
+
+/// What names a reply among the item's, as the engine does: its block and the number of its version.
+const replyKey = (r: { block: string; version: number }): string => `${r.block}/${r.version}`;
+
+/// The block and the version a reply's key names.
+const replyOf = (key: string): ReadVersion => ({
+  block: key.slice(0, key.lastIndexOf('/')),
+  version: Number(key.slice(key.lastIndexOf('/') + 1)),
+});
 
 /// The stops of a work as the window draws them, in its order from the top: each card of what the work waits on the
 /// owner for, and each question to answer, whether or not it holds the work; not a question answered. They are what
@@ -395,6 +418,8 @@ function ItemView({
   stop,
   onNextStop,
   onStopChosen,
+  reply,
+  onReply,
 }: ItemPanelProps) {
   const work = item.work;
   const read = pageIn(page);
@@ -448,7 +473,14 @@ function ItemView({
       alive = false;
     };
   }, [read, loadVersion]);
-  const [unseen, setUnseen] = useState(mock.unseen);
+  // Whether the owner marked the item read from this window, which holds the strip off until the engine says so, and the
+  // replies the window sent as read, by block and version, which the engine's own word of them follows once the page
+  // reads again.
+  const [cleared, setCleared] = useState(false);
+  const [marked, setMarked] = useState<ReadonlySet<string>>(new Set());
+  useEffect(() => {
+    if (mock.fresh === 'none') setCleared(false);
+  }, [mock.fresh]);
   const [ownTab, setOwnTab] = useKept(CHOICE_KEYS.consoleTab, 'item', WINDOW_TABS);
   const tab = chosenTab ?? ownTab;
   const setTab = (to: WindowTab) => {
@@ -545,15 +577,40 @@ function ItemView({
   // it does not hold yet.
   const messages = said.length === 0 ? body.messages : [...body.messages, ...said];
   const about = (c: Choice) => messagesAbout(messages, c);
+  // The replies of the cells the engine counts, each with whether the owner has read it: by the engine, or by this window
+  // having sent it as read.
+  const isRead = useCallback(
+    (m: Message): boolean => m.reply === undefined || m.reply.read || marked.has(replyKey(m.reply)),
+    [marked],
+  );
+  const unreadReplies = useMemo(
+    () =>
+      [...body.messages, ...said].flatMap((m): ReadVersion[] =>
+        m.reply === undefined || isRead(m) ? [] : [{ block: m.reply.block, version: m.reply.version }],
+      ),
+    [body.messages, said, isRead],
+  );
+  // Tells the engine the owner read these versions, and takes them as read here at once.
+  const sendRead = useCallback(
+    (versions: ReadVersion[]) => {
+      if (versions.length === 0) return;
+      setMarked((was) => new Set([...was, ...versions.map(replyKey)]));
+      if (!mocksShown()) void act(work.number, { kind: 'read', versions });
+    },
+    [act, work.number],
+  );
+  const toRead = body.toRead;
   const markAsRead = useCallback(() => {
     const clear = (ps: Part[]) => ps.map((p) => ({ ...p, changed: false }));
     markRead(item.number);
-    setUnseen(false);
+    setCleared(true);
     setBody((was) => ({ ...was, sections: was.sections.map((s) => ({ ...s, parts: clear(s.parts) })) }));
+    sendRead([...(toRead ?? []), ...unreadReplies]);
     onRead?.();
-  }, [item.number, onRead]);
+  }, [item.number, onRead, sendRead, toRead, unreadReplies]);
   const changes = changedIn(body);
-  const fresh = unseen || changes > 0;
+  const shownFresh = cleared ? 'none' : mock.fresh;
+  const fresh = shownFresh !== 'none' || changes > 0 || unreadReplies.length > 0;
   useEffect(() => {
     if (!open || !fresh) return;
     const key = (e: KeyboardEvent) => {
@@ -566,6 +623,96 @@ function ItemView({
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
   }, [open, fresh, markAsRead]);
+  // A reply that has stood in full view of the window for a moment while the page is seen is read, with no press: where
+  // each reply not read is drawn is looked at as the window scrolls, is resized, changes what it draws and is shown again
+  // (`replySeen`); one that leaves the view, or a page that is hidden, begins its moment again.
+  const discussion = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const pane = inner.current?.querySelector<HTMLElement>('.drawer-body');
+    if (!open || tab !== 'item' || pane === null || pane === undefined) return;
+    const timers = new Map<HTMLElement, number>();
+    const gathered: ReadVersion[] = [];
+    let flush: number | undefined;
+    const done = (el: HTMLElement) => {
+      timers.delete(el);
+      if (el.dataset.reply === undefined || el.dataset.unread === undefined) return;
+      gathered.push(replyOf(el.dataset.reply));
+      flush ??= window.setTimeout(() => {
+        flush = undefined;
+        sendRead(gathered.splice(0));
+      }, 0);
+    };
+    const check = () => {
+      const view = document.visibilityState === 'visible' ? pane.getBoundingClientRect() : null;
+      for (const el of pane.querySelectorAll<HTMLElement>('[data-reply][data-unread]')) {
+        const seen = view !== null && replySeen(el.getBoundingClientRect(), view);
+        const timer = timers.get(el);
+        if (seen && timer === undefined) timers.set(el, window.setTimeout(() => done(el), READ_AFTER_MS));
+        else if (!seen && timer !== undefined) {
+          window.clearTimeout(timer);
+          timers.delete(el);
+        }
+      }
+      for (const [el, timer] of timers) {
+        if (!el.isConnected) {
+          window.clearTimeout(timer);
+          timers.delete(el);
+        }
+      }
+    };
+    const drawing = new MutationObserver(check);
+    drawing.observe(pane, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-unread'] });
+    pane.addEventListener('scroll', check, { passive: true });
+    window.addEventListener('resize', check);
+    document.addEventListener('visibilitychange', check);
+    check();
+    return () => {
+      drawing.disconnect();
+      pane.removeEventListener('scroll', check);
+      window.removeEventListener('resize', check);
+      document.removeEventListener('visibilitychange', check);
+      timers.forEach((timer) => window.clearTimeout(timer));
+      if (flush !== undefined) window.clearTimeout(flush);
+    };
+  }, [open, tab, sendRead]);
+  // The reply not read that the page asks for, as m and M walk, is brought into view: the first or the last of the item's,
+  // or the next one after the one brought last, once the replies are drawn, once each time it is asked. Where the
+  // discussion is folded away it is opened, which draws them.
+  const lastReply = useRef<number | null>(null);
+  const shownReply = useRef(0);
+  const opened = useRef(0);
+  const [asked, setAsked] = useState(0);
+  useEffect(() => {
+    if (reply === undefined || shownReply.current === reply.seq) return;
+    if (tab !== 'item') {
+      if (chosenTab === undefined) setOwnTab('item');
+      return;
+    }
+    if (!bodyRead) return;
+    const all = [...(inner.current?.querySelectorAll<HTMLElement>('[data-reply]') ?? [])];
+    if (all.length === 0 && unreadReplies.length > 0) {
+      const head = discussion.current?.querySelector<HTMLButtonElement>('.cw-fold-head[aria-expanded="false"]');
+      if (head !== null && head !== undefined && opened.current !== reply.seq) {
+        opened.current = reply.seq;
+        head.click();
+        setAsked((n) => n + 1);
+        return;
+      }
+    }
+    const unread = all.flatMap((el, i) => (el.dataset.unread === undefined ? [] : [i]));
+    const from = reply.begin || lastReply.current === null ? (reply.way > 0 ? -1 : all.length) : lastReply.current;
+    const to = reply.way > 0 ? unread.find((i) => i > from) : [...unread].reverse().find((i) => i < from);
+    shownReply.current = reply.seq;
+    if (to === undefined) {
+      onReply?.(false);
+      return;
+    }
+    lastReply.current = to;
+    const pane = inner.current?.querySelector<HTMLElement>('.drawer-body');
+    const el = all[to];
+    el.scrollIntoView({ block: el.getBoundingClientRect().height > (pane?.clientHeight ?? Infinity) ? 'start' : 'center' });
+    onReply?.(true);
+  }, [reply, tab, chosenTab, setOwnTab, bodyRead, unreadReplies, asked, onReply]);
   // The sections the card of the version the work runs on names: as read, or, until the body is read, each with nothing
   // in it yet.
   const sections = bodyRead ? body.sections : (read?.outline.card ?? []).map((title) => ({ title, parts: [] }));
@@ -750,13 +897,7 @@ function ItemView({
           </div>
           {fresh ? (
             <div className="cw-fresh">
-              <span>
-                {changes === 0
-                  ? 'New to you'
-                  : changes === 1
-                    ? '1 passage changed since you last read it'
-                    : `${changes} passages changed since you last read it`}
-              </span>
+              <span>{freshWords(shownFresh, changes, unreadReplies.length)}</span>
               <button type="button" className="link" aria-keyshortcuts="r" onClick={markAsRead}>
                 {keyed('Mark as read', 'r')}
               </button>
@@ -838,6 +979,8 @@ function ItemView({
                 </button>
               ) : null}
               <Discussion
+                isRead={isRead}
+                section={discussion}
                 work={work}
                 page={page}
                 messages={messages}
@@ -1260,28 +1403,8 @@ function Settled({ options, chosen, recommended }: {
 /// Whether the cell the owner's words went to has taken them: a clock until a run of it begins with them, then the
 /// page's tick; what it means said on pointing at it.
 function TakenMark({ taken, to }: { taken: boolean; to: string }) {
-  const words = taken ? `Taken by ${to}` : `Not taken yet: ${to} takes it as it next runs`;
   return (
-    <svg
-      className={taken ? 'cw-taken' : 'cw-waiting'}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      role="img"
-      aria-label={words}
-    >
-      <title>{words}</title>
-      {taken ? (
-        <path d={TICK} />
-      ) : (
-        <>
-          <circle cx="12" cy="12" r="8" />
-          <path d="M12 7.5 V12 L15 14" />
-        </>
-      )}
-    </svg>
+    <ReceiptMark taken={taken} words={taken ? `Taken by ${to}` : `Not taken yet: ${to} takes it as it next runs`} />
   );
 }
 
@@ -1501,10 +1624,14 @@ function RulingBox({ ruling, act, links }: {
 /// pointing at it, in the engine's words. Of the lines that take the words, the one picked at first is the line the
 /// work stands at, else the one it reached last; where none takes them, none is picked, no box is drawn, and why is
 /// said once, under the lines. The line under the box names the cell the words reach by its title.
-function Discussion({ work, page, messages, pointers, messageTo, setMessageTo, quote, unquote, box, act, sent }: {
+function Discussion({ work, page, messages, isRead, section, pointers, messageTo, setMessageTo, quote, unquote, box, act, sent }: {
   work: Summary;
   page: PageState;
   messages: Message[];
+  /// Whether the owner has read a reply, as the window draws it.
+  isRead: (m: Message) => boolean;
+  /// The section's element, for the one that opens it where the owner is taken to a reply in it.
+  section: RefObject<HTMLElement | null>;
   /// What a message, by its place, draws at its pointers to the questions.
   pointers: (at: number) => Pointers;
   /// The line the owner chose the message goes to; none where they did not.
@@ -1549,14 +1676,23 @@ function Discussion({ work, page, messages, pointers, messageTo, setMessageTo, q
   // Why no line takes the words, where none does: each reason the engine gives, once.
   const none = [...new Set(targets.map((t) => refusedOn(t) ?? ''))].filter((why) => why !== '').join('; ');
   return (
-    <Fold title="Discussion" count={messages.length}>
+    <Fold title="Discussion" count={messages.length} section={section}>
       {messages.map((n, i) => (
-        <div key={i} id={messageId(work.number, i)} className={n.who === 'owner' ? 'cw-message cw-message-owner' : 'cw-message'}>
+        <div
+          key={i}
+          id={messageId(work.number, i)}
+          className={n.who === 'owner' ? 'cw-message cw-message-owner' : 'cw-message'}
+          data-reply={n.reply === undefined ? undefined : replyKey(n.reply)}
+          data-unread={n.reply === undefined || isRead(n) ? undefined : ''}
+        >
           <div className="status-line">
             <span className="status-word">{writerOf(n.who, read)}</span>
             <span className="muted">to {n.to.map((x) => writerOf(x, read)).join(', ')}</span>
             <span className="mono muted">{ago(n.at)} ago</span>
             {n.taken !== undefined && <TakenMark taken={n.taken} to={n.to.map((x) => writerOf(x, read)).join(', ')} />}
+            {n.reply !== undefined && (
+              <ReceiptMark taken={isRead(n)} words={isRead(n) ? REPLY_READ.read : REPLY_READ.unread} />
+            )}
           </div>
           {n.quote !== null ? <blockquote className="cw-quote">{n.quote}</blockquote> : null}
           <Markdown text={n.text} pointers={pointers(i)} />

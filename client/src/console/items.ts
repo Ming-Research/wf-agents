@@ -10,7 +10,7 @@
 // It reads the items as `works-api.ts` gives them. The interface does not say which of an item's dependents is its
 // main one: the first of them by number is.
 
-import type { CellNow, Held, Item, Items, Now, Pauser, Summary, Wait } from '../works-api';
+import type { CellNow, Fresh, Held, Item, Items, Now, Pauser, Summary, Wait } from '../works-api';
 import { mocksShown } from '../mock-data';
 import { aheadOf, waitsOf } from '../works/waiting';
 import { stateOf } from '../works/words';
@@ -83,10 +83,11 @@ export type Shown = {
   /// It is a deliverable: an item that says what is to be delivered and is made of the items under it, with no work
   /// of its own to show. Its flow says so (`deliver`); until the engine has that flow, the page's rule above does.
   deliver: boolean;
-  /// New to the owner, or changed since they last read it (mock: `mock.ts`).
-  unseen: boolean;
-  /// Messages from others the owner has not read (mock: `mock.ts`).
-  unread: number;
+  /// New to the owner, or changed since they last read it, as the engine's one definition of what the owner has not
+  /// read says (`Summary.fresh`; made up with the mocks, `mock.ts`).
+  fresh: Fresh;
+  /// How many replies of the cells the owner has not read (`Summary.repliesUnread`; made up with the mocks).
+  repliesUnread: number;
   /// Whether its work has begun, which is whether it has run a round ([`started`]).
   begun: boolean;
   /// A shadow of the item under an item that depends on it by a dependency that is not its main one: it points to the
@@ -101,6 +102,11 @@ export type Shown = {
   /// holds them. None for an item with nothing under it, and for a shadow.
   fold?: Fold | null;
 };
+
+/// Whether the owner has something to read of an item: it is new or has changed, or a reply is not read. The one test of
+/// the line at a card's left, which says only that something is unread, and the number of replies says how many.
+export const somethingUnread = (s: Pick<Shown, 'fresh' | 'repliesUnread'>): boolean =>
+  s.fresh !== 'none' || s.repliesUnread > 0;
 
 /// What an item's work makes of it.
 export function standingOf(i: Item | undefined): ItemStanding {
@@ -252,9 +258,8 @@ export function shownTree(
       // Only a work that goes on has questions to answer.
       ahead: w === undefined ? 0 : aheadOf(w),
       deliver: deliverable || w?.delivers === true,
-      // New to the owner exactly when something is unread: one fact, not two.
-      unseen: (mock?.unread ?? 0) > 0,
-      unread: mock?.unread ?? 0,
+      fresh: mock?.fresh ?? 'none',
+      repliesUnread: mock?.repliesUnread ?? 0,
       begun: w !== undefined && started(w),
       shadow: false,
       work:
@@ -292,8 +297,8 @@ export function shownTree(
     asks: 0,
     ahead: 0,
     deliver: false,
-    unseen: false,
-    unread: 0,
+    fresh: 'none',
+    repliesUnread: 0,
     begun: false,
     shadow: true,
     work: null,
@@ -305,14 +310,17 @@ export function shownTree(
     .map((i) => make(i.number));
 }
 
-/// The items of the tree `roots` in its order, each before the items under it, with how many stops each has: each
-/// thing its red and its orange counts count, which n and N walk on the console. A shadow stands for an item placed
-/// elsewhere, and is left out.
-export function walkOrder(roots: Shown[]): { id: number; stops: number }[] {
+/// The items of the tree `roots` in its order, each before the items under it, with how many stops each has: by default
+/// each thing its red and its orange counts count, which n and N walk on the console; with `count` another count, as the
+/// replies not read, which m and M walk. A shadow stands for an item placed elsewhere, and is left out.
+export function walkOrder(
+  roots: Shown[],
+  count: (s: Shown) => number = (s) => s.asks + s.ahead,
+): { id: number; stops: number }[] {
   const order: { id: number; stops: number }[] = [];
   const go = (s: Shown) => {
     if (s.shadow) return;
-    order.push({ id: s.id, stops: s.asks + s.ahead });
+    order.push({ id: s.id, stops: count(s) });
     s.children.forEach(go);
   };
   roots.forEach(go);
