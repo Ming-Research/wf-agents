@@ -1159,7 +1159,8 @@ async fn a_measurement_cancelled_by_its_limit_or_by_a_person_is_said_so_and_give
         "the run is cancelled"
     );
     // A person cancels the run of the next request while it goes on.
-    let (said, ()) = tokio::join!(hub.named_check(&measured(&["compare"])), async {
+    let asked = measured(&["compare"]);
+    let (said, ()) = tokio::join!(hub.named_check(&asked), async {
         while hub.dispatched().len() < 2 {
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
@@ -1249,9 +1250,8 @@ async fn a_measurement_waits_while_another_project_measures_on_the_same_machine_
     let held: Held<u8, service::CallReply> = Held::new();
     let mut stop = held.hold(1, reply).expect("held").saying(saying);
     let place = whitefoot.place();
-    let whitefoot_asks = whitefoot
-        .host
-        .run_tests(&branch(&place), &asked, whitefoot.call(), &mut stop);
+    let on = branch(&place);
+    let whitefoot_asks = whitefoot.host.run_tests(&on, &asked, whitefoot.call(), &mut stop);
     let (firn_said, whitefoot_said) = tokio::join!(firn.named_check(&asked), async {
         while firn.dispatched().is_empty() {
             tokio::time::sleep(Duration::from_millis(5)).await;

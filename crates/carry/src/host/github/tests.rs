@@ -159,9 +159,14 @@ impl Hub {
     }
 
     fn with(mut self, change: impl FnOnce(&mut Config)) -> Hub {
-        let host = Arc::get_mut(&mut self.host).expect("the host is changed before its machines know of it");
-        change(&mut host.config);
+        change(self.config_mut());
         self
+    }
+
+    /// The host's configuration, to change before its machines know of it.
+    fn config_mut(&mut self) -> &mut Config {
+        let host = Arc::get_mut(&mut self.host).expect("the host is changed before its machines know of it");
+        &mut host.config
     }
 
     /// The host, as the engine makes it, tells the machines its measurements run on that it measures there.

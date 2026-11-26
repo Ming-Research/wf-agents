@@ -219,7 +219,8 @@ impl<A: Api> GitHub<A> {
     /// on such a machine waits while a run of this project's is not complete there, as of any project.
     pub fn share_machines(host: &Arc<GitHub<A>>) {
         for machine in host.measured_on() {
-            let busy: Weak<dyn machines::Busy> = Arc::downgrade(host);
+            let weak: Weak<GitHub<A>> = Arc::downgrade(host);
+            let busy: Weak<dyn machines::Busy> = weak;
             host.config.machines.share(&machine, busy);
         }
     }
