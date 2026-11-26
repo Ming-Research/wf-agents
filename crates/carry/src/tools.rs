@@ -198,9 +198,7 @@ impl<H> Tools<H> {
     /// Forgets the calls of the work whose result the loop has taken, as its records show them.
     fn prune(&self, call: &ToolCall) {
         let records = &call.kept.records;
-        (self.inner.held).prune(|(work, id, holds)| {
-            *work == call.work && (records.done.iter().any(|d| d.call == *id) || records.holds(*id) > *holds)
-        });
+        (self.inner.held).prune(|(work, id, _)| *work == call.work && records.done.iter().any(|d| d.call == *id));
     }
 }
 
