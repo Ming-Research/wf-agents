@@ -14,6 +14,7 @@ use serde_json::{Value, json};
 use tokio::io::AsyncWriteExt;
 
 use super::api::{Api, Check, File, Jobs, Layer, Listed, OPEN_PULLS, Outcome, Pull, Run, Runner, Runners, State};
+use crate::acts::failing::told_by_its_words;
 use crate::host::Failed;
 use decide::{Obstacle, Retry};
 
@@ -43,9 +44,10 @@ impl std::fmt::Debug for Gh {
     }
 }
 
-/// What GitHub answered: the status, and the body; whether it says it limits the requests it takes, by its headers
-/// (none remaining of them, or a time given to try again after) or by its words (a secondary limit gives neither); when
-/// it may be asked again where it says; and the entity tag its headers give the answer, where they give one.
+/// What GitHub answered: the status, and the body; whether it says it limits the requests it takes, by its status (429),
+/// its headers (none remaining of them, or a time given to try again after) or its words (a secondary limit gives
+/// neither); when it may be asked again where its headers say (any answer may say it, a 503's `Retry-After` as well);
+/// and the entity tag its headers give the answer, where they give one.
 #[derive(Debug, PartialEq, Eq)]
 struct Answer {
     status: u16,
@@ -55,9 +57,9 @@ struct Answer {
     tag: Option<String>,
 }
 
-/// How long a secondary limit is waited out when GitHub says nothing of when it may be asked again, in seconds: at
-/// least a minute, as GitHub's guide to its limits says.
-const SECONDARY_LIMIT: u64 = 60;
+/// How long a limit is waited out when GitHub says nothing of when it may be asked again, in seconds: at least a
+/// minute, as GitHub's guide to its limits says of a limit that gives neither `retry-after` nor a reset.
+const LIMIT_WAIT: u64 = 60;
 
 impl Gh {
     /// `gh` as this command, in the repository `owner/name`, with the engine's token, keeping its configuration in
@@ -380,9 +382,9 @@ impl Api for Gh {
         ];
         let ran = self.run(&args).await;
         let files = match ran {
-            Ok(()) => files_under(&dir, ""),
+            Ok(()) => files_under(&dir, "").map_err(Failed::from),
             Err(why) if why.contains("no artifact") || why.contains("no valid artifact") => Ok(Vec::new()),
-            Err(why) => Err(why),
+            Err(why) => Err(told_by_the_command(why)),
         };
         let _ = tokio::fs::remove_dir_all(&dir).await;
         let files = files?;
@@ -538,9 +540,9 @@ fn included(out: &str) -> Option<Answer> {
         (None, true) => header("x-ratelimit-reset")
             .and_then(|epoch| epoch.parse().ok())
             .map(Retry::At),
-        (None, false) => (named && after.is_none()).then_some(Retry::In(SECONDARY_LIMIT)),
+        (None, false) => None,
     };
-    let limited = after.is_some() || exhausted || named;
+    let limited = status == 429 || after.is_some() || exhausted || named;
     let tag = (headers.iter())
         .find(|(name, value)| name == "etag" && !value.is_empty())
         .map(|(_, value)| value.to_string());
@@ -555,15 +557,36 @@ fn included(out: &str) -> Option<Answer> {
 
 /// GitHub's refusal, of the kind its status tells: a fault of GitHub's own (5xx) or its limit on the requests it takes
 /// (429, or another refusal that says it limits them) passes by itself, and only keeps what asked from being done for
-/// now, with when it may be asked again where GitHub says; any other is a refusal no wait mends, whatever its words.
+/// now, with when it may be asked again where GitHub says; a limit that says nothing of when is not asked again for at
+/// least a minute ([`LIMIT_WAIT`]); any other is a refusal no wait mends, whatever its words.
 fn refused(answer: &Answer) -> Failed {
     let why = refusal(answer);
     if answer.status >= 500 {
-        Failed::held(why, Obstacle::Fault, None)
-    } else if answer.status == 429 || answer.limited {
-        Failed::held(why, Obstacle::Limit, answer.retry)
+        Failed::held(why, Obstacle::Fault, answer.retry)
+    } else if answer.limited {
+        Failed::held(
+            why,
+            Obstacle::Limit,
+            Some(answer.retry.unwrap_or(Retry::In(LIMIT_WAIT))),
+        )
     } else {
         Failed::refused(why)
+    }
+}
+
+/// A failure of a `gh` command other than `gh api`: it says what GitHub refused as `HTTP <status>: <words>` on its
+/// standard error and gives no headers. A fault of GitHub's own (5xx) and its limit (429, or a 403 whose words name a
+/// rate limit) are held as `refused` holds them, a limit for a minute as nothing of when is given; any other failure is
+/// the network's where its words say so ([`told_by_its_words`]), and is otherwise as it is.
+fn told_by_the_command(why: String) -> Failed {
+    let status = (why.find("HTTP ")).and_then(|at| why[at + "HTTP ".len()..].get(..3)?.parse::<u16>().ok());
+    match status {
+        Some(500..=599) => Failed::held(why, Obstacle::Fault, None),
+        Some(429) => Failed::held(why, Obstacle::Limit, Some(Retry::In(LIMIT_WAIT))),
+        Some(403) if why.to_ascii_lowercase().contains("rate limit") => {
+            Failed::held(why, Obstacle::Limit, Some(Retry::In(LIMIT_WAIT)))
+        }
+        _ => told_by_its_words(why),
     }
 }
 

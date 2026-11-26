@@ -939,9 +939,12 @@ impl<A: Api> GitHub<A> {
         for job in unexplained(jobs, read) {
             let said = match self.api.log(job.id).await {
                 Ok(text) => Ok(log::failed_step(&text)),
-                // GitHub's limit, or its own fault, keeps the log from being read for now: the run is read again.
-                Err(failed) if failed.held.is_some() => return Err(failed),
-                Err(failed) => Err(failed.why),
+                // GitHub's limit, its own fault or the network keeps the log from being read for now: the run is read
+                // again.
+                Err(failed) => match crate::acts::failing::told(failed) {
+                    failed if failed.held.is_some() => return Err(failed),
+                    failed => Err(failed.why),
+                },
             };
             ends.push(StepEnd { job: job.id, said });
         }

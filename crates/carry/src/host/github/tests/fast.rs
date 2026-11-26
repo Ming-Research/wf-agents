@@ -655,7 +655,11 @@ async fn a_fault_of_githubs_or_its_limit_holds_what_asked_and_says_nothing_of_th
     for (refused, obstacle, retry) in [
         ("HTTP 503: Service Unavailable", Obstacle::Fault, None),
         ("HTTP 502: Bad Gateway", Obstacle::Fault, None),
-        ("HTTP 429: Too Many Requests", Obstacle::Limit, None),
+        (
+            "HTTP 429: Too Many Requests",
+            Obstacle::Limit,
+            Some(decide::Retry::In(60)),
+        ),
     ] {
         let hub = Hub::new();
         hub.committed().await;
@@ -715,6 +719,37 @@ async fn a_log_githubs_fault_keeps_from_being_read_holds_what_asked_and_is_read_
         failed.held,
         Some(crate::host::Held {
             obstacle: Obstacle::Fault,
+            retry: None
+        })
+    );
+    hub.github().refuse_log(None);
+    hub.github().logged(5, "the log of the job");
+    let said = hub.host.run_tests(&at, &request, call, &mut Stop::never()).await;
+    assert!(said.expect("read").expect("run").contains("the log of the job"));
+    assert_eq!(hub.dispatched().len(), 1, "one run on {head}");
+}
+
+// `gh` says nothing of GitHub's status where the network keeps it from reaching GitHub: the log is then not read for
+// the network's failure, which holds what asked as a failure of GitHub's does, and not told that the log could not be
+// read; asked again, it reads the same run and the log.
+#[tokio::test]
+async fn a_log_the_network_keeps_from_being_read_holds_what_asked_and_is_read_by_asking_again() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    hub.github()
+        .fast(&head, vec![job("test", Outcome::Failed("failure".into()), 5)], None);
+    hub.github().refuse_log(Some(
+        "gh api GET repos/o/r/actions/jobs/5/logs gave no answer (exit status: 1): error connecting to api.github.com\n\
+         check your internet connection or https://githubstatus.com",
+    ));
+    let place = hub.place();
+    let (at, request, call) = (branch(&place), named(&["a"], &[]), hub.call());
+    let first = hub.host.run_tests(&at, &request, call, &mut Stop::never()).await;
+    let failed = first.expect_err("held");
+    assert_eq!(
+        failed.held,
+        Some(crate::host::Held {
+            obstacle: Obstacle::Network,
             retry: None
         })
     );

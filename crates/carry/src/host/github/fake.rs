@@ -414,15 +414,18 @@ impl Fake {
 }
 
 /// What GitHub answers in these words, which begin with its status, `HTTP 422: ...`, as its refusals are said: of the
-/// kind its status tells, as the host reads GitHub's own answers, a fault of GitHub's or its limit on requests passing.
+/// kind its status tells, as the host reads GitHub's own answers, a fault of GitHub's or its limit on requests passing,
+/// a limit that says nothing of when for a minute. Words that begin with no status are what `gh` says where GitHub gave
+/// no answer, which tell no kind.
 fn answered(why: &str) -> Failed {
     let status: Option<u16> = (why.strip_prefix("HTTP "))
         .and_then(|rest| rest.split(|c: char| !c.is_ascii_digit()).next())
         .and_then(|digits| digits.parse().ok());
     match status {
         Some(status) if status >= 500 => Failed::held(why, decide::Obstacle::Fault, None),
-        Some(429) => Failed::held(why, decide::Obstacle::Limit, None),
-        _ => Failed::refused(why),
+        Some(429) => Failed::held(why, decide::Obstacle::Limit, Some(decide::Retry::In(60))),
+        Some(_) => Failed::refused(why),
+        None => Failed::from(why),
     }
 }
 
@@ -564,7 +567,7 @@ impl Api for Fake {
             .output();
         dropped
             .map(|_| ())
-            .map_err(|why| answered(&format!("git did not run: {why}")))
+            .map_err(|why| Failed::refused(format!("git did not run: {why}")))
     }
 
     async fn runs(&self, workflow: &str, branch: &str, tag: Option<&str>) -> Result<Listed, Failed> {

@@ -408,8 +408,9 @@ fn a_refusal_is_of_the_kind_its_status_tells_whatever_its_words() {
 }
 
 // A limit that passes keeps what asked from being done for now, and says when it may be asked again as GitHub says it:
-// in seconds by `retry-after`, at a time by the reset of the requests it takes, and, for a secondary limit that gives
-// neither, at least a minute; a fault of GitHub's own says nothing of when. Any other refusal is held for nothing.
+// in seconds by `retry-after`, at a time by the reset of the requests it takes, and, for a limit that gives neither, at
+// least a minute; a fault of GitHub's own says nothing of when unless it gives `retry-after`. Any other refusal is held
+// for nothing.
 #[test]
 fn a_limit_says_when_it_may_be_asked_again_as_github_says_it() {
     use decide::{Obstacle, Retry};
@@ -438,7 +439,10 @@ fn a_limit_says_when_it_may_be_asked_again_as_github_says_it() {
         ),
         limit(Some(Retry::In(60)))
     );
-    assert_eq!(held("HTTP/2.0 429 Too Many Requests", "Slow down"), limit(None));
+    assert_eq!(
+        held("HTTP/2.0 429 Too Many Requests", "Slow down"),
+        limit(Some(Retry::In(60)))
+    );
     assert_eq!(
         held("HTTP/2.0 502 Bad Gateway", "Bad Gateway"),
         Some((Obstacle::Fault, None))

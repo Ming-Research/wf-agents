@@ -657,10 +657,7 @@ impl<A: Api> Host for GitHub<A> {
         stop: &mut Stop,
     ) -> Result<Option<String>, Failed> {
         // A failure no kind is told of, as `gh` or git gave it, is the network's where its words say so.
-        (self.tests(branch, named, asking, stop).await).map_err(|failed| match failed.kind {
-            None if failed.held.is_none() => crate::acts::failing::told_by_its_words(failed.why),
-            _ => failed,
-        })
+        (self.tests(branch, named, asking, stop).await).map_err(crate::acts::failing::told)
     }
 
     async fn end(&self, branch: &Branch<'_>, merged: bool) -> Result<(), String> {
