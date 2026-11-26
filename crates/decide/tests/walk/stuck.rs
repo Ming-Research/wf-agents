@@ -144,6 +144,52 @@ fn a_paused_work_is_stuck_where_it_would_be_if_it_were_not_and_not_where_a_cell_
     assert!(stuck_after_pausing(&mut w, &[("deep", Value("no")), ("plan", Matters)], true).is_empty());
 }
 
+// A call held takes a place of the records like any entry, and the finish the check adds takes the place after every
+// entry's, a call held's too: where it took the place of the hold, the records would be at fault (two entries at one
+// place), which the check reads as a work that is not stuck. Here the hold of a call the research asked for is the last
+// entry; the wait of the engine's it was held until is made after the run that asked finished, as the engine makes it.
+#[test]
+fn a_call_held_as_the_last_entry_of_the_records_does_not_hide_a_work_stuck_for_the_plan() {
+    let mut w = research_to_merge(the_research());
+    let asking = w.start("research");
+    let asked = w.asks("research", None);
+    w.done(asked);
+    let run = w.start("research");
+    w.returns("research");
+    let wait = CallId(w.id());
+    let at = w.tick();
+    w.records.called.push(decide::Called {
+        call: wait,
+        run: asking,
+        on: None,
+        at,
+    });
+    let held = w.tick();
+    w.records.held.push(decide::Held {
+        call: asked,
+        wait,
+        at: held,
+        obstacle: decide::Obstacle::Limit,
+    });
+    let deep = Write {
+        block: "deep".into(),
+        meaning_unchanged: false,
+        empty: false,
+        value: Some("no".to_string()),
+    };
+    assert_eq!(
+        stuck_blocks(
+            &w.flow,
+            &w.records,
+            run,
+            &["background".into()],
+            &[deep],
+            &deep_is_a_choice()
+        ),
+        ["plan".into()]
+    );
+}
+
 // A work that waits at its last cell for what only the owner writes is not waiting for what cells write: it is to be
 // woken by the owner, and no return of the research is held for it.
 #[test]
