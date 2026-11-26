@@ -312,6 +312,19 @@ CREATE TABLE let_go (
     PRIMARY KEY (work, at)
 );
 
+-- The owner read these versions of the work's blocks, as of this place in the work's order: a place holds the versions
+-- read together, a row for each, a version named by its block and the place of the entry that wrote it, as in
+-- `contents`. The versions that have no row are the ones the owner has not read. A work kept before the engine kept
+-- what the owner read has one such place, the first after its latest entry, which holds every version it had then
+-- except each version a run wrote to a cell's words block: those are the cells' replies, and they stay unread.
+CREATE TABLE owner_read (
+    work INTEGER NOT NULL REFERENCES works (number),
+    at INTEGER NOT NULL,
+    block TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    PRIMARY KEY (work, at, block, version)
+);
+
 -- The work was paused (1) or let on again (0), by `pauser` (`Owner` or `Engine`), and why where it was paused with a
 -- reason: the engine always gives one, the owner where they will.
 CREATE TABLE pauses (
@@ -479,15 +492,18 @@ CREATE TABLE results (
     FOREIGN KEY (work, call) REFERENCES called (work, call)
 );
 
--- What a round of a run that ended took, the first round being one: its cost in millionths of a dollar, its tokens (the
--- tokens sent and not read from the cache, sent fresh or written to it; of them, those written to it, NULL where what
--- the round took was kept before the written ones were kept apart; those read from the cache; and those that came
--- back), the context it ended with in tokens (NULL where it is not known), and how often its session was compacted.
+-- What a round of a run that ended took, the first round being one: its cost in millionths of a dollar, whether some of
+-- its cost is not known (1 where calls of it that the agents' program reported no cost of could not be priced by any
+-- earlier report of their model, `usd_micros` holding nothing of them), its tokens (the tokens sent and not read from
+-- the cache, sent fresh or written to it; of them, those written to it, NULL where what the round took was kept before
+-- the written ones were kept apart; those read from the cache; and those that came back), the context it ended with in
+-- tokens (NULL where it is not known), and how often its session was compacted.
 CREATE TABLE spent (
     work INTEGER NOT NULL,
     run INTEGER NOT NULL,
     round INTEGER NOT NULL,
     usd_micros INTEGER NOT NULL,
+    unpriced INTEGER NOT NULL DEFAULT 0,
     uncached_tokens INTEGER NOT NULL,
     cache_written_tokens INTEGER,
     cached_tokens INTEGER NOT NULL,
@@ -574,14 +590,15 @@ CREATE TABLE left_behind (
 );
 
 -- A keep-warm ping of the session of a line, its sessions counted from none, which keeps its prompt cache while the
--- line waits: what it took, its tokens as a round's are told in `spent`, and why it failed where it did (NULL where it
--- did not), which may name paths of the machine.
+-- line waits: what it took, its cost and tokens as a round's are told in `spent`, and why it failed where it did (NULL
+-- where it did not), which may name paths of the machine.
 CREATE TABLE pinged (
     work INTEGER NOT NULL REFERENCES works (number),
     at INTEGER NOT NULL,
     line TEXT NOT NULL,
     session INTEGER NOT NULL,
     usd_micros INTEGER NOT NULL,
+    unpriced INTEGER NOT NULL DEFAULT 0,
     uncached_tokens INTEGER NOT NULL,
     cache_written_tokens INTEGER,
     cached_tokens INTEGER NOT NULL,
@@ -593,13 +610,14 @@ CREATE TABLE pinged (
 );
 
 -- A fork of a round's session asked a question, whether it answered or not: the run and the round whose session it was
--- forked from, and what it took, its tokens as a round's are told in `spent`.
+-- forked from, and what it took, its cost and tokens as a round's are told in `spent`.
 CREATE TABLE forked (
     work INTEGER NOT NULL REFERENCES works (number),
     at INTEGER NOT NULL,
     run INTEGER NOT NULL,
     round INTEGER NOT NULL,
     usd_micros INTEGER NOT NULL,
+    unpriced INTEGER NOT NULL DEFAULT 0,
     uncached_tokens INTEGER NOT NULL,
     cache_written_tokens INTEGER,
     cached_tokens INTEGER NOT NULL,

@@ -7,7 +7,9 @@ use store::{Divergence, Entry, KeptFlow, KeptOutline, SCHEMA_VERSION};
 use work::{KeptTime, OnFlow, Stretch, TurnSpan, Went};
 
 use super::diverged::{Change, refused};
-use super::opening::{before_held_calls, before_pauses_waited_for_items, columns, versions};
+use super::opening::{
+    after_reads_were_kept, before_held_calls, before_pauses_waited_for_items, before_unpriced, columns, versions,
+};
 use super::*;
 
 /// A version of the judged flow as the store is given it: these files, each with a digest of its own making, and an
@@ -128,6 +130,7 @@ fn a_file_of_version_21_is_migrated_with_no_version_kept_no_work_on_one_and_no_t
     let mut work = d.work;
     before_pauses_waited_for_items(&mut work);
     before_held_calls(&mut work);
+    before_unpriced(&mut work);
     let (old, new) = kept_in_21(&work);
     let store = old.open();
     // The file ends at the schema of this build, whichever migrations follow the one that makes the tables below.
@@ -139,7 +142,7 @@ fn a_file_of_version_21_is_migrated_with_no_version_kept_no_work_on_one_and_no_t
     );
     // A file of version 21 kept no times of the runs of the CI, which version 30 keeps.
     work.timed.clear();
-    assert_eq!(store.load(WorkNumber(1)), Ok(work));
+    assert_eq!(store.load(WorkNumber(1)), Ok(after_reads_were_kept(work)));
     for table in ["flow_files", "flows", "on_flow", "kept_time"] {
         assert_eq!(count(&old.path, table), 0, "{table} holds rows");
     }
@@ -159,6 +162,7 @@ fn a_file_of_version_32_is_migrated_with_its_kept_times_read_as_holding_no_turn(
     history(&mut d);
     let mut work = d.work;
     before_held_calls(&mut work);
+    before_unpriced(&mut work);
     let at = work.tick();
     work.kept_time.push(KeptTime {
         at,
@@ -177,7 +181,7 @@ fn a_file_of_version_32_is_migrated_with_its_kept_times_read_as_holding_no_turn(
         columns(&new.path),
         "the migrated file has other tables than a new one"
     );
-    assert_eq!(store.load(WorkNumber(1)), Ok(work));
+    assert_eq!(store.load(WorkNumber(1)), Ok(after_reads_were_kept(work)));
     assert_eq!(count(&old.path, "kept_time"), 1);
 }
 
@@ -188,6 +192,7 @@ fn a_file_of_version_23_is_migrated_with_no_fork_kept() {
     let mut work = d.work;
     before_pauses_waited_for_items(&mut work);
     before_held_calls(&mut work);
+    before_unpriced(&mut work);
     let (old, new) = super::opening::kept_in(23, &work);
     let store = old.open();
     assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
@@ -198,7 +203,7 @@ fn a_file_of_version_23_is_migrated_with_no_fork_kept() {
     );
     // A file of version 23 kept no times of the runs of the CI, which version 30 keeps.
     work.timed.clear();
-    assert_eq!(store.load(WorkNumber(1)), Ok(work));
+    assert_eq!(store.load(WorkNumber(1)), Ok(after_reads_were_kept(work)));
     assert_eq!(count(&old.path, "forked"), 0, "a work kept before has no fork");
 }
 
@@ -314,4 +319,128 @@ fn a_work_changed_at_or_lacking_an_entry_of_its_moves_its_time_or_its_forks_is_r
         refused(&db, &mut store, number, &given, table, entry, Divergence::Missing);
     }
     assert_eq!(store.load(number), Ok(kept));
+}
+
+/// A version of the judged flow whose outline says that the cell `write` has this block as its words, and that any
+/// other block, named like the words of no cell or not, is its own: a block is a cell's words by what the outline says
+/// of it and not by its name.
+fn declaring_words(version: &str, block: &str) -> KeptFlow {
+    KeptFlow {
+        outline: format!(
+            r#"{{"name": "judged", "cells": [{{"id": "write", "words": {{"block": "{block}", "writes": []}}}}, {{"id": "judge"}}]}}"#
+        ),
+        ..kept(version, &[("flow.toml", version)])
+    }
+}
+
+/// The versions of the work that a run wrote to this block: each by the block and the place of the run's finish.
+fn written_by_runs(work: &Work, block: &str) -> BTreeSet<(BlockId, Seq)> {
+    (work.records.finished.iter())
+        .flat_map(|finished| {
+            (finished.writes.iter())
+                .filter(|write| write.block.as_str() == block)
+                .map(|write| (write.block.clone(), finished.at))
+        })
+        .collect()
+}
+
+// The migration to version 37 gives a work kept before one place of reads after its latest entry. It holds every version
+// of the work but those a run wrote to a block that a cell of a version of the flow the work ran on declares as its
+// words: those are the cells' replies, and stay unread. A block is known so by the outline alone, whatever its name; a
+// work that ran on no version that was kept has no outline, and everything it has is read.
+#[test]
+fn a_file_of_version_36_is_migrated_with_every_version_read_but_the_cells_replies_its_outlines_declare() {
+    let (flow, later) = (declaring_words("a", "text"), declaring_words("b", "verdict"));
+    let mut ran_on_it = Driver::new();
+    ran_on_it
+        .work
+        .onto(Time(START), Some("a".to_string()), Reading::default());
+    history(&mut ran_on_it);
+    let mut ran_on_none = Driver::new();
+    history(&mut ran_on_none);
+    // A work that went on with another version of the flow, which declares another block as words, has the words of both.
+    let mut ran_on_two = Driver::new();
+    ran_on_two
+        .work
+        .onto(Time(START), Some("a".to_string()), Reading::default());
+    history(&mut ran_on_two);
+    ran_on_two
+        .work
+        .onto(Time(START + 1_000_000), Some("b".to_string()), Reading::default());
+    let (replies, others) = (
+        written_by_runs(&ran_on_it.work, "text"),
+        written_by_runs(&ran_on_it.work, "verdict"),
+    );
+    assert!(
+        !replies.is_empty() && !others.is_empty(),
+        "the history has no run that wrote the words block or a block that is not"
+    );
+    let (old, new) = super::opening::kept_in_flows(
+        36,
+        &[&ran_on_it.work, &ran_on_none.work, &ran_on_two.work],
+        &[flow, later],
+    );
+    let store = old.open();
+    assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
+    assert_eq!(
+        columns(&old.path),
+        columns(&new.path),
+        "the migrated file has other tables than a new one"
+    );
+    let loaded = store.load(WorkNumber(1)).expect("the work loads");
+    // A file of version 36 holds no read, whatever the history the work was made from has: what it holds is what the
+    // migration writes.
+    let mut expected = ran_on_it.work.clone();
+    expected.records.owner_reads.clear();
+    let at = expected.tick();
+    let read: Vec<(BlockId, Seq)> = (expected.contents.keys())
+        .filter(|version| !replies.contains(*version))
+        .cloned()
+        .collect();
+    assert!(
+        others.iter().all(|version| read.contains(version)),
+        "a block no outline declares as words is left unread"
+    );
+    expected
+        .records
+        .owner_reads
+        .push(decide::OwnerRead { versions: read, at });
+    assert_eq!(loaded, expected);
+    // What the migration left unread are the replies and nothing else, and every other version is a row of the table.
+    assert_eq!(
+        expected.contents.len() - replies.len(),
+        expected.records.owner_reads[0].versions.len()
+    );
+    // The work that ran on both versions of the flow has the replies of both unread: the block each declares as words.
+    let mut both = ran_on_two.work.clone();
+    both.records.owner_reads.clear();
+    let at = both.tick();
+    let unread: BTreeSet<(BlockId, Seq)> = written_by_runs(&both, "text")
+        .into_iter()
+        .chain(written_by_runs(&both, "verdict"))
+        .collect();
+    assert!(
+        unread.len() > replies.len(),
+        "the history has no run that wrote the block only the later version declares"
+    );
+    let read: Vec<(BlockId, Seq)> = (both.contents.keys())
+        .filter(|version| !unread.contains(*version))
+        .cloned()
+        .collect();
+    both.records.owner_reads.push(decide::OwnerRead { versions: read, at });
+    assert_eq!(store.load(WorkNumber(3)), Ok(both.clone()));
+    let other = store.load(WorkNumber(2)).expect("the other work loads");
+    assert_eq!(
+        count(&old.path, "owner_read") as usize,
+        expected.records.owner_reads[0].versions.len()
+            + other.records.owner_reads[0].versions.len()
+            + both.records.owner_reads[0].versions.len()
+    );
+    // The work that ran on no version that was kept has no outline: all it has is read, in one entry after its last.
+    let mut everything = ran_on_none.work.clone();
+    everything.records.owner_reads.clear();
+    let at = everything.tick();
+    let versions: Vec<(BlockId, Seq)> = everything.contents.keys().cloned().collect();
+    everything.records.owner_reads.push(decide::OwnerRead { versions, at });
+    assert_eq!(store.load(WorkNumber(2)), Ok(everything));
 }

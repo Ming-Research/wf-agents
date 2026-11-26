@@ -474,7 +474,8 @@ async fn a_work_whose_left_branches_cannot_be_listed_has_its_pull_request_closed
     hub.green(&head);
     hub.verdict(&head).await.unwrap().unwrap();
     let place = hub.place();
-    hub.host.config.url = hub.repo.data.join("no-such-repository.git").display().to_string();
+    let url = hub.repo.data.join("no-such-repository.git").display().to_string();
+    hub.config_mut().url = url;
     let why = hub
         .host
         .end(&branch(&place), false)
@@ -539,7 +540,7 @@ async fn a_pull_request_merged_or_none_at_all_is_not_closed() {
 /// is marked, so that what the host writes is told from what it has no words for.
 fn hub_with_other_words() -> Hub {
     let mut hub = Hub::new();
-    hub.host.config.words = flow::agents::PullRequest {
+    hub.config_mut().words = flow::agents::PullRequest {
         about: "ABOUT\n{about}\nEND\n".to_string(),
         body: "BODY {work}.".to_string(),
         cut: "CUT".to_string(),
@@ -553,7 +554,8 @@ fn hub_with_other_words() -> Hub {
         },
     };
     let words = hub.host.config.words.withheld.clone();
-    hub.host.config.withheld = withheld(&hub.repo.data, &hub.repo.project.repo, None, &words);
+    let kept = withheld(&hub.repo.data, &hub.repo.project.repo, None, &words);
+    hub.config_mut().withheld = kept;
     hub
 }
 

@@ -254,6 +254,7 @@ pub fn as_of(r: &Records, upto: Seq) -> Records {
         cancels: kept(&r.cancels, |at| *at, upto),
         reopens: kept(&r.reopens, |at| *at, upto),
         releases: kept(&r.releases, |at| *at, upto),
+        owner_reads: kept(&r.owner_reads, |e| e.at, upto),
     }
 }
 

@@ -230,6 +230,13 @@ pub(crate) fn trial_has(_: &Source) -> flow::Has {
     }
 }
 
+/// [`trial_has`], with the engine's source of a cell's words too.
+pub(crate) fn trial_has_with_words(source: &Source) -> flow::Has {
+    let mut has = trial_has(source);
+    has.sources.insert(flow::WORDS.to_string());
+    has
+}
+
 /// A flow whose first cell is the act that starts a work, and whose second merges it: the files of the flow `placing`.
 pub fn placing_flow() -> Source {
     let flow = r#"
@@ -367,6 +374,18 @@ pub fn running_kept(
     bound: u64,
 ) -> (Running, Arc<web::items_cache::ItemsCache>, service::Handle) {
     let flow = flow::compile(source, &trial_has(&Source::default())).unwrap();
+    running_compiled(store, dir, carriers, flow, levels, bound)
+}
+
+/// [`running_kept`], of a flow already compiled, which a test may have changed after its files were compiled.
+pub fn running_compiled(
+    store: Box<dyn store::Storage + Send>,
+    dir: tempfile::TempDir,
+    carriers: service::Carriers,
+    flow: flow::Compiled,
+    levels: service::Levels,
+    bound: u64,
+) -> (Running, Arc<web::items_cache::ItemsCache>, service::Handle) {
     let clock = Arc::new(TokioClock::new(work::Time(START)));
     let (service, inbox) = Service::open(store, vec![flow], carriers, clock).unwrap();
     let handle = service.handle();
@@ -385,7 +404,8 @@ pub fn running_kept(
         bound,
     ));
     let running = Running {
-        router: web::with_works_over(flows, cache.clone(), handle.clone(), levels, projects()).merge(observations),
+        router: web::with_works_over(flows, cache.clone(), handle.clone(), levels, projects(), times())
+            .merge(observations),
         _dir: dir,
     };
     (running, cache, handle)
@@ -406,6 +426,17 @@ pub fn levels_with_rounds_highest(rounds_highest: &str) -> service::Levels {
     service::Levels::new(levels, "2", Some("2"), Some(rounds_highest))
         .expect("the levels are made")
         .with_title_max(20)
+}
+
+/// What `wf-agents wait` goes by: what stands given whole again 5 minutes after it was, a turn held 30 minutes, and a
+/// wait of 15 minutes for a runner.
+pub fn times() -> web::attention::Times {
+    web::attention::Times {
+        again: 300_000,
+        turn: 1_800_000,
+        queued: 900_000,
+        machine: 3_600_000,
+    }
 }
 
 /// The projects an item is added to: `trial`, and `other`.

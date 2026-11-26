@@ -46,6 +46,7 @@ use crate::flow::{BlockId, Cell, CellId, Condition, Flow, TestKind, TestName};
 use crate::questions::{self, Standing as Question};
 use crate::records::{
     CallId, Called, Cause, Finished, Outsider, Pause, Pauser, PutIn, RecordFault, Records, RunId, Seq, Started, Who,
+    Write,
 };
 use crate::room::Room;
 use crate::run::{Asked, Hold, Standing, Told};
@@ -358,6 +359,82 @@ pub fn decide_in(flow: &Flow, records: &Records, room: Room) -> Decision {
         };
     }
     walk.stalled_at_the_end()
+}
+
+/// The blocks of the run's cell that would let the work go on, where it could not go on with the run finished as it is
+/// given: it deals with these blocks and writes these. The walk is taken on the records with that finish added, and where
+/// it leaves the work waiting for what cells write (`leaves_to_cells`), each block the cell may write that is no
+/// choice, none of the cell's dialogues, none that runs the cell itself, not written by this finish and with no version
+/// yet is written in turn, and those after which the work is no longer so held are the answer. None where the work is
+/// not held so, or where no block of the cell would let it go on: that stall is the flow's, which a return of this cell
+/// cannot mend. `choices` are the blocks that are choices, whose value a stand-in write could not give.
+pub fn stuck_blocks(
+    flow: &Flow,
+    records: &Records,
+    run: RunId,
+    dealt_with: &[BlockId],
+    writes: &[Write],
+    choices: &BTreeMap<BlockId, Vec<String>>,
+) -> Vec<BlockId> {
+    let Some(cell) = (records.started.iter().find(|s| s.run == run))
+        .and_then(|s| flow.place(&s.cell))
+        .map(|i| &flow.cells()[i])
+    else {
+        return Vec::new();
+    };
+    let stalled = |extra: Option<&BlockId>| {
+        let mut with = records.clone();
+        let at = with.next_place();
+        let mut writes = writes.to_vec();
+        writes.extend(extra.map(|block| Write {
+            block: block.clone(),
+            meaning_unchanged: false,
+            value: None,
+            empty: false,
+        }));
+        with.finished.push(Finished {
+            run,
+            at,
+            writes,
+            dealt_with: Some(dealt_with.to_vec()),
+            waits_for: None,
+        });
+        leaves_to_cells(&decide_in(flow, &with, Room::FREE))
+    };
+    if !stalled(None) {
+        return Vec::new();
+    }
+    let dialogues: Vec<&BlockId> = (cell.dialogues.keys())
+        .chain(cell.verdicts.values().map(|v| &v.dialogue))
+        .collect();
+    (cell.outputs.iter())
+        .filter(|block| !choices.contains_key(*block) && !dialogues.contains(block) && !cell.runs_on.contains(*block))
+        .filter(|block| !writes.iter().any(|w| &w.block == *block))
+        .filter(|block| records.next_number([*block]) == 1)
+        .filter(|block| !stalled(Some(*block)))
+        .cloned()
+        .collect()
+}
+
+/// Whether the work, as this decides, goes no further for want of what cells write: it is stalled with cells to blame,
+/// or it waits at a cell for preconditions alone, each of which a cell makes hold and no source outside the work could.
+/// The owner may write such a block too, as where a verdict may be ruled on, but nothing the work waits for is on its
+/// way: no call, question, limit, slot or turn is among it.
+fn leaves_to_cells(decision: &Decision) -> bool {
+    match decision {
+        Decision::Stalled { by, .. } => !by.is_empty(),
+        Decision::Wait { on, .. } => {
+            !on.is_empty()
+                && on.iter().all(|waited| match waited {
+                    Waited::Precondition { by, .. } => {
+                        by.iter().any(|m| matches!(m, Maker::Cell { .. }))
+                            && !by.iter().any(|m| matches!(m, Maker::Outside { .. }))
+                    }
+                    _ => false,
+                })
+        }
+        _ => false,
+    }
 }
 
 /// What the round of the run was told, and how the blocks its cell may write stand now: what its return may name as
@@ -719,24 +796,7 @@ fn check(records: &Records) -> Result<(), RecordFault> {
             }
         }
     }
-    let places = (records.started.iter().map(|e| e.at))
-        .chain(records.rounds.iter().map(|e| e.at))
-        .chain(records.returned.iter().map(|e| e.at))
-        .chain(records.called.iter().map(|e| e.at))
-        .chain(records.done.iter().map(|e| e.at))
-        .chain(records.held.iter().map(|e| e.at))
-        .chain(records.finished.iter().map(|e| e.at))
-        .chain(records.abandoned.iter().map(|e| e.at))
-        .chain(records.put_in.iter().map(|e| e.at))
-        .chain(records.hurried.iter().map(|e| e.at))
-        .chain(records.written.iter().map(|e| e.at))
-        .chain(records.questions.iter().map(|e| e.at))
-        .chain(records.answers.iter().map(|e| e.at))
-        .chain(records.let_go.iter().map(|e| e.at))
-        .chain(records.pauses.iter().map(|e| e.at))
-        .chain(records.cancels.iter().copied())
-        .chain(records.reopens.iter().copied())
-        .chain(records.releases.iter().copied());
+    let places = records.entry_places();
     let mut seen = BTreeSet::new();
     for at in places {
         if !seen.insert(at) {

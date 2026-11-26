@@ -135,6 +135,7 @@ async fn a_change_handed_in_while_an_answer_marked_tree_is_not_in_the_design_tre
     let build = real.run_of(work, "build");
     let unchanged = Unmet::TreeUnchanged {
         name: "which_name".to_string(),
+        blocks: vec![decide::BlockId::from("code")],
     };
     assert_eq!(kept.given.get(&(build, 2)), Some(&Given::SentBack(vec![unchanged])));
     assert_eq!(kept.given.get(&(build, 3)), None, "taken at its second round");
@@ -283,6 +284,7 @@ async fn a_return_that_completes_one_that_wrote_the_code_is_held_to_the_answer_i
     let build = real.run_of(work, "build");
     let unchanged = Unmet::TreeUnchanged {
         name: "which_name".to_string(),
+        blocks: vec![decide::BlockId::from("code")],
     };
     let Some(Given::SentBack(first)) = kept.given.get(&(build, 2)) else {
         panic!("the first return was not sent back: {:?}", kept.given.get(&(build, 2)));
@@ -319,6 +321,7 @@ async fn a_line_naming_no_entry_is_sent_back_and_a_reader_is_given_each_entry_na
     let kept = real.work(work);
     let plan = real.run_of(work, "plan");
     let unknown = Unmet::NotAnEntry {
+        block: Some(decide::BlockId::from("entries")),
         line: NO_SUCH_ENTRY.to_string(),
     };
     assert_eq!(kept.given.get(&(plan, 2)), Some(&Given::SentBack(vec![unknown])));

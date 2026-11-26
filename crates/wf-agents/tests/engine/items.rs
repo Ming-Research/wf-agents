@@ -113,7 +113,7 @@ fn an_item_is_added_at_the_level_it_is_given_and_one_the_engine_lacks_is_refused
 }
 
 #[test]
-fn a_work_is_paused_written_let_go_and_cancelled_from_the_command_line() {
+fn a_work_is_paused_written_and_cancelled_and_a_cell_not_at_its_limit_is_not_let_go_from_the_command_line() {
     let place = Place::new(SCRIPT);
     let engine = Engine::start(&place);
     let request = place.dir.path().join("request.md");
@@ -164,9 +164,11 @@ fn a_work_is_paused_written_let_go_and_cancelled_from_the_command_line() {
         engine.says(&["write", "2", "opinions", "--text", "Keep it short."]),
         "Wrote opinions for work W2.\n"
     );
+    // The work waits for the items it depends on, at no cell past its limit: the let-go is refused, saying why.
     assert_eq!(
-        engine.says(&["let-go", "2", "build"]),
-        "Cell build of work W2 goes on.\n"
+        engine.refuses(&["let-go", "2", "build"]),
+        "The cell build is not at its limit: a cell is let go on only where the work waits at it for the owner past its \
+         limit.\n"
     );
     assert_eq!(
         engine.says(&["cancel", "2", "--why", "No longer wanted."]),

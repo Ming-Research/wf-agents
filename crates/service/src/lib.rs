@@ -220,7 +220,8 @@ pub enum Act {
         content: String,
         value: Option<String>,
     },
-    /// Lets the cell go on at its limit.
+    /// Lets the cell go on at its limit: the work waits at the cell for the owner past the cell's limit. Any other cell
+    /// is refused.
     LetGo {
         cell: CellId,
     },
@@ -255,6 +256,11 @@ pub enum Act {
         question: String,
         version: u64,
         option: u64,
+    },
+    /// Says the owner read these versions of the work's blocks, each by its block and its number among the block's
+    /// versions. A version the work has not is refused, and none of them is kept.
+    Read {
+        versions: Vec<(BlockId, u64)>,
     },
 }
 
@@ -565,7 +571,8 @@ impl Service {
                 // nothing of the work's records did, so that what reads a work's records is not told to read them.
                 let going = matches!(along, Some(Along::Going(_)));
                 // What a work does now may have changed, though no record of it grew.
-                if self.driver.along(work, under, along) {
+                let now = self.now()?;
+                if self.driver.along(now, work, under, along) {
                     let _ = self.changed.send(Changed {
                         works: if going { Vec::new() } else { vec![work] },
                         items: false,
@@ -914,6 +921,7 @@ impl Service {
                 version,
                 option,
             },
+            Act::Read { versions } => Event::Read { versions },
             Act::Result { call, result } => {
                 // A call the engine makes has its result from what makes it: a person's answer to it would be a
                 // second one.

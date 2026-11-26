@@ -8,8 +8,9 @@ The bar's tabs are Console, Works, Flow, Observations, System and Settings, in t
 - replaced: Eight tabs, with Messages first, the architect second and Items among them, was on main; the owner changed it, because the console is the centre of the page, and the observations, the system and the settings each need a view.
 
 ### decision the-console-tab-counts-as-the-cards-do
-Beside Console the bar shows, as a card's tags stand, the orange count of the questions the owner may answer ahead and, right of it, the red count of what waits; each only above nought.
+Beside Console the bar shows, as a card's tags do, replies not read in the accent, questions to answer ahead in orange, and in red what waits, the engine's pause of all works too; each above nought.
 - replaced: The red count alone beside Console was on main; the owner changed it, because an item's card showed an orange count that nothing beside Console said, and the bar and the cards should agree.
+- replaced: Counting the replies the owner had not read nowhere, with only the orange and the red counts beside Console, was on main; the owner changed it, because the owner wanted them counted on the cards and beside Console in the page's accent, shaped as the red and the orange are.
 
 ### decision what-stands-at-the-bars-right
 The right end of the bar shows the engine's state, Pause all or Start all with no confirmation, the switch that keeps waiting sessions warm, the slots in use, and the light and dark switch.
@@ -115,6 +116,15 @@ Tags, buttons, inputs and the console's cards have 3 px rounded corners, and pan
 - rejected: the owner proposed trying the Solid Glass style, with round panes of glass, controls shaped as pills and soft shadows; the owner rejected it, because the console and the flow are drawings, not ordinary controls, and the round corners looked bad where the cool, square look worked well.
 - rejected: an agent proposed an instrument look, with a grid of dots and square unfilled cards, or a terminal look, with a grid of lines and titles in monospace; the owner rejected it, because neither worked well when tried behind a switch next to the current look.
 
+### decision the-dialogs-take-the-pages-own-values
+The page's question before a command and the window a diagram opens larger in use the page's body size, control height, button corner and window shadow, with square corners.
+- replaced: A look of their own, with 14 px type, 32 px buttons, corners of 6 px and 12 px and a shadow of their own, was on main; the owner changed it, because it made an exception to the rules for sizes, heights and corners that other parts could copy.
+
+### decision the-style-check-lists-the-media-breakpoints
+The check of the page's styles lists the three breakpoints in `works.css` as its exceptions, each with its reason, because a media condition cannot read a named value.
+- rejected: an agent proposed that the script read the breakpoint tokens with matchMedia and give the page a class for each width, with no media condition in the styles; the owner rejected it, because the layout would depend on script and the first paint could come in the wrong width and jump.
+- rejected: an agent proposed expanding the breakpoints at build time with a `@custom-media` plugin; the owner rejected it, because it adds a build dependency and a change of the lock file, and the source would then differ from the CSS the browser reads itself.
+
 ### decision no-made-up-data-in-the-installed-page
 The page built into the program shows only the engine's data: the page's made-up data exist only on the development server and in the tests.
 - replaced: Made-up data built into the program, shown with `?mocks` or `?fixtures` in the address, was on main; the owner changed it, because the owner's program should hold no false data that one parameter could show.
@@ -130,10 +140,11 @@ A work's usage (Usage tab, round panel, System view) tells tokens sent fresh, wr
 - replaced: Tokens told as sent, read from the cache and given back, the sent counting those written to the cache with those sent fresh, was on main; the owner changed it, because a write to the cache costs more than a send fresh, an hour's twice as much, and he could not see where the money went.
 
 ### decision the-browser-tells-the-owner-what-waits
-While the page is open, a browser notification tells the owner of each work that starts waiting for him, naming its cell and why; a click opens the console at that wait's card.
+While the page is open, a browser notification tells the owner of each work that starts waiting, naming its cell and why, and of the engine's pause of all works; a click opens its card or the console.
 - rejected: an agent proposed a notification sent by a script on the machine the server runs on; the owner rejected it, because he uses the page in Chrome, and the server runs on his machine only by chance.
 - rejected: an agent proposed a push notification to the owner's phone; the owner rejected it, because the browser's notifications are enough for now.
 - rejected: an agent proposed a notification of the operating system, sent by the engine, as well as the browser's; the owner rejected it, because the browser's notifications are enough.
+- replaced: The engine's pause of all works, which it sets as it starts with works going on, left out of the notifications and of the bar's count, was on main; the owner changed it, because the engine stopped every work by itself and told the owner nothing.
 
 ### decision a-hidden-page-reads-only-the-changed-items
 While the page is hidden it reads only the changed items, at each notice, so the browser's notifications still come; it reads the rest, and the items once more, when it is seen again.

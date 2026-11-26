@@ -1,7 +1,7 @@
 //! The system prompt of the lines of the engineer's flow as the repository defines it (`flow/engineer`), made from the
 //! files beside it, with the sample's settings.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use flow::{CellSpec, Compiled, Has};
 
@@ -593,37 +593,69 @@ fn the_checks_an_agent_may_name_are_said_as_the_project_declares_its_fast_workfl
     assert_eq!(faults(&local, &beside, &whole, &flow), Faults::default());
 }
 
-// What `run_tests` says of measurements is said only where the project declares a workflow that times them, with the
-// project's own setting for how one is named beside it; a project that declares one and gives no such setting is refused as
-// the engine starts, since its agents would be sent the setting's bare name. Milliseconds alone, as the test above it.
+// What `run_tests` says of measurements is said only where the project declares some, and names each: what it measures,
+// its workflow and machine, the inputs an agent may set where it may set any, and each metric with its unit; a project
+// that declares none is told nothing of them. Milliseconds alone, as the test above it.
 #[test]
-fn run_tests_is_told_of_measurements_only_where_the_project_declares_a_workflow_that_times_them() {
+fn run_tests_is_told_of_measurements_only_where_the_project_declares_them_and_names_each() {
     let (beside, flow, whole) = (beside(), engineer(), declaration());
     let told = |declaration: &Declaration| {
         let cell = cell(&flow, "engineer");
         let filling = filling(&settings(), &beside, declaration);
         of_line(&beside, declaration, &filling, &flow, cell, "", project).expect("it is made")
     };
-    assert_eq!(faults(&settings(), &beside, &whole, &flow), Faults::default());
-    let measuring = told(&whole);
-    assert!(
-        measuring.contains("Add `\"measure\": [...]` to time measurements: name them as `project.measure_names` (A measurement is named by its file in `measure/`"),
-        "{measuring}"
-    );
-    assert!(!measuring.contains("{measure}"), "{measuring}");
     let mut none = whole.clone();
-    none.ci.as_mut().expect("the project declares its workflows").measure = None;
+    none.ci
+        .as_mut()
+        .expect("the project declares its workflows")
+        .measure
+        .clear();
+    assert_eq!(faults(&settings(), &beside, &none, &flow), Faults::default());
     let silent = told(&none);
-    assert!(!silent.contains("to time measurements"), "{silent}");
+    assert!(
+        !silent.contains("to run measurements this project declares"),
+        "{silent}"
+    );
     assert!(!silent.contains("{measure}"), "{silent}");
-    // A project that measures says how a measurement is named.
-    let mut lacking = whole.clone();
-    lacking.project.remove("measure_names");
-    assert_eq!(
-        said(&settings(), &beside, &lacking, &flow),
-        [
-            "flow engineer: wf-agents.toml: declares [ci.measure] and gives no `measure_names` in [project], which the words of run_tests name"
-        ]
+    let measurement = |open: &[&str]| flow::agents::Measurement {
+        about: "the commit against where its change began".to_string(),
+        workflow: "bench.yml".to_string(),
+        runner: "14900k".to_string(),
+        too_long: "1h".to_string(),
+        inputs: BTreeMap::from([("call".to_string(), "{call}".to_string())]),
+        open: open.iter().map(|input| input.to_string()).collect(),
+        artifact: "measurement".to_string(),
+        file: "bench.csv".to_string(),
+        metrics: BTreeMap::from([
+            ("p99_ms".to_string(), "ms".to_string()),
+            ("rps".to_string(), "requests/s".to_string()),
+        ]),
+    };
+    let mut measuring = none.clone();
+    let declared = &mut measuring
+        .ci
+        .as_mut()
+        .expect("the project declares its workflows")
+        .measure;
+    declared.insert("compare".to_string(), measurement(&["tests", "passes"]));
+    declared.insert("startup".to_string(), measurement(&[]));
+    assert_eq!(faults(&settings(), &beside, &measuring, &flow), Faults::default());
+    let said = told(&measuring);
+    assert!(
+        said.contains("Add `\"measure\": [{\"name\": \"...\", \"inputs\": {...}}]`"),
+        "{said}"
+    );
+    assert!(
+        said.contains(
+            "`compare`, the commit against where its change began (bench.yml on 14900k; you may set `tests`, `passes`; \
+             metrics `p99_ms` in ms, `rps` in requests/s); `startup`, the commit against where its change began \
+             (bench.yml on 14900k; metrics `p99_ms` in ms, `rps` in requests/s)."
+        ),
+        "{said}"
+    );
+    assert!(
+        !said.contains("{measure}") && !said.contains("{measurements}"),
+        "{said}"
     );
 }
 

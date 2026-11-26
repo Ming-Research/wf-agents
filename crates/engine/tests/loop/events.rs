@@ -114,9 +114,8 @@ fn a_return_that_deals_with_nothing_and_asks_for_nothing_is_sent_back() {
 }
 
 #[test]
-fn the_owner_letting_a_cell_go_on_pausing_resuming_and_cancelling_are_each_recorded() {
+fn the_owner_pausing_resuming_and_cancelling_are_each_recorded() {
     let mut w = W::new();
-    w.on(Event::LetGo { cell: "judge".into() });
     w.on(Event::Paused {
         by: Pauser::Owner,
         why: None,
@@ -125,10 +124,6 @@ fn the_owner_letting_a_cell_go_on_pausing_resuming_and_cancelling_are_each_recor
     w.on(Event::Resumed);
     w.on(Event::Cancelled { why: None });
     let r = &w.work.records;
-    assert_eq!(
-        r.let_go.iter().map(|l| l.cell.as_str()).collect::<Vec<_>>(),
-        vec!["judge"]
-    );
     assert_eq!(r.pauses.iter().map(|p| p.paused).collect::<Vec<_>>(), vec![true, false]);
     assert!(r.cancelled().is_some());
 }
@@ -291,6 +286,7 @@ fn a_fork_of_a_round_is_kept_with_what_it_took_for_a_work_under_way_and_for_one_
     let (mut w, write, _) = W::requested();
     let spent = Spent {
         usd_micros: 400_000,
+        unpriced: true,
         uncached_tokens: 120,
         cache_written_tokens: Some(100),
         cached_tokens: 18_100,
@@ -305,8 +301,8 @@ fn a_fork_of_a_round_is_kept_with_what_it_took_for_a_work_under_way_and_for_one_
     let first = w.work.tick().0 - 1;
     assert_eq!(w.work.moments.len(), moments + 1, "kept as a moment of its own");
     assert_eq!(w.work.records.started.len(), started, "no cell runs for it");
-    // What is kept of what it took is its cost and its counts of tokens: the rest of what a round keeps is not a
-    // fork's.
+    // What is kept of what it took is its cost, whether some of it is not known, and its counts of tokens: the rest of
+    // what a round keeps is not a fork's.
     assert_eq!(
         w.work.forked,
         [Forked {
@@ -314,6 +310,7 @@ fn a_fork_of_a_round_is_kept_with_what_it_took_for_a_work_under_way_and_for_one_
             run: write,
             round: 1,
             usd_micros: 400_000,
+            unpriced: true,
             uncached_tokens: 120,
             cache_written_tokens: Some(100),
             cached_tokens: 18_100,

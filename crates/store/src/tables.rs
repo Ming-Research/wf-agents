@@ -1,11 +1,11 @@
 //! A work's entries, table by table: each list and each map of a [`Work`] is a table, read back in the order the
 //! list or the map has.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use decide::{
-    Abandoned, Answered, BlockId, CallId, Called, CellId, Done, Finished, Held, Hurried, LetGo, Pause, PutIn,
-    Questioned, Returned, Round, RunId, Seq, Started, Write, Written, holds_nothing,
+    Abandoned, Answered, BlockId, CallId, Called, CellId, Done, Finished, Held, Hurried, LetGo, OwnerRead, Pause,
+    PutIn, Questioned, Returned, Round, RunId, Seq, Started, Write, Written, holds_nothing,
 };
 use rusqlite::{Connection, Row, params};
 use serde::Serialize;
@@ -275,6 +275,21 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
             })
         },
     )?;
+    let read = rows(
+        db,
+        "SELECT at, block, version FROM owner_read WHERE work = ?1 ORDER BY at, block, version",
+        w,
+        |row| Ok((Seq(row.get(0)?), BlockId(row.get(1)?), Seq(row.get(2)?))),
+    )?;
+    for (at, block, version) in read {
+        match r.owner_reads.last_mut() {
+            Some(last) if last.at == at => last.versions.push((block, version)),
+            _ => r.owner_reads.push(OwnerRead {
+                versions: vec![(block, version)],
+                at,
+            }),
+        }
+    }
     let pauses = rows(
         db,
         "SELECT at, paused, pauser, why FROM pauses WHERE work = ?1 ORDER BY at",
@@ -389,7 +404,7 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
     out.spent = rows(
         db,
         "SELECT run, round, usd_micros, uncached_tokens, cache_written_tokens, cached_tokens, output_tokens, \
-         context_tokens, compactions FROM spent WHERE work = ?1",
+         context_tokens, compactions, unpriced FROM spent WHERE work = ?1",
         w,
         |row| {
             let spent = Spent {
@@ -400,6 +415,7 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
                 output_tokens: row.get(6)?,
                 context_tokens: row.get(7)?,
                 compactions: row.get(8)?,
+                unpriced: row.get(9)?,
             };
             Ok(((RunId(row.get(0)?), row.get(1)?), spent))
         },
@@ -494,7 +510,7 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
     out.pinged = rows(
         db,
         "SELECT at, line, session, usd_micros, uncached_tokens, cache_written_tokens, cached_tokens, output_tokens, \
-         context_tokens, compactions, failed FROM pinged WHERE work = ?1 ORDER BY at",
+         context_tokens, compactions, failed, unpriced FROM pinged WHERE work = ?1 ORDER BY at",
         w,
         |row| {
             Ok(Pinged {
@@ -509,6 +525,7 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
                     output_tokens: row.get(7)?,
                     context_tokens: row.get(8)?,
                     compactions: row.get(9)?,
+                    unpriced: row.get(11)?,
                 },
                 failed: row.get(10)?,
             })
@@ -516,8 +533,8 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
     )?;
     out.forked = rows(
         db,
-        "SELECT at, run, round, usd_micros, uncached_tokens, cache_written_tokens, cached_tokens, output_tokens \
-         FROM forked WHERE work = ?1 ORDER BY at",
+        "SELECT at, run, round, usd_micros, uncached_tokens, cache_written_tokens, cached_tokens, output_tokens, \
+         unpriced FROM forked WHERE work = ?1 ORDER BY at",
         w,
         |row| {
             Ok(Forked {
@@ -525,6 +542,7 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
                 run: RunId(row.get(1)?),
                 round: row.get(2)?,
                 usd_micros: row.get(3)?,
+                unpriced: row.get(8)?,
                 uncached_tokens: row.get(4)?,
                 cache_written_tokens: row.get(5)?,
                 cached_tokens: row.get(6)?,
@@ -731,6 +749,7 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     let answers = grown("answers", &h.answers, &g.answers, |e| Entry::At(e.at))?;
     let let_go = grown("let_go", &h.let_go, &g.let_go, |e| Entry::At(e.at))?;
     let pauses = grown("pauses", &h.pauses, &g.pauses, |e| Entry::At(e.at))?;
+    let owner_reads = grown("owner_read", &h.owner_reads, &g.owner_reads, |e| Entry::At(e.at))?;
     // A cancel and a reopen are kept with why, which is theirs as much as their place.
     let with_why = |places: &[Seq], why: &BTreeMap<Seq, String>| -> Vec<(Seq, Option<String>)> {
         places.iter().map(|at| (*at, why.get(at).cloned())).collect()
@@ -901,6 +920,14 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
             params![w, e.at.0, e.cell.0],
         )?;
     }
+    for e in owner_reads {
+        for (block, version) in &e.versions {
+            db.execute(
+                "INSERT INTO owner_read (work, at, block, version) VALUES (?1, ?2, ?3, ?4)",
+                params![w, e.at.0, block.0, version.0],
+            )?;
+        }
+    }
     for e in pauses {
         let pauser = name("pauses", &e.by)?;
         db.execute(
@@ -975,7 +1002,8 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     for ((run, round), s) in spent {
         db.execute(
             "INSERT INTO spent (work, run, round, usd_micros, uncached_tokens, cache_written_tokens, cached_tokens, \
-             output_tokens, context_tokens, compactions) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+             output_tokens, context_tokens, compactions, unpriced) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 w,
                 run.0,
@@ -986,7 +1014,8 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
                 s.cached_tokens,
                 s.output_tokens,
                 s.context_tokens,
-                s.compactions
+                s.compactions,
+                s.unpriced
             ],
         )?;
     }
@@ -1055,8 +1084,8 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
         let s = &p.spent;
         db.execute(
             "INSERT INTO pinged (work, at, line, session, usd_micros, uncached_tokens, cache_written_tokens, \
-             cached_tokens, output_tokens, context_tokens, compactions, failed) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+             cached_tokens, output_tokens, context_tokens, compactions, failed, unpriced) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 w,
                 p.at.0,
@@ -1069,14 +1098,15 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
                 s.output_tokens,
                 s.context_tokens,
                 s.compactions,
-                p.failed
+                p.failed,
+                s.unpriced
             ],
         )?;
     }
     for f in forked {
         db.execute(
             "INSERT INTO forked (work, at, run, round, usd_micros, uncached_tokens, cache_written_tokens, \
-             cached_tokens, output_tokens) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+             cached_tokens, output_tokens, unpriced) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 w,
                 f.at.0,
@@ -1086,7 +1116,8 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
                 f.uncached_tokens,
                 f.cache_written_tokens,
                 f.cached_tokens,
-                f.output_tokens
+                f.output_tokens,
+                f.unpriced
             ],
         )?;
     }
@@ -1326,5 +1357,80 @@ pub(crate) fn fill_empty(db: &Connection) -> Result<(), Fault> {
     drop(rows);
     drop(query);
     db.execute_batch("DROP TABLE writes_before_18; DROP TABLE written_before_18;")?;
+    Ok(())
+}
+
+/// The step of migration 37: gives each work kept before the engine kept what the owner read its one place of reads, at
+/// the first place after its latest entry, holding every version it has but each that a run wrote to a block that a
+/// cell of a version of the flow the work ran on declares as the cell's words (`words.block` of the version's outline):
+/// those are the cells' replies, which stay unread. A work that ran on no version that was kept has no outline and no
+/// reply is found in it, so everything it has is read. Which of the versions left unread are replies is not decided
+/// here: the engine decides that from the records, in one place.
+pub(crate) fn fill_owner_read(db: &Connection) -> Result<(), Fault> {
+    // The blocks the outlines of the versions of each work declare as words.
+    let mut words: BTreeMap<i64, BTreeSet<String>> = BTreeMap::new();
+    let mut query =
+        db.prepare("SELECT DISTINCT o.work, f.outline FROM on_flow o JOIN flows f ON f.version = o.version")?;
+    let mut found = query.query([])?;
+    while let Some(row) = found.next()? {
+        let (work, outline): (i64, String) = (row.get(0)?, row.get(1)?);
+        let outline: serde_json::Value = parse("flows", &outline)?;
+        let blocks = (outline["cells"].as_array().into_iter().flatten())
+            .filter_map(|cell| cell["words"]["block"].as_str())
+            .map(str::to_string);
+        words.entry(work).or_default().extend(blocks);
+    }
+    drop(found);
+    drop(query);
+    // The place after the latest entry of each work, over the tables of version 37 that hold a place.
+    let mut query = db.prepare(
+        "SELECT work, max(at) FROM (\
+         SELECT work, at FROM on_flow UNION ALL SELECT work, at FROM kept_time UNION ALL \
+         SELECT work, at FROM started UNION ALL SELECT work, at FROM rounds UNION ALL \
+         SELECT work, at FROM returned UNION ALL SELECT work, at FROM called UNION ALL \
+         SELECT work, at FROM done UNION ALL SELECT work, at FROM held UNION ALL \
+         SELECT work, at FROM finished UNION ALL SELECT work, at FROM abandoned UNION ALL \
+         SELECT work, at FROM put_in UNION ALL SELECT work, at FROM hurried UNION ALL \
+         SELECT work, at FROM written UNION ALL SELECT work, at FROM questions UNION ALL \
+         SELECT work, at FROM answers UNION ALL SELECT work, at FROM let_go UNION ALL \
+         SELECT work, at FROM pauses UNION ALL SELECT work, at FROM cancelled UNION ALL \
+         SELECT work, at FROM reopened UNION ALL SELECT work, at FROM released UNION ALL \
+         SELECT work, at FROM filled UNION ALL SELECT work, at FROM sessions UNION ALL \
+         SELECT work, at FROM ran UNION ALL SELECT work, at FROM measured UNION ALL \
+         SELECT work, at FROM left_behind UNION ALL SELECT work, at FROM pinged UNION ALL \
+         SELECT work, at FROM forked UNION ALL SELECT work, at FROM pulls UNION ALL \
+         SELECT work, at FROM timed UNION ALL SELECT work, at FROM short_of_time) GROUP BY work",
+    )?;
+    let places: Vec<(i64, i64)> = query
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<Result<_, _>>()?;
+    drop(query);
+    for (work, latest) in places {
+        let none = BTreeSet::new();
+        let replies = words.get(&work).unwrap_or(&none);
+        // What a run wrote to a words block, by block and version.
+        let mut written: BTreeSet<(String, i64)> = BTreeSet::new();
+        let mut query = db.prepare(
+            "SELECT w.block, f.at FROM writes w JOIN finished f ON f.work = w.work AND f.run = w.run WHERE w.work = ?1",
+        )?;
+        for kept in query.query_map([work], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))? {
+            let (block, at) = kept?;
+            if replies.contains(&block) {
+                written.insert((block, at));
+            }
+        }
+        drop(query);
+        let mut query = db.prepare("SELECT block, version FROM contents WHERE work = ?1")?;
+        let versions: Vec<(String, i64)> = query
+            .query_map([work], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<Result<_, _>>()?;
+        drop(query);
+        for (block, version) in versions.into_iter().filter(|kept| !written.contains(kept)) {
+            db.execute(
+                "INSERT INTO owner_read (work, at, block, version) VALUES (?1, ?2, ?3, ?4)",
+                params![work, latest + 1, block, version],
+            )?;
+        }
+    }
     Ok(())
 }

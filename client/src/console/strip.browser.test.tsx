@@ -37,8 +37,8 @@ const working = (id: number, cells: CellNow[]): Shown => ({
   asks: 0,
   ahead: 0,
   deliver: false,
-  unseen: false,
-  unread: 0,
+  fresh: 'none',
+  repliesUnread: 0,
   begun: true,
   shadow: false,
   work: {

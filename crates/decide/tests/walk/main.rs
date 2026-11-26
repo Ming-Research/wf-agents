@@ -29,6 +29,7 @@ mod rounds;
 mod skipping;
 mod stalling;
 mod stopping;
+mod stuck;
 mod turn;
 mod waiting;
 mod ways_back;

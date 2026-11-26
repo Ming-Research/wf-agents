@@ -57,8 +57,8 @@ const HEIGHT = 640;
 const card = (id: number, children: Shown[] = []): Shown => ({
   id,
   title: `Item ${id}`,
-  unseen: false,
-  unread: 0,
+  fresh: 'none',
+  repliesUnread: 0,
   standing: 'open',
   asks: 0,
   ahead: 0,
@@ -574,6 +574,48 @@ describe('the tree in columns', () => {
     ]);
   });
 
+  it("draws the replies not read as a number on the card in the colour the map marks what is not read in, and marks on the map each item with something not read, a folded item for what is under it, whatever the item's `fresh` says", () => {
+    const unread = (id: number, fresh: Shown['fresh'], repliesUnread: number, children: Shown[] = []): Shown => ({
+      ...card(id, children),
+      fresh,
+      repliesUnread,
+    });
+    // 1 has two replies not read and is not new; 2 is new with none; 3 is changed with one; 4 is all read.
+    scene.show([unread(1, 'none', 2), unread(2, 'new', 0), unread(3, 'changed', 1), unread(4, 'none', 0)]);
+    settle(scene);
+    const { unseen } = themed();
+    expect([1, 2, 3, 4].map((id) => scene.drawnTags(id))).toEqual([
+      [{ text: '2', fill: unseen }],
+      [],
+      [{ text: '1', fill: unseen }],
+      [],
+    ]);
+    expect(scene.drawnMap().unread).toEqual([1, 2, 3]);
+    // A card with a reply not read among the tags of what waits on the owner draws it after them.
+    const waits = { ...running(5), waits: [{ key: 'answer-which', why: 'Which?', ends: { kind: 'resume' as const } }] };
+    scene.show([{ ...unread(5, 'none', 3), begun: true, asks: 1, work: waits }]);
+    settle(scene);
+    expect(scene.drawnTags(5)).toEqual([
+      { text: '1', fill: themed().red },
+      { text: '3', fill: unseen },
+    ]);
+    // Folded away, what is not read under an item marks the item; shown, it marks the item it is of.
+    const under = { open: 1, done: 0, cancelled: 0, elsewhere: 0 };
+    const tree = (folded: boolean) => [{ ...card(6, [unread(7, 'none', 1)]), fold: { folded, under } }];
+    scene.show(tree(true));
+    for (let k = 0; k <= FOLD_MS / 16; k += 1) scene.step();
+    settle(scene);
+    expect(scene.drawnMap().unread).toEqual([6]);
+    scene.show(tree(false));
+    settle(scene);
+    expect(scene.drawnMap().unread).toEqual([7]);
+    expect(scene.drawnTags(7)).toEqual([{ text: '1', fill: unseen }]);
+    // Read, the card is made again without the number and the map has no mark.
+    scene.show(tree(false).map((root) => ({ ...root, children: [unread(7, 'none', 0)] })));
+    settle(scene);
+    expect([scene.drawnTags(7), scene.drawnMap().unread]).toEqual([[], []]);
+  });
+
   it("frames on the map the part of the tree the screen shows, round the middle where each column's place is, after a scroll and a pan", () => {
     // Thirty roots in the first column, the first with an item under it and one under that: three columns.
     const roots = Array.from({ length: 30 }, (_, k) => card(k + 1, k === 0 ? [card(100, [card(101)])] : []));
@@ -606,6 +648,37 @@ describe('the tree in columns', () => {
     wheel(PITCH + 100, 0);
     settle(scene);
     holds(1, 2);
+  });
+
+  it("makes the map as high as the page's `--map-high` says, and 72 pixels where the token is not in pixels", () => {
+    const root = document.documentElement;
+    let draws = 0;
+    /// The middle of the frame on the map, and how tall the first item's piece is, as drawn once the map is made again:
+    /// the same thirty roots under new numbers each time, as a tree the scene shows again to the same items makes
+    /// nothing again, and the map is made as the tree is.
+    const drawn = (value: string) => {
+      root.style.setProperty('--map-high', value);
+      draws += 100;
+      scene.show(Array.from({ length: 30 }, (_, k) => card(draws + k + 1)));
+      settle(scene);
+      const { frame, pieces } = scene.drawnMap();
+      if (frame === null) throw new Error('no frame on the map');
+      return { middle: frame.y + frame.height / 2, tall: pieces[0].height };
+    };
+    try {
+      const page = drawn('72px');
+      const high = drawn('90px');
+      expect(high.middle).toBeCloseTo(90 / 2, 6);
+      // A piece is as tall as its rows of the map's height less the 8 pixels of room on each side.
+      expect(high.tall / page.tall).toBeCloseTo((90 - 2 * 8) / (72 - 2 * 8), 6);
+      for (const value of ['3em', 'tall']) {
+        const fallen = drawn(value);
+        expect(fallen.middle, value).toBeCloseTo(72 / 2, 6);
+        expect(fallen.tall, value).toBeCloseTo(page.tall, 6);
+      }
+    } finally {
+      root.style.removeProperty('--map-high');
+    }
   });
 
   it('draws a card whose work halted before its first round in red, as one that halted after it, with no second row', () => {
@@ -1349,6 +1422,7 @@ describe('the console page', () => {
       '/ search',
       'e fold or unfold the card under the pointer',
       'n / N next / previous question',
+      'm / M next / previous reply you have not read',
       '1 – 9 the tree of the project of that place in the list',
       "Space every project's tree at once",
       'Esc close',

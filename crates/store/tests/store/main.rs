@@ -20,8 +20,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use decide::{
-    CallId, Called, Done, Finished, Hurried, Outsider, Pauser, PutIn, Returned, Round, RunId, Seq, Started, Who, Write,
-    Written,
+    BlockId, CallId, Called, Done, Finished, Hurried, Outsider, OwnerRead, Pauser, PutIn, Returned, Round, RunId, Seq,
+    Started, Who, Write, Written,
 };
 use engine::{Ask, Came, Effect, Event, Given, Handed, Spent, Time, Work, handle, pending};
 use flow::{Compiled, Has, Source, compile};
@@ -267,6 +267,17 @@ impl Driver {
         }
     }
 
+    /// Whether the work waits at the cell for the owner past the cell's limit.
+    fn waits_at_its_limit(&self, cell: &str) -> bool {
+        match decide::decide(&self.flow.flow, &self.work.records) {
+            decide::Decision::Wait { at, on } => {
+                at.as_str() == cell
+                    && (on.iter()).any(|w| matches!(w, decide::Waited::Limit { .. } | decide::Waited::Calls { .. }))
+            }
+            _ => false,
+        }
+    }
+
     /// The run whose round is under way, and its cell.
     fn under_way(&self) -> (RunId, String) {
         (pending(&self.flow, &self.work).into_iter())
@@ -304,6 +315,8 @@ impl Driver {
         let n = self.ended;
         Spent {
             usd_micros: 7 * n,
+            // Some rounds have calls whose cost is not known.
+            unpriced: n.is_multiple_of(5),
             uncached_tokens: 11 * n,
             // Told by no round of a file made before this version: the work is read back from such files as written.
             cache_written_tokens: None,
@@ -424,7 +437,8 @@ fn tool(name: &str) -> Ask {
 /// A history that leaves an entry of every kind: writes by a person and the outside with values and without, runs
 /// finished, sent back and abandoned, calls for a tool and recorded as for a person, done and withdrawn, a question asked and the
 /// owner's answer to it, a run's limit of returns let go by the owner, a pause and a resume, a round that failed and
-/// the engine's pause for it, a cell let go, and a cancel with a run at rest at the owner's call.
+/// the engine's pause for it, a cell let go at its limit of runs that only ask, and a cancel with a run at rest at the
+/// owner's call.
 fn history(d: &mut Driver) {
     d.wrote("request", Outsider::Person, None);
     // The outside writes while the writer's first round is under way: its return deals with the request it was told
@@ -492,10 +506,27 @@ fn history(d: &mut Driver) {
         };
         d.on(Event::Ran { run, attempt: 1, on });
     }
-    // It asks again, and is entered again for those results.
+    // It asks again, and is entered again for those results, run after run, until it has asked and dealt with nothing
+    // in as many runs in a row as its limit allows: the work then waits at it until the owner lets it go on.
     d.end(Came::asks(vec![tool("b"), tool("c")]));
     d.answer();
+    for name in ["h", "i", "j"] {
+        if d.waits_at_its_limit("write") {
+            break;
+        }
+        d.end(Came::asks(vec![tool(name)]));
+        d.answer();
+    }
+    assert!(
+        d.waits_at_its_limit("write"),
+        "the writer never reached its limit of calls"
+    );
+    d.on(Event::LetGo { cell: "write".into() });
     d.end(hands_in(&[("text", None)]));
+    // The owner reads the text, the first version of it.
+    d.on(Event::Read {
+        versions: vec![("text".into(), 1)],
+    });
     // The judge asks for a tool during a pause that says why and the items it waits for: the call is made, and entering
     // it again waits for the resume.
     d.on(Event::Paused {
@@ -586,7 +617,6 @@ fn history(d: &mut Driver) {
     d.on(Event::Timed { reading });
     d.on(Event::Timed { reading: other });
     d.wrote("verdict", Outsider::Person, Some("no"));
-    d.on(Event::LetGo { cell: "write".into() });
     // Answered, the judge is entered again, and hands in until a run of it finishes, writing a choice; the writer then
     // runs for its opinions.
     d.answer();

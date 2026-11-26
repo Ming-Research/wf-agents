@@ -82,6 +82,11 @@ pub struct Records {
     /// have none, and read so. What was let go since the work's latest reopen is [`Records::released`].
     #[serde(default)]
     pub releases: Vec<Seq>,
+    /// Each time the owner read versions of the work's blocks, or the engine counted versions as read as it brought the
+    /// store up to date: what the owner has read is what these name. Records kept before the engine kept what the owner
+    /// read have none, and read so.
+    #[serde(default)]
+    pub owner_reads: Vec<OwnerRead>,
 }
 
 impl Records {
@@ -155,6 +160,7 @@ impl Records {
             cancels: kept(&self.cancels, |at| *at, place),
             reopens: kept(&self.reopens, |at| *at, place),
             releases: kept(&self.releases, |at| *at, place),
+            owner_reads: kept(&self.owner_reads, |e| e.at, place),
         }
     }
 
@@ -170,6 +176,34 @@ impl Records {
             return false;
         };
         !self.done.iter().any(|d| d.call == call) && !self.done.iter().any(|d| d.call == held.wait)
+    }
+
+    /// The place of every entry of the records, in no order: each entry takes a place of its own.
+    pub(crate) fn entry_places(&self) -> impl Iterator<Item = Seq> + '_ {
+        (self.started.iter().map(|e| e.at))
+            .chain(self.rounds.iter().map(|e| e.at))
+            .chain(self.returned.iter().map(|e| e.at))
+            .chain(self.called.iter().map(|e| e.at))
+            .chain(self.done.iter().map(|e| e.at))
+            .chain(self.held.iter().map(|e| e.at))
+            .chain(self.finished.iter().map(|e| e.at))
+            .chain(self.abandoned.iter().map(|e| e.at))
+            .chain(self.put_in.iter().map(|e| e.at))
+            .chain(self.hurried.iter().map(|e| e.at))
+            .chain(self.written.iter().map(|e| e.at))
+            .chain(self.questions.iter().map(|e| e.at))
+            .chain(self.answers.iter().map(|e| e.at))
+            .chain(self.let_go.iter().map(|e| e.at))
+            .chain(self.pauses.iter().map(|e| e.at))
+            .chain(self.owner_reads.iter().map(|e| e.at))
+            .chain(self.cancels.iter().copied())
+            .chain(self.reopens.iter().copied())
+            .chain(self.releases.iter().copied())
+    }
+
+    /// The place the next entry would take: one after the latest of every entry's.
+    pub fn next_place(&self) -> Seq {
+        Seq(self.entry_places().map(|at| at.0 + 1).max().unwrap_or(0))
     }
 
     /// The cancel that stands: the latest cancel, where no reopen came after it.
@@ -410,6 +444,14 @@ pub enum Who {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LetGo {
     pub cell: CellId,
+    pub at: Seq,
+}
+
+/// The owner read these versions of the work's blocks, each named by its block and the place of the entry that wrote
+/// it (design decision the-engine-keeps-what-the-owner-read).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OwnerRead {
+    pub versions: Vec<(BlockId, Seq)>,
     pub at: Seq,
 }
 
