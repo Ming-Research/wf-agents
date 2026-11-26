@@ -245,8 +245,10 @@ pub trait Host: Send + Sync + 'static {
 
     /// What the agents' tool `run_tests` finds of the work, with the tests, checks and measurements the agent named, on
     /// the commit it named or else the work's last commit, in words for the agent whose call asks, whole; none where it
-    /// was told to stop. A request that names none of them is run as nothing, and said so. An `Err` is why it could not
-    /// run them, for the agent too. What failed is said as [`Host::verdict`] says it.
+    /// was told to stop. Where the agent asks to publish the commit, the host leaves it where a workflow the agent
+    /// starts can be given it, until the work ends ([`Host::end`]), and says where. A request that names none of them
+    /// and asks for no publishing is run as nothing, and said so. An `Err` is why it could not run them, for the agent
+    /// too. What failed is said as [`Host::verdict`] says it.
     fn run_tests(
         &self,
         branch: &Branch<'_>,
@@ -258,8 +260,9 @@ pub trait Host: Send + Sync + 'static {
     /// Lets go of what the host holds for the work, which has ended with nothing of it under way: its pull request
     /// where it did not merge, closed with a word that its work ended, as the words beside the flows say it
     /// (`agents/pull_request.toml`), and, merged or not, the branches that calls of [`Host::run_tests`] left
-    /// (`wf-try/<the work's branch>/…`), deleted after the pull request is closed, whether or not that went well. What
-    /// is gone, closed or merged already is left as it is, and the work's own branch stays.
+    /// (`wf-try/<the work's branch>/…`) and the commits it published there, deleted after the pull request is closed,
+    /// whether or not that went well. What is gone, closed or merged already is left as it is, and the work's own branch
+    /// stays.
     fn end(&self, branch: &Branch<'_>, merged: bool) -> impl Future<Output = Result<(), String>> + Send;
 
     /// Takes up again what the host held for a work that was cancelled and reopened, as the work makes its place
