@@ -378,7 +378,8 @@ impl Service {
             .map(|flow| (flow.name.clone(), Arc::new(flow.clone())))
             .collect();
         let policy = carriers.agents.policy();
-        let (driver, todos) = Driver::open(store, flows, carriers.slots, policy, now).map_err(Fault::Driver)?;
+        let (driver, todos) = Driver::open(store, flows, carriers.slots, policy, carriers.tests_given.clone(), now)
+            .map_err(Fault::Driver)?;
         // The tokens of the accounts removed are let go of until they are, a removal before a stop among them.
         if let Some(failed) = let_go_of(&*carriers.tokens, &driver.accounts().removed()) {
             eprintln!("The tokens of accounts removed could not be let go of, and are tried again: {failed}");

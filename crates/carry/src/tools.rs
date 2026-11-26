@@ -306,16 +306,12 @@ pub async fn sweep(root: &Path, now: std::time::SystemTime) {
 /// whole character, with the words that follow a cut one saying how much was given, how many bytes the record holds,
 /// and the `file` that holds it whole; as it is where they allow it all.
 fn cut(result: &str, given: Option<&ResultGiven>, file: &str) -> String {
-    let Some(given) = given.filter(|g| result.len() > g.bound) else {
+    let Some(given) = given else {
         return result.trim_end().to_string();
     };
-    let mut at = given.bound;
-    while !result.is_char_boundary(at) {
-        at -= 1;
-    }
-    let (kept, size) = (at.to_string(), result.len().to_string());
-    let words = fill(&given.cut, &[("given", &kept), ("size", &size), ("file", file)]);
-    format!("{}\n\n{words}", &result[..at])
+    given.cut_with(result, |kept, size| {
+        fill(&given.cut, &[("given", kept), ("size", size), ("file", file)])
+    })
 }
 
 /// What a result of `answer` says that is the flow's: the words the tools say, and the tools the flow gives its agents.

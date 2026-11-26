@@ -234,6 +234,7 @@ impl Scene {
                 "head",
                 "head",
                 "test_times",
+                "test_runs",
                 "plan_ok",
                 "tree_ok",
                 "review_ok",
