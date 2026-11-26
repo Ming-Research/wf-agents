@@ -80,7 +80,7 @@ that would not work, is not another approach, whatever the record called it. Cho
 down none of the others.
 
 For case 2: an approach that is simply better, with nothing given up, is no choice of the owner's and leaves no line.
-But an approach an experiment showed to be better is always the owner's choice. An experiment measures every approach
+But an approach an experiment measured is always the owner's choice. An experiment measures every approach
 with the same measure under the same conditions, and its numbers are kept in the repository. Looking at how something
 looks or behaves is not an experiment. Fixing a fault is not a choice: a test guards the fix.
 
