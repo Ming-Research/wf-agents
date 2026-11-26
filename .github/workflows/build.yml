@@ -9,8 +9,9 @@ name: build
 # newest push's run is the one that is never cancelled: the install takes the build of main's head, and no other.
 # Where that run is not there, is still going or is red, there is nothing to install, and the install says so.
 #
-# It is the one workflow that runs on GitHub's own machine, a macOS one on arm64, because the program is for that
-# machine and the runners of the owner's build machine are Linux (decision `wf-agents-ci-runs-on-the-owners-machine`).
+# It is the one job that builds off the owner's own machine: it runs on GitHub's macOS machine on arm64, because the
+# program is for that machine and the runners of the owner's build machine are Linux (decision
+# `wf-agents-ci-runs-on-the-owners-machine`).
 # The repository is public, so such a run costs nothing. It reads the repository and nothing else: it has no token that
 # writes, and the artifact holds only what the repository holds.
 run-name: build ${{ github.sha }}
