@@ -292,8 +292,6 @@ fn of_work(item: Item) -> OfWork {
         work: WORK,
         item,
         merged: None,
-        place: decide::Seq(1),
-        under_way: false,
     }
 }
 
@@ -378,8 +376,6 @@ async fn the_page_is_told_why_a_held_projects_work_cannot_be_read_and_nothing_wh
         work: WORK,
         item: item(5, project),
         merged: None,
-        place: decide::Seq::default(),
-        under_way: false,
     };
     let said = |why: Result<(), String>| why.expect_err("it is said why");
     let held = of(Some("held"));

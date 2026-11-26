@@ -2085,29 +2085,29 @@ pub struct Refusal {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Broken(pub String);
 
-impl Items {
-    /// Every item the driver holds, each with its work, as they stand at this time, its rounds at these levels.
-    pub fn of(driver: &Driver, levels: &Levels, now: Time) -> Result<Items, Broken> {
-        let mut items = Vec::new();
-        let every = EveryWork::of(driver);
-        let outage = every.outages.agents.clone();
-        for kept in driver.works() {
-            let view = viewed_at(driver, kept.head.number, &every.at_once)?;
-            items.push(Item {
-                number: kept.item.number.0,
-                title: kept.item.title.clone(),
-                level: kept.item.level.clone(),
-                project: kept.item.project.clone(),
-                added: kept.item.added.0,
-                depends_on: kept.item.depends_on.iter().map(|on| on.0).collect(),
-                tags: kept.item.tags.clone(),
-                continues: kept.item.continues.as_ref().map(Continues::of),
-                history: ItemHistory::of(kept.item),
-                work: Summary::of(kept, &view, driver, &every, levels, now)?,
-            });
-        }
-        items.sort_by_key(|item| item.number);
-        Ok(Items { items, outage })
+impl Item {
+    /// The item of this kept work with its work in brief, as the driver holds them and what holds every work at once
+    /// says, its rounds at these levels, at this time; what git says of the work is not in it ([`Summary::saw`]).
+    pub(crate) fn of(
+        kept: Kept<'_>,
+        driver: &Driver,
+        every: &EveryWork,
+        levels: &Levels,
+        now: Time,
+    ) -> Result<Item, Broken> {
+        let view = viewed_at(driver, kept.head.number, &every.at_once)?;
+        Ok(Item {
+            number: kept.item.number.0,
+            title: kept.item.title.clone(),
+            level: kept.item.level.clone(),
+            project: kept.item.project.clone(),
+            added: kept.item.added.0,
+            depends_on: kept.item.depends_on.iter().map(|on| on.0).collect(),
+            tags: kept.item.tags.clone(),
+            continues: kept.item.continues.as_ref().map(Continues::of),
+            history: ItemHistory::of(kept.item),
+            work: Summary::of(kept, &view, driver, every, levels, now)?,
+        })
     }
 }
 
@@ -2509,6 +2509,7 @@ fn bar(kept: Kept<'_>, all: &HeldAll, now: Time) -> String {
 /// What other works decide for a work, which holds it back or says what it waits for: the items its item depends on
 /// that it waits for, the items its pause waits for, and whose the project's turn to check and merge is, with since
 /// when the work has wanted it.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Others {
     waited_for: Vec<ItemNumber>,
     paused_for: Vec<ItemNumber>,
@@ -3732,7 +3733,11 @@ pub(crate) struct EveryWork {
 
 impl EveryWork {
     pub(crate) fn of(driver: &Driver) -> EveryWork {
-        let at_once = driver.at_once();
+        EveryWork::with(driver, driver.at_once())
+    }
+
+    /// What every work reads alike, given what holds every work at once as it was just worked out.
+    pub(crate) fn with(driver: &Driver, at_once: driver::AtOnce) -> EveryWork {
         EveryWork {
             outages: Outages::of(&at_once),
             held: HeldAll::of(driver, &at_once),
