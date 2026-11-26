@@ -75,6 +75,10 @@ fn what_the_engine_says_to_every_agent_is_read_from_its_files_beside_the_flows()
     assert_eq!(read.your_line.reads_only, "You only read.");
     assert_eq!(read.refused.commands, ["git push", agents::PROGRAM_SLOT]);
     assert_eq!(
+        read.refused.environment,
+        std::collections::BTreeMap::from([("GIT_ALLOW_PROTOCOL".to_string(), "none".to_string())])
+    );
+    assert_eq!(
         read.allowed.may,
         [
             agents::Ability::Shell,
@@ -325,6 +329,24 @@ fn what_agents_may_do_and_are_refused_is_read_from_words_and_one_slot_and_nothin
             "\"{agents.command}\"",
             "\"{agents.command} {x}\"",
             "the only slot is {agents.command}",
+        ),
+        (
+            "refused.toml",
+            "GIT_ALLOW_PROTOCOL",
+            "\"A-B\"",
+            "\"A-B\" is no name of a variable",
+        ),
+        (
+            "refused.toml",
+            "\"none\" }",
+            "\"a\\u0000b\" }",
+            "GIT_ALLOW_PROTOCOL holds a NUL in its value",
+        ),
+        (
+            "refused.toml",
+            "\nenvironment = { GIT_ALLOW_PROTOCOL = \"none\" }",
+            "",
+            "missing field `environment`",
         ),
     ] {
         let (path, refused) = wrong(file, from, to);

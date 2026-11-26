@@ -48,6 +48,9 @@
 //! holds nothing is sent it. After each use of a tool another hook gives the session what the owner said to the round
 //! while it runs, where the runner put it in the round's files (`cli::Words`).
 //!
+//! The program's environment ends with the variables the flows give every agent's program (`agents/refused.toml`), so
+//! that each start of it has them, whichever way it is started (decision agents-cannot-push-however-it-is-written).
+//!
 //! A round given again after the process of the engine that gave it ended while a try of it ran goes on from that
 //! try, where its program said it began, reached the service or printed its result: what the try kept of its stream is
 //! read as the end of a try that ended by itself, a return there taken as any, one past the run guard's lines failed
@@ -738,7 +741,7 @@ impl Inner {
                     let before = before_messages(&on, round.account.as_deref(), &system, &form);
                     let command = self.command(
                         &dir,
-                        &of.declaration.environment,
+                        of,
                         &on,
                         &system,
                         &permissions,
@@ -1127,15 +1130,15 @@ impl Inner {
     /// The program's command line for a round on what it runs on, with its line's system prompt, of a line with these
     /// permissions, given the form of return of its flow, in the session, begun or gone on in, in the worktree, which
     /// the program compacts at the installation's `sessions.compact_at`, given the program's directory and the token of
-    /// the account it runs under and the variables its project's declaration names; where `refusing` says so, with every
-    /// use of a tool refused but the return's ([`cli::refusing`]), as a keep-warm ping runs; and with `lines` added to
-    /// its environment, which give its git the hook that ends each commit with the item and the work
-    /// ([`commit_lines::environment`]).
+    /// the account it runs under, the variables its project's declaration names and those every agent's program has
+    /// beside the flows ([`cli::environment`]); where `refusing` says so, with every use of a tool refused but the
+    /// return's ([`cli::refusing`]), as a keep-warm ping runs; and with `lines` added to its environment, which give
+    /// its git the hook that ends each commit with the item and the work ([`commit_lines::environment`]).
     #[allow(clippy::too_many_arguments)]
     fn command(
         &self,
         dir: &Path,
-        declared: &BTreeMap<String, String>,
+        of: &Of,
         on: &RanOn,
         system: &str,
         permissions: &Permissions,
@@ -1160,7 +1163,8 @@ impl Inner {
                 agents,
                 &profile,
                 crate::programs::engine().iter().cloned(),
-                declared,
+                &of.declaration.environment,
+                &of.beside.refused.environment,
                 token,
             ))
             .current_dir(dir);
@@ -1615,7 +1619,7 @@ impl Inner {
         write(&compacted.again, b"").await.map_err(failed)?;
         let command = self.command(
             &dir,
-            &of.declaration.environment,
+            of,
             &on,
             &system,
             &permissions,
@@ -2021,6 +2025,7 @@ impl Inner {
                 &profile,
                 crate::programs::engine().iter().cloned(),
                 &of.declaration.environment,
+                &of.beside.refused.environment,
                 token,
             ))
             .current_dir(dir);
@@ -2945,14 +2950,16 @@ mod tests {
     ];
 
     /// The stand-in program of the fork tests in this directory: it keeps its arguments, where it ran and what it found
-    /// there, the token and the directory it was given, and what it was sent on its input, and prints `stream`.
+    /// there, the token, the directory and the git transports' variable it was given, and what it was sent on its
+    /// input, and prints `stream`.
     fn write_program(data: &Path, stream: &[&str]) -> PathBuf {
         let program = data.join("program.sh");
         let printed: String = stream.iter().map(|line| format!("printf '%s\\n' '{line}'\n")).collect();
         let script = format!(
             "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{0}/args'\npwd > '{0}/cwd'\nls > '{0}/listed'\n\
              printf '%s' \"${{CLAUDE_CODE_OAUTH_TOKEN:-none}}\" > '{0}/token'\n\
-             printf '%s' \"$CLAUDE_CONFIG_DIR\" > '{0}/directory'\ncat > '{0}/input'\n\
+             printf '%s' \"$CLAUDE_CONFIG_DIR\" > '{0}/directory'\n\
+             printf '%s' \"${{GIT_ALLOW_PROTOCOL-unset}}\" > '{0}/protocol'\ncat > '{0}/input'\n\
              if [ -f '{0}/leave' ]; then sleep 30 >/dev/null 2>&1 & echo $! > '{0}/left'; fi\n{printed}",
             data.display()
         );
@@ -3054,8 +3061,9 @@ mod tests {
     // A fork runs under the account its session's last try ran under, whose cache holds the session, given its token
     // and the engine's directory; where that account was removed, the try ran under none, or that account is at its
     // usage limit until a time to come, under the account in use, and it says why; with none in use, such a fork runs
-    // nothing and fails, saying none is. What its stream says of the usage of the account it ran under comes with it.
-    // Five forks of a stand-in program: a few tens of milliseconds.
+    // nothing and fails, saying none is. What its stream says of the usage of the account it ran under comes with it;
+    // it is given the variable the flows give every agent's program, as a round is. Five forks of a stand-in program:
+    // a few tens of milliseconds.
     #[tokio::test]
     async fn a_fork_runs_under_its_sessions_account_or_the_one_in_use_saying_why_and_none_with_none_in_use() {
         let dir = tempfile::tempdir().expect("a directory");
@@ -3070,6 +3078,11 @@ mod tests {
         );
         let profile = std::fs::read_to_string(data.join("directory")).expect("its directory");
         assert_eq!(profile, data.join("profile").display().to_string());
+        // It is given the variable the flows give every agent's program, which has git refuse every transport.
+        assert_eq!(
+            std::fs::read_to_string(data.join("protocol")).expect("what it was given"),
+            "none"
+        );
         assert_eq!(
             forked.usage,
             Some(driver::Said::Windows(vec![driver::Window {
@@ -3845,6 +3858,11 @@ mod tests {
         assert_eq!(given().as_deref(), Some("sk-ant-oat01-work"));
         let profile = std::fs::read_to_string(data.join("directory")).expect("its directory");
         assert_eq!(profile, data.join("profile").display().to_string());
+        // The ping is given the variable the flows give every agent's program, as a round is.
+        assert_eq!(
+            std::fs::read_to_string(data.join("protocol")).expect("what it was given"),
+            "none"
+        );
         assert!(
             matches!(&usage, Some(driver::Said::Windows(windows)) if windows.len() == 1),
             "the week's window: {usage:?}"

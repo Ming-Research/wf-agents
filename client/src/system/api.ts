@@ -147,6 +147,25 @@ export interface System {
   /// The stop the engine was asked for, while it stands, with how much longer it is expected to run. Absent from an
   /// engine that keeps none.
   stopping?: Stop | null;
+  /// Each project whose main is red on a test, as the checks the engine ran on main's head say: the projects in the order
+  /// of their names, none where none is. Absent from an engine that does not say.
+  redMain?: RedMain[];
+}
+
+/// The main branch of a project is red: the tests that fail on its head, since when the earliest of those failures
+/// began, and the works of the project that wait for main to pass, by number.
+export interface RedMain {
+  project: string;
+  since: number;
+  tests: RedTest[];
+  waiting: number[];
+}
+
+/// A test that fails on the head of main: its unit and name, and the head it failed on.
+export interface RedTest {
+  unit: string;
+  name: string;
+  head: string;
 }
 
 /// What the merged checks of a project say of the time of its tests and jobs; each work named is the one whose merge

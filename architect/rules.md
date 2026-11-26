@@ -65,9 +65,10 @@ reports (`wf-agents wait`):
 - **A slot is free**: choose the next item by section 9 and let it start, saying why it was chosen among those that can
   start. A pull request half done is finished first; an old one is continued or closed (`wf-agents pulls` lists the
   open pull requests). Where nothing can start, tell the owner, and make no item only to fill a slot.
-- **main is red**: this is a serious incident, and comes before everything else. Make an item for it at once, under
-  what waits for it, let it start ahead of every other item, and tell the owner. The works that cannot merge until
-  main is green depend on it.
+- **main is red**: `wait` says it, once for each time it came about: the project, the tests that fail on its head,
+  and the works that wait for main to pass. It is a serious incident, and comes before everything else. Make an item
+  for it at once, under what waits for it, let it start ahead of every other item, and tell the owner. The works that
+  cannot merge until main is green depend on it.
 - **A serious fault of the system**: the owner's page cannot show the items, the engine cannot run the works, or one
   fault holds many works back, such as a limit they share being spent or every merge being stuck. This comes first of
   everything, as a red main does. The architect has it fixed at once: it starts subagents, one for each fault, each
