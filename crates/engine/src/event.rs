@@ -34,7 +34,9 @@ pub enum Event {
         block: BlockId,
         content: String,
     },
-    /// The owner let the cell go on at its limit.
+    /// The owner let the cell go on at its limit: the work waits at the cell for the owner, its last runs in a row
+    /// having reached the cell's limit of ways round or of runs that only ask. Anywhere else it is refused
+    /// ([`Refused::NotAtItsLimit`]).
     LetGo { cell: CellId },
     /// The work was paused: by the owner, who may say why and the items it waits for, or by the engine itself, for this
     /// reason, as when it spent more than it may. A round that fails pauses its work by [`Event::Failed`] instead.
@@ -343,6 +345,9 @@ pub enum Refused {
     NotAChoice { block: BlockId },
     /// The flow has no such cell.
     NoSuchCell(CellId),
+    /// The work does not wait at this cell for the owner past the cell's limit, which is the only place a cell is let
+    /// go on: a let-go anywhere else would change nothing now and start the count of the cell's limit anew.
+    NotAtItsLimit(CellId),
     /// No round of the run is under way.
     NoRoundUnderWay(RunId),
     /// The work has no such run, or the run has no such round that began.

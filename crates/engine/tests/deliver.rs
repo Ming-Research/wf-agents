@@ -25,7 +25,8 @@
 //! dependencies block, merged in three of five, in three of ten acts; a person writing the dependencies block or what
 //! the cell writes, which must be refused, in about one in twelve; a person writing the background, which the owner
 //! reads and no cell does, in one in fifty; pausing or resuming in about one in six; letting the cell go
-//! on in about one in twelve; cancelling in one in fifty; a look otherwise.
+//! on, which is refused where the work does not wait at it past its limit, in about one in twelve; cancelling in one in
+//! fifty; a look otherwise.
 //!
 //! The histories of the engine's own properties on every shape of flow are in `histories.rs`; the shape these use is
 //! the one cell of an act with a precondition on an outside block, which those do not draw. The engineer's histories

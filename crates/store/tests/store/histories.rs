@@ -6,7 +6,8 @@
 //! under way ends, handing in blocks (some its cell may not write, some choices with a wrong value), asking for one to
 //! three tools or asking for nothing; a call has its result (the owner's at a limit only while people act); a call to be
 //! withdrawn is said to be; a round to be stopped ends. A person's act is a write by a person or the outside, with a
-//! value or without, one the loop refuses among them; letting a cell go on; a pause or a resume; the owner's word at
+//! value or without, one the loop refuses among them; letting a cell go on, the one the work waits at past its limit
+//! where it waits so, a random cell otherwise, which the loop refuses; a pause or a resume; the owner's word at
 //! the merge, a choice the merge's named test reads, written the other way; or, in one act in fifty, a cancel. After every step the work is saved, and with
 //! a chance of three in ten it is dropped and loaded back.
 //!
@@ -250,9 +251,18 @@ impl History {
             }
             48..=55 => {
                 let cells = self.flow.flow.cells();
-                Event::LetGo {
-                    cell: cells[self.rng.below(cells.len())].id.clone(),
-                }
+                let cell = cells[self.rng.below(cells.len())].id.clone();
+                let cell = match decide::decide(&self.flow.flow, &self.work.records) {
+                    decide::Decision::Wait { at, on }
+                        if on
+                            .iter()
+                            .any(|w| matches!(w, decide::Waited::Limit { .. } | decide::Waited::Calls { .. })) =>
+                    {
+                        at
+                    }
+                    _ => cell,
+                };
+                Event::LetGo { cell }
             }
             56..=77 => {
                 if decide::paused(&self.work.records) {
