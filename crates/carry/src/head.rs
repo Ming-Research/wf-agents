@@ -1,12 +1,12 @@
 //! The work's head, as the data of the source [`HEAD`]: the head of the work's branch without the merges on top of it
 //! that bring only main's code, read in the step that reads the design tree (`crate::branch`). A merge brings only
 //! main's code where one of its parents is on main and its tree is the tree git makes of a clean merge of its two
-//! parents, as `git merge-tree` computes it, whoever made it and whatever its words; so a merge of the engine's that an
-//! agent amended to slip in a change of its own is the work's, and moves the head. A version is the commit; between two
-//! versions a round is given the command that shows what the work itself changed, without main's code ([`between`]),
-//! the diff from the base it chooses ([`base`]), whose files the look at the run of a line that changes only the
-//! project's tests takes too (`crate::tests_only`). Each new version is kept under a reference of the engine's own as
-//! it is read ([`keep`]).
+//! parents, as `git merge-tree` computes it with the attributes of the parent on main, whoever made it and whatever its
+//! words; so a merge of the engine's that an agent amended to slip in a change of its own is the work's, and moves the
+//! head. A version is the commit; between two versions a round is given the command that shows what the work itself
+//! changed, without main's code ([`between`]), the diff from the base it chooses ([`base`]), whose files the look at
+//! the run of a line that changes only the project's tests takes too (`crate::tests_only`). Each new version is kept
+//! under a reference of the engine's own as it is read ([`keep`]).
 
 use std::path::Path;
 
@@ -73,42 +73,48 @@ async fn under(dir: &Path, commit: &str, of: &str) -> Result<bool, String> {
 }
 
 /// The parent on the work's side of the commit, where the commit is a merge that brings only main's code: it has two
-/// parents, one of them on main, and its tree is the one git makes of a clean merge of the two; the other parent is the
-/// work's side, the first where the second is on main. None where the commit is no such merge.
+/// parents, one of them on main, and its tree is the one git makes of a clean merge of the two with the attributes of
+/// the parent on main; the other parent is the work's side, the first where the second is on main. None where the
+/// commit is no such merge.
 pub(crate) async fn brings_only_mains(dir: &Path, main: &str, commit: &str) -> Result<Option<String>, String> {
     let parents = git::git(dir, &["log", "-1", "--format=%P", commit]).await?;
     let parents: Vec<&str> = parents.split_whitespace().collect();
     let [first, second] = parents.as_slice() else {
         return Ok(None);
     };
-    let side = if under(dir, second, main).await? {
-        first
+    let (side, on_main) = if under(dir, second, main).await? {
+        (first, second)
     } else if under(dir, first, main).await? {
-        second
+        (second, first)
     } else {
         return Ok(None);
     };
-    Ok(clean(dir, commit, first, second).await?.then(|| side.to_string()))
+    Ok(clean(dir, commit, first, second, on_main)
+        .await?
+        .then(|| side.to_string()))
 }
 
-/// Whether the merge's tree is the tree git makes of a clean merge of these, its two parents.
-pub(crate) async fn clean(dir: &Path, merge: &str, first: &str, second: &str) -> Result<bool, String> {
-    let Some(merged) = merged(dir, first, second).await? else {
+/// Whether the merge's tree is the tree git makes of a clean merge of these, its two parents, with the attributes of
+/// `on_main`, the parent on main.
+pub(crate) async fn clean(dir: &Path, merge: &str, first: &str, second: &str, on_main: &str) -> Result<bool, String> {
+    let Some(merged) = merged(dir, first, second, on_main).await? else {
         return Ok(false);
     };
     let tree = git::git(dir, &["rev-parse", "--verify", &format!("{merge}^{{tree}}")]).await?;
     Ok(merged == tree)
 }
 
-/// The tree git makes of a clean merge of the two commits, written into the repository's objects; none where they
+/// The tree git makes of a clean merge of the two commits, with the attributes of `main`, the one of them on main, as
+/// the engine merges main in ([`git::attributes_of`]), written into the repository's objects; none where they
 /// conflict.
-async fn merged(dir: &Path, one: &str, other: &str) -> Result<Option<String>, String> {
-    let said = git::said(dir, &["merge-tree", "--write-tree", one, other]).await?;
+async fn merged(dir: &Path, one: &str, other: &str, main: &str) -> Result<Option<String>, String> {
+    let attributes = git::attributes_of(main);
+    let said = git::said(dir, &[attributes.as_str(), "merge-tree", "--write-tree", one, other]).await?;
     match said.code {
         Some(0) => Ok(said.out.lines().next().map(str::to_string)),
         Some(1) => Ok(None),
         _ => Err(format!(
-            "git merge-tree --write-tree {one} {other} failed: {}",
+            "git {attributes} merge-tree --write-tree {one} {other} failed: {}",
             said.err
         )),
     }
@@ -161,7 +167,7 @@ pub(crate) async fn base(dir: &Path, main: &str, was: &str, now: &str) -> Result
         Some(before) => under(dir, before, &held).await?,
         None => false,
     };
-    if later && let Some(tree) = merged(dir, was, &held).await? {
+    if later && let Some(tree) = merged(dir, was, &held, &held).await? {
         return Ok(Base::Work(tree));
     }
     Ok(Base::Main(held))
