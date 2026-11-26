@@ -30,19 +30,21 @@ function named(property: string, value: string): string {
 const DRAWN = { svg: '<svg viewBox="0 0 120 40" width="120" height="40"></svg>', width: 120, height: 40 };
 
 describe.each(['light', 'dark'] as const)('the page’s dialogs in the %s theme', (theme) => {
-  let host: HTMLDivElement;
-  let root: Root;
+  // What a test drew, taken down after it; a test that draws nothing leaves both unset.
+  let drawn: { host: HTMLDivElement; root: Root } | undefined;
   afterEach(() => {
-    root.unmount();
-    host.remove();
+    drawn?.root.unmount();
+    drawn?.host.remove();
+    drawn = undefined;
     document.documentElement.removeAttribute('data-theme');
   });
 
   function draw(dialog: ReactNode, selector: string): HTMLDialogElement {
     document.documentElement.setAttribute('data-theme', theme);
-    host = document.createElement('div');
+    const host = document.createElement('div');
     document.body.append(host);
-    root = createRoot(host);
+    const root = createRoot(host);
+    drawn = { host, root };
     flushSync(() => root.render(dialog));
     return host.querySelector(selector) as HTMLDialogElement;
   }
