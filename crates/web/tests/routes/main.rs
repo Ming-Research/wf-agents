@@ -10,6 +10,7 @@ mod broken;
 mod calls;
 mod changed;
 mod changing;
+mod children;
 mod copies;
 mod declarations;
 mod definition;

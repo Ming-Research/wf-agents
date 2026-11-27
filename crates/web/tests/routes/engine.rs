@@ -168,7 +168,7 @@ async fn started_on_a_work_going_on_the_engine_says_it_holds_everything_until_th
             why: None,
             waits_for: Vec::new(),
         };
-        let (_, work, _) = driver.add(work::Time(START), new).unwrap();
+        let (_, work, _, _) = driver.add(work::Time(START), new).unwrap();
         driver
             .happened(work::Time(START), work, engine::Event::Resumed)
             .unwrap();

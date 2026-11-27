@@ -78,10 +78,11 @@ pub fn act_on(
 pub fn add_to(service: &mut Service, item: NewItem) -> (ItemNumber, WorkNumber) {
     let (reply, mut answer) = oneshot::channel();
     service.take(Message::Add { item, reply }).expect("the loop takes it");
-    answer
+    let (item, work, _) = answer
         .try_recv()
         .expect("the loop answers at once")
-        .expect("the item is added")
+        .expect("the item is added");
+    (item, work)
 }
 
 /// When the tests' clock starts: 2026-11-10, at midnight.
@@ -399,10 +400,11 @@ impl Trial {
             item: new_item(title, depends_on),
             reply,
         });
-        answer
+        let (item, work, _) = answer
             .try_recv()
             .expect("the loop answers at once")
-            .expect("the item is added")
+            .expect("the item is added");
+        (item, work)
     }
 
     /// Does what the owner does to the work.
@@ -604,6 +606,7 @@ fn open(
         outside: (outside.cloned()).unwrap_or_else(|| Arc::new(recording.scripted.clone())),
         host: Some(Arc::new(recording.scripted.clone())),
         slots: SLOTS,
+        children: None,
         tokens: Arc::new(service::KeptTokens::new()),
         calls: calls.clone(),
         tests_given: None,

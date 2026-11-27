@@ -18,12 +18,19 @@
 //! An item's dependency on another may be made that other's main one ([`ItemChange::Main`]) until the item's work ends:
 //! the store keeps which one is main, and moves it as the dependencies and the cancels move it (crate `store`,
 //! [`store::Mains`]).
+//!
+//! An item's children are the items whose main dependency is on it, which the owner's page draws under it; a child is
+//! open while its work has neither merged nor been cancelled. An act, an item added or changes asked together, is held
+//! to how many open children it leaves each item with ([`Children`], [`crowding`]): past the most, it is refused; past
+//! the warning, it is done and warned of. Only an item the act leaves with more open children than it had counts, so
+//! that an act that lowers a count, or leaves an item already past a limit no higher, is never refused (decision
+//! `an-item-has-few-open-children`).
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use decide::End;
 use flow::Compiled;
-use store::{Continues, Item, ItemChange, ItemNumber};
+use store::{Continues, Item, ItemChange, ItemNumber, Mains};
 use work::Work;
 
 pub use store::TAG_CHARS;
@@ -140,6 +147,63 @@ pub fn judge(
         }
     }
     if refused.is_empty() { Ok(changed) } else { Err(refused) }
+}
+
+/// How many open children an act may leave an item with, as the installation sets it: past `warn` the act is done and
+/// warned of, past `most` it is refused, where it leaves the item with more than it had.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Children {
+    pub warn: usize,
+    pub most: usize,
+}
+
+/// An item an act leaves with more open children than it had, and more than a limit: the item, none for the item the
+/// act adds, which has no number yet; how many open children it is left with; and the limit it is past.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Crowded {
+    pub item: Option<ItemNumber>,
+    pub children: usize,
+    pub limit: usize,
+}
+
+/// How many open children each item that has any has, by the main dependencies (of each item depended on, the item
+/// whose dependency on it is the main one): of the items whose main dependency is on it, those that are open.
+pub fn open_children(mains: &Mains, open: impl Fn(ItemNumber) -> bool) -> BTreeMap<ItemNumber, usize> {
+    let mut children = BTreeMap::new();
+    for (child, parent) in mains {
+        if open(*child) {
+            *children.entry(*parent).or_insert(0) += 1;
+        }
+    }
+    children
+}
+
+/// What an act does to the open children of the items, held to the limits, from how many each had before it and has
+/// after it ([`open_children`]): refused, with each item it leaves past `most` with more than it had; else done, with
+/// each it leaves so past `warn`, to be warned of; each in the order of their numbers. `added` is the number the act
+/// gave the item it adds, which is said as none.
+pub fn crowding(
+    before: &BTreeMap<ItemNumber, usize>,
+    after: &BTreeMap<ItemNumber, usize>,
+    limits: Children,
+    added: Option<ItemNumber>,
+) -> Result<Vec<Crowded>, Vec<Crowded>> {
+    let past = |limit: usize| -> Vec<Crowded> {
+        (after.iter())
+            .filter(|(item, children)| **children > limit && **children > before.get(*item).copied().unwrap_or(0))
+            .map(|(item, children)| Crowded {
+                item: (Some(*item) != added).then_some(*item),
+                children: *children,
+                limit,
+            })
+            .collect()
+    };
+    let refused = past(limits.most);
+    if refused.is_empty() {
+        Ok(past(limits.warn))
+    } else {
+        Err(refused)
+    }
 }
 
 /// Whether the tag is one an item may carry; why not, where it is not.

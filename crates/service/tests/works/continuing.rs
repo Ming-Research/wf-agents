@@ -143,7 +143,10 @@ async fn a_start_refused_and_given_again_after_the_item_is_corrected_is_given_th
             reply,
         })
         .expect("the loop takes it");
-    assert_eq!(answer.try_recv().expect("the loop answers at once"), Ok(vec![true]));
+    assert_eq!(
+        answer.try_recv().expect("the loop answers at once"),
+        Ok((vec![true], vec![]))
+    );
     let (resumed, taken) = act_on(&mut service, work, Act::Resume);
     resumed.expect("the work is let on");
     taken.expect("the loop takes it");

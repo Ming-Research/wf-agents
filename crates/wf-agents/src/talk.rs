@@ -25,7 +25,7 @@ use web::works::{
     Act, Added, Against, Back, Call, CellState, ChangeAsked, Checked, Continues, Dependency, Engine, EngineAct,
     Failure, ForkAsked, ForkInstead, ForkPage, Found, ItemChanged, ItemChanges, ItemHistory, Items, ItemsChanged,
     Limit, Maker, NewItem, NewWrite, Now, Outage, Pauser, Person, QuestionPage, Refusal, Run, Said, SessionWhy, Spent,
-    SpokenTo, Step, Until, VersionPage, Waited, WorkPage, Writer,
+    SpokenTo, Step, Until, VersionPage, Waited, Warned, WorkPage, Writer,
 };
 
 /// What a command asks of the engine.
@@ -145,10 +145,11 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
             Asked::Add(item) => {
                 let added: Added = send(address, Method::POST, "/api/v1/items", Some(&item)).await?;
                 let (item, work) = (item_number(added.item), work_number(added.work));
-                Ok(format!(
+                let said = format!(
                     "Added item {item} with its work {work}, paused: let it on with `wf-agents resume {}`.",
                     added.work
-                ))
+                );
+                Ok(warned(said, &added.warnings))
             }
             Asked::List(listing) => {
                 let engine: Engine = send(address, Method::GET, "/api/v1/engine", None::<&()>).await?;
@@ -169,7 +170,7 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
                     true => Some(send::<Items, ()>(address, Method::GET, "/api/v1/items", None).await?),
                     false => None,
                 };
-                Ok(changed(&changes, &done.changed, works.as_ref()))
+                Ok(warned(changed(&changes, &done.changed, works.as_ref()), &done.warnings))
             }
             Asked::Changes { since } => {
                 let path = match &since {
@@ -310,15 +311,19 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
             Asked::Cancel(work, why) => {
                 let page = format!("/api/v1/works/{work}");
                 let before: WorkPage = send(address, Method::GET, &page, None::<&()>).await?;
+                let mut warnings = Vec::new();
                 if !matches!(before.summary.now, Now::Merged | Now::Cancelled) {
                     let path = format!("/api/v1/works/{work}/acts");
                     let act = Act::Cancel { why: Some(why) };
-                    send::<(), _>(address, Method::POST, &path, Some(&act)).await?;
+                    // A cancel answers with nothing, or with what it says of each item it left with more open
+                    // children than the warning.
+                    let answer: Option<Warned> = send(address, Method::POST, &path, Some(&act)).await?;
+                    warnings = answer.map(|warned| warned.warnings).unwrap_or_default();
                 }
                 let after: WorkPage = send(address, Method::GET, &page, None::<&()>).await?;
                 let work = work_number(work);
                 match after.summary.now {
-                    Now::Cancelled => Ok(format!("Work {work} is cancelled.")),
+                    Now::Cancelled => Ok(warned(format!("Work {work} is cancelled."), &warnings)),
                     Now::Merged => Err(format!("Work {work} is not cancelled: it has merged.")),
                     now => Err(format!("Work {work} is not cancelled: it {}", sentence(&self::now(&now)))),
                 }
@@ -642,6 +647,14 @@ fn question(q: &QuestionPage) -> Vec<String> {
         },
     });
     lines
+}
+
+/// What an act that was done says, with what it says of each item it left with more open children than the warning,
+/// each on a line of its own after it.
+fn warned(said: String, warnings: &[String]) -> String {
+    let mut lines = vec![said];
+    lines.extend(warnings.iter().cloned());
+    lines.join("\n")
 }
 
 /// A work's number as the engine writes it in words, everywhere: `W5`.

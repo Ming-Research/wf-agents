@@ -278,7 +278,7 @@ fn planned_in(driver: &mut driver::Driver, project: &str, at: u64, ms: u64, usd:
         why: None,
         waits_for: Vec::new(),
     };
-    let (_, work, _) = driver.add(work::Time(at), new).unwrap();
+    let (_, work, _, _) = driver.add(work::Time(at), new).unwrap();
     happened(driver, at, work, engine::Event::Resumed);
     let run = round_of(driver, work);
     let ran = engine::Event::Ran {
@@ -626,7 +626,7 @@ fn asking(driver: &mut driver::Driver, at: u64) -> (store::WorkNumber, decide::C
         why: None,
         waits_for: Vec::new(),
     };
-    let (_, work, _) = driver.add(work::Time(at), new).unwrap();
+    let (_, work, _, _) = driver.add(work::Time(at), new).unwrap();
     happened(driver, at, work, engine::Event::Resumed);
     let run = round_of(driver, work);
     let ran = engine::Event::Ran {
@@ -785,7 +785,7 @@ fn a_stop_is_given_with_the_rests_of_what_is_under_way_and_holds_a_work_that_wou
         why: None,
         waits_for: Vec::new(),
     };
-    let (_, held, _) = driver.add(work::Time(START + 55 * S), new).unwrap();
+    let (_, held, _, _) = driver.add(work::Time(START + 55 * S), new).unwrap();
     let todos = driver
         .happened(work::Time(START + 55 * S), held, engine::Event::Resumed)
         .unwrap();

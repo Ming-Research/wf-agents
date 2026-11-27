@@ -79,7 +79,10 @@ async fn a_work_that_has_run_waits_where_it_stands_for_an_item_it_comes_to_depen
         changes: vec![(second_item, Asked::Item(ItemChange::DependsOn(first_item)))],
         reply,
     });
-    assert_eq!(answer.try_recv().expect("the loop answers at once"), Ok(vec![true]));
+    assert_eq!(
+        answer.try_recv().expect("the loop answers at once"),
+        Ok((vec![true], vec![]))
+    );
     // Its round ends as it would, and then it waits, not at its first cell but where it stands, for the first item.
     let holds = |d: &Decision| {
         matches!(d, Decision::Wait { on, .. } if on.iter().any(|w| matches!(w,

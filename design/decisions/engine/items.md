@@ -28,6 +28,10 @@ A cancelled item is not reopened while an item that merged, or one whose merge i
 - replaced: Reopening a cancelled item whatever depended on it, and refusing to reopen an item that depended on a cancelled one, was on main; the owner changed it, because a work started past a cancelled item would stop midway, or merge while it is open, and a cancelled item no longer holds anyone.
 - replaced: Refusing to reopen a cancelled item while an item whose work had started and not ended depended on it was on main; the owner changed it, because a started work now waits where it stands, so stopping midway is no reason, and only a merge under way could pass the open item.
 
+### decision an-item-has-few-open-children
+An act that leaves an item more open children than it had is warned of past `items.children_warn` and refused past `items.children_max`; `wf-agents wait` says nothing of it.
+- rejected: an agent proposed also reporting an item past the warning in `wf-agents wait`; the owner rejected it, because refusing at the act is enough.
+
 ### decision a-title-is-counted-in-words
 An item's title has at most `items.title_max` words, each Chinese character counting as one; a longer one is refused when the item is added or its title changed, saying how many it has.
 - replaced: No limit on an item's title was on main; the owner changed it, because the titles had grown too long, while the old system had limited them.

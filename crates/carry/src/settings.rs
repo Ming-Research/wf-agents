@@ -416,6 +416,24 @@ pub struct Items {
     /// word. A title is held to it when it is made or changed; a title already there is not counted again. There is no
     /// default: the installation names the number.
     pub title_max: u32,
+    /// How many open children an item may have before an act that gives it more is warned of: an item's children are
+    /// the items whose main dependency is on it, which the page draws under it, and a child is open while its work has
+    /// neither merged nor been cancelled. An act that leaves an item with more than this, and more than it had, is done,
+    /// and its reply says so. There is no default: the installation names the number.
+    pub children_warn: u32,
+    /// The most open children an act may leave an item with: an act that leaves one with more, and more than it had, is
+    /// refused. There is no default: the installation names the number.
+    pub children_max: u32,
+}
+
+impl Items {
+    /// How many open children an act may leave an item with, as these settings say.
+    pub fn children(&self) -> service::Children {
+        service::Children {
+            warn: self.children_warn as usize,
+            most: self.children_max as usize,
+        }
+    }
 }
 
 /// What the settings are told where they name `github.runs_on_before_branches`, which the engine no longer reads.
@@ -645,6 +663,13 @@ impl Settings {
         }
         if let Err(why) = settings.levels() {
             wrong.push(why);
+        }
+        if settings.items.children_warn > settings.items.children_max {
+            wrong.push(
+                "items.children_warn: an act is warned of before it is refused: the number is no more than \
+                 items.children_max"
+                    .to_string(),
+            );
         }
         for (name, level) in &settings.agents.levels {
             if !crate::cli::knows_model(&level.model) {
@@ -1164,6 +1189,29 @@ mod tests {
         let without = SAMPLE.replace("title_max = 20\n", "");
         let refused = Settings::read(&without).expect_err("refused");
         assert!(refused.contains("title_max"), "{refused}");
+    }
+
+    #[test]
+    fn the_open_children_of_an_item_are_held_to_the_settings_numbers_which_have_no_default() {
+        let settings = Settings::read(SAMPLE).unwrap();
+        assert_eq!(settings.items.children(), service::Children { warn: 10, most: 15 });
+        for key in ["children_warn = 10\n", "children_max = 15\n"] {
+            let without = SAMPLE.replace(key, "");
+            assert_ne!(without, SAMPLE);
+            let refused = Settings::read(&without).expect_err("refused");
+            assert!(refused.contains(key.split(' ').next().unwrap()), "{refused}");
+        }
+        let even = SAMPLE.replace("children_warn = 10\n", "children_warn = 15\n");
+        assert!(
+            Settings::read(&even).is_ok(),
+            "a warning at the most warns of nothing, and is no fault"
+        );
+        let above = SAMPLE.replace("children_warn = 10\n", "children_warn = 16\n");
+        assert_eq!(
+            Settings::read(&above).expect_err("refused"),
+            "items.children_warn: an act is warned of before it is refused: the number is no more than \
+             items.children_max"
+        );
     }
 
     #[test]

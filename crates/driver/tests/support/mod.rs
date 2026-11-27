@@ -31,7 +31,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use decide::{BlockId, CallId, Cause, Decision, End, Holder, Maker, Outsider, Pauser, RunId, Seq, Waited};
-use driver::{Asked, DEPENDENCIES, Driver, Failed, Fault, FirstWrite, Found, MERGED, NewItem, Todo, WAITING};
+use driver::{
+    Asked, Children, Crowded, DEPENDENCIES, Driver, Failed, Fault, FirstWrite, Found, MERGED, NewItem, Todo, WAITING,
+};
 use engine::{Ask, Back, Came, Effect, Event, Given, Handed, Moment, Spent, Time, Work};
 use flow::{Compiled, Has, Kind, Source, compile};
 use rusqlite::Connection;
@@ -885,7 +887,7 @@ impl H {
     pub fn try_add(&mut self, now: Time, new: NewItem) -> Outcome<(ItemNumber, WorkNumber)> {
         let before = self.reader.items().expect("the items are read").len();
         match self.dm().add(now, new) {
-            Ok((item, work, todos)) => {
+            Ok((item, work, todos, _)) => {
                 self.given(&todos);
                 if self.checking {
                     self.check();
@@ -962,7 +964,7 @@ impl H {
             .map(|head| self.reader.load(head.number).expect("the work loads"))
             .collect();
         match self.dm().change(now, Some("the planner says why"), asked) {
-            Ok((_, todos)) => {
+            Ok((_, todos, _)) => {
                 self.given(&todos);
                 if self.checking {
                     self.check();
@@ -1909,13 +1911,40 @@ impl H {
     /// Whoever plans the work makes changes together, for one reason; gives whether each changed its item, and what is
     /// to be done, or why they were refused.
     pub fn changes(&mut self, asked: Vec<(ItemNumber, Asked)>) -> Result<(Vec<bool>, Vec<Todo>), Failed> {
+        self.changes_crowding(asked).map(|(changed, todos, _)| (changed, todos))
+    }
+
+    /// Whoever plans the work makes changes together, for one reason; gives whether each changed its item, what is to
+    /// be done and each item they left past the warning of open children, or why they were refused.
+    #[allow(clippy::type_complexity)]
+    pub fn changes_crowding(
+        &mut self,
+        asked: Vec<(ItemNumber, Asked)>,
+    ) -> Result<(Vec<bool>, Vec<Todo>, Vec<Crowded>), Failed> {
         let now = self.now();
-        let (changed, todos) = self.dm().change(now, Some("the planner says why"), asked)?;
+        let (changed, todos, crowded) = self.dm().change(now, Some("the planner says why"), asked)?;
         self.given(&todos);
         if self.checking {
             self.check();
         }
-        Ok((changed, todos))
+        Ok((changed, todos, crowded))
+    }
+
+    /// Adds an item with its work, which the driver must take, and gives its numbers with each item it left past the
+    /// warning of open children.
+    pub fn add_crowding(&mut self, new: NewItem) -> (ItemNumber, WorkNumber, Vec<Crowded>) {
+        let now = self.now();
+        let (item, work, todos, crowded) = self.dm().add(now, new).expect("the item is added");
+        self.given(&todos);
+        if self.checking {
+            self.check();
+        }
+        (item, work, crowded)
+    }
+
+    /// Holds every act from now on to how many open children it may leave an item with.
+    pub fn hold_children(&mut self, children: Children) {
+        self.dm().hold_children(children);
     }
 
     /// What the work does next, as its view says.

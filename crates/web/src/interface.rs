@@ -32,7 +32,7 @@ use crate::pulls::Pulls;
 use crate::works::{
     Act, Added, Broken, CallPage, Changed, ChangesPage, DiffPage, DoingPage, Done, Engine, EngineAct, ForkAsked,
     ForkPage, ItemChanges, ItemsChanged, LevelsPage, NewItem, ProjectsPage, Refusal, RoundPage, Said, SystemPage,
-    ToldPage, VersionPage, WorkPage,
+    ToldPage, VersionPage, Warned, WorkPage, warnings,
 };
 
 /// The routes of the items and the works, over the engine's loop; an item is added at one of these levels, to one of
@@ -218,9 +218,10 @@ async fn add(
         Err(why) => return fail(StatusCode::UNPROCESSABLE_ENTITY, format!("{why}.")),
     };
     match handle.add(item).await {
-        Ok((item, work)) => Json(Added {
+        Ok((item, work, crowded)) => Json(Added {
             item: item.0,
             work: work.0,
+            warnings: warnings(&crowded),
         })
         .into_response(),
         Err(refusal) => refused(&refusal),
@@ -270,7 +271,11 @@ async fn change(State(handle): State<Handle>, levels: std::sync::Arc<Levels>, bo
         );
     }
     match handle.change(asked.why, changes).await {
-        Ok(changed) => Json(ItemsChanged { changed }).into_response(),
+        Ok((changed, crowded)) => Json(ItemsChanged {
+            changed,
+            warnings: warnings(&crowded),
+        })
+        .into_response(),
         Err(refusal) => refused(&refusal),
     }
 }
@@ -649,9 +654,16 @@ async fn act(State(handle): State<Handle>, path: Result<Path<u64>, PathRejection
         );
     }
     match handle.act(number, act.taken()).await {
-        // Words said answer with the cell the engine gave them to; every other act with nothing.
-        Ok(service::Acted { reached: Some(cell) }) => Json(Said {
+        // Words said answer with the cell the engine gave them to; a cancel that left an item with more open children
+        // than the warning with what it says of each; every other act with nothing.
+        Ok(service::Acted {
+            reached: Some(cell), ..
+        }) => Json(Said {
             reached: cell.to_string(),
+        })
+        .into_response(),
+        Ok(service::Acted { crowded, .. }) if !crowded.is_empty() => Json(Warned {
+            warnings: warnings(&crowded),
         })
         .into_response(),
         Ok(_) => StatusCode::NO_CONTENT.into_response(),

@@ -320,6 +320,7 @@ async fn a_round_that_ends_with_its_work_to_wait_is_taken_and_no_round_begins_af
         outside: Arc::new(scripted.clone()),
         host: Some(Arc::new(scripted)),
         slots: crate::SLOTS,
+        children: None,
         tokens: Arc::new(service::KeptTokens::new()),
         calls: service::Scripted::calls(),
         tests_given: None,

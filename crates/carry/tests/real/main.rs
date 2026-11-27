@@ -1049,6 +1049,8 @@ impl Real {
                 default_level: "1".to_string(),
                 highest_level: None,
                 title_max: 20,
+                children_warn: 10,
+                children_max: 15,
             },
             backup: None,
             github_app: None,
@@ -1217,7 +1219,7 @@ impl Real {
         self.service
             .take(Message::Add { item, reply })
             .expect("the loop takes it");
-        let (_, work) = answer.try_recv().expect("answered").expect("the item is added");
+        let (_, work, _) = answer.try_recv().expect("answered").expect("the item is added");
         let starts = (self.flow.cells.iter()).any(|cell| cell.act.as_deref() == Some("start"));
         let agents = (self.flow.cells.iter()).any(|cell| cell.kind == flow::Kind::Agent);
         if !starts && agents {

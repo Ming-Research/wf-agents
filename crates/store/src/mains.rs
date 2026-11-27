@@ -33,8 +33,10 @@ pub type Mains = BTreeMap<ItemNumber, ItemNumber>;
 /// The main dependencies as a write leaves them. `kept` holds them as they stood before the write, with each one the
 /// write chose set over them in turn; `items`, and `cancelled`, the items whose works are cancelled, are as the write
 /// leaves them. A main dependency stays while it is there, and while its item is not cancelled or every item that
-/// depends on the same item is; otherwise one is chosen, as the module says.
-pub(crate) fn settled(items: &[Item], cancelled: &BTreeSet<ItemNumber>, kept: &Mains) -> Mains {
+/// depends on the same item is; otherwise one is chosen, as the module says. A caller that would know what a write
+/// will leave before it is made, such as the driver holding an act to how many children it leaves an item with, gives
+/// it the items, the cancels and the main dependencies chosen as the write would leave them.
+pub fn settled(items: &[Item], cancelled: &BTreeSet<ItemNumber>, kept: &Mains) -> Mains {
     let project: BTreeMap<ItemNumber, Option<&str>> = (items.iter())
         .map(|item| (item.number, item.project.as_deref()))
         .collect();

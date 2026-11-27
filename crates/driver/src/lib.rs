@@ -156,7 +156,7 @@ pub use versions::{Misread, On};
 use work::{Ask, Call, KeptTime, Moment, Time, TurnSpan, Work};
 
 pub use budget::Budget;
-pub use changes::{Asked, NotMade, Planned, Unchangeable};
+pub use changes::{Asked, Children, Crowded, NotMade, Planned, Unchangeable};
 pub use history::HISTORY_SAMPLES;
 pub use sessions::{Policy, Warm};
 pub use usage::{LOOK_AFTER_MS, Said, Usage, Usages, Window};
@@ -346,6 +346,9 @@ pub struct Driver {
     /// The merged checks of each project as they were last worked out from the works' records, by the project's name
     /// ([`Driver::checks`]): worked out again only once a work merged, or a merged work changed, since.
     checks: RefCell<BTreeMap<Option<String>, Checks>>,
+    /// How many open children an act may leave an item with, as it was given ([`Driver::hold_children`]); none where
+    /// it was given none, when no act is held to a number of them.
+    children: Option<Children>,
 }
 
 /// The merged checks of a project as they were last worked out ([`timed::history`]), with what they say once it was
@@ -730,6 +733,9 @@ pub enum Failed {
     NoStart(String),
     /// Changes asked together were refused, each of these for its reason. None of them was made.
     NotChanged { asked: usize, refused: Vec<NotMade> },
+    /// An item was to be added, or changes asked together were to be made, that would leave each of these items with
+    /// more open children than it has, and more than the most ([`Children`]). Nothing was changed.
+    Crowded(Vec<Crowded>),
     /// The driver has no such work. Nothing was changed.
     NoSuchWork(WorkNumber),
     /// The driver was given no flow of this name. Nothing was changed.
@@ -849,6 +855,7 @@ impl Driver {
             queued: BTreeMap::new(),
             usage: Usages::default(),
             checks: RefCell::default(),
+            children: None,
         };
         let items = driver.store.items().map_err(Fault::Store)?;
         driver.mains = driver.store.mains().map_err(Fault::Store)?;
@@ -1003,13 +1010,19 @@ impl Driver {
     }
 
     /// Adds an item together with its one work and with what people write for it first, all of it or none, and gives
-    /// their numbers with what is to be done. The work is added paused, so that
+    /// their numbers with what is to be done, and each item it leaves with more open children than the warning
+    /// ([`Driver::hold_children`]). The work is added paused, so that
     /// it begins no round until the owner lets it on. What is kept of it from its start is, in this order, its pause,
     /// what the driver says of the item's dependencies, what people wrote, and what follows from looking at it then.
+    /// An item that would leave an item with more open children than the most is refused ([`Failed::Crowded`]).
     ///
     /// The driver keeps no key of the caller's for an add: a caller that was stopped before it had the numbers finds
     /// the item among those the driver shows, or adds it again as another item.
-    pub fn add(&mut self, now: Time, new: NewItem) -> Result<(ItemNumber, WorkNumber, Vec<Todo>), Failed> {
+    pub fn add(
+        &mut self,
+        now: Time,
+        new: NewItem,
+    ) -> Result<(ItemNumber, WorkNumber, Vec<Todo>, Vec<Crowded>), Failed> {
         self.going()?;
         if new.title.trim().is_empty() {
             return Err(Failed::BlankTitle);
@@ -1078,9 +1091,21 @@ impl Driver {
             tags,
             continues: new.continues,
         };
+        // The item to be added has no number yet: one past every item's stands for it, as the store gives the next.
+        let adding = ItemNumber(self.of_item.keys().next_back().map_or(1, |last| last.0 + 1));
+        let crowded = self.crowding(Some(adding), |items, ended, _| {
+            items.push(Item::new(adding, now, first.clone(), Vec::new()));
+            ended.insert(adding, None);
+        })?;
         let (item, number) = (self.store)
             .add(&first, &new.flow, now, &work)
             .map_err(|fault| self.stop(Fault::Store(fault), false))?;
+        let crowded = (crowded.into_iter())
+            .map(|crowded| Crowded {
+                item: crowded.item.or(Some(item)),
+                ..crowded
+            })
+            .collect();
         match self.store.mains() {
             Ok(mains) => self.mains = mains,
             Err(fault) => return Err(self.stop(Fault::Store(fault), true)),
@@ -1103,13 +1128,66 @@ impl Driver {
         let todos = effects.into_iter().map(|effect| held.todo(effect)).collect();
         self.works.insert(number, held);
         self.of_item.insert(item, number);
-        Ok((item, number, todos))
+        Ok((item, number, todos, crowded))
+    }
+
+    /// Sets how many open children an act may leave an item with ([`changes::crowding`]): from now on, an item added
+    /// or changes asked together that leave an item with more than it had, and more than the most, are refused, and
+    /// past the warning they are done and said to have left it so.
+    pub fn hold_children(&mut self, children: Children) {
+        self.children = Some(children);
+    }
+
+    /// How each item's work has ended, none for one that has not, as they stand.
+    fn ends(&self) -> BTreeMap<ItemNumber, Option<End>> {
+        (self.works.values())
+            .map(|held| {
+                let end = match held.standing {
+                    Standing::Ended(end) => Some(end),
+                    _ => None,
+                };
+                (held.item.number, end)
+            })
+            .collect()
+    }
+
+    /// What an act does to the open children of the items, held to how many it may leave them with. `act` makes, on
+    /// copies of every item and of how each one's work has ended (none for one that has not), what the act leaves them
+    /// as, and gives the main dependencies the act chooses, each by the item it is on, in the order chosen; the main
+    /// dependencies are worked out from them as the store will once the act is kept ([`store::settled`]). Refused with
+    /// each item left past the most; else each left past the warning, `added` the item the act adds, said as none
+    /// ([`changes::crowding`]). Nothing, and no copy made, where the driver holds no act to them.
+    #[allow(clippy::type_complexity)]
+    fn crowding(
+        &self,
+        added: Option<ItemNumber>,
+        act: impl FnOnce(&mut Vec<Item>, &mut BTreeMap<ItemNumber, Option<End>>, &mut Vec<(ItemNumber, ItemNumber)>),
+    ) -> Result<Vec<Crowded>, Failed> {
+        let Some(limits) = self.children else {
+            return Ok(Vec::new());
+        };
+        let standing = self.ends();
+        let before = changes::open_children(&self.mains, |item| standing.get(&item).is_some_and(Option::is_none));
+        let mut items: Vec<Item> = self.works.values().map(|held| held.item.clone()).collect();
+        let (mut ended, mut chosen) = (standing.clone(), Vec::new());
+        act(&mut items, &mut ended, &mut chosen);
+        let cancelled: BTreeSet<ItemNumber> = (ended.iter())
+            .filter(|(_, end)| **end == Some(End::Cancelled))
+            .map(|(item, _)| *item)
+            .collect();
+        let mut wanted = self.mains.clone();
+        wanted.extend(chosen);
+        let mains = store::settled(&items, &cancelled, &wanted);
+        let after = changes::open_children(&mains, |item| ended.get(&item).is_some_and(Option::is_none));
+        changes::crowding(&before, &after, limits, added).map_err(Failed::Crowded)
     }
 
     /// Makes changes of items asked together, for one reason, as whoever plans the work asks, all of them or none, and
     /// says whether each changed its item, with what is to be done: a change that leaves its item as it is keeps
     /// nothing. The changes are refused where [`changes::judge`] refuses any, and a level is one whoever asks has
-    /// checked against the installation's levels. Everything the changes keep is kept in one transaction before
+    /// checked against the installation's levels. They are refused too where they would leave an item with more open
+    /// children than it has and than the most, and give each they leave so past the warning
+    /// ([`Driver::hold_children`]). Everything the changes keep is kept in one transaction before
     /// anything follows from it: the changes of the items, as their own records, and each cancel and reopen, as the
     /// records of the item's work, the work cancelled ending and abandoning what it had under way, the work reopened
     /// being paused by the owner, as a work added is. Then each work whose item came to depend on another or no longer
@@ -1117,12 +1195,13 @@ impl Driver {
     /// [`DEPENDENCIES`] written to say what it now waits for, and is looked at; a level, a title or a tag decides
     /// nothing now: the work's rounds handed out from now on run on the new level, and where it gives a line another
     /// model, the line begins a new session as the next thing that happens to the work is taken.
+    #[allow(clippy::type_complexity)]
     pub fn change(
         &mut self,
         now: Time,
         why: Option<&str>,
         asked: Vec<(ItemNumber, Asked)>,
-    ) -> Result<(Vec<bool>, Vec<Todo>), Failed> {
+    ) -> Result<(Vec<bool>, Vec<Todo>, Vec<Crowded>), Failed> {
         self.going()?;
         let planned: BTreeMap<ItemNumber, Planned> = (self.works.values())
             .map(|held| {
@@ -1144,6 +1223,34 @@ impl Driver {
         let changed = (changes::judge(&planned, &asked)).map_err(|refused| Failed::NotChanged {
             asked: asked.len(),
             refused,
+        })?;
+        // How many open children the changes leave each item with, each that changes its item made as the store keeps
+        // it: a change of an item at this time, a cancel and a reopen in how the item's work has ended.
+        let crowded = self.crowding(None, |items, ended, chosen| {
+            let at: BTreeMap<ItemNumber, usize> =
+                (items.iter().enumerate()).map(|(at, item)| (item.number, at)).collect();
+            for ((item, asked), _) in asked.iter().zip(&changed).filter(|(_, changes)| **changes) {
+                match asked {
+                    Asked::Item(change) => {
+                        if let ItemChange::Main(on) = change {
+                            chosen.push((*on, *item));
+                        }
+                        if let Some(at) = at.get(item) {
+                            items[*at].changed(Change {
+                                at: now,
+                                what: change.clone(),
+                                why: why.map(str::to_string),
+                            });
+                        }
+                    }
+                    Asked::Cancel => {
+                        ended.insert(*item, Some(End::Cancelled));
+                    }
+                    Asked::Reopen => {
+                        ended.insert(*item, None);
+                    }
+                }
+            }
         })?;
         // What the changes make, worked out on copies of what is held before anything is kept: the changes of the
         // items, and each work as its cancels and reopens leave it, with what is to be done for it.
@@ -1194,7 +1301,7 @@ impl Driver {
             effects.extend(done.into_iter().map(|effect| held.todo(effect)));
         }
         if items.is_empty() && works.is_empty() {
-            return Ok((changed, Vec::new()));
+            return Ok((changed, Vec::new(), crowded));
         }
         let saved: Vec<(WorkNumber, &Work)> = works.iter().map(|(number, held)| (*number, &held.work)).collect();
         if let Err(fault) = self.store.change(now, why, &items, &saved) {
@@ -1251,7 +1358,7 @@ impl Driver {
                 return Err(self.stop(fault, true));
             }
         }
-        self.filled_after(now, todos).map(|todos| (changed, todos))
+        self.filled_after(now, todos).map(|todos| (changed, todos, crowded))
     }
 
     /// Whether the call of the work is a call of the tool that runs the project's tests.
@@ -3398,7 +3505,7 @@ mod tests {
                 why: None,
                 waits_for: Vec::new(),
             };
-            let (_, work, _) = driver.add(now, new).expect("the item is added");
+            let (_, work, _, _) = driver.add(now, new).expect("the item is added");
             (driver.happened(now, work, Event::Resumed)).expect("the work is let on");
         }
         now.0 += 1_000;
@@ -3489,7 +3596,7 @@ mod tests {
             why: None,
             waits_for: Vec::new(),
         };
-        let (_, work, _) = driver.add(*now, new).expect("the item is added");
+        let (_, work, _, _) = driver.add(*now, new).expect("the item is added");
         (driver.happened(*now, work, Event::Resumed)).expect("the work is let on");
         hands_in(driver, now, work, "text");
         let full = reading(work, &format!("run/{}", work.0), work::Source::Full);

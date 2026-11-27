@@ -42,6 +42,7 @@ async fn a_carrier_that_answers_a_round_twice_stops_the_loop() {
         outside: Arc::new(Scripted::new(Default::default())),
         host: None,
         slots: crate::SLOTS,
+        children: None,
         tokens: Arc::new(service::KeptTokens::new()),
         calls: service::Scripted::calls(),
         tests_given: None,

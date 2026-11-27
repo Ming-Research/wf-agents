@@ -73,13 +73,13 @@ pub use carriers::{
     Tools, Try, YEAR_MS,
 };
 pub use clock::{Clock, SystemClock, TokioClock};
-pub use driver::{Along, Going, Instead, Said, Under, Window};
+pub use driver::{Along, Children, Crowded, Going, Instead, Said, Under, Window};
 pub use levels::{Level, Levels, LevelsFault};
 pub use projects::Projects;
 pub use script::Script;
 pub use scripted::Scripted;
 pub use titles::{title_fits, title_words};
-pub use words::{no_one_words, record_fault_words, refused_words, store_fault_words};
+pub use words::{crowded_words, no_one_words, record_fault_words, refused_words, store_fault_words};
 
 /// How many changes are kept for a listener that has not read them yet. One that falls further behind is told that
 /// everything may have changed.
@@ -158,17 +158,19 @@ pub enum Message {
         what: AccountAct,
         reply: oneshot::Sender<Result<(), Refusal>>,
     },
-    /// An item is added, with its work.
+    /// An item is added, with its work; answered with their numbers, and each item it left with more open children
+    /// than the warning.
     Add {
         item: NewItem,
-        reply: oneshot::Sender<Result<(ItemNumber, WorkNumber), Refusal>>,
+        reply: oneshot::Sender<Result<AddedItem, Refusal>>,
     },
     /// Whoever plans the work changes items, for one reason, all of the changes or none: a level is one whoever asks
-    /// has checked; the reply says whether each changed its item.
+    /// has checked; the reply says whether each changed its item, and each item they left with more open children
+    /// than the warning.
     Change {
         why: String,
         changes: Vec<(ItemNumber, Asked)>,
-        reply: oneshot::Sender<Result<Vec<bool>, Refusal>>,
+        reply: oneshot::Sender<Result<ItemsChanged, Refusal>>,
     },
     /// A source outside the works says this now of the project of this name: the head of the project's main branch,
     /// for one.
@@ -264,10 +266,19 @@ pub enum Act {
     },
 }
 
-/// What came of an act the loop took: of one that says the owner's words, the cell the engine gave them to.
+/// An item added: its number, its work's, and each item the add left with more open children than the warning.
+pub type AddedItem = (ItemNumber, WorkNumber, Vec<Crowded>);
+
+/// Changes asked together and made: whether each changed its item, and each item they left with more open children
+/// than the warning.
+pub type ItemsChanged = (Vec<bool>, Vec<Crowded>);
+
+/// What came of an act the loop took: of one that says the owner's words, the cell the engine gave them to; of a
+/// cancel, each item it left with more open children than the warning.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Acted {
     pub reached: Option<CellId>,
+    pub crowded: Vec<Crowded>,
 }
 
 /// Something happened: these works grew, an item was added where `items`, the copies of the database changed where
@@ -384,8 +395,11 @@ impl Service {
             .map(|flow| (flow.name.clone(), Arc::new(flow.clone())))
             .collect();
         let policy = carriers.agents.policy();
-        let (driver, todos) = Driver::open(store, flows, carriers.slots, policy, carriers.tests_given.clone(), now)
+        let (mut driver, todos) = Driver::open(store, flows, carriers.slots, policy, carriers.tests_given.clone(), now)
             .map_err(Fault::Driver)?;
+        if let Some(children) = carriers.children {
+            driver.hold_children(children);
+        }
         // The tokens of the accounts removed are let go of until they are, a removal before a stop among them.
         if let Some(failed) = let_go_of(&*carriers.tokens, &driver.accounts().removed()) {
             eprintln!("The tokens of accounts removed could not be let go of, and are tried again: {failed}");
@@ -764,9 +778,9 @@ impl Service {
             Message::Add { item, reply } => {
                 let now = self.now()?;
                 match self.driver.add(now, item) {
-                    Ok((item, work, todos)) => {
+                    Ok((item, work, todos, crowded)) => {
                         items = true;
-                        let _ = reply.send(Ok((item, work)));
+                        let _ = reply.send(Ok((item, work, crowded)));
                         self.hand(now, todos)?;
                     }
                     Err(failed) => {
@@ -782,9 +796,9 @@ impl Service {
             Message::Change { why, changes, reply } => {
                 let now = self.now()?;
                 match self.driver.change(now, Some(&why), changes) {
-                    Ok((changed, todos)) => {
+                    Ok((changed, todos, crowded)) => {
                         items = changed.iter().any(|changed| *changed);
-                        let _ = reply.send(Ok(changed));
+                        let _ = reply.send(Ok((changed, crowded)));
                         self.hand(now, todos)?;
                     }
                     Err(failed) => {
@@ -904,7 +918,8 @@ impl Service {
                 let item = (self.driver.work(work).map(|kept| kept.item.number))
                     .ok_or(Refusal::Failed(Failed::NoSuchWork(work)))?;
                 let asked = vec![(item, Asked::Cancel)];
-                let (_, todos) = (self.driver.change(now, why.as_deref(), asked)).map_err(Refusal::Failed)?;
+                let (_, todos, crowded) = (self.driver.change(now, why.as_deref(), asked)).map_err(Refusal::Failed)?;
+                acted.crowded = crowded;
                 return Ok((todos, acted));
             }
             Act::Say { to, words } => {
@@ -1457,16 +1472,17 @@ impl Handle {
     }
 
     /// Adds an item with its work, which is added paused unless it is added going on, and gives their
-    /// numbers.
-    pub async fn add(&self, item: NewItem) -> Result<(ItemNumber, WorkNumber), Refusal> {
+    /// numbers, with each item it left with more open children than the warning.
+    pub async fn add(&self, item: NewItem) -> Result<AddedItem, Refusal> {
         let (reply, answer) = oneshot::channel();
         self.to.send(Message::Add { item, reply }).map_err(|_| Refusal::Gone)?;
         answer.await.map_err(|_| Refusal::Gone)?
     }
 
     /// Changes items, for this reason, all of the changes or none, and says whether each changed its item: a level is
-    /// one the caller has checked against the installation's levels.
-    pub async fn change(&self, why: String, changes: Vec<(ItemNumber, Asked)>) -> Result<Vec<bool>, Refusal> {
+    /// one the caller has checked against the installation's levels; and each item they left with more open children
+    /// than the warning.
+    pub async fn change(&self, why: String, changes: Vec<(ItemNumber, Asked)>) -> Result<ItemsChanged, Refusal> {
         let (reply, answer) = oneshot::channel();
         (self.to.send(Message::Change { why, changes, reply })).map_err(|_| Refusal::Gone)?;
         answer.await.map_err(|_| Refusal::Gone)?
