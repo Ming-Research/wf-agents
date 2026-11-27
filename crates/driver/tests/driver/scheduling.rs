@@ -515,3 +515,64 @@ fn a_pause_of_everything_the_store_fails_to_keep_stops_the_driver_and_is_not_kep
     h.reopen();
     assert!(h.d().everything_paused().is_none());
 }
+
+// A work that waits for a slot and is paused by the owner meanwhile waited for the slot until the pause and again from
+// the end of the pause, and for the pause in between, though a slot may be free then: what the work waited for is read
+// from the records of the pause and of the owner's letting it on, and the pause comes before the slot (acceptance: the
+// stretch is a wait for a slot only where nothing else holds the work). Here the pause begins and ends while the other
+// work's round still holds the one slot. Reference: the definition of the wait kinds in `driver/src/time.rs`
+// (module comment: a pause holds a work that would run, whatever the slots are).
+#[test]
+fn a_pause_in_the_middle_of_a_wait_for_a_slot_splits_it_into_the_slot_the_pause_and_the_slot_again() {
+    let mut h = H::with_slots(flows(), 1);
+    let (_, one) = h.add_let_on(new_item("one", &[], "plain"));
+    let call = asks_a_tool(&mut h, one);
+    let (_, two) = h.add_let_on(new_item("two", &[], "plain"));
+    assert_eq!(h.round(two).1, "write", "the slot the tool left goes to the other work");
+    h.answer(one, call);
+    let answered = Time(h.clock);
+    h.on(
+        one,
+        Event::Paused {
+            by: Pauser::Owner,
+            why: None,
+            waits_for: Vec::new(),
+        },
+    );
+    let paused = Time(h.clock);
+    h.let_on(one);
+    let resumed = Time(h.clock);
+    assert_eq!(
+        h.d().held(one),
+        Some(Holder::Slot),
+        "the other work's round still holds the slot"
+    );
+    h.returns(two, hands_in(&[("text", None)]));
+    let began = Time(h.clock);
+    assert_eq!(h.round(one).1, "write");
+    let d = h.d();
+    let kept = d.work(one).expect("the work is there");
+    let at_once = d.at_once();
+    let (cannot_run, down) = d.shared_waits(&at_once);
+    let stretches = driver::time::stretches(
+        &kept,
+        d.everything_spans(),
+        &d.stop_spans(),
+        &cannot_run,
+        &down,
+        Vec::new(),
+        Time(h.clock),
+    );
+    let of = |went: work::Went| -> Vec<(Time, Time)> {
+        let mut joined: Vec<(Time, Time)> = Vec::new();
+        for s in stretches.iter().filter(|s| s.went == went) {
+            match joined.last_mut() {
+                Some(last) if last.1 == s.from => last.1 = s.until,
+                _ => joined.push((s.from, s.until)),
+            }
+        }
+        joined
+    };
+    assert_eq!(of(work::Went::Slot), [(answered, paused), (resumed, began)]);
+    assert_eq!(of(work::Went::Paused), [(paused, resumed)]);
+}
