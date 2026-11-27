@@ -140,7 +140,7 @@ enum Command {
     },
     /// Makes several changes of items at once, for one reason: in the order given, each judged against what those
     /// before it make, all of them or none. Each is ITEM:KIND or ITEM:KIND=VALUE, the kind one of title=TEXT,
-    /// level=LEVEL, depends-on=ITEM, no-longer-depends-on=ITEM, tag=TAG, untag=TAG, continue-branch=BRANCH,
+    /// level=LEVEL, depends-on=ITEM, no-longer-depends-on=ITEM, main=ITEM, tag=TAG, untag=TAG, continue-branch=BRANCH,
     /// continue-pull=PULL, no-longer-continues, cancel and reopen. Every refusal is said at once, by the change's place
     /// among them.
     Change {
@@ -175,10 +175,30 @@ enum Command {
     /// Makes an item depend on another, until its work ends: its work then waits for that one to merge as well, unless
     /// that one is cancelled, when it waits for nothing. A work that has started finishes the round it has under way
     /// and waits where it stands. Refused where that one depends on it already, by way of any items, and, for a work
-    /// whose merge is under way, where that one has not ended.
+    /// whose merge is under way, where that one has not ended. The first dependency on that one is its main one, under
+    /// which the owner's page draws it whole; with --main, this one is, in place of the one before, as `wf-agents
+    /// set-main` makes it.
     AddDependency {
         item: u64,
         /// The item it comes to depend on.
+        on: u64,
+        /// Makes the dependency the main one of the item it is on.
+        #[arg(long)]
+        main: bool,
+        #[command(flatten)]
+        why: Why,
+        #[command(flatten)]
+        at: At,
+    },
+    /// Makes an item's dependency on another that other's main one, in place of the one before, until the item's work
+    /// ends: the owner's page draws the other whole under the item, and a shadow of it under each other item that
+    /// depends on it. Every item some item depends on has exactly one main dependency. The store keeps it: the first
+    /// dependency on an item is its main one, and where the main one is taken away, or its item is cancelled, the
+    /// earliest made of those left, of an item not cancelled and of the same project first, takes its place.
+    /// `wf-agents show` and `graph` say which dependency is the main one.
+    SetMain {
+        item: u64,
+        /// The item it depends on whose main dependency its own becomes.
         on: u64,
         #[command(flatten)]
         why: Why,
@@ -344,7 +364,8 @@ enum Command {
         at: At,
     },
     /// What an item waits for and what waits for it: up, the items it depends on, each with those it depends on in
-    /// turn; down, the items that depend on it, likewise; to a depth.
+    /// turn; down, the items that depend on it, likewise; to a depth. Each dependency that is the main one of the item
+    /// depended on is said to be.
     Graph {
         item: u64,
         /// Only up: what it depends on.
@@ -375,8 +396,10 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// Shows a work: what it does now, its cells and its blocks, and the latest ten of what happened to its item, of its
-    /// runs and of its sessions, and ten of its questions, those not answered first, saying how many more there are.
+    /// Shows a work: what it does now, what its item depends on and what depends on it, each dependency that is the main
+    /// one of the item depended on said to be, its cells and its blocks, and the latest ten of what happened to its
+    /// item, of its runs and of its sessions, and ten of its questions, those not answered first, saying how many more
+    /// there are.
     /// With a part, that part alone, a hundred at a time.
     Show {
         work: u64,
@@ -742,7 +765,20 @@ fn main() -> ExitCode {
         },
         Command::SetLevel { item, level, why, at } => one(at, why, ChangeAsked::Level { item, level }),
         Command::SetTitle { item, title, why, at } => one(at, why, ChangeAsked::Title { item, title }),
-        Command::AddDependency { item, on, why, at } => one(at, why, ChangeAsked::DependsOn { item, on }),
+        Command::AddDependency {
+            item,
+            on,
+            main,
+            why,
+            at,
+        } => {
+            let mut changes = vec![ChangeAsked::DependsOn { item, on }];
+            if main {
+                changes.push(ChangeAsked::Main { item, on });
+            }
+            talk::ask(at.port, Asked::Change { why: why.why, changes })
+        }
+        Command::SetMain { item, on, why, at } => one(at, why, ChangeAsked::Main { item, on }),
         Command::RemoveDependency { item, on, why, at } => one(at, why, ChangeAsked::NoLongerDependsOn { item, on }),
         Command::Tag { item, tag, why, at } => one(at, why, ChangeAsked::Tag { item, tag }),
         Command::Untag { item, tag, why, at } => one(at, why, ChangeAsked::Untag { item, tag }),

@@ -54,9 +54,11 @@ are on GitHub, and is set up once, by the owner of the account that holds those 
 4. Write the table into the settings: `app_id`, the App ID the App's page shows; `installation_id`, the number that
    ends the address of the installation's page; and `private_key`, the key's path written out whole.
 
-The engine needs `openssl` on its `PATH`: it signs with the key, which the engine itself never reads. The engine does
-not start where a project or the copies are on GitHub and the settings name no App, or where the key cannot be read.
-Where GitHub then gives no token, each call fails saying why, and no other credential is tried.
+The engine needs `openssl` and `curl` on its `PATH`. `openssl` signs a token with the key, which the engine itself never
+reads. `curl` sends that token to GitHub for a token of the installation, since GitHub takes it only in the header
+`Authorization: Bearer`, and `gh` sends a token as `Authorization: token`. The engine does not start where a project or
+the copies are on GitHub and the settings name no App, or where the key cannot be read. Where GitHub then gives no
+token, each call fails saying why, and no other credential is tried.
 
 ## The gate on a machine that measurements run on
 

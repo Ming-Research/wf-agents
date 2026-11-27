@@ -148,7 +148,7 @@ use flow::agents::{ResultGiven, fill};
 pub use outage::{Candidate, CannotRun, Checked, Down, Found, Limit, Move, Outage, Service, Until};
 use store::{
     AccountAct, AccountRecord, AccountTaker, Change, Continues, EverythingPaused, First, Item, ItemChange, ItemNumber,
-    StopAct, StopRecord, Storage, WorkHead, WorkNumber,
+    Mains, StopAct, StopRecord, Storage, WorkHead, WorkNumber,
 };
 use turn::Turned;
 use versions::Installed;
@@ -283,6 +283,9 @@ pub struct Driver {
     works: BTreeMap<WorkNumber, Held>,
     /// The work of each item.
     of_item: BTreeMap<ItemNumber, WorkNumber>,
+    /// The main dependency of each item some item depends on, as the store keeps them, read again after each write
+    /// that can change them: the store keeps the rule, the driver only reads it.
+    mains: Mains,
     /// How many rounds of cells that take a slot may go on at once, as the driver opened with them or was last given
     /// them ([`Driver::set_slots`]).
     slots: usize,
@@ -825,6 +828,7 @@ impl Driver {
             flows: by_name,
             works: BTreeMap::new(),
             of_item: BTreeMap::new(),
+            mains: Mains::new(),
             slots,
             slots_set,
             paused,
@@ -847,6 +851,7 @@ impl Driver {
             checks: RefCell::default(),
         };
         let items = driver.store.items().map_err(Fault::Store)?;
+        driver.mains = driver.store.mains().map_err(Fault::Store)?;
         let heads = driver.store.works().map_err(Fault::Store)?;
         let outlines = versions::outlines(driver.store.as_ref())?;
         let mut loaded = Vec::new();
@@ -1076,6 +1081,10 @@ impl Driver {
         let (item, number) = (self.store)
             .add(&first, &new.flow, now, &work)
             .map_err(|fault| self.stop(Fault::Store(fault), false))?;
+        match self.store.mains() {
+            Ok(mains) => self.mains = mains,
+            Err(fault) => return Err(self.stop(Fault::Store(fault), true)),
+        }
         let head = WorkHead {
             number,
             item,
@@ -1127,6 +1136,7 @@ impl Driver {
                     letting_go: held.letting_go(),
                     placed: changes::placed(&held.flow, &held.work),
                     starts: changes::starts(&held.flow),
+                    main_dependent: self.mains.get(&held.item.number).copied(),
                 };
                 (held.item.number, planned)
             })
@@ -1217,6 +1227,11 @@ impl Driver {
                 held.warm_again(self.policy.as_ref());
                 held.revision = next_revision();
             }
+        }
+        // The main dependencies as the store keeps them after the changes, which may have moved some.
+        match self.store.mains() {
+            Ok(mains) => self.mains = mains,
+            Err(fault) => return Err(self.stop(Fault::Store(fault), true)),
         }
         // What follows, the changes being kept by now whatever becomes of it: each work whose item depends on an item
         // cancelled or reopened, and each whose own dependencies changed or that was reopened, has its block written
@@ -1458,6 +1473,8 @@ impl Driver {
             _ => None,
         };
         let outages = self.outages();
+        // A cancel or a reopen may move a main dependency, which the store keeps as it saves the work.
+        let moves_mains = matches!(&event, Event::Cancelled { .. } | Event::Reopened { .. });
         if let Event::Pinged { line, .. } = &event {
             self.pinging.remove(&(work, line.clone()));
         }
@@ -1478,6 +1495,12 @@ impl Driver {
             Ok((effects, _)) => todos.extend(effects.into_iter().map(|effect| held.todo(effect))),
             Err(Halt::Refused(refused)) => return Err(Failed::Refused(refused)),
             Err(Halt::Store(fault)) => return Err(self.stop(Fault::Store(fault), false)),
+        }
+        if moves_mains {
+            match self.store.mains() {
+                Ok(mains) => self.mains = mains,
+                Err(fault) => return Err(self.stop(Fault::Store(fault), true)),
+            }
         }
         // A wait every work shares began, ended or moved with it: every work is looked at again. What happened is
         // kept by now, whatever becomes of what follows from it.
@@ -2474,6 +2497,18 @@ impl Driver {
         self.shown()
             .flat_map(|held| (held.pending().into_iter()).map(|effect| held.todo(effect)))
             .collect()
+    }
+
+    /// The main dependency of each item some item depends on, as the store keeps them: by that item, the item whose
+    /// dependency on it is the main one, under which the owner's page draws it whole.
+    pub fn mains(&self) -> &Mains {
+        &self.mains
+    }
+
+    /// The item whose dependency on this one is its main one, as the store keeps them; none where no item depends on
+    /// it.
+    pub fn main_dependent(&self, item: ItemNumber) -> Option<ItemNumber> {
+        self.mains.get(&item).copied()
     }
 
     /// Every work with its item, in the order of the works' numbers.

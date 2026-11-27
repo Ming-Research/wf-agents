@@ -188,12 +188,12 @@ fn a_file_of_version_32_is_migrated_with_its_kept_times_read_as_holding_no_turn(
     assert_eq!(count(&old.path, "kept_time"), 1);
 }
 
-// A file of version 37 told no wait for a slot apart from the others in what it kept of the time of its works, and kept
+// A file of version 38 told no wait for a slot apart from the others in what it kept of the time of its works, and kept
 // no time a job of a run of the CI waited for a runner: what it kept is read as it was, each kept time as one that does
 // not tell a wait for a slot apart, which is not the same as one that does and holds none, and each job as one that
 // said nothing of it.
 #[test]
-fn a_file_of_version_37_is_migrated_with_its_kept_times_not_telling_a_slot_apart_and_its_jobs_not_saying_how_long_they_queued()
+fn a_file_of_version_38_is_migrated_with_its_kept_times_not_telling_a_slot_apart_and_its_jobs_not_saying_how_long_they_queued()
  {
     let mut d = Driver::new();
     history(&mut d);
@@ -221,7 +221,7 @@ fn a_file_of_version_37_is_migrated_with_its_kept_times_not_telling_a_slot_apart
             job.queued_millis = None;
         }
     }
-    let (old, new) = super::opening::kept_in(37, &work);
+    let (old, new) = super::opening::kept_in(38, &work);
     let store = old.open();
     assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
     assert_eq!(

@@ -14,6 +14,10 @@
 //! has merged depends on no item that has not ended. A work whose last cell has a run open, which merges as it
 //! finishes, is held to it as if it had merged: it is not made to depend on an item that has not ended, and an item it
 //! depends on is not reopened (decision `a-cancelled-item-is-not-reopened-under-a-merged-item`).
+//!
+//! An item's dependency on another may be made that other's main one ([`ItemChange::Main`]) until the item's work ends:
+//! the store keeps which one is main, and moves it as the dependencies and the cancels move it (crate `store`,
+//! [`store::Mains`]).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -51,6 +55,8 @@ pub struct Planned {
     pub placed: bool,
     /// Whether its flow has a cell that starts a work, which is what reads what an item continues.
     pub starts: bool,
+    /// The item whose dependency on it is its main one, as the store keeps them, where an item depends on it.
+    pub main_dependent: Option<ItemNumber>,
 }
 
 /// Why a change of an item is refused.
@@ -112,7 +118,9 @@ pub struct NotMade {
 /// then made. The changes are judged in turn, each against the items as the changes before it that were not refused
 /// would leave them, so that every refusal is said at once. `items` gives every item as it stands. A change that leaves
 /// its item as it is, a title, a level or a tag it has, or an item it depends on already, is no change, and is not
-/// refused for that; a title of no words is refused, as it is when an item is added.
+/// refused for that; a title of no words is refused, as it is when an item is added. A dependency made the main one is
+/// no change where it is the main one already and no change before it takes that away: its dependency taken away, or
+/// its item cancelled.
 pub fn judge(
     items: &BTreeMap<ItemNumber, Planned>,
     changes: &[(ItemNumber, Asked)],
@@ -244,7 +252,9 @@ fn judge_one(items: &BTreeMap<ItemNumber, Planned>, number: ItemNumber, asked: &
             },
             ItemChange::Untagged(tag) if !item.tags.contains(tag) => refused(Unchangeable::NotTagged(tag.clone())),
             ItemChange::Untagged(_) => Ok(true),
-            ItemChange::DependsOn(on) | ItemChange::NoLongerDependsOn(on) if !items.contains_key(on) => {
+            ItemChange::DependsOn(on) | ItemChange::NoLongerDependsOn(on) | ItemChange::Main(on)
+                if !items.contains_key(on) =>
+            {
                 Err(Refused::NoSuchItem(*on))
             }
             ItemChange::DependsOn(on) if item.depends_on.contains(on) => Ok(false),
@@ -264,6 +274,8 @@ fn judge_one(items: &BTreeMap<ItemNumber, Planned>, number: ItemNumber, asked: &
                 refused(Unchangeable::NotDependent(*on))
             }
             ItemChange::NoLongerDependsOn(_) => Ok(true),
+            ItemChange::Main(on) if !item.depends_on.contains(on) => refused(Unchangeable::NotDependent(*on)),
+            ItemChange::Main(on) => Ok(items.get(on).and_then(|p| p.main_dependent) != Some(number)),
             ItemChange::Continues(continues) => {
                 if let Some(fault) = continues.as_ref().and_then(continues_fault) {
                     return Err(fault);
@@ -282,6 +294,19 @@ fn judge_one(items: &BTreeMap<ItemNumber, Planned>, number: ItemNumber, asked: &
 
 /// Makes what the change does to the items as they are judged: the item changed, its work cancelled, or reopened.
 fn made(items: &mut BTreeMap<ItemNumber, Planned>, number: ItemNumber, asked: &Asked) {
+    // Which dependency is the main one of an item is known while no change takes it away; a dependency made the main
+    // one is known to be. What the store makes of it otherwise is not judged here.
+    for other in items.values_mut() {
+        let main = other.main_dependent == Some(number);
+        match asked {
+            Asked::Item(ItemChange::Main(on)) if *on == other.item.number => other.main_dependent = Some(number),
+            Asked::Item(ItemChange::NoLongerDependsOn(on)) if main && *on == other.item.number => {
+                other.main_dependent = None;
+            }
+            Asked::Cancel if main => other.main_dependent = None,
+            _ => {}
+        }
+    }
     let Some(planned) = items.get_mut(&number) else {
         return;
     };

@@ -203,6 +203,10 @@ pub struct Item {
     pub added: u64,
     /// The items it depends on, in the order of their numbers.
     pub depends_on: Vec<u64>,
+    /// The item whose dependency on it is its main one, as the store keeps them: the one the owner's page draws it
+    /// whole under, a shadow of it standing under each other item that depends on it; none where no item depends on
+    /// it.
+    pub main_dependent: Option<u64>,
     /// The tags it carries, in the order of their names.
     #[serde(default)]
     pub tags: Vec<String>,
@@ -214,6 +218,51 @@ pub struct Item {
     pub history: ItemHistory,
     /// The one work done for it, which was added with it.
     pub work: Summary,
+}
+
+/// The dependencies between an item and the others, both ways, each with whether it is the main one of the item
+/// depended on: the one the owner's page draws that item whole under.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Dependencies {
+    /// The items it depends on, in the order of their numbers, each with whether its dependency on that item is that
+    /// item's main one.
+    pub on: Vec<Dependency>,
+    /// The items that depend on it, in the order of their numbers, each with whether that item's dependency on it is
+    /// its main one.
+    pub by: Vec<Dependency>,
+}
+
+/// A dependency between an item and another, by the other's number, and whether it is the main one of the item
+/// depended on.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Dependency {
+    pub item: u64,
+    pub main: bool,
+}
+
+impl Dependencies {
+    /// The dependencies of the item, as the driver holds the items and the main dependencies.
+    pub fn of(item: &store::Item, driver: &Driver) -> Dependencies {
+        let number = item.number;
+        let on = (item.depends_on.iter())
+            .map(|on| Dependency {
+                item: on.0,
+                main: driver.main_dependent(*on) == Some(number),
+            })
+            .collect();
+        let main = driver.main_dependent(number);
+        let mut by: Vec<Dependency> = (driver.works())
+            .filter(|kept| kept.item.depends_on.contains(&number))
+            .map(|kept| Dependency {
+                item: kept.item.number.0,
+                main: main == Some(kept.item.number),
+            })
+            .collect();
+        by.sort_by_key(|dependency| dependency.item);
+        Dependencies { on, by }
+    }
 }
 
 /// What an item continues: a branch of its project's repository, or a pull request on its host, whose head its work
@@ -297,6 +346,8 @@ pub enum ItemChanged {
     DependsOn { item: u64 },
     /// It no longer depends on this item.
     NoLongerDependsOn { item: u64 },
+    /// Its dependency on this item became that item's main one.
+    Main { item: u64 },
     /// It came to carry this tag.
     Tagged { tag: String },
     /// It no longer carries this tag.
@@ -925,6 +976,9 @@ pub struct WorkPage {
     pub tags: Vec<String>,
     /// What its item was as it was added, and each change made to it since, as [`Item`] has them.
     pub history: ItemHistory,
+    /// What its item depends on and what depends on it, each with whether it is the main dependency of the item
+    /// depended on.
+    pub dependencies: Dependencies,
     /// The version of its flow it runs on, as its outline has it: what its history, its card and its talk with the
     /// owner are drawn from, a work going on and one that ended alike (decision `a-works-past-is-drawn-from-its-outline`).
     pub outline: OutlineView,
@@ -1751,6 +1805,9 @@ pub enum ChangeAsked {
     DependsOn { item: u64, on: u64 },
     /// The item no longer depends on this one, until its work ends.
     NoLongerDependsOn { item: u64, on: u64 },
+    /// The item's dependency on this one becomes that one's main one, until the item's work ends: the owner's page
+    /// draws that one whole under the item.
+    Main { item: u64, on: u64 },
     /// The item comes to carry this tag.
     Tag { item: u64, tag: String },
     /// The item no longer carries this tag.
@@ -1780,6 +1837,7 @@ impl ChangeAsked {
             | ChangeAsked::Level { item, .. }
             | ChangeAsked::DependsOn { item, .. }
             | ChangeAsked::NoLongerDependsOn { item, .. }
+            | ChangeAsked::Main { item, .. }
             | ChangeAsked::Tag { item, .. }
             | ChangeAsked::Untag { item, .. }
             | ChangeAsked::Continues { item, .. }
@@ -1807,6 +1865,7 @@ impl ChangeAsked {
             )),
             ChangeAsked::DependsOn { on, .. } => Asked::Item(C::DependsOn(ItemNumber(on))),
             ChangeAsked::NoLongerDependsOn { on, .. } => Asked::Item(C::NoLongerDependsOn(ItemNumber(on))),
+            ChangeAsked::Main { on, .. } => Asked::Item(C::Main(ItemNumber(on))),
             ChangeAsked::Tag { tag, .. } => Asked::Item(C::Tagged(tag)),
             ChangeAsked::Untag { tag, .. } => Asked::Item(C::Untagged(tag)),
             ChangeAsked::Continues { continues, .. } => Asked::Item(C::Continues(continues.map(Continues::kept))),
@@ -2294,6 +2353,7 @@ impl Item {
             project: kept.item.project.clone(),
             added: kept.item.added.0,
             depends_on: kept.item.depends_on.iter().map(|on| on.0).collect(),
+            main_dependent: driver.main_dependent(kept.item.number).map(|main| main.0),
             tags: kept.item.tags.clone(),
             continues: kept.item.continues.as_ref().map(Continues::of),
             history: ItemHistory::of(kept.item),
@@ -2333,6 +2393,7 @@ impl ItemChanged {
             store::ItemChange::Level(level) => ItemChanged::Level { level: level.clone() },
             store::ItemChange::DependsOn(on) => ItemChanged::DependsOn { item: on.0 },
             store::ItemChange::NoLongerDependsOn(on) => ItemChanged::NoLongerDependsOn { item: on.0 },
+            store::ItemChange::Main(on) => ItemChanged::Main { item: on.0 },
             store::ItemChange::Tagged(tag) => ItemChanged::Tagged { tag: tag.clone() },
             store::ItemChange::Untagged(tag) => ItemChanged::Untagged { tag: tag.clone() },
             store::ItemChange::Continues(continues) => ItemChanged::Continues {
@@ -3362,6 +3423,7 @@ impl WorkPage {
             project: kept.item.project.clone(),
             tags: kept.item.tags.clone(),
             history: ItemHistory::of(kept.item),
+            dependencies: Dependencies::of(kept.item, driver),
             outline: OutlineView::of(kept.on.outline(), &kept.flow.card, records, &|id| {
                 kept.came_from(id).cloned()
             }),

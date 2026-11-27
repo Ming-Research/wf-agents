@@ -40,6 +40,18 @@ CREATE TABLE depends (
     CHECK (on_item < item)
 );
 
+-- The main dependency of an item, from this time on: the dependency on it of `item`, the one the owner's page draws
+-- it whole under; or, with `item` null, none, as nothing depends on it any more. The latest row of an item says which,
+-- and a row is kept each time that changes, by the store itself as each write leaves the items (module `mains` of the
+-- crate `store`): an item some item depends on has exactly one main dependency, and an item nothing depends on none.
+-- `at` is null for a row marked as the store first kept main dependencies.
+CREATE TABLE mains (
+    n INTEGER PRIMARY KEY,
+    on_item INTEGER NOT NULL REFERENCES items (number),
+    item INTEGER REFERENCES items (number),
+    at INTEGER
+);
+
 -- An item carries a tag, which classifies it, as it is added.
 CREATE TABLE tagged (
     item INTEGER NOT NULL REFERENCES items (number),

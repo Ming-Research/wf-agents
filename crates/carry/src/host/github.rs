@@ -198,7 +198,7 @@ impl GitHub<Gh> {
         let app = app.ok_or(NO_APP)?;
         let dir = data.join("gh");
         std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        let credential = Credential::App(Arc::new(App::new(app, &github.gh, &dir, clock)?));
+        let credential = Credential::App(Arc::new(App::new(app, clock)?));
         let config = Config {
             url: github.url(),
             remote: github.remote.clone(),

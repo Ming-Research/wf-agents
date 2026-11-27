@@ -156,6 +156,10 @@ pub enum ItemChange {
     DependsOn(ItemNumber),
     /// It no longer depends on this item.
     NoLongerDependsOn(ItemNumber),
+    /// Its dependency on this item becomes that item's main one, in place of the one that was: the one the owner's
+    /// page draws that item whole under, which the store keeps ([`crate::Mains`]). It changes nothing of the item
+    /// itself.
+    Main(ItemNumber),
     /// It comes to carry this tag.
     Tagged(String),
     /// It no longer carries this tag.
@@ -202,6 +206,8 @@ impl Item {
                 }
             }
             ItemChange::NoLongerDependsOn(on) => self.depends_on.retain(|kept| kept != on),
+            // Which dependency on the other item is its main one the store keeps, with every dependency on it.
+            ItemChange::Main(_) => {}
             ItemChange::Tagged(tag) => {
                 if let Err(at) = self.tags.binary_search(tag) {
                     self.tags.insert(at, tag.clone());
@@ -210,6 +216,24 @@ impl Item {
             ItemChange::Untagged(tag) => self.tags.retain(|kept| kept != tag),
             ItemChange::Continues(continues) => self.continues.clone_from(continues),
         }
+    }
+
+    /// When each of its dependencies was made, by the item it depends on: as it was added, or as it last came to
+    /// depend on that item, having not depended on it before. The same items as [`Item::depends_on`].
+    pub fn dependencies_made(&self) -> BTreeMap<ItemNumber, Time> {
+        let mut made: BTreeMap<ItemNumber, Time> = (self.first.depends_on.iter()).map(|on| (*on, self.added)).collect();
+        for change in &self.changes {
+            match &change.what {
+                ItemChange::DependsOn(on) => {
+                    made.entry(*on).or_insert(change.at);
+                }
+                ItemChange::NoLongerDependsOn(on) => {
+                    made.remove(on);
+                }
+                _ => {}
+            }
+        }
+        made
     }
 }
 
@@ -259,7 +283,7 @@ pub(crate) fn add_item(db: &Connection, new: &First, at: Time) -> Result<ItemNum
 }
 
 /// Keeps each change of an item, after its earlier changes and in the order given, all at one time and for one reason.
-/// An item it comes to depend on must be one the store has.
+/// An item it comes to depend on, or whose main dependency becomes its own, must be one the store has.
 pub(crate) fn change(
     db: &Connection,
     at: Time,
@@ -270,7 +294,7 @@ pub(crate) fn change(
         if !exists(db, "SELECT 1 FROM items WHERE number = ?1", item.0)? {
             return Err(Fault::NoSuchItem(*item));
         }
-        if let ItemChange::DependsOn(on) = change
+        if let ItemChange::DependsOn(on) | ItemChange::Main(on) = change
             && !exists(db, "SELECT 1 FROM items WHERE number = ?1", on.0)?
         {
             return Err(Fault::NoSuchDependency(*on));

@@ -22,10 +22,10 @@ use web::plan::{Candidates, Field, Graph, Hits, Node, PlanChange, PlanChanges, R
 use web::pulls::{OpenPull, Pulls};
 use web::system::{Figure, Going, LeftOf, Past, RedTest, Rest, System, UnderWay, WaitReason, WaitedFor};
 use web::works::{
-    Act, Added, Against, Back, Call, CellState, ChangeAsked, Checked, Continues, Engine, EngineAct, Failure, ForkAsked,
-    ForkInstead, ForkPage, Found, ItemChanged, ItemChanges, ItemHistory, Items, ItemsChanged, Limit, Maker, NewItem,
-    NewWrite, Now, Outage, Pauser, Person, QuestionPage, Refusal, Run, Said, SessionWhy, Spent, SpokenTo, Step, Until,
-    VersionPage, Waited, WorkPage, Writer,
+    Act, Added, Against, Back, Call, CellState, ChangeAsked, Checked, Continues, Dependency, Engine, EngineAct,
+    Failure, ForkAsked, ForkInstead, ForkPage, Found, ItemChanged, ItemChanges, ItemHistory, Items, ItemsChanged,
+    Limit, Maker, NewItem, NewWrite, Now, Outage, Pauser, Person, QuestionPage, Refusal, Run, Said, SessionWhy, Spent,
+    SpokenTo, Step, Until, VersionPage, Waited, WorkPage, Writer,
 };
 
 /// What a command asks of the engine.
@@ -453,8 +453,8 @@ pub fn changes(given: &[String]) -> Result<Vec<ChangeAsked>, String> {
     let usage = |given: &str, why: &str| {
         format!(
             "{given:?} is no change: {why}. A change is ITEM:KIND or ITEM:KIND=VALUE, the kind one of title=TEXT, \
-             level=LEVEL, depends-on=ITEM, no-longer-depends-on=ITEM, tag=TAG, untag=TAG, continue-branch=BRANCH, \
-             continue-pull=PULL, no-longer-continues, cancel and reopen"
+             level=LEVEL, depends-on=ITEM, no-longer-depends-on=ITEM, main=ITEM, tag=TAG, untag=TAG, \
+             continue-branch=BRANCH, continue-pull=PULL, no-longer-continues, cancel and reopen"
         )
     };
     let mut changes = Vec::new();
@@ -494,6 +494,10 @@ pub fn changes(given: &[String]) -> Result<Vec<ChangeAsked>, String> {
                 on: number(value)?,
             },
             "no-longer-depends-on" => ChangeAsked::NoLongerDependsOn {
+                item,
+                on: number(value)?,
+            },
+            "main" => ChangeAsked::Main {
                 item,
                 on: number(value)?,
             },
@@ -1107,8 +1111,8 @@ impl Part {
     }
 }
 
-/// One work: what it does now, when something last happened to it, its pull request, its cells and blocks and what it
-/// took; and of each part that grows with it, at most [`SHOWN`] entries, the latest, or of the questions those not
+/// One work: what it does now, when something last happened to it, its pull request, what its item depends on and what
+/// depends on it, its cells and blocks and what it took; and of each part that grows with it, at most [`SHOWN`] entries, the latest, or of the questions those not
 /// answered first, with how many more there are and the command that gives them. `now` is the time it is shown, to say
 /// how long ago that was.
 fn show(page: &WorkPage, now: u64) -> String {
@@ -1156,6 +1160,8 @@ fn show(page: &WorkPage, now: u64) -> String {
                 None => "none".to_string(),
             }
         ),
+        format!("Depends on: {}.", dependencies(&page.dependencies.on)),
+        format!("Depended on by: {}.", dependencies(&page.dependencies.by)),
         format!("Item {named_item} {}", added(&page.history, happened.is_empty())),
     ];
     latest(&mut lines, &happened, work, Part::History);
@@ -1227,6 +1233,21 @@ fn show(page: &WorkPage, now: u64) -> String {
         latest(&mut lines, &sessions, work, Part::Sessions);
     }
     lines.join("\n")
+}
+
+/// The other item of each dependency, in their order, each that is the main dependency of the item depended on marked;
+/// `none` where there is no dependency.
+fn dependencies(with: &[Dependency]) -> String {
+    if with.is_empty() {
+        return "none".to_string();
+    }
+    let each: Vec<String> = (with.iter())
+        .map(|dependency| match dependency.main {
+            true => format!("{} (by the main dependency)", item_number(dependency.item)),
+            false => item_number(dependency.item),
+        })
+        .collect();
+    each.join(", ")
 }
 
 /// One part of a work alone: at most [`LISTED`] of its entries in their order, from the one at this place, the first
@@ -1420,6 +1441,7 @@ fn item_changed(what: &ItemChanged) -> String {
         ItemChanged::Level { level } => format!("put at level {level}"),
         ItemChanged::DependsOn { item } => format!("came to depend on {}", item_number(*item)),
         ItemChanged::NoLongerDependsOn { item } => format!("no longer depends on {}", item_number(*item)),
+        ItemChanged::Main { item } => format!("its dependency on {} made the main one", item_number(*item)),
         ItemChanged::Tagged { tag } => format!("tagged {tag}"),
         ItemChanged::Untagged { tag } => format!("no longer tagged {tag}"),
         ItemChanged::Continues {
@@ -1534,6 +1556,16 @@ fn changed(changes: &[ChangeAsked], done: &[bool], items: Option<&Items>) -> Str
             ),
             (ChangeAsked::NoLongerDependsOn { item, on }, _) => format!(
                 "{item} no longer depends on {on}.",
+                item = item_number(*item),
+                on = item_number(*on)
+            ),
+            (ChangeAsked::Main { item, on }, true) => format!(
+                "{item} depends on {on} by its main dependency: the page draws {on} whole under {item}.",
+                item = item_number(*item),
+                on = item_number(*on)
+            ),
+            (ChangeAsked::Main { item, on }, false) => format!(
+                "{item} depended on {on} by its main dependency already.",
                 item = item_number(*item),
                 on = item_number(*on)
             ),
@@ -1792,7 +1824,11 @@ fn graph_nodes(lines: &mut Vec<String>, nodes: &[Node], indent: usize) {
             (false, 0) => String::new(),
             (false, n) => format!(", and {n} more past it"),
         };
-        lines.push(format!("{pad}{}{tail}", row(&node.row)));
+        let main = match node.main {
+            true => ", by the main dependency",
+            false => "",
+        };
+        lines.push(format!("{pad}{}{main}{tail}", row(&node.row)));
         graph_nodes(lines, &node.next, indent + 1);
     }
 }
@@ -3308,6 +3344,7 @@ mod tests {
             project: Some("script".to_string()),
             added: 0,
             depends_on: depends_on.to_vec(),
+            main_dependent: None,
             tags: tags.iter().map(|t| t.to_string()).collect(),
             continues: None,
             history: ItemHistory {
@@ -4655,6 +4692,7 @@ mod tests {
             up: Vec::new(),
             down: vec![Node {
                 row: row(2, projects[1]),
+                main: true,
                 again: false,
                 next: Vec::new(),
                 beyond: 0,
@@ -4811,6 +4849,10 @@ mod tests {
             project: item.project,
             tags: Vec::new(),
             history,
+            dependencies: web::works::Dependencies {
+                on: Vec::new(),
+                by: Vec::new(),
+            },
             outline: web::view::OutlineView {
                 kept: true,
                 cells: Vec::new(),

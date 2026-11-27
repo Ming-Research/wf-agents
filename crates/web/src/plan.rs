@@ -84,6 +84,8 @@ struct Plan {
     on: BTreeMap<u64, Vec<u64>>,
     /// What depends on each item.
     by: BTreeMap<u64, Vec<u64>>,
+    /// The item whose dependency on each item is its main one, of each item some item depends on.
+    mains: BTreeMap<u64, u64>,
     /// The items each item's pause waits for, where the owner paused its work for some.
     waits: BTreeMap<u64, Vec<u64>>,
 }
@@ -112,6 +114,7 @@ impl Plan {
             rows: BTreeMap::new(),
             on: BTreeMap::new(),
             by: BTreeMap::new(),
+            mains: (driver.mains().iter()).map(|(of, main)| (of.0, main.0)).collect(),
             waits: BTreeMap::new(),
         };
         for kept in driver.works() {
@@ -246,6 +249,8 @@ pub struct Graph {
 #[serde(rename_all = "camelCase")]
 pub struct Node {
     pub row: Row,
+    /// The dependency between it and the item the walk reached it from is the main one of the item depended on.
+    pub main: bool,
     /// Shown already higher in the walk: what it reaches is shown there.
     pub again: bool,
     pub next: Vec<Node>,
@@ -307,6 +312,11 @@ impl Walked<'_> {
             }
             self.shown += 1;
             let again = !seen.insert(number);
+            let (dependent, depended) = match way {
+                Way::Up => (from, number),
+                Way::Down => (number, from),
+            };
+            let main = self.plan.mains.get(&depended) == Some(&dependent);
             let (next, beyond) = match (again, depth > 1) {
                 (true, _) => (Vec::new(), 0),
                 (false, true) => (self.from(number, way, depth - 1, seen), 0),
@@ -318,6 +328,7 @@ impl Walked<'_> {
             };
             nodes.push(Node {
                 row: row.clone(),
+                main,
                 again,
                 next,
                 beyond,
