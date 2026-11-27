@@ -212,7 +212,9 @@ describe('the System view', () => {
     expect(hrefs(wrong.querySelectorAll('table')[1])).toEqual([
       `#/works/${failed[0].work}/runs/${failed[0].run}/rounds/${failed[0].round}`,
     ]);
-    expect(wrong.querySelector('table a')?.getAttribute('title')).toBe('Open the work with this round chosen');
+    expect(wrong.querySelectorAll('table')[1].querySelector('a')?.getAttribute('title')).toBe(
+      'Open the work with this round chosen',
+    );
   });
 
   it('counts the rounds sent back and what they cost, and unfolds them by item: how many, each reason by its key, the cells, the cost and the latest, the items most sent back first', async () => {
