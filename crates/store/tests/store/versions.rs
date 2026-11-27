@@ -8,7 +8,8 @@ use work::{KeptTime, OnFlow, Stretch, TurnSpan, Went};
 
 use super::diverged::{Change, refused};
 use super::opening::{
-    after_reads_were_kept, before_held_calls, before_pauses_waited_for_items, before_unpriced, columns, versions,
+    after_reads_were_kept, before_held_calls, before_jobs_said_how_long_they_queued, before_pauses_waited_for_items,
+    before_unpriced, columns, versions,
 };
 use super::*;
 
@@ -165,6 +166,7 @@ fn a_file_of_version_32_is_migrated_with_its_kept_times_read_as_holding_no_turn(
     let mut work = d.work;
     before_held_calls(&mut work);
     before_unpriced(&mut work);
+    before_jobs_said_how_long_they_queued(&mut work);
     let at = work.tick();
     work.kept_time.push(KeptTime {
         at,
@@ -216,11 +218,7 @@ fn a_file_of_version_38_is_migrated_with_its_kept_times_not_telling_a_slot_apart
     }
     let mut kept_before = work.clone();
     kept_before.kept_time[0].separated = false;
-    for timed in &mut kept_before.timed {
-        for job in &mut timed.reading.jobs {
-            job.queued_millis = None;
-        }
-    }
+    before_jobs_said_how_long_they_queued(&mut kept_before);
     let (old, new) = super::opening::kept_in(38, &work);
     let store = old.open();
     assert_eq!(versions(&old.path), [SCHEMA_VERSION]);

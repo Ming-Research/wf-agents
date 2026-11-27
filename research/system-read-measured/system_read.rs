@@ -96,8 +96,9 @@ async fn the_system_is_read_over_a_hundred_merged_works() {
 /// Works that have begun and not ended, each with many waits: they are worked out from the flow installed, as every work
 /// still going on is, and again whenever one of them gets a record.
 const LIVE: usize = 10;
-/// Each round of a live work fails and the engine pauses the work, so that each cycle has one wait, of the pause, and one
-/// round: two hundred waits are those of the largest work in the owner's store (research/flow-versions/bar-cost.md).
+/// Each round of a live work fails and the engine holds the work for the owner to let it on, so that each cycle has one
+/// wait, for the owner, and one round: two hundred waits are those of the largest work in the owner's store
+/// (research/flow-versions/bar-cost.md).
 const CYCLES: usize = 200;
 
 async fn add_works(router: &axum::Router, from: usize, to: usize, resume: bool) {
@@ -134,7 +135,7 @@ async fn act_on(router: &axum::Router, from: usize, to: usize, act: Value) {
 /// have begun and are still going, each with two hundred waits: the first read of an engine; the median of twenty-one
 /// reads after it, nothing having happened between them, so that every part stands as it was kept; and the median of
 /// twenty-one reads each after every work going on got a record, so that the part of each is worked out again. Each of
-/// the plan's rounds after the third fails, and the engine pauses the work until the owner lets it on.
+/// the plan's rounds after the third fails, and the engine holds the work until the owner lets it on.
 #[tokio::test(start_paused = true)]
 async fn the_system_is_read_over_works_going_on_with_many_waits() {
     let (mut first, mut warm, mut again) = (Vec::new(), Vec::new(), Vec::new());
@@ -187,11 +188,10 @@ async fn the_system_is_read_over_works_going_on_with_many_waits() {
             Some(WORKS),
             "every work but those going on was cancelled"
         );
-        // What the change counts: where it does, the pauses of the works going on are in it, so the read has the stretches
-        // of each to work out; the code before the change has no such part.
+        // What the change counts: where it does, the waits of the works going on are in it, whatever cause each is counted
+        // under, so the read has the stretches of each to work out; the code before the change has no such part.
         if let Some(by) = system["waited"]["by"].as_array() {
-            let paused = by.iter().find(|by| by["reason"] == "paused").unwrap();
-            let stops = paused["stops"].as_u64().unwrap();
+            let stops: u64 = by.iter().map(|by| by["stops"].as_u64().unwrap()).sum();
             assert!(
                 stops >= (LIVE * CYCLES * 9 / 10) as u64,
                 "the works going on had their waits counted: {by:?}"

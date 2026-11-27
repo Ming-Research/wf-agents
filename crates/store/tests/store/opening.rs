@@ -180,6 +180,16 @@ pub(crate) fn before_unpriced(work: &mut Work) {
     }
 }
 
+/// A work as a file made before version 39 of the schema holds it: no job of a run of the CI says how long it waited for
+/// a runner, which no column kept.
+pub(crate) fn before_jobs_said_how_long_they_queued(work: &mut Work) {
+    for timed in &mut work.timed {
+        for job in &mut timed.reading.jobs {
+            job.queued_millis = None;
+        }
+    }
+}
+
 /// A work as a file migrated from before version 37 holds it: such a file kept no read, whatever the history the work was
 /// made from has, so the work's own reads are dropped; the migration gave it one place of reads after its latest entry,
 /// holding every version it has, since no flow of these works declares a cell's words block, so that no version is left
