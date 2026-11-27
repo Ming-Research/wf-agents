@@ -45,6 +45,8 @@ import {
   projectOf,
   projectsIn,
   emptyOf,
+  foldable,
+  quietFolds,
   shownTree,
   standingOf,
   walkOrder,
@@ -154,12 +156,14 @@ export function ConsolePage({
     tickNow.current = tick;
   }, [tick]);
   // Which items the owner folded and which he unfolded, as he last chose: the others fold as the tree's rule says.
-  const [folds, turnFold] = useKeptFolds(CHOICE_KEYS.consoleFolds);
+  const [folds, turnFold, turnFolds] = useKeptFolds(CHOICE_KEYS.consoleFolds);
   const foldsNow = useRef(folds);
   const turnFoldNow = useRef(turnFold);
+  const turnFoldsNow = useRef(turnFolds);
   useEffect(() => {
     turnFoldNow.current = turnFold;
-  }, [turnFold]);
+    turnFoldsNow.current = turnFolds;
+  }, [turnFold, turnFolds]);
   // The projects in the order the owner put them in, dragging them in the list under the map, and the one whose tree
   // the console shows, each kept in the browser: the keys 1 to 9 show the project of that place in the list.
   const [order, setOrder] = useState<string[]>(keptOrder);
@@ -771,6 +775,28 @@ export function ConsolePage({
       }
       if (e.key === 'Escape' && overviewNow.current) {
         setOverviewNow.current(false);
+        return;
+      }
+      // `o` folds every item of the trees shown under which no work is under way, at every level (`quietFolds`), and
+      // leaves every other fold as it is; `O` unfolds every item of them. The trees shown are the project's, or every
+      // project's in the overview. Each keeps its choices as the owner's own, at once for them all; as the other keys,
+      // not while the owner types in a field, nor with Ctrl, Alt or Meta held.
+      if (e.key === 'o' || e.key === 'O') {
+        const to = e.target as HTMLElement | null;
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        if (to && (to.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(to.tagName))) return;
+        const d = latestData.current;
+        if (d === undefined) return;
+        e.preventDefault();
+        const names = overviewNow.current
+          ? listedIn(d, orderNow.current, installedNow.current, showsNow.current)
+          : projectNow.current === null
+            ? []
+            : [projectNow.current];
+        const roots = names.flatMap((name) => shownTree(d, showsNow.current, foldsNow.current, name));
+        const fold = e.key === 'o';
+        const ids = fold ? quietFolds(roots) : foldable(roots);
+        if (ids.length > 0) turnFoldsNow.current(new Map(ids.map((id): [number, boolean] => [id, fold])));
         return;
       }
       // `e` folds the items under the card the pointer is over away, or shows them again, as a click on its funnel or

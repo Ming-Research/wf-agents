@@ -43,6 +43,8 @@ export const CONSOLE_MARKS: MarkKey[] = [
 export const CONSOLE_KEYS: [string, string][] = [
   ['/', 'search'],
   ['e', 'fold or unfold the card under the pointer'],
+  ['o', 'fold every card with no work under way under it'],
+  ['O', 'unfold every card'],
   ['n / N', 'next / previous question'],
   ['m / M', 'next / previous reply you have not read'],
   ['1 – 9', 'the tree of the project of that place in the list'],

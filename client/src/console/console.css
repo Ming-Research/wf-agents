@@ -135,8 +135,10 @@
 }
 
 /* What the marks and keys mean: the page's button with the question mark drawn, at the tree's bottom left corner, and
-   over it, while the pointer or the keys are there, the legend of the console's marks and its keys in a column, on
-   the card in a hairline frame. */
+   over it, while the pointer or the keys are there, the legend of the console's marks and its keys, on the card in a
+   hairline frame. The legend is laid out across, each list in as many columns as its width holds, so that it fits in
+   the window at every size: as wide as the window leaves beside the corner's room, up to a width of its own, and no
+   higher than the window leaves under the bar and the view's line, past which it scrolls. */
 .console-help {
   position: absolute;
   bottom: var(--space-12);
@@ -159,10 +161,12 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
+  width: min(var(--help-width), calc(100vw - 2 * var(--space-12)));
+  max-height: calc(100vh - var(--bar) - var(--view-line) - var(--control) - 2 * var(--space-12));
+  overflow-y: auto;
   padding: var(--space-8) var(--space-12);
   border: var(--hairline) solid var(--line);
   background: var(--card);
-  white-space: nowrap;
   visibility: hidden;
   opacity: 0;
   pointer-events: none;
@@ -181,10 +185,15 @@
 }
 
 .console-help-panel .legend {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--space-4);
+  display: block;
+  columns: var(--help-column);
+  column-gap: var(--space-16);
   margin-bottom: var(--space-8);
+}
+
+.console-help-panel .legend li {
+  margin-bottom: var(--space-4);
+  break-inside: avoid;
 }
 
 .console-help-key {
