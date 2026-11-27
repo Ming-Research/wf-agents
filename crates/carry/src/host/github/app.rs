@@ -6,13 +6,16 @@
 //! a token that expires while it goes on. The App's calls count against a limit of the App's own, which no person's
 //! use of GitHub shares.
 //!
+//! GitHub takes the token for the App only in the header `Authorization: Bearer`. `gh` sends the token it is given as
+//! `Authorization: token`, which GitHub answers with "A JSON web token could not be decoded", so `curl` asks for the
+//! installation's token, and reads the header from its standard input.
+//!
 //! The key is read by `openssl` alone, which signs with it; the engine only opens it as it starts, to see that it can.
-//! Neither the key nor a token is said in any words the engine gives. Where no token can be got, each call fails saying
-//! why, and no other credential is tried: the engine has none.
+//! Neither the key nor a token is said in any words the engine gives, or given to a program as an argument, which any
+//! process on the machine may read. Where no token can be got, each call fails saying why, and no other credential is
+//! tried: the engine has none.
 
-use std::future::Future;
-use std::path::{Path, PathBuf};
-use std::pin::Pin;
+use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,12 +23,19 @@ use std::time::Duration;
 use service::Clock;
 use tokio::io::AsyncWriteExt;
 
-use super::gh::{Gh, epoch};
+use super::gh::{Answer, LIMIT, epoch, included, refused};
 use crate::host::Failed;
 use crate::settings;
 
 /// The program that signs with the App's private key.
 const OPENSSL: &str = "openssl";
+
+/// The program that asks GitHub for a token of the App's installation, given the token for the App on its standard
+/// input.
+const CURL: &str = "curl";
+
+/// Where GitHub's REST API is.
+const API: &str = "https://api.github.com";
 
 /// How long before the engine's clock reads a token for the App says it was issued, in seconds: GitHub refuses one
 /// issued after its own clock reads, and its guide asks for a minute.
@@ -47,24 +57,18 @@ const SIGN_LIMIT: Duration = Duration::from_secs(30);
 pub enum Credential {
     /// The token of the App's installation, as [`App::token`] gives it for each call.
     App(Arc<App>),
-    /// A token given once: the token for the App that is exchanged for one of its installation, or a test's.
+    /// A token a test gives.
+    #[cfg(test)]
     Given(String),
 }
 
-/// A token being got, of a type that names none of the calls it makes: the App gets its installation's token with a
-/// call of `gh` that is given a token itself, so the type of the one future would hold the other's, and whether it may
-/// be sent to another thread could not be told.
-pub type Getting<'a> = Pin<Box<dyn Future<Output = Result<String, Failed>> + Send + 'a>>;
-
 impl Credential {
     /// The token for a call; or why none can be got.
-    pub fn token(&self) -> Getting<'_> {
+    pub async fn token(&self) -> Result<String, Failed> {
         match self {
-            Credential::App(app) => Box::pin(app.token()),
-            Credential::Given(token) => {
-                let token = token.clone();
-                Box::pin(async move { Ok(token) })
-            }
+            Credential::App(app) => app.token().await,
+            #[cfg(test)]
+            Credential::Given(token) => Ok(token.clone()),
         }
     }
 }
@@ -74,6 +78,7 @@ impl std::fmt::Debug for Credential {
         // A token given is not shown.
         match self {
             Credential::App(app) => f.debug_tuple("App").field(app).finish(),
+            #[cfg(test)]
             Credential::Given(_) => f.write_str("Given(..)"),
         }
     }
@@ -87,10 +92,10 @@ pub struct App {
     installation: u64,
     /// The App's private key, by its path.
     key: PathBuf,
-    /// The `gh` that asks GitHub for the installation's token.
-    gh: String,
-    /// The directory that `gh` keeps its configuration in.
-    config_dir: PathBuf,
+    /// The `curl` that asks GitHub for the installation's token: [`CURL`], or a test's.
+    curl: String,
+    /// Where GitHub's REST API is: [`API`], or a test's stand-in for it.
+    api: String,
     clock: Arc<dyn Clock>,
     /// The installation's token got last, locked while one is got, so that calls that come together share one.
     held: tokio::sync::Mutex<Option<Held>>,
@@ -114,9 +119,9 @@ impl std::fmt::Debug for App {
 }
 
 impl App {
-    /// The App the settings name, its installation's tokens asked for with this `gh`, which keeps its configuration in
-    /// this directory, by the time this clock reads; or why not, where the private key is no file that can be read.
-    pub fn new(app: &settings::GitHubApp, gh: &str, config_dir: &Path, clock: Arc<dyn Clock>) -> Result<App, String> {
+    /// The App the settings name, its installation's tokens judged by the time this clock reads; or why not, where the
+    /// private key is no file that can be read.
+    pub fn new(app: &settings::GitHubApp, clock: Arc<dyn Clock>) -> Result<App, String> {
         let key = &app.private_key;
         let unreadable = |why: String| {
             format!(
@@ -133,11 +138,19 @@ impl App {
             id: app.app_id,
             installation: app.installation_id,
             key: key.clone(),
-            gh: gh.to_string(),
-            config_dir: config_dir.to_path_buf(),
+            curl: CURL.to_string(),
+            api: API.to_string(),
             clock,
             held: tokio::sync::Mutex::new(None),
         })
+    }
+
+    /// The App asking for its installation's tokens with this `curl`, of the GitHub whose REST API is at this address.
+    #[cfg(test)]
+    pub(crate) fn asking(mut self, curl: &std::path::Path, api: &str) -> App {
+        self.curl = curl.display().to_string();
+        self.api = api.to_string();
+        self
     }
 
     /// The installation's token for a call: the one held, where more than [`FRESH_FOR`] of it is left; else a new one,
@@ -173,8 +186,6 @@ impl App {
     /// 1970.
     async fn exchanged(&self, now: u64) -> Result<Held, Failed> {
         let signed = self.signed(now).await?;
-        let gh = Gh::new(&self.gh, "", Credential::Given(signed), &self.config_dir);
-        let path = format!("app/installations/{}/access_tokens", self.installation);
         let said = |why: String| {
             format!(
                 "GitHub gave the engine's GitHub App {} (github_app.app_id) no token of its installation {} \
@@ -182,7 +193,12 @@ impl App {
                 self.id, self.installation
             )
         };
-        let answer = (gh.json("POST", &path, None, &[201]).await).map_err(|failed| failed.said(said))?;
+        let answer = (self.asked(&signed).await).map_err(|failed| failed.said(said))?;
+        if answer.status != 201 {
+            return Err(refused(&answer).said(said));
+        }
+        let answer: serde_json::Value = serde_json::from_str(&answer.body)
+            .map_err(|e| Failed::from(said(format!("its answer is not JSON: {e}"))))?;
         let token = (answer["token"].as_str())
             .filter(|token| !token.is_empty())
             .ok_or_else(|| Failed::refused(said("its answer holds no token".to_string())))?;
@@ -194,6 +210,60 @@ impl App {
             token: token.to_string(),
             expires,
         })
+    }
+
+    /// GitHub's answer to the request for a token of the installation, which `curl` sends with this token for the App
+    /// in the header `Authorization: Bearer`, read from its standard input; or why `curl` gave no answer. `curl` is
+    /// given up as a call of `gh` is ([`LIMIT`]).
+    async fn asked(&self, signed: &str) -> Result<Answer, Failed> {
+        let url = format!("{}/app/installations/{}/access_tokens", self.api, self.installation);
+        let mut child = crate::programs::command(&self.curl)
+            // `--disable` comes first, so that no `.curlrc` of the home directory is read.
+            .args([
+                "--disable",
+                "--silent",
+                "--show-error",
+                "--include",
+                "--request",
+                "POST",
+            ])
+            .args(["--header", "@-", "--header", "Accept: application/vnd.github+json"])
+            .args(["--header", "X-GitHub-Api-Version: 2022-11-28"])
+            .arg(&url)
+            .env_clear()
+            .envs(crate::programs::kept().iter().cloned())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(|e| format!("{} cannot be started: {e}", self.curl))?;
+        if let Some(mut pipe) = child.stdin.take() {
+            let header = format!("Authorization: Bearer {signed}\n").into_bytes();
+            tokio::spawn(async move {
+                let _ = pipe.write_all(&header).await;
+            });
+        }
+        let waited = tokio::time::timeout(LIMIT, child.wait_with_output()).await;
+        // Given up, the child is dropped with the wait, and killed with it.
+        let waited = waited.map_err(|_| {
+            format!(
+                "{} POST {url} did not end within {} seconds, and was stopped",
+                self.curl,
+                LIMIT.as_secs()
+            )
+        })?;
+        let output = waited.map_err(|e| format!("{} could not be waited for: {e}", self.curl))?;
+        // `curl` ends well whatever GitHub's status, and otherwise only where no answer came.
+        match included(&String::from_utf8_lossy(&output.stdout)) {
+            Some(answer) if output.status.success() => Ok(answer),
+            _ => Err(Failed::from(format!(
+                "{} POST {url} gave no answer ({}): {}",
+                self.curl,
+                output.status,
+                String::from_utf8_lossy(&output.stderr).trim_end()
+            ))),
+        }
     }
 
     /// A token for the App issued [`ISSUED_BEFORE`] before `now`, in seconds since 1970, signed with its key.

@@ -39,7 +39,7 @@ impl GhOffsite {
         config_dir: &Path,
         clock: Arc<dyn Clock>,
     ) -> Result<GhOffsite, String> {
-        let app = App::new(app, &backup.gh, config_dir, clock)?;
+        let app = App::new(app, clock)?;
         let credential = Credential::App(Arc::new(app));
         Ok(GhOffsite::with(&backup.gh, &backup.repository, credential, config_dir))
     }
