@@ -5,6 +5,7 @@
 //! owner's pause of everything, kept in the store, holds back what each work's own pause would until it is lifted.
 
 use decide::Holder;
+use store::Storage;
 
 use super::*;
 
@@ -147,6 +148,116 @@ fn slots_added_go_at_once_to_the_works_that_wait_for_one_in_the_engines_order() 
     h.arm(Plan::Never);
     assert_eq!(h.set_slots(3), []);
     assert_eq!(h.ops(), []);
+}
+
+// The slots are kept as the driver is opened with them and each time the owner sets them, and again as they stand no
+// more than the engine's own store is asked: what the rounds taken are read against, and what no step reads. A driver
+// opened with the slots the store last kept keeps none more; one opened with others, as the owner changed them while it
+// was stopped, keeps those. Fails where the slots are kept more than once as they stand, not at all where they are set,
+// or not at an opening.
+#[test]
+fn the_slots_are_kept_as_the_driver_opens_with_them_and_each_time_they_are_set_and_not_again_as_they_stand() {
+    let mut h = H::with_slots(flows(), 2);
+    let kept = |h: &H| -> Vec<(usize, u64)> {
+        (h.d().slots_history().iter())
+            .map(|record| (record.slots, record.at.0))
+            .collect()
+    };
+    let begun = kept(&h);
+    assert_eq!(
+        begun.iter().map(|k| k.0).collect::<Vec<_>>(),
+        [2],
+        "the slots it opened with"
+    );
+    // Set as they stand, nothing is kept again; set to others, they are kept at the time they were set.
+    h.set_slots(2);
+    assert_eq!(kept(&h), begun);
+    h.set_slots(5);
+    let set = kept(&h);
+    assert_eq!(set.iter().map(|k| k.0).collect::<Vec<_>>(), [2, 5]);
+    assert!(set[1].1 > set[0].1, "kept at the time they were set: {set:?}");
+    assert_eq!(
+        h.reader.slots_set().expect("the slots are read").len(),
+        2,
+        "the store holds what the driver says"
+    );
+    // Opened again with the slots last kept, it keeps none more; with others, it keeps them.
+    h.restart();
+    assert_eq!(kept(&h), set);
+    h.slots = 3;
+    h.restart();
+    assert_eq!(
+        kept(&h).iter().map(|k| k.0).collect::<Vec<_>>(),
+        [2, 5, 3],
+        "the slots the owner changed while the engine was stopped"
+    );
+}
+
+// The invariant the time a work waited for a slot is read by: no work waits for a slot while one is free (module
+// `driver`). A work is let on while the one slot is taken, and from then until the first work's round ends the walk,
+// asked in a room with every slot free, says it would begin a round (`Decision::Run`), which the driver has not begun;
+// once the slot is free the round begins at once. Fails where a free slot is left to a work that waits for one.
+#[test]
+fn no_work_waits_for_a_slot_while_one_is_free_which_is_what_a_wait_for_a_slot_is_read_by() {
+    let mut h = H::with_slots(flows(), 1);
+    let (_, one) = h.add_let_on(new_item("one", &[], "plain"));
+    let (_, two) = h.add_let_on(new_item("two", &[], "plain"));
+    // The one slot is taken by the first work's round: the second would run its writer, and does not.
+    assert_eq!(h.d().slots(), driver::Slots { slots: 1, taken: 1 });
+    assert_eq!(h.d().held(two), Some(Holder::Slot));
+    let kept = h.d().work(two).expect("the work is there");
+    let would = decide::decide_in(&kept.flow.flow, &kept.work.records, decide::Room::FREE);
+    assert!(matches!(would, Decision::Run { .. }), "{would:?}");
+    // The first work hands in, its next cell an act that takes no slot, and the slot goes to the second at once.
+    let todos = h.returns(one, hands_in(&[("text", None)]));
+    assert!(
+        rounds(&todos).contains(&(two, "write".to_string(), 1)),
+        "the freed slot goes to the work that waited for it: {todos:?}"
+    );
+    assert_eq!(h.d().held(two), None);
+}
+
+// What a work's time went to, read as it stands: the time its writer's tool took is the tools', and from when the tool
+// was answered, with the one slot taken by the other work's round, to when its next round began, the work waited for a
+// slot. A slot the other work's round took is no wait of the first work's before it has a round, nor of any other kind
+// than the slot's. Fails where the wait for a slot is read as anything else, or the tool's time is.
+#[test]
+fn the_time_a_work_waited_for_a_slot_is_what_its_time_went_to_as_a_wait_for_one() {
+    let mut h = H::with_slots(flows(), 1);
+    let (_, one) = h.add_let_on(new_item("one", &[], "plain"));
+    let call = asks_a_tool(&mut h, one);
+    let (_, two) = h.add_let_on(new_item("two", &[], "plain"));
+    assert_eq!(h.round(two).1, "write", "the slot the tool left goes to the other work");
+    h.answer(one, call);
+    let answered = Time(h.clock);
+    assert_eq!(h.d().held(one), Some(Holder::Slot));
+    h.returns(two, hands_in(&[("text", None)]));
+    let began = Time(h.clock);
+    assert_eq!(
+        h.round(one).1,
+        "write",
+        "the slot the other work's round freed goes to the first"
+    );
+    let d = h.d();
+    let kept = d.work(one).expect("the work is there");
+    let at_once = d.at_once();
+    let (cannot_run, down) = d.shared_waits(&at_once);
+    let stretches = driver::time::stretches(
+        &kept,
+        d.everything_spans(),
+        &d.stop_spans(),
+        &cannot_run,
+        &down,
+        Vec::new(),
+        Time(h.clock),
+    );
+    let of = |went: work::Went| -> Vec<(Time, Time)> {
+        (stretches.iter())
+            .filter(|s| s.went == went)
+            .map(|s| (s.from, s.until))
+            .collect()
+    };
+    assert_eq!(of(work::Went::Slot), [(answered, began)]);
 }
 
 #[test]
@@ -403,4 +514,65 @@ fn a_pause_of_everything_the_store_fails_to_keep_stops_the_driver_and_is_not_kep
     ));
     h.reopen();
     assert!(h.d().everything_paused().is_none());
+}
+
+// A work that waits for a slot and is paused by the owner meanwhile waited for the slot until the pause and again from
+// the end of the pause, and for the pause in between, though a slot may be free then: what the work waited for is read
+// from the records of the pause and of the owner's letting it on, and the pause comes before the slot (acceptance: the
+// stretch is a wait for a slot only where nothing else holds the work). Here the pause begins and ends while the other
+// work's round still holds the one slot. Reference: the definition of the wait kinds in `driver/src/time.rs`
+// (module comment: a pause holds a work that would run, whatever the slots are).
+#[test]
+fn a_pause_in_the_middle_of_a_wait_for_a_slot_splits_it_into_the_slot_the_pause_and_the_slot_again() {
+    let mut h = H::with_slots(flows(), 1);
+    let (_, one) = h.add_let_on(new_item("one", &[], "plain"));
+    let call = asks_a_tool(&mut h, one);
+    let (_, two) = h.add_let_on(new_item("two", &[], "plain"));
+    assert_eq!(h.round(two).1, "write", "the slot the tool left goes to the other work");
+    h.answer(one, call);
+    let answered = Time(h.clock);
+    h.on(
+        one,
+        Event::Paused {
+            by: Pauser::Owner,
+            why: None,
+            waits_for: Vec::new(),
+        },
+    );
+    let paused = Time(h.clock);
+    h.let_on(one);
+    let resumed = Time(h.clock);
+    assert_eq!(
+        h.d().held(one),
+        Some(Holder::Slot),
+        "the other work's round still holds the slot"
+    );
+    h.returns(two, hands_in(&[("text", None)]));
+    let began = Time(h.clock);
+    assert_eq!(h.round(one).1, "write");
+    let d = h.d();
+    let kept = d.work(one).expect("the work is there");
+    let at_once = d.at_once();
+    let (cannot_run, down) = d.shared_waits(&at_once);
+    let stretches = driver::time::stretches(
+        &kept,
+        d.everything_spans(),
+        &d.stop_spans(),
+        &cannot_run,
+        &down,
+        Vec::new(),
+        Time(h.clock),
+    );
+    let of = |went: work::Went| -> Vec<(Time, Time)> {
+        let mut joined: Vec<(Time, Time)> = Vec::new();
+        for s in stretches.iter().filter(|s| s.went == went) {
+            match joined.last_mut() {
+                Some(last) if last.1 == s.from => last.1 = s.until,
+                _ => joined.push((s.from, s.until)),
+            }
+        }
+        joined
+    };
+    assert_eq!(of(work::Went::Slot), [(answered, paused), (resumed, began)]);
+    assert_eq!(of(work::Went::Paused), [(paused, resumed)]);
 }

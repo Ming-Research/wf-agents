@@ -114,6 +114,14 @@ impl Storage for Unreadable {
     fn keep_stop(&mut self, record: &StopRecord) -> Result<(), Fault> {
         self.store.keep_stop(record)
     }
+
+    fn slots_set(&self) -> Result<Vec<store::SlotsRecord>, Fault> {
+        self.store.slots_set()
+    }
+
+    fn keep_slots(&mut self, record: &store::SlotsRecord) -> Result<(), Fault> {
+        self.store.keep_slots(record)
+    }
 }
 
 /// Keeps in the store at this path two works on the trial flow before the loop's clock starts: the first ran its plan

@@ -145,7 +145,7 @@ use decide::{BlockId, CellId, Decision, End, Holder, Outsider, Pauser, Room, Vie
 use engine::{Effect, Event, Gate, Hold, Refused, handle_held, handle_then, held, sends_back};
 use flow::Compiled;
 use flow::agents::{ResultGiven, fill};
-pub use outage::{Candidate, CannotRun, Checked, Found, Limit, Move, Outage, Service, Until};
+pub use outage::{Candidate, CannotRun, Checked, Down, Found, Limit, Move, Outage, Service, Until};
 use store::{
     AccountAct, AccountRecord, AccountTaker, Change, Continues, EverythingPaused, First, Item, ItemChange, ItemNumber,
     Mains, StopAct, StopRecord, Storage, WorkHead, WorkNumber,
@@ -289,6 +289,9 @@ pub struct Driver {
     /// How many rounds of cells that take a slot may go on at once, as the driver opened with them or was last given
     /// them ([`Driver::set_slots`]).
     slots: usize,
+    /// Every number the slots were set to, as the store keeps them: each as the driver opened with it or was given it.
+    /// What the rounds under way took is read against it ([`Driver::slots_history`]); it decides no step.
+    slots_set: Vec<store::SlotsRecord>,
     /// The pause of everything, while it holds, as the store keeps it.
     paused: Option<EverythingPaused>,
     /// Whether the sessions of works that wait are kept warm, as the store keeps it: the engine's own state, which the
@@ -498,6 +501,13 @@ impl AtOnce {
         let outage = self.agents.as_ref().filter(|outage| outage.holds())?;
         let (failure, why) = outage.down();
         (failure == Failure::CannotRun).then_some((outage.since, why))
+    }
+
+    /// Since when the agents' wait holds the rounds now, whatever cause every work shares it is: a usage limit, a command
+    /// line that cannot run, no network, or a service that does not serve.
+    pub fn down(&self) -> Option<Time> {
+        let outage = self.agents.as_ref().filter(|outage| outage.holds())?;
+        Some(outage.since)
     }
 
     /// Which rounds may begin now, as these waits say ([`Driver::gate`]).
@@ -805,6 +815,14 @@ impl Driver {
             store.keep_stop(&over).map_err(Fault::Store)?;
             stops.push(over);
         }
+        // The slots this driver opens with are kept where they are not the latest kept: the engine started with them, or
+        // the owner changed them while it was stopped.
+        let mut slots_set = store.slots_set().map_err(Fault::Store)?;
+        if slots_set.last().is_none_or(|last| last.slots != slots) {
+            let record = store::SlotsRecord { slots, at: now };
+            store.keep_slots(&record).map_err(Fault::Store)?;
+            slots_set.push(record);
+        }
         let mut driver = Driver {
             store,
             flows: by_name,
@@ -812,6 +830,7 @@ impl Driver {
             of_item: BTreeMap::new(),
             mains: Mains::new(),
             slots,
+            slots_set,
             paused,
             keep_warm,
             moving_on,
@@ -1386,14 +1405,15 @@ impl Driver {
         if numbers.is_empty() {
             return Ok(());
         }
-        let cannot_run = self.cannot_runs(&self.at_once());
+        let at_once = self.at_once();
+        let (cannot_run, down) = self.shared_waits(&at_once);
         let stops = self.stop_spans();
         for number in numbers {
             let Some(held) = self.works.get(&number) else {
                 continue;
             };
             let turns = self.turns_of_others(number);
-            let stretches = time::stretches(&held.kept(), &self.spans, &stops, &cannot_run, turns, now);
+            let stretches = time::stretches(&held.kept(), &self.spans, &stops, &cannot_run, &down, turns, now);
             let turn = held.turned.spans.clone();
             let Some(held) = self.works.get_mut(&number) else {
                 continue;
@@ -1403,6 +1423,7 @@ impl Driver {
                 at,
                 stretches,
                 turn: Some(turn),
+                separated: true,
             });
             held.work.moments.push(Moment { from: at, at: now });
             held.revision = next_revision();
@@ -1689,15 +1710,26 @@ impl Driver {
     /// Sets how many rounds of cells that take a slot may go on at once, at the time the caller's clock gives, and gives
     /// what is to be done: with more, the slots free now go to the works that wait for one, in the engine's order; with
     /// fewer, no round under way is stopped, and none begins until fewer are under way than there are slots. The store
-    /// keeps no slots: whoever sets them keeps them, so that the driver is opened with them again. Setting them as they
-    /// stand changes nothing.
+    /// keeps each number the slots are set to, with when, which no step reads: whoever sets them keeps them, so that
+    /// the driver is opened with them again. Setting them as they stand changes nothing.
     pub fn set_slots(&mut self, now: Time, slots: usize) -> Result<Vec<Todo>, Failed> {
         self.going()?;
         if slots == self.slots {
             return Ok(Vec::new());
         }
+        let record = store::SlotsRecord { slots, at: now };
+        if let Err(fault) = self.store.keep_slots(&record) {
+            return Err(self.stop(Fault::Store(fault), false));
+        }
+        self.slots_set.push(record);
         self.slots = slots;
         self.filled_after(now, Vec::new())
+    }
+
+    /// Every number the slots were set to, in order, with when: what the slots in use at a time were, where the engine
+    /// kept them then. None before the first, which the engine that kept them made as it started.
+    pub fn slots_history(&self) -> &[store::SlotsRecord] {
+        &self.slots_set
     }
 
     /// The accounts the agents' program may run under, as the owner added, removed and took them.
@@ -2611,17 +2643,33 @@ impl Driver {
         &self.spans
     }
 
-    /// Each wait in which the agents' command line could not run, in order, as a bar reads them: those that are over,
-    /// worked out from the records of every work, and the one that stands now, where one does, from what every work
-    /// reads alike ([`AtOnce::cannot_run`]).
-    pub fn cannot_runs(&self, at_once: &AtOnce) -> Vec<CannotRun> {
-        let mut waits = outage::cannot_run_spans(self.rounds());
-        waits.extend(at_once.cannot_run().map(|(since, why)| CannotRun {
+    /// What holds every work at once as far as the agents' wait goes ([`AtOnce`] with none of the rest): what
+    /// [`Driver::shared_waits`] reads, for a reader of the waits that asks nothing of the slots taken, the turns and the
+    /// acts' host, whose worth is a scan of the records of every work each.
+    pub fn agents_at_once(&self) -> AtOnce {
+        AtOnce {
+            everything: None,
+            stopping: None,
+            agents: self.agents_wait(),
+            host: None,
+            taking: BTreeSet::new(),
+            turn: BTreeMap::new(),
+        }
+    }
+
+    /// Each wait in which the agents' command line could not run, and each stretch in which a cause every work shares held
+    /// the rounds of agents, in order, as a bar reads them: those that are over, worked out from the records of every
+    /// work once, and the one of each that stands now, where one does, from what every work reads alike
+    /// ([`AtOnce::cannot_run`], [`AtOnce::down`]).
+    pub fn shared_waits(&self, at_once: &AtOnce) -> (Vec<CannotRun>, Vec<Down>) {
+        let (mut cannot_run, mut down) = outage::shared_spans(self.rounds());
+        cannot_run.extend(at_once.cannot_run().map(|(since, why)| CannotRun {
             from: since,
             until: None,
             why: why.to_string(),
         }));
-        waits
+        down.extend(at_once.down().map(|from| Down { from, until: None }));
+        (cannot_run, down)
     }
 
     /// Each stretch another work of the work's project held the turn to check and merge, which what the work waited for

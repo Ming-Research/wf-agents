@@ -739,7 +739,7 @@ fn a_check_taken_under_another_account_than_the_one_in_use_is_no_check_of_it() {
 
 /// Each wait the driver gives in which the agents' command line could not run, from when and until when.
 fn cannot_runs(h: &H) -> Vec<(Time, Option<Time>)> {
-    (h.d().cannot_runs(&h.d().at_once()).into_iter())
+    (h.d().shared_waits(&h.d().at_once()).0.into_iter())
         .map(|wait| (wait.from, wait.until))
         .collect()
 }

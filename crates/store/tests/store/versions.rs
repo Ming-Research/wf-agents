@@ -8,7 +8,8 @@ use work::{KeptTime, OnFlow, Stretch, TurnSpan, Went};
 
 use super::diverged::{Change, refused};
 use super::opening::{
-    after_reads_were_kept, before_held_calls, before_pauses_waited_for_items, before_unpriced, columns, versions,
+    after_reads_were_kept, before_held_calls, before_jobs_said_how_long_they_queued, before_pauses_waited_for_items,
+    before_unpriced, columns, versions,
 };
 use super::*;
 
@@ -84,6 +85,7 @@ fn a_work_s_moves_and_what_its_time_went_to_read_back_as_written_its_records_as_
             from: Time(START),
             until: Some(Time(START + 500)),
         }]),
+        separated: true,
     });
     // A work that held the turn nowhere keeps none held, apart from one kept before they were kept, which keeps none.
     for turn in [Some(Vec::new()), None] {
@@ -92,6 +94,7 @@ fn a_work_s_moves_and_what_its_time_went_to_read_back_as_written_its_records_as_
             at,
             stretches: Vec::new(),
             turn,
+            separated: false,
         });
     }
     store
@@ -163,6 +166,7 @@ fn a_file_of_version_32_is_migrated_with_its_kept_times_read_as_holding_no_turn(
     let mut work = d.work;
     before_held_calls(&mut work);
     before_unpriced(&mut work);
+    before_jobs_said_how_long_they_queued(&mut work);
     let at = work.tick();
     work.kept_time.push(KeptTime {
         at,
@@ -172,6 +176,7 @@ fn a_file_of_version_32_is_migrated_with_its_kept_times_read_as_holding_no_turn(
             went: Went::Owner,
         }],
         turn: None,
+        separated: false,
     });
     let (old, new) = super::opening::kept_in(32, &work);
     let store = old.open();
@@ -183,6 +188,47 @@ fn a_file_of_version_32_is_migrated_with_its_kept_times_read_as_holding_no_turn(
     );
     assert_eq!(store.load(WorkNumber(1)), Ok(after_reads_were_kept(work)));
     assert_eq!(count(&old.path, "kept_time"), 1);
+}
+
+// A file of version 38 told no wait for a slot apart from the others in what it kept of the time of its works, and kept
+// no time a job of a run of the CI waited for a runner: what it kept is read as it was, each kept time as one that does
+// not tell a wait for a slot apart, which is not the same as one that does and holds none, and each job as one that
+// said nothing of it.
+#[test]
+fn a_file_of_version_38_is_migrated_with_its_kept_times_not_telling_a_slot_apart_and_its_jobs_not_saying_how_long_they_queued()
+ {
+    let mut d = Driver::new();
+    history(&mut d);
+    let mut work = d.work;
+    let at = work.tick();
+    work.kept_time.push(KeptTime {
+        at,
+        stretches: vec![Stretch {
+            from: Time(START),
+            until: Time(START + 1000),
+            went: Went::Other,
+        }],
+        turn: Some(Vec::new()),
+        separated: true,
+    });
+    for timed in &mut work.timed {
+        for job in &mut timed.reading.jobs {
+            job.queued_millis = Some(4_000);
+        }
+    }
+    let mut kept_before = work.clone();
+    kept_before.kept_time[0].separated = false;
+    before_jobs_said_how_long_they_queued(&mut kept_before);
+    let (old, new) = super::opening::kept_in(38, &work);
+    let store = old.open();
+    assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
+    assert_eq!(
+        columns(&old.path),
+        columns(&new.path),
+        "the migrated file has other tables than a new one"
+    );
+    assert_eq!(store.load(WorkNumber(1)), Ok(kept_before));
+    assert_eq!(count(&old.path, "slots_set"), 0, "no slots were kept before");
 }
 
 #[test]
@@ -281,6 +327,7 @@ fn a_work_changed_at_or_lacking_an_entry_of_its_moves_its_time_or_its_forks_is_r
         at,
         stretches: vec![stretch],
         turn: None,
+        separated: false,
     });
     store.save(number, &d.work).expect("the work is saved");
     let kept = d.work;
@@ -391,6 +438,7 @@ fn a_file_of_version_36_is_migrated_with_every_version_read_but_the_cells_replie
     // A file of version 36 holds no read, whatever the history the work was made from has: what it holds is what the
     // migration writes.
     let mut expected = ran_on_it.work.clone();
+    before_jobs_said_how_long_they_queued(&mut expected);
     expected.records.owner_reads.clear();
     let at = expected.tick();
     let read: Vec<(BlockId, Seq)> = (expected.contents.keys())
@@ -413,6 +461,7 @@ fn a_file_of_version_36_is_migrated_with_every_version_read_but_the_cells_replie
     );
     // The work that ran on both versions of the flow has the replies of both unread: the block each declares as words.
     let mut both = ran_on_two.work.clone();
+    before_jobs_said_how_long_they_queued(&mut both);
     both.records.owner_reads.clear();
     let at = both.tick();
     let unread: BTreeSet<(BlockId, Seq)> = written_by_runs(&both, "text")
@@ -438,6 +487,7 @@ fn a_file_of_version_36_is_migrated_with_every_version_read_but_the_cells_replie
     );
     // The work that ran on no version that was kept has no outline: all it has is read, in one entry after its last.
     let mut everything = ran_on_none.work.clone();
+    before_jobs_said_how_long_they_queued(&mut everything);
     everything.records.owner_reads.clear();
     let at = everything.tick();
     let versions: Vec<(BlockId, Seq)> = everything.contents.keys().cloned().collect();

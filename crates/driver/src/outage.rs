@@ -400,7 +400,7 @@ struct Served {
     /// runs' starts, and in each run in the order of their numbers.
     open: Vec<Taken>,
     /// When each round began, whether or not it came back: what tells when a wait in which the agents' command line
-    /// could not run was over ([`cannot_run_spans`]).
+    /// could not run was over ([`shared_spans`]).
     began: Vec<Time>,
 }
 
@@ -612,54 +612,90 @@ pub struct CannotRun {
     pub why: String,
 }
 
-/// Each wait in which the agents' command line could not run that is over, from the rounds of these works ([`Rounds`]):
-/// it stands from the end of a round of an agent that failed so, a round another work had under way when the first one
-/// failed and that failed so too joining it, until the first round of an agent, of any work, that began after the latest
-/// of them. The wait that stands now, which no round has begun after, is the driver's ([`crate::Driver::outage`]): what
-/// the records of rounds say of it is the same, and it is drawn from the time its first round failed so, whichever kind
-/// of cause the failures before it in the wait had. What the failed rounds recorded is kept whole, so that a wait is read
-/// the same whenever it is asked (principle `state-from-records`).
-pub fn cannot_run_spans<'a>(works: impl Iterator<Item = &'a Rounds> + Clone) -> Vec<CannotRun> {
-    let served = works.map(|rounds| &rounds.agents);
-    let mut begins: Vec<Time> = (served.clone())
-        .flat_map(|served| served.began.iter().copied())
-        .collect();
-    begins.sort();
-    let mut failed: Vec<(Time, &String)> = (served.flat_map(|served| served.open.iter()))
-        .filter_map(|r| match &r.ended {
-            Some((
-                time,
-                _,
-                Some(Back::Failed {
-                    why,
-                    failure: Failure::CannotRun,
-                    ..
-                }),
-            )) => Some((*time, why)),
-            _ => None,
-        })
-        .collect();
-    failed.sort_by_key(|(time, _)| *time);
-    let mut waits: Vec<CannotRun> = Vec::new();
-    for (time, why) in failed {
-        let until = begins.iter().find(|began| **began > time).copied();
-        match waits.last_mut() {
-            Some(last) if last.until.is_none_or(|over| time <= over) => {
-                last.until = match (last.until, until) {
-                    (Some(over), Some(until)) => Some(over.max(until)),
-                    _ => None,
-                };
-                last.why.clone_from(why);
-            }
-            _ => waits.push(CannotRun {
-                from: time,
-                until,
-                why: why.clone(),
-            }),
-        }
+/// A stretch in which a cause every work shares held every round of an agent, whichever it was: a usage limit, a command
+/// line that could not run, no network, or a service that did not serve. From when a round of an agent failed so, to
+/// when the next round of an agent, of any work, began; none while none has.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Down {
+    pub from: Time,
+    pub until: Option<Time>,
+}
+
+/// Each wait in which the agents' command line could not run that is over, and each stretch, that is over, in which a
+/// cause every work shares held every round of an agent, from the rounds of these works ([`Rounds`]).
+///
+/// A wait in which the command line could not run stands from the end of a round of an agent that failed so, a round
+/// another work had under way when the first one failed and that failed so too joining it, until the first round of an
+/// agent, of any work, that began after the latest of them. A stretch of a cause every work shares is read the same way
+/// of the failures of every kind of cause (a usage limit, a command line that could not run, no network, a service that
+/// did not serve), so that a wait a work has, for none of its own reasons, is told from one for the slots, where the
+/// agents' rounds could not begin whatever the slots were. The wait and the stretch that stand now, which no round has
+/// begun after, are the driver's ([`crate::Driver::outage`], [`crate::Driver::shared_waits`]): what the records of
+/// rounds say of them is the same, and each is drawn from the time its first round failed so, whichever kind of cause
+/// the failures before it had. What the failed rounds recorded is kept whole, so that a wait is read the same whenever it
+/// is asked (principle `state-from-records`).
+pub fn shared_spans<'a>(works: impl Iterator<Item = &'a Rounds> + Clone) -> (Vec<CannotRun>, Vec<Down>) {
+    let failed = Failed::of(works);
+    (failed.waits(|failure| failure == Failure::CannotRun), failed.downs())
+}
+
+/// The rounds of agents that began, and those that failed, of these works, each in order of its time: what the waits in
+/// which the agents' rounds were held are read from.
+struct Failed<'a> {
+    begins: Vec<Time>,
+    failed: Vec<(Time, &'a String, Failure)>,
+}
+
+impl<'a> Failed<'a> {
+    fn of(works: impl Iterator<Item = &'a Rounds> + Clone) -> Failed<'a> {
+        let served = works.map(|rounds| &rounds.agents);
+        let mut begins: Vec<Time> = (served.clone())
+            .flat_map(|served| served.began.iter().copied())
+            .collect();
+        begins.sort();
+        let mut failed: Vec<(Time, &String, Failure)> = (served.flat_map(|served| served.open.iter()))
+            .filter_map(|r| match &r.ended {
+                Some((time, _, Some(Back::Failed { why, failure, .. }))) => Some((*time, why, *failure)),
+                _ => None,
+            })
+            .collect();
+        failed.sort_by_key(|(time, _, _)| *time);
+        Failed { begins, failed }
     }
-    waits.retain(|wait| wait.until.is_some());
-    waits
+
+    /// Each wait that is over in which the agents' rounds were held by a failure of a kind `held_by` says.
+    fn waits(&self, held_by: impl Fn(Failure) -> bool) -> Vec<CannotRun> {
+        let mut waits: Vec<CannotRun> = Vec::new();
+        for (time, why, _) in self.failed.iter().filter(|(_, _, failure)| held_by(*failure)) {
+            let until = self.begins.iter().find(|began| **began > *time).copied();
+            match waits.last_mut() {
+                Some(last) if last.until.is_none_or(|over| *time <= over) => {
+                    last.until = match (last.until, until) {
+                        (Some(over), Some(until)) => Some(over.max(until)),
+                        _ => None,
+                    };
+                    last.why.clone_from(why);
+                }
+                _ => waits.push(CannotRun {
+                    from: *time,
+                    until,
+                    why: (*why).clone(),
+                }),
+            }
+        }
+        waits.retain(|wait| wait.until.is_some());
+        waits
+    }
+
+    /// Each wait that is over in which a cause every work shares held the agents' rounds.
+    fn downs(&self) -> Vec<Down> {
+        (self.waits(Failure::shared).into_iter())
+            .map(|wait| Down {
+                from: wait.from,
+                until: wait.until,
+            })
+            .collect()
+    }
 }
 
 /// Each round of these works that failed for a cause every work shares and is not over, with when and where in its work
@@ -1375,23 +1411,15 @@ mod tests {
         (limits.into_iter()).map(|(name, (limit, _))| (name, limit)).collect()
     }
 
-    /// The waits in which the agents' command line could not run that are over, as they are defined on the records
-    /// alone.
-    fn plain_cannot_run(works: &[(WorkNumber, Option<Outline>, Work)]) -> Vec<CannotRun> {
+    /// The waits that are over in which a failure of a kind `held_by` says held the rounds of agents, as they are
+    /// defined on the records alone.
+    fn plain_waits(works: &[(WorkNumber, Option<Outline>, Work)], held_by: fn(Failure) -> bool) -> Vec<CannotRun> {
         let rounds = plain(Service::Agents, works);
         let mut begins: Vec<Time> = rounds.iter().map(|r| r.began).collect();
         begins.sort();
         let mut failed: Vec<(Time, &String)> = (rounds.iter())
             .filter_map(|r| match &r.ended {
-                Some((
-                    time,
-                    _,
-                    Some(Back::Failed {
-                        why,
-                        failure: Failure::CannotRun,
-                        ..
-                    }),
-                )) => Some((*time, why)),
+                Some((time, _, Some(Back::Failed { why, failure, .. }))) if held_by(*failure) => Some((*time, why)),
                 _ => None,
             })
             .collect();
@@ -1445,7 +1473,18 @@ mod tests {
                 plain_limits(&works, &answered),
                 "seed {seed}"
             );
-            assert_eq!(cannot_run_spans(kept.iter()), plain_cannot_run(&works), "seed {seed}");
+            let (cannot_run, down) = shared_spans(kept.iter());
+            assert_eq!(
+                cannot_run,
+                plain_waits(&works, |failure| failure == Failure::CannotRun),
+                "seed {seed}"
+            );
+            // Every cause every work shares holds the rounds of agents, whichever it was.
+            let down: Vec<(Time, Option<Time>)> = (down.into_iter()).map(|wait| (wait.from, wait.until)).collect();
+            let plain: Vec<(Time, Option<Time>)> = (plain_waits(&works, Failure::shared).into_iter())
+                .map(|wait| (wait.from, wait.until))
+                .collect();
+            assert_eq!(down, plain, "seed {seed}");
         }
     }
 

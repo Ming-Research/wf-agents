@@ -4,7 +4,8 @@
 //! kept across an opening, and a file made before the store kept one opening as if it had never been set.
 
 use store::{
-    AccountAct, AccountRecord, AccountTaker, EverythingPaused, PauseOfEverything, SCHEMA_VERSION, StopAct, StopRecord,
+    AccountAct, AccountRecord, AccountTaker, EverythingPaused, PauseOfEverything, SCHEMA_VERSION, SlotsRecord, StopAct,
+    StopRecord,
 };
 
 use super::opening::{SCHEMA_1, columns, versions};
@@ -54,6 +55,25 @@ fn every_stop_and_the_start_after_it_is_given_back_in_order_across_an_opening() 
     assert_eq!(store.stops(), Ok(kept.to_vec()));
     drop(store);
     assert_eq!(db.open().stops(), Ok(kept.to_vec()));
+}
+
+// Each number the slots were set to is given back in the order it was kept, with when, across an opening, and a store
+// that never kept one gives none: the engine tells from that that nothing is recorded of the slots before.
+#[test]
+fn every_number_the_slots_were_set_to_is_given_back_in_order_with_when_across_an_opening() {
+    let db = Db::new();
+    let mut store = db.open();
+    assert_eq!(store.slots_set(), Ok(Vec::new()), "none in a new store");
+    let kept = [(16, 0), (8, 1000), (16, 5000)].map(|(slots, at)| SlotsRecord {
+        slots,
+        at: Time(START + at),
+    });
+    for record in &kept {
+        store.keep_slots(record).expect("it is kept");
+    }
+    assert_eq!(store.slots_set(), Ok(kept.to_vec()));
+    drop(store);
+    assert_eq!(db.open().slots_set(), Ok(kept.to_vec()));
 }
 
 #[test]

@@ -680,6 +680,7 @@ impl Api for Fake {
                     outcome: super::api::Outcome::Broken(how.to_string()),
                     url: None,
                     took: None,
+                    queued: None,
                 }]
             }
             Some(asked) => {

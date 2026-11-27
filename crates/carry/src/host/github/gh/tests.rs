@@ -94,6 +94,52 @@ fn a_jobs_wall_time_is_read_from_its_two_stamps_when_it_ran_to_a_conclusion() {
     }
 }
 
+// How long a job waited for a runner is the whole seconds from its `created_at` to its `started_at`, for a job a runner
+// took, whatever came of it; a job no runner took, or that did not run, has none, and neither has one whose stamps GitHub
+// gave in no usable form: none is read as no time, never as a time of none. Milliseconds.
+#[test]
+fn how_long_a_job_waited_for_a_runner_is_read_from_its_stamps_for_a_job_a_runner_took() {
+    let queued = |status: &str, conclusion: Option<&str>, created: Value, started: Value| {
+        job(&json!({
+            "id": 2, "name": "test", "status": status, "conclusion": conclusion,
+            "created_at": created, "started_at": started, "completed_at": "2026-11-14T10:10:00Z",
+        }))
+        .map(|j| j.queued)
+    };
+    let (created, started) = (json!("2026-11-14T10:00:00Z"), json!("2026-11-14T10:00:25Z"));
+    for (status, conclusion) in [
+        ("completed", Some("success")),
+        ("completed", Some("failure")),
+        ("completed", Some("cancelled")),
+        ("in_progress", None),
+    ] {
+        assert_eq!(
+            queued(status, conclusion, created.clone(), started.clone()),
+            Some(Some(25)),
+            "{status} {conclusion:?} was taken by a runner"
+        );
+    }
+    for (status, conclusion) in [("queued", None), ("completed", Some("skipped"))] {
+        assert_eq!(
+            queued(status, conclusion, created.clone(), started.clone()),
+            Some(None),
+            "{status} {conclusion:?} was never taken"
+        );
+    }
+    for (made, began) in [
+        (json!(null), started.clone()),
+        (created.clone(), json!(null)),
+        (started.clone(), created.clone()),
+        (created.clone(), json!("2026-11-14T10:00:25.000Z")),
+    ] {
+        assert_eq!(
+            queued("completed", Some("success"), made.clone(), began.clone()),
+            Some(None),
+            "{made} to {began}"
+        );
+    }
+}
+
 // The seconds between two stamps hold over a day, a month, a year and a leap day, and none is lost at the March of a
 // leap year.
 #[test]
@@ -802,6 +848,7 @@ async fn a_look_at_the_jobs_sends_the_tag_it_is_given_and_reads_githubs_304_as_u
         outcome,
         url: Some(format!("https://github.com/o/r/runs/{id}")),
         took: None,
+        queued: None,
     };
     assert_eq!(
         listed,

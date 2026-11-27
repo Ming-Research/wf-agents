@@ -91,8 +91,13 @@ async fn all_time_gives_the_merge_and_what_was_spent_on_each_cell_and_model() {
     let weeks = get_json(router, &format!("/api/v1/system?weeks={week},{before}")).await;
     assert_eq!(weeks["from"], before, "the span begins with its earliest week");
     let nothing = json!({ "usdMicros": 0, "inputTokens": 0, "cacheWrittenTokens": 0, "unsplitTokens": 0, "cachedTokens": 0, "outputTokens": 0, "workingMs": 0, "rounds": 0 });
+    // What the works waited for in each week is told in the test of its own; here what each week counts of the rest.
+    let mut counted = weeks["weeks"].clone();
+    for week in counted.as_array_mut().unwrap() {
+        assert!(week.as_object_mut().unwrap().remove("waited").is_some(), "{week}");
+    }
     assert_eq!(
-        weeks["weeks"],
+        counted,
         json!([
             {
                 "start": week, "spent": spent, "pinged": nothing, "merged": 1, "cancelled": 0, "added": 1, "sentBack": 0,
@@ -103,6 +108,71 @@ async fn all_time_gives_the_merge_and_what_was_spent_on_each_cell_and_model() {
                 "sentBack": 0, "failed": 0
             },
         ])
+    );
+}
+
+// What the works waited for, over the span and in each week: each cause in its order with how often, how long and the
+// median and the longest of it; how long the calls and rounds that waited for CI took; and how many works held a slot
+// and ran against the slots there were. The one work here merged, so that what it waited for is what it kept as it
+// ended, told apart from a wait for a slot; the engine kept the slots from when it started, so that a week that began
+// before that says it kept them only from part of it. Seconds of paused time, in one run of the engine.
+#[tokio::test(start_paused = true)]
+async fn the_system_says_what_the_works_waited_for_and_how_many_slots_they_held() {
+    let running = merged().await;
+    let router = &running.router;
+    let system = get_json(router, "/api/v1/system").await;
+    let waited = &system["waited"];
+    let reasons: Vec<&str> = (waited["by"].as_array().unwrap().iter())
+        .map(|by| by["reason"].as_str().unwrap())
+        .collect();
+    assert_eq!(reasons, ["owner", "items", "slot", "turn", "paused"], "{waited}");
+    for by in waited["by"].as_array().unwrap() {
+        for field in ["stops", "totalMs"] {
+            assert!(by[field].is_u64(), "{field} of {by}");
+        }
+        // The median and the longest are told of the stops that ended, and of none where none did.
+        assert_eq!(by["medianMs"].is_null(), by["stops"] == 0, "{by}");
+        assert_eq!(by["longestMs"].is_null(), by["stops"] == 0, "{by}");
+    }
+    assert_eq!(
+        waited["unseparated"],
+        json!({ "stops": 0, "totalMs": 0, "medianMs": null, "longestMs": null }),
+        "a work that ended now tells a wait for a slot apart from the others: {waited}"
+    );
+    assert_eq!(waited["uncounted"], 0, "{waited}");
+    assert!(
+        waited["ci"]["stops"].is_u64() && waited["ci"]["jobs"].is_u64(),
+        "{waited}"
+    );
+    let occupancy = &waited["occupancy"];
+    assert!(
+        occupancy["takingPeak"].as_u64().unwrap() >= 1,
+        "an agent's round held a slot: {occupancy}"
+    );
+    assert!(occupancy["runningPeak"].as_u64().unwrap() >= occupancy["takingPeak"].as_u64().unwrap());
+    assert!(
+        occupancy["slots"].as_u64().unwrap() >= 1,
+        "the engine kept its slots: {occupancy}"
+    );
+    // Each week from where it begins to where the next does: the week the work ran in counts what it did, and the span
+    // is told the engine kept the slots only from part of the week, which began before the engine did.
+    let (week, before) = (START - DAY, START - 8 * DAY);
+    let weeks = get_json(router, &format!("/api/v1/system?weeks={before},{week}")).await;
+    let weeks = weeks["weeks"].as_array().unwrap();
+    assert_eq!(weeks.len(), 2);
+    let (latest, earlier) = (&weeks[0], &weeks[1]);
+    assert_eq!(latest["start"], week);
+    assert_eq!(latest["waited"]["totalMs"].as_array().unwrap().len(), 5, "{latest}");
+    assert_eq!(latest["waited"]["occupancy"]["recorded"], false, "{latest}");
+    assert!(
+        latest["waited"]["occupancy"]["takingPeak"].as_u64().unwrap() >= 1,
+        "{latest}"
+    );
+    assert_eq!(earlier["waited"]["totalMs"], json!([0, 0, 0, 0, 0]), "{earlier}");
+    assert_eq!(
+        earlier["waited"]["occupancy"],
+        json!({ "takingAvg": 0, "takingPeak": 0, "runningAvg": 0, "runningPeak": 0, "slots": null, "recorded": false }),
+        "the week before anything happened has no works and no slots kept: {earlier}"
     );
 }
 

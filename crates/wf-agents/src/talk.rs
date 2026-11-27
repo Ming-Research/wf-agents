@@ -20,7 +20,7 @@ use web::observations::{
 };
 use web::plan::{Candidates, Field, Graph, Hits, Node, PlanChange, PlanChanges, Row, Standing, Tags};
 use web::pulls::{OpenPull, Pulls};
-use web::system::{Figure, Going, LeftOf, Past, RedTest, Rest, System, UnderWay};
+use web::system::{Figure, Going, LeftOf, Past, RedTest, Rest, System, UnderWay, WaitReason, WaitedFor};
 use web::works::{
     Act, Added, Against, Back, Call, CellState, ChangeAsked, Checked, Continues, Dependency, Engine, EngineAct,
     Failure, ForkAsked, ForkInstead, ForkPage, Found, ItemChanged, ItemChanges, ItemHistory, Items, ItemsChanged,
@@ -2905,6 +2905,86 @@ fn dollars(micros: u64) -> String {
     format!("${:.2}", micros as f64 / 1_000_000.0)
 }
 
+/// What the works waited for over the span, in at most ten lines whatever there is: for each cause how many stops ended
+/// and how long they took, with the median and the longest; how long the calls and rounds that waited for CI took and
+/// how long its jobs waited for a runner; how many works held a slot and ran; and what is not known, among it that the
+/// waits before a work's first round are in none of the counts, which the first line says. Nothing is judged:
+/// the lines of each history are the judgments' to say.
+fn waited_said(waited: &WaitedFor) -> Vec<String> {
+    if waited.by.is_empty() {
+        return Vec::new();
+    }
+    let many = |n: usize, one: &str| format!("{n} {one}{}", if n == 1 { "" } else { "s" });
+    let ends = |stopped: &web::system::Stopped| match (stopped.median_ms, stopped.longest_ms) {
+        (Some(median), Some(longest)) => format!("median {}, longest {}", duration(median), duration(longest)),
+        _ => "none ended".to_string(),
+    };
+    let mut lines = vec![
+        "Waited (stops that ended, the time they took, and the median and longest of them; waits before a work's \
+         first round are in none of these):"
+            .to_string(),
+    ];
+    for by in &waited.by {
+        let cause = match by.reason {
+            WaitReason::Owner => "the owner",
+            WaitReason::Items => "the items its item depends on",
+            WaitReason::Slot => "a slot",
+            WaitReason::Turn => "the turn to check and merge",
+            WaitReason::Paused => "a pause",
+        };
+        lines.push(format!(
+            "  for {cause}: {}, {} in all; {}",
+            many(by.stopped.stops, "stop"),
+            duration(by.stopped.total_ms),
+            ends(&by.stopped)
+        ));
+    }
+    let ci = &waited.ci;
+    let queued = match (ci.queued_median_ms, ci.queued_longest_ms) {
+        (Some(median), Some(longest)) => format!(
+            "; {} said how long {} waited for a runner, median {}, longest {}",
+            many(ci.jobs, "job"),
+            if ci.jobs == 1 { "it" } else { "they" },
+            duration(median),
+            duration(longest)
+        ),
+        _ => "; no job said how long it waited for a runner".to_string(),
+    };
+    lines.push(format!(
+        "  for CI (a call or a round that waited for a run): {}, {} in all; {}{queued}",
+        many(ci.waited.stops, "wait"),
+        duration(ci.waited.total_ms),
+        ends(&ci.waited)
+    ));
+    let slots = &waited.occupancy;
+    let of = match (slots.slots, slots.recorded) {
+        (Some(most), true) => format!(", of {most} slots"),
+        (Some(most), false) => format!(", of {most} slots (the slots were kept only from part of the span)"),
+        (None, _) => ", the slots not having been kept".to_string(),
+    };
+    let thousandths = |n: u64| format!("{}.{:01}", n / 1000, n % 1000 / 100);
+    lines.push(format!(
+        "  slots: on average {} works held one, at most {}{of}; on average {} ran, at most {}",
+        thousandths(slots.taking_avg),
+        slots.taking_peak,
+        thousandths(slots.running_avg),
+        slots.running_peak
+    ));
+    if waited.unseparated.total_ms > 0 {
+        lines.push(format!(
+            "  {} in all, of works that ended before a wait for a slot was told apart, is in none of the causes above",
+            duration(waited.unseparated.total_ms)
+        ));
+    }
+    if waited.uncounted > 0 {
+        lines.push(format!(
+            "  works not counted, their flow's version not having been kept: {}",
+            waited.uncounted
+        ));
+    }
+    lines
+}
+
 /// How the system ran over the last `days`: what its rounds took, what ended past the lines of its history, the latest
 /// first, and what is under way against its own, the oldest first, each agent's round with what its calls have come to
 /// so far as `going` says it, at most `limit` of each, with how many more there are and how to see them.
@@ -2920,6 +3000,7 @@ fn system_said(system: &System, going: &[Going], days: u64, limit: usize) -> Str
             limit + left
         )
     };
+    lines.extend(waited_said(&system.waited));
     if system.past.is_empty() {
         lines.push("Nothing ended past the lines of its history.".to_string());
     } else {
@@ -3828,6 +3909,7 @@ mod tests {
             short_of_time: vec![day(2 * 86_400_000, 1), day(86_400_000, 4), day(0, 2)],
             stopping: None,
             red_main: Vec::new(),
+            waited: WaitedFor::default(),
         };
         let said = system_said(&system, &[], 7, 2);
         assert!(
@@ -3837,6 +3919,97 @@ mod tests {
                  Firn-wf on the day from 1970-01-02 00:00 UTC: 4 calls; tests stopped 2, not started 3, refused 0\n  \
                  And 1 more: wf-agents system --days 7 --limit 3"
             ),
+            "{said}"
+        );
+    }
+
+    // The system view says, for each cause, how many stops ended and how long they took with the median and the longest,
+    // what CI took, and the slots held; what it does not know it says so, never as nothing.
+    #[test]
+    fn the_system_says_what_the_works_waited_for_and_what_of_it_is_not_known() {
+        let stopped =
+            |stops: usize, total_ms: u64, median_ms: Option<u64>, longest_ms: Option<u64>| web::system::Stopped {
+                stops,
+                total_ms,
+                median_ms,
+                longest_ms,
+            };
+        let by = |reason: WaitReason, stopped: web::system::Stopped| web::system::WaitedBy { reason, stopped };
+        let system = System {
+            now: 0,
+            from: None,
+            spent: Spent::default(),
+            pinged: Spent::default(),
+            weeks: Vec::new(),
+            by_project: Vec::new(),
+            by_cell: Vec::new(),
+            by_model: Vec::new(),
+            by_work: Vec::new(),
+            merged: Vec::new(),
+            cancelled: Vec::new(),
+            added: Vec::new(),
+            sent_back: Vec::new(),
+            failed: Vec::new(),
+            past: Vec::new(),
+            under_way: Vec::new(),
+            tests: Vec::new(),
+            left_behind: Vec::new(),
+            short_of_time: Vec::new(),
+            stopping: None,
+            red_main: Vec::new(),
+            waited: WaitedFor {
+                by: vec![
+                    by(
+                        WaitReason::Owner,
+                        stopped(3, 5_400_000, Some(1_800_000), Some(3_600_000)),
+                    ),
+                    by(WaitReason::Items, stopped(0, 0, None, None)),
+                    by(WaitReason::Slot, stopped(1, 90_000, None, None)),
+                    by(WaitReason::Turn, stopped(2, 20_000, Some(10_000), Some(15_000))),
+                    by(WaitReason::Paused, stopped(0, 0, None, None)),
+                ],
+                unseparated: stopped(0, 7_200_000, None, None),
+                ci: web::system::CiWaited {
+                    waited: stopped(4, 3_660_000, Some(900_000), Some(1_200_000)),
+                    jobs: 1,
+                    queued_median_ms: Some(5_000),
+                    queued_longest_ms: Some(5_000),
+                },
+                occupancy: web::system::Occupancy {
+                    taking_avg: 1_500,
+                    taking_peak: 3,
+                    running_avg: 1_250,
+                    running_peak: 2,
+                    slots: Some(4),
+                    recorded: false,
+                },
+                uncounted: 2,
+            },
+        };
+        let said = system_said(&system, &[], 7, 2);
+        let waited: Vec<&str> = said
+            .lines()
+            .skip_while(|line| !line.starts_with("Waited"))
+            .take_while(|line| line.starts_with("Waited") || line.starts_with("  "))
+            .collect();
+        assert_eq!(
+            waited,
+            [
+                "Waited (stops that ended, the time they took, and the median and longest of them; waits before a work's \
+                 first round are in none of these):",
+                "  for the owner: 3 stops, 1h 30m in all; median 30m 00s, longest 1h 00m",
+                "  for the items its item depends on: 0 stops, 0s in all; none ended",
+                "  for a slot: 1 stop, 1m 30s in all; none ended",
+                "  for the turn to check and merge: 2 stops, 20s in all; median 10s, longest 15s",
+                "  for a pause: 0 stops, 0s in all; none ended",
+                "  for CI (a call or a round that waited for a run): 4 waits, 1h 01m in all; median 15m 00s, longest \
+                 20m 00s; 1 job said how long it waited for a runner, median 5s, longest 5s",
+                "  slots: on average 1.5 works held one, at most 3, of 4 slots (the slots were kept only from part of \
+                 the span); on average 1.2 ran, at most 2",
+                "  2h 00m in all, of works that ended before a wait for a slot was told apart, is in none of the \
+                 causes above",
+                "  works not counted, their flow's version not having been kept: 2",
+            ],
             "{said}"
         );
     }
@@ -3922,6 +4095,7 @@ mod tests {
             short_of_time: Vec::new(),
             stopping: None,
             red_main: Vec::new(),
+            waited: WaitedFor::default(),
         };
         let said = system_said(&system, &[], 7, 10);
         assert!(
@@ -5097,6 +5271,7 @@ mod tests {
             short_of_time: Vec::new(),
             stopping: None,
             red_main: Vec::new(),
+            waited: WaitedFor::default(),
         };
         let said = system_said(&system, &[], 7, 10);
         let lines: Vec<&str> = said.lines().collect();
@@ -5236,6 +5411,7 @@ mod tests {
             short_of_time: Vec::new(),
             stopping: None,
             red_main: Vec::new(),
+            waited: WaitedFor::default(),
         };
         let going = [Going {
             work: 3,
@@ -5306,6 +5482,7 @@ mod tests {
             short_of_time: Vec::new(),
             stopping: None,
             red_main: Vec::new(),
+            waited: WaitedFor::default(),
         };
         let listed =
             "  W1 of #11 at I1: 10m 00s so far, about 2m 00s more\n  W2 of #12 at I1: 1m 00s so far, about 5m 00s more";
@@ -5408,6 +5585,7 @@ mod tests {
             short_of_time: Vec::new(),
             stopping: None,
             red_main: Vec::new(),
+            waited: WaitedFor::default(),
         };
         let said = system_said(&system, &[], 7, 10);
         let lines: Vec<&str> = said.lines().collect();

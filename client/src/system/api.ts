@@ -38,6 +38,65 @@ export interface Week {
   added: number;
   sentBack: number;
   failed: number;
+  /// What the works waited for in it. Absent from an engine that does not say.
+  waited?: WeekWaited;
+}
+
+/// Why a work stopped for a time, as the engine keeps what a work's time went to: for the owner, for the items its item
+/// depends on, for a slot, for the turn to check and merge, or for a pause.
+export type WaitReason = 'owner' | 'items' | 'slot' | 'turn' | 'paused';
+
+/// How often and how long works stopped for one cause: the stops that ended in the stretch, and the time they took
+/// within it, a stop still going on counted up to now but not as one; the median and the longest of the stops that
+/// ended, none where none ended.
+export interface Stopped {
+  stops: number;
+  totalMs: number;
+  medianMs: number | null;
+  longestMs: number | null;
+}
+
+export interface WaitedBy extends Stopped {
+  reason: WaitReason;
+}
+
+/// How long the works waited for the project's CI: the calls and rounds that waited for a run and ended, and how long the
+/// jobs of those runs that said it waited for a runner.
+export interface CiWaited extends Stopped {
+  jobs: number;
+  queuedMedianMs: number | null;
+  queuedLongestMs: number | null;
+}
+
+/// How many works held a slot and how many ran, over a stretch: the average, in thousandths of a work, weighted by time,
+/// and the most at once; against the most slots there were, none where the engine kept none in the stretch, and whether
+/// it kept them from before the stretch began.
+export interface Occupancy {
+  takingAvg: number;
+  takingPeak: number;
+  runningAvg: number;
+  runningPeak: number;
+  slots: number | null;
+  recorded: boolean;
+}
+
+/// What the works waited for in a week: how long they stopped for each cause, in the order of `WAIT_REASONS`.
+export interface WeekWaited {
+  totalMs: number[];
+  ciMs: number;
+  occupancy: Occupancy;
+}
+
+/// What the works waited for over the span.
+export interface Waited {
+  by: WaitedBy[];
+  /// The waits works that ended before a wait for a slot was told apart kept as anything else: some were for a slot, and
+  /// which is not known, so they are in none of `by`.
+  unseparated: Stopped;
+  ci: CiWaited;
+  occupancy: Occupancy;
+  /// How many works the waits and the slots are not known of.
+  uncounted: number;
 }
 
 /// What the works of one project's items spent: the project by the name the installation's settings give it, none for
@@ -150,6 +209,9 @@ export interface System {
   /// Each project whose main is red on a test, as the checks the engine ran on main's head say: the projects in the order
   /// of their names, none where none is. Absent from an engine that does not say.
   redMain?: RedMain[];
+  /// What the works waited for over the span, how long CI took them, and how many slots they held. Absent from an engine
+  /// that does not say.
+  waited?: Waited;
 }
 
 /// The main branch of a project is red: the tests that fail on its head, since when the earliest of those failures

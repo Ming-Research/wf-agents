@@ -43,6 +43,11 @@ A work that is paused and has begun no round has the state Not started, which th
 Red is the only colour of a stop: a work that waits for the owner and a work halted by a fault are red in every view.
 - replaced: Orange for what waits for the owner on the Works page and in the bar, but red on the console, was on main; the owner changed it, because one meaning has one colour, and he had chosen red for every stop.
 
+### decision a-wait-for-a-slot-is-drawn-as-nothing-having-run
+The time bar draws a wait for a slot in the colour of nothing having run, saying on pointing at it that it is a wait for a slot; the legend has no entry for it.
+- rejected: an agent proposed a colour of its own for it, listed in the legend; the owner rejected it, because no colour is left that does not clash with a state's: teal is the turn's, and violet was refused for the accent.
+- rejected: an agent proposed the turn's teal for it, the two told apart on pointing; the owner rejected it, because a glance could not tell a wait for a slot from a wait for the turn, which was to be told at a glance.
+
 ### decision a-call-waited-for-is-no-run
 Wherever the page shows a work waiting for tools' results, it says in a call's yellow that it waits for each tool, where it runs and how long, never that it runs; a held call, until when and why.
 - rejected: an agent proposed a separate mark for the tool, after the cell that asked for it; the owner rejected it, because every call that takes time should keep the motion on the card: its cell's mark turned yellow and still blinking.

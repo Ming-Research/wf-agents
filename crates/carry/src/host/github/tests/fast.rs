@@ -445,6 +445,7 @@ async fn what_did_not_pass_and_the_jobs_are_said_before_the_tests_that_passed_ea
     let head = hub.committed().await;
     let lint = Check {
         took: Some(192),
+        queued: None,
         ..passed("lint")
     };
     let jobs = vec![lint, job("test", Outcome::Failed("failure".into()), 5)];
@@ -492,6 +493,7 @@ async fn each_job_is_said_with_how_it_ended_and_its_wall_time_or_why_it_has_none
     let jobs = vec![
         Check {
             took: Some(192),
+            queued: None,
             ..passed("lint")
         },
         check("page", Outcome::Broken("cancelled".into())),
@@ -499,6 +501,7 @@ async fn each_job_is_said_with_how_it_ended_and_its_wall_time_or_why_it_has_none
         check("deploy", Outcome::Pending),
         Check {
             took: None,
+            queued: None,
             ..passed("test")
         },
     ];
@@ -527,6 +530,7 @@ async fn the_fast_workflows_run_says_every_job_of_it_and_a_check_named_that_it_h
     let jobs = vec![
         Check {
             took: Some(95),
+            queued: None,
             ..passed("test")
         },
         check("lint", Outcome::Skipped),

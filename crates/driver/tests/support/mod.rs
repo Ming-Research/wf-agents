@@ -610,6 +610,14 @@ impl Storage for Failing {
         self.store.keep_stop(record)
     }
 
+    fn slots_set(&self) -> Result<Vec<store::SlotsRecord>, store::Fault> {
+        self.store.slots_set()
+    }
+
+    fn keep_slots(&mut self, record: &store::SlotsRecord) -> Result<(), store::Fault> {
+        self.store.keep_slots(record)
+    }
+
     fn keep_flow(&mut self, kept: &store::KeptFlow) -> Result<(), store::Fault> {
         self.store.keep_flow(kept)
     }

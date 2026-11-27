@@ -380,11 +380,13 @@ fn a_work_that_waited_for_a_work_that_ended_still_draws_the_wait_once_another_ve
             .filter(|(_, work, _)| *work != b)
             .flat_map(|(_, _, spans)| spans)
             .collect();
+        let (cannot_run, down) = driver.shared_waits(&driver.at_once());
         let stretches = driver::time::stretches(
             &kept,
             driver.everything_spans(),
             &driver.stop_spans(),
-            &driver.cannot_runs(&driver.at_once()),
+            &cannot_run,
+            &down,
             turns,
             Time(h.clock),
         );

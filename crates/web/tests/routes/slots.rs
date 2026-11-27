@@ -141,3 +141,46 @@ async fn the_slots_set_on_the_page_are_written_and_taken_by_the_engine_at_once()
     assert_eq!(notices, [nothing]);
     assert_eq!(shown(router).await, (json!("1"), Value::Null));
 }
+
+// The slots the owner sets on the page are the slots the System view counts the works against: over a span the most
+// slots there were in it, over a span that begins after the last change the number then, and the engine's record of
+// them reaches back to when it started, so that neither says they were kept in part. Reference: the setting sequence
+// below (1 at the start, 3 at the first minute's start, 1 a minute after), read as "the most the slots were set to
+// while the span lasted" (the span's own definition in the owner's page: slots there were, most of them).
+#[tokio::test(start_paused = true)]
+async fn the_slots_set_on_the_page_are_the_slots_the_system_view_counts_the_works_against() {
+    let (router, _handle, _dir) = serving();
+    let router = &router;
+    add_let_on(router, "First", 1).await;
+    add_let_on(router, "Second", 2).await;
+    crate::pass(1_000).await;
+    assert_eq!(set_slots(router, 3).await.0, StatusCode::OK);
+    crate::pass(60_000).await;
+    assert_eq!(set_slots(router, 1).await.0, StatusCode::OK);
+    crate::pass(60_000).await;
+    let over_all = get_json(router, "/api/v1/system").await;
+    let occupancy = &over_all["waited"]["occupancy"];
+    assert_eq!(
+        occupancy["slots"], 3,
+        "the most the slots were over the span: {occupancy}"
+    );
+    assert_eq!(
+        occupancy["recorded"], true,
+        "the engine kept the slots from its start: {occupancy}"
+    );
+    let after = START + 90_000;
+    let later = get_json(router, &format!("/api/v1/system?weeks={after}")).await;
+    let occupancy = &later["waited"]["occupancy"];
+    assert_eq!(
+        occupancy["slots"], 1,
+        "a span that begins after the last change has the slots then: {occupancy}"
+    );
+    assert_eq!(occupancy["recorded"], true, "{occupancy}");
+    let before = START - 1_000;
+    let earlier = get_json(router, &format!("/api/v1/system?weeks={before}")).await;
+    assert_eq!(
+        earlier["waited"]["occupancy"]["recorded"], false,
+        "a span that begins before the engine kept any says it did not keep them all through it: {earlier}"
+    );
+    assert_eq!(earlier["waited"]["occupancy"]["slots"], 3, "{earlier}");
+}

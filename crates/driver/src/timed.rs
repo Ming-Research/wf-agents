@@ -778,6 +778,7 @@ mod tests {
                 jobs: vec![Job {
                     name: "test".to_string(),
                     millis: 1,
+                    queued_millis: None,
                 }],
                 tests: (tests.iter())
                     .map(|(n, m)| Test {
@@ -813,6 +814,7 @@ mod tests {
                     .map(|(name, millis)| Job {
                         name: name.to_string(),
                         millis: *millis,
+                        queued_millis: None,
                     })
                     .collect(),
                 tests: (tests.iter())
