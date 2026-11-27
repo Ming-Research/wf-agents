@@ -34,12 +34,13 @@ pub fn ran(work: &Work, model: &dyn Fn(RunId) -> bool, now: Time) -> Vec<Stretch
         None => Some(now),
     };
     let mut out = Vec::new();
+    let returns = returns_of(r);
     let mut counted: BTreeMap<RunId, usize> = BTreeMap::new();
     for round in &r.rounds {
         let number = counted.entry(round.run).or_default();
         *number += 1;
-        let ended = (r.returned.iter()).filter(|e| e.run == round.run).nth(*number - 1);
-        let (Some(from), Some(until)) = (work.time_of(round.at), end_of(ended.map(|e| e.at))) else {
+        let ended = returns.get(&round.run).and_then(|returned| returned.get(*number - 1));
+        let (Some(from), Some(until)) = (work.time_of(round.at), end_of(ended.copied())) else {
             continue;
         };
         let went = if model(round.run) { Went::Model } else { Went::Tools };
@@ -55,6 +56,15 @@ pub fn ran(work: &Work, model: &dyn Fn(RunId) -> bool, now: Time) -> Vec<Stretch
         }
     }
     out
+}
+
+/// The places where each run's rounds returned, in order: the nth round of a run ended at the nth.
+fn returns_of(r: &Records) -> BTreeMap<RunId, Vec<Seq>> {
+    let mut returns: BTreeMap<RunId, Vec<Seq>> = BTreeMap::new();
+    for returned in &r.returned {
+        returns.entry(returned.run).or_default().push(returned.at);
+    }
+    returns
 }
 
 /// The stretches of the tools' time of a call of a tool, made at this place: from when it was made to when it was done,
@@ -126,6 +136,7 @@ pub fn ci_waits(work: &Work, now: Time) -> Vec<(Stretch, bool)> {
             );
         }
     }
+    let returns = returns_of(r);
     let mut counted: BTreeMap<RunId, usize> = BTreeMap::new();
     for round in &r.rounds {
         let number = counted.entry(round.run).or_default();
@@ -133,9 +144,9 @@ pub fn ci_waits(work: &Work, now: Time) -> Vec<(Stretch, bool)> {
         if !askings.contains(format!("run/{}/round/{number}", round.run.0).as_str()) {
             continue;
         }
-        let ended = (r.returned.iter()).filter(|e| e.run == round.run).nth(*number - 1);
+        let ended = returns.get(&round.run).and_then(|returned| returned.get(*number - 1));
         let until = match ended {
-            Some(e) => work.time_of(e.at),
+            Some(at) => work.time_of(*at),
             None => Some(now),
         };
         if let (Some(from), Some(until)) = (work.time_of(round.at), until) {
@@ -266,8 +277,10 @@ pub struct Waits<'a> {
     turns: Vec<TurnSpan>,
     /// What ran ([`ran`]), as of the time given.
     pub ran: Vec<Stretch>,
-    /// What ran, as stretches that do not overlap, in order.
+    /// What ran, as stretches that do not overlap or touch, in order.
     busy: Vec<(Time, Time)>,
+    /// Whether the times of the work's moments do not go back, so that the first moment after a time is found by halving.
+    ordered: bool,
     /// When the work's first round began.
     pub from: Option<Time>,
     /// When the last of what ran ended.
@@ -355,6 +368,7 @@ impl<'a> Waits<'a> {
             until: ran.iter().map(|s| s.until).max(),
             ran,
             busy: merged,
+            ordered: work.moments.is_sorted_by_key(|moment| moment.at),
             decided: BTreeMap::new(),
         }
     }
@@ -364,11 +378,18 @@ impl<'a> Waits<'a> {
         let (Some(from), Some(until)) = (self.from, self.until) else {
             return None;
         };
-        if at < from || at >= until || self.busy.iter().any(|(x, y)| *x <= at && at < *y) {
+        // The stretches of `busy` are in order and do not touch, so only the last that began by `at` can hold it.
+        let began = self.busy.partition_point(|(x, _)| *x <= at);
+        if at < from || at >= until || began.checked_sub(1).is_some_and(|last| at < self.busy[last].1) {
             return None;
         }
         let work = self.kept.work;
-        let place = (work.moments.iter()).find(|m| m.at > at).map(|m| m.from);
+        let place = if self.ordered {
+            let after = work.moments.partition_point(|m| m.at <= at);
+            work.moments.get(after).map(|m| m.from)
+        } else {
+            (work.moments.iter()).find(|m| m.at > at).map(|m| m.from)
+        };
         let everything = (self.spans.iter())
             .find(|span| span.from <= at && span.until.is_none_or(|until| at < until))
             .map(|span| span.by);
@@ -809,6 +830,31 @@ mod tests {
         of_another.version = Some("another".to_string());
         of_another.by.values_mut().for_each(|went| *went = Went::Items);
         assert_eq!(read(&work, &mut of_another), again);
+    }
+
+    // What a work waited for at a time is the same where the moment after the time and the round it falls in are found
+    // by halving the moments and the stretches that ran, and where the moments are looked through one by one, as they must
+    // be where their times go back; and no time a round ran in is a wait. Fails where a time is put in the wrong moment,
+    // or in a stretch of what ran that it is outside of.
+    #[test]
+    fn a_wait_is_the_same_found_by_halving_the_moments_and_found_one_by_one() {
+        let flow = flow();
+        let work = held_back(&flow);
+        with_kept(&flow, &work, |kept| {
+            let mut halved = Waits::new(*kept, &[], &[], &[], &[], Vec::new(), Time(9000));
+            let mut by_one = Waits::new(*kept, &[], &[], &[], &[], Vec::new(), Time(9000));
+            assert!(halved.ordered, "the times of these moments do not go back");
+            by_one.ordered = false;
+            let mut waited = 0;
+            for at in (0u64..9500).step_by(25).map(Time) {
+                let ran_in = halved.ran.iter().any(|s| s.from <= at && at < s.until);
+                let found = halved.at(at);
+                assert_eq!(found, by_one.at(at), "{at:?}");
+                assert_eq!(found.is_none(), ran_in || at >= halved.until.unwrap(), "{at:?}");
+                waited += usize::from(found.is_some());
+            }
+            assert!(waited > 0, "the work waited at some time that was looked at");
+        });
     }
 
     // The pause of everything holds a work that would begin a round from the time it was set, and no longer from the
