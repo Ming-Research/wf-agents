@@ -1,5 +1,6 @@
 //! The engine's GitHub App: the token for it, judged by `openssl` with the public key of a key made for the test; and
-//! the tokens of its installation, asked of a stand-in for GitHub by the time a clock the test sets reads.
+//! the tokens of its installation, asked by the real `curl` of a stand-in for GitHub by the time a clock the test sets
+//! reads.
 
 use std::path::Path;
 
@@ -7,6 +8,7 @@ use serde_json::{Value, json};
 
 use super::stand_in::{self, APP, INSTALLATION, Set};
 use super::*;
+use crate::host::github::Gh;
 use crate::host::github::api::Api;
 use decide::run::Failure;
 
@@ -107,6 +109,49 @@ async fn the_token_for_the_app_is_rs256_by_its_id_and_its_key_and_lasts_under_te
     );
 }
 
+// GitHub takes the token for the App only in the header `Authorization: Bearer`: given to `gh`, which sends it as
+// `Authorization: token`, it is refused with GitHub's words. `curl` sends it as `Bearer`, read from its standard input,
+// and gets the installation's token; the token for the App is in the arguments of no program, which any process on the
+// machine may read. A key made for the test, the real `curl` and a stand-in for GitHub; a second or so.
+#[tokio::test]
+async fn the_token_for_the_app_goes_as_bearer_and_on_no_command_line() {
+    let dir = tempfile::tempdir().unwrap();
+    let (app, public) = stand_in::app(dir.path(), Set::at(NOON));
+    std::fs::write(dir.path().join("expires"), "2026-11-26T13:00:00Z").unwrap();
+    let path = format!("app/installations/{INSTALLATION}/access_tokens");
+    let signed = app.signed(NOON).await.expect("signed");
+    let gh = Gh::new(
+        &dir.path().join("gh").display().to_string(),
+        "",
+        Credential::Given(signed.clone()),
+        dir.path(),
+    );
+    let refused = (gh.json("POST", &path, None, &[201]).await).expect_err("gh's token is refused");
+    assert_eq!(refused.why, "HTTP 401: A JSON web token could not be decoded");
+    assert_eq!(app.token().await.expect("a token"), "ghs_given-1");
+    let calls = stand_in::calls(dir.path());
+    assert_eq!(calls.len(), 2, "{calls:?}");
+    let (bearer, asked) = &calls[1];
+    assert!(asked.starts_with(&format!("POST /{path} ")), "{asked}");
+    assert!(
+        verified(bearer, &public, dir.path()),
+        "the token for the App came as Bearer"
+    );
+    let arguments = std::fs::read_to_string(dir.path().join("arguments")).unwrap();
+    assert_eq!(arguments.lines().count(), 1, "{arguments}");
+    assert!(arguments.contains(&path), "{arguments}");
+    for (_, args) in &calls {
+        assert!(
+            !args.contains(&signed),
+            "gh was given the token for the App as an argument"
+        );
+    }
+    assert!(
+        !arguments.contains(bearer.as_str()),
+        "curl was given the token for the App as an argument"
+    );
+}
+
 // Every call is given the installation's token, which GitHub gave for a token for the App signed by its key; the same
 // token is given while more than ten minutes of it are left, and a new one once less are: the hour's token is got anew
 // at fifty minutes, never given to a call that could outlast it. A key made for the test and a stand-in for GitHub; a
@@ -128,7 +173,7 @@ async fn every_call_is_given_the_installations_token_and_a_new_one_once_ten_minu
     assert_eq!(calls.len(), 2, "{calls:?}");
     let (signed, asked) = &calls[0];
     assert!(
-        asked.contains("--method POST") && asked.ends_with(&format!("app/installations/{INSTALLATION}/access_tokens")),
+        asked.starts_with(&format!("POST /app/installations/{INSTALLATION}/access_tokens ")),
         "{asked}"
     );
     assert!(
@@ -201,13 +246,8 @@ async fn no_call_is_made_without_the_installations_token_and_why_is_said() {
     let broken = other.join("broken.pem");
     std::fs::write(&broken, "not a key").unwrap();
     let gh_path = stand_in::gh(&other);
-    let app = App::new(
-        &stand_in::settings(&broken),
-        &gh_path.display().to_string(),
-        &other,
-        Set::at(NOON),
-    )
-    .expect("the file can be read");
+    let app = App::new(&stand_in::settings(&broken), Set::at(NOON)).expect("the file can be read");
+    let app = app.asking(&stand_in::curl(&other), &stand_in::api(&other));
     let gh = Gh::new(
         &gh_path.display().to_string(),
         "o/r",
@@ -237,7 +277,7 @@ fn an_app_whose_key_cannot_be_read_is_not_made() {
     let dir = tempfile::tempdir().unwrap();
     let clock = Set::at(NOON);
     for path in [dir.path().join("missing.pem"), dir.path().to_path_buf()] {
-        let refused = App::new(&stand_in::settings(&path), "gh", dir.path(), clock.clone()).expect_err("refused");
+        let refused = App::new(&stand_in::settings(&path), clock.clone()).expect_err("refused");
         assert!(
             refused.starts_with(&format!(
                 "github_app.private_key: the private key of the engine's GitHub App cannot be read at {}: ",

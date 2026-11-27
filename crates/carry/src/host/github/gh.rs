@@ -54,9 +54,9 @@ impl std::fmt::Debug for Gh {
 /// neither); when it may be asked again where its headers say (any answer may say it, a 503's `Retry-After` as well);
 /// and the entity tag its headers give the answer, where they give one.
 #[derive(Debug, PartialEq, Eq)]
-struct Answer {
-    status: u16,
-    body: String,
+pub(super) struct Answer {
+    pub(super) status: u16,
+    pub(super) body: String,
     limited: bool,
     retry: Option<Retry>,
     tag: Option<String>,
@@ -542,7 +542,8 @@ pub(crate) fn environment(
 }
 
 /// What `gh api --include` printed, read as GitHub's answer: the status line, the headers, an empty line, the body.
-fn included(out: &str) -> Option<Answer> {
+/// `curl --include` prints an answer in the same form.
+pub(super) fn included(out: &str) -> Option<Answer> {
     let (head, body) = (out.split_once("\r\n\r\n")).or_else(|| out.split_once("\n\n"))?;
     let mut lines = head.lines();
     let status: u16 = lines.next()?.split_whitespace().nth(1)?.parse().ok()?;
@@ -578,7 +579,7 @@ fn included(out: &str) -> Option<Answer> {
 /// (429, or another refusal that says it limits them) passes by itself, and only keeps what asked from being done for
 /// now, with when it may be asked again where GitHub says; a limit that says nothing of when is not asked again for at
 /// least a minute ([`LIMIT_WAIT`]); any other is a refusal no wait mends, whatever its words.
-fn refused(answer: &Answer) -> Failed {
+pub(super) fn refused(answer: &Answer) -> Failed {
     let why = refusal(answer);
     if answer.status >= 500 {
         Failed::held(why, Obstacle::Fault, answer.retry)
