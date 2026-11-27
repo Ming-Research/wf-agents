@@ -5575,7 +5575,7 @@ pub(crate) mod tests {
             why: None,
             waits_for: Vec::new(),
         };
-        let (_, number, _) = driver.add(Time(1000), new).expect("the item is added");
+        let (_, number, _, _) = driver.add(Time(1000), new).expect("the item is added");
         let levels = Levels::new(
             [service::Level {
                 name: "1".to_string(),

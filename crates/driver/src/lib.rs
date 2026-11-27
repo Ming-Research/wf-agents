@@ -1176,6 +1176,7 @@ impl Driver {
     /// [`DEPENDENCIES`] written to say what it now waits for, and is looked at; a level, a title or a tag decides
     /// nothing now: the work's rounds handed out from now on run on the new level, and where it gives a line another
     /// model, the line begins a new session as the next thing that happens to the work is taken.
+    #[allow(clippy::type_complexity)]
     pub fn change(
         &mut self,
         now: Time,

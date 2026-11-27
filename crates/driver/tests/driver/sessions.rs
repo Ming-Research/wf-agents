@@ -327,7 +327,7 @@ impl S {
             why: None,
             waits_for: Vec::new(),
         };
-        let (_, before, _) = driver.add(Time(START), earlier).unwrap();
+        let (_, before, _, _) = driver.add(Time(START), earlier).unwrap();
         let todos = driver.happened(Time(START), before, Event::Resumed).unwrap();
         let run = (todos.iter())
             .find_map(|t| match &t.effect {
@@ -381,7 +381,7 @@ impl S {
             why: None,
             waits_for: Vec::new(),
         };
-        let (_, work, _) = driver.add(Time(START), new).unwrap();
+        let (_, work, _, _) = driver.add(Time(START), new).unwrap();
         driver.happened(Time(START), work, Event::Resumed).unwrap();
         S {
             db,
@@ -419,7 +419,7 @@ impl S {
             waits_for: Vec::new(),
         };
         self.clock += 1000;
-        let (_, work, _) = self.driver.add(Time(self.clock), new).expect("the work is added");
+        let (_, work, _, _) = self.driver.add(Time(self.clock), new).expect("the work is added");
         let todos = (self.driver)
             .happened(Time(self.clock), work, Event::Resumed)
             .expect("it is let on");
@@ -1201,7 +1201,7 @@ fn a_model_the_service_does_not_have_pauses_every_work_whose_rounds_run_on_it() 
             why: None,
             waits_for: Vec::new(),
         };
-        let (_, work, _) = s.driver.add(Time(s.clock), new).expect("added");
+        let (_, work, _, _) = s.driver.add(Time(s.clock), new).expect("added");
         s.driver.happened(Time(s.clock), work, Event::Resumed).expect("let on");
         work
     };
