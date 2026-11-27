@@ -718,9 +718,9 @@ describe('the System view', () => {
       const waited = system.waited!;
       return {
         ...system,
-        // The first week of the span began before the engine kept the slots.
+        // The weeks are given latest first: the oldest week of the span began before the engine kept the slots.
         weeks: system.weeks.map((w, i) =>
-          i === 0 && w.waited
+          i === system.weeks.length - 1 && w.waited
             ? { ...w, waited: { ...w.waited, occupancy: { ...w.waited.occupancy, slots: 3, recorded: false } } }
             : w,
         ),
@@ -733,10 +733,12 @@ describe('the System view', () => {
     const rows = [...tableUnder(waited, 'Week by week').querySelectorAll('tbody tr')];
     const taking = (row: Element) => row.querySelectorAll('td')[7] as HTMLElement;
     // Slots taken is the eighth cell of a row, after the week, the five causes and CI.
-    expect(taking(rows[0]).textContent?.trim()).toBe('0.0 avg, 3 at most, of 3 (kept in part)');
-    expect(taking(rows[0]).getAttribute('title')).toContain('only from the time it began to');
-    expect(taking(rows[3]).textContent?.trim()).toBe('2.4 avg, 3 at most, of 3');
-    expect(taking(rows[3]).getAttribute('title')).not.toContain('only from the time it began to');
+    const [latest, oldest] = [rows[0], rows[rows.length - 1]];
+    expect(rows).toHaveLength(4);
+    expect(taking(oldest).textContent?.trim()).toBe('0.0 avg, 3 at most, of 3 (kept in part)');
+    expect(taking(oldest).getAttribute('title')).toContain('only from the time it began to');
+    expect(taking(latest).textContent?.trim()).toBe('2.4 avg, 3 at most, of 3');
+    expect(taking(latest).getAttribute('title')).not.toContain('only from the time it began to');
     const queue = [...waited.querySelectorAll('.tile')].find(
       (t) => t.querySelector('.label')?.textContent === 'Job in the queue',
     ) as HTMLElement;
