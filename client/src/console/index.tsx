@@ -160,6 +160,9 @@ export function ConsolePage({
   const foldsNow = useRef(folds);
   const turnFoldNow = useRef(turnFold);
   const turnFoldsNow = useRef(turnFolds);
+  // The projects whose trees `o` or `O` turned, each tree to be brought back to where its links put it once it is drawn
+  // with those folds.
+  const realignAsked = useRef(new Set<string>());
   useEffect(() => {
     turnFoldNow.current = turnFold;
     turnFoldsNow.current = turnFolds;
@@ -507,8 +510,10 @@ export function ConsolePage({
       for (const [name, s] of scenes.current)
         if (ready.current.has(name)) {
           s.show(treeOf(data, name));
+          if (realignAsked.current.has(name)) s.realign();
           if (name !== projectNow.current) stale.current.add(name);
         }
+    realignAsked.current.clear();
     paintStale();
     selectNamed();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -780,7 +785,9 @@ export function ConsolePage({
       // `o` folds every item of the trees shown under which no work is under way, at every level (`quietFolds`), and
       // leaves every other fold as it is; `O` unfolds every item of them. The trees shown are the project's, or every
       // project's in the overview. Each keeps its choices as the owner's own, at once for them all; as the other keys,
-      // not while the owner types in a field, nor with Ctrl, Alt or Meta held.
+      // not while the owner types in a field, nor with Ctrl, Alt or Meta held. Each tree, drawn with its folds, then
+      // comes back to where its links put it from the column of its roots, so that no column stays off the screen
+      // where it had been scrolled (`realign`); a tree with nothing to turn comes back at once.
       if (e.key === 'o' || e.key === 'O') {
         const to = e.target as HTMLElement | null;
         if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -796,7 +803,10 @@ export function ConsolePage({
         const roots = names.flatMap((name) => shownTree(d, showsNow.current, foldsNow.current, name));
         const fold = e.key === 'o';
         const ids = fold ? quietFolds(roots) : foldable(roots);
-        if (ids.length > 0) turnFoldsNow.current(new Map(ids.map((id): [number, boolean] => [id, fold])));
+        if (ids.length > 0) {
+          for (const name of names) realignAsked.current.add(name);
+          turnFoldsNow.current(new Map(ids.map((id): [number, boolean] => [id, fold])));
+        } else for (const name of names) scenes.current.get(name)?.realign();
         return;
       }
       // `e` folds the items under the card the pointer is over away, or shows them again, as a click on its funnel or
