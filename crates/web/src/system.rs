@@ -41,7 +41,7 @@ use work::Time;
 use crate::interface::{fail, refused};
 use crate::works::HeldAll;
 use crate::works::{
-    Against, Back, Beside, Broken, Call, Failure, Given, Judged, Line, Run, RunEnd, Spent, runs, time, viewed_at,
+    Against, Back, Beside, Broken, Call, Failure, Given, Judged, Line, Run, RunEnd, Spent, Unmet, runs, time, viewed_at,
 };
 
 /// What the view asks for: when each week of the span begins, joined by commas; none for all time.
@@ -97,8 +97,8 @@ pub struct System {
     pub cancelled: Vec<Cancelled>,
     /// The items added in the span, the latest first.
     pub added: Vec<Added>,
-    /// The rounds of the span given back what the round before handed in, the latest first.
-    pub sent_back: Vec<RoundAt>,
+    /// The rounds of the span given back what the round before handed in, the latest first, each with why.
+    pub sent_back: Vec<SentBack>,
     /// The rounds of the span that failed, the latest first.
     pub failed: Vec<FailedRound>,
     /// What ended in the span past the line of its history, the latest first: a round whose cost or time went past
@@ -546,10 +546,12 @@ pub struct Added {
     pub at: u64,
 }
 
-/// A round of a work: of this run of this cell, which began then; what it took, none while it is under way.
+/// A round given back what the round before it handed in: of this run of this cell, which began then; what it took,
+/// none while it is under way; and why what came back was sent back, as the round was told it and the work's page gives
+/// it ([`Given::SentBack`]).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RoundAt {
+pub struct SentBack {
     pub work: u64,
     pub item: u64,
     pub cell: String,
@@ -557,6 +559,7 @@ pub struct RoundAt {
     pub round: usize,
     pub began: u64,
     pub spent: Option<Spent>,
+    pub unmet: Vec<Unmet>,
 }
 
 /// A round that failed: when it ended, of what kind of cause, and why, as what carried it out said.
@@ -870,8 +873,8 @@ struct PartRound {
     began: u64,
     ended: Option<u64>,
     spent: Option<Spent>,
-    /// Whether it was given back what the round before handed in.
-    sent_back: bool,
+    /// Why what the round before handed in was given back to it, where it was.
+    sent_back: Option<Vec<Unmet>>,
     /// Why it failed, and of what kind of cause, where it did.
     failed: Option<(String, Failure)>,
     /// What it ran on ([`RanOn::of`]).
@@ -1017,7 +1020,10 @@ impl Part {
                         began: round.began,
                         ended: round.ended,
                         spent: round.spent,
-                        sent_back: matches!(round.given, Given::SentBack { .. }),
+                        sent_back: match &round.given {
+                            Given::SentBack { unmet } => Some(unmet.clone()),
+                            _ => None,
+                        },
                         failed: match &round.back {
                             Some(Back::Failed { why, failure, .. }) => Some((why.clone(), *failure)),
                             _ => None,
@@ -1415,8 +1421,10 @@ impl System {
                         }
                         Some(_) => {}
                     }
-                    if round.sent_back && within(round.began) {
-                        system.sent_back.push(RoundAt {
+                    if let Some(unmet) = &round.sent_back
+                        && within(round.began)
+                    {
+                        system.sent_back.push(SentBack {
                             work,
                             item,
                             cell: cell.clone(),
@@ -1424,6 +1432,7 @@ impl System {
                             round: round.number,
                             began: round.began,
                             spent: round.spent,
+                            unmet: unmet.clone(),
                         });
                         if let Some(week) = week_of(&mut counted, round.began) {
                             week.sent_back += 1;

@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { Changed, Engine, Item, Items, Outage, Wait } from '../works-api';
 import { waitingCount } from '../works/waiting';
-import { waitCount, waitCounted } from '../works/words';
+import { fullTime, waitCount, waitCounted } from '../works/words';
 import { fixtureCopies, fixtureItems, fixtureWork } from '../works/fixtures';
 import { type Source, SourceContext } from '../works/source';
 import type { Spent } from '../works-api';
@@ -188,9 +188,9 @@ describe('the System view', () => {
     expect(texts(under, 'tbody td:first-child')).toEqual(running.map((i) => `W${i.work.number}`));
   });
 
-  it('opens the work with the round of its row chosen, from each row of the rounds under way, sent back and failed', async () => {
+  it('opens the work with the round of its row chosen from each row of the rounds under way and failed, and the work from each item sent back', async () => {
     const s = sources();
-    const sentBack = { work: 41, item: 141, cell: 'plan', run: 2, round: 3, began: Date.now(), spent: null };
+    const sentBack = { work: 41, item: 141, cell: 'plan', run: 2, round: 3, began: Date.now(), spent: null, unmet: [] };
     s.system.loadSystem = async (weeks) => ({ ...fixtureSystem(weeks), sentBack: [sentBack] });
     const { container } = draw(<SystemView period="week" />, s);
     await settle();
@@ -203,16 +203,66 @@ describe('the System view', () => {
       running.map((r) => `#/works/${r.work}/runs/${r.now.run}/rounds/${r.now.round}`),
     );
     const wrong = part(container, 'Gone wrong');
-    // The rounds sent back, unfolded by their count.
+    // The rounds sent back, unfolded by their count, by item, each opening its work.
     const tile = [...wrong.querySelectorAll('button.tile')].find((t) => t.textContent?.includes('Rounds sent back')) as HTMLElement;
     act(() => tile.click());
     const failed = fixtureSystem([0]).failed;
     expect(failed).toHaveLength(1);
-    expect(hrefs(wrong.querySelectorAll('table')[0])).toEqual(['#/works/41/runs/2/rounds/3']);
+    expect(hrefs(wrong.querySelectorAll('table')[0])).toEqual(['#/works/41']);
     expect(hrefs(wrong.querySelectorAll('table')[1])).toEqual([
       `#/works/${failed[0].work}/runs/${failed[0].run}/rounds/${failed[0].round}`,
     ]);
     expect(wrong.querySelector('table a')?.getAttribute('title')).toBe('Open the work with this round chosen');
+  });
+
+  it('counts the rounds sent back and what they cost, and unfolds them by item: how many, each reason by its key, the cells, the cost and the latest, the items most sent back first', async () => {
+    const s = sources();
+    const at = Date.UTC(2026, 10, 20, 12);
+    const round = (work: number, item: number, cell: string, n: number, began: number, usd: number | null, keys: string[]) => ({
+      work,
+      item,
+      cell,
+      run: 1,
+      round: n,
+      began,
+      spent: usd === null ? null : spending(usd, 1, 1000),
+      unmet: keys.map((key) => ({ key, values: [{ name: 'block', value: 'code' }] })),
+    });
+    const sentBack = [
+      round(52, 152, 'implement', 4, at + 4000, null, ['not_handed_in']),
+      round(51, 151, 'plan', 2, at + 3000, 500_000, ['dealt_with_nothing']),
+      round(52, 152, 'implement', 3, at + 2000, 1_000_000, ['not_handed_in', 'not_handed_in', 'written_twice']),
+      round(52, 152, 'review', 2, at + 1000, 2_000_000, ['not_handed_in']),
+    ];
+    s.system.loadSystem = async (weeks) => ({ ...fixtureSystem(weeks), sentBack });
+    const { container } = draw(<SystemView period="week" />, s);
+    await settle();
+    const wrong = part(container, 'Gone wrong');
+    const tile = [...wrong.querySelectorAll('button.tile')].find((t) => t.textContent?.includes('Rounds sent back')) as HTMLElement;
+    // The tile counts the rounds and what those that ended cost.
+    expect(tile.querySelector('.tile-value')?.textContent).toBe('4 $3.50');
+    expect(wrong.querySelector('table[aria-label="Rounds sent back, by item"]')).toBeNull();
+    act(() => tile.click());
+    const table = wrong.querySelector('table[aria-label="Rounds sent back, by item"]') as HTMLElement;
+    expect(texts(table, 'thead th')).toEqual(['Item', 'Work', 'Sent back', 'Reasons', 'Cells', 'Cost', 'Latest']);
+    expect(texts(table, 'thead th.num')).toEqual(['Sent back', 'Cost']);
+    const rows = [...table.querySelectorAll('tbody tr')];
+    // The item sent back most first; a reason told twice in one round counts that round once.
+    expect(rows.map((r) => texts(r, 'td').slice(1, 6))).toEqual([
+      ['W52', '3', 'not_handed_in ×3, written_twice ×1', 'implement ×2, review ×1', '$3.00 +1 under way'],
+      ['W51', '1', 'dealt_with_nothing ×1', 'plan ×1', '$0.50'],
+    ]);
+    // Each reason is its key in the monospace, as the Step shows it, and the cells' names are too.
+    const reasons = rows[0].querySelectorAll('td')[3];
+    expect([...reasons.querySelectorAll('.mono')].map((m) => m.textContent)).toEqual(['not_handed_in', 'written_twice']);
+    expect(reasons.getAttribute('title')).toContain('[faults] of agents/return/sent_back.toml');
+    expect(rows[0].querySelectorAll('td')[5].getAttribute('title')).toContain('1 still under way');
+    // When the latest round of each began, whole on the pointer's tip.
+    expect(rows.map((r) => r.querySelectorAll('td')[6].getAttribute('title'))).toEqual([
+      fullTime(at + 4000),
+      fullTime(at + 3000),
+    ]);
+    expect(rows.map((r) => r.querySelector('td a')?.getAttribute('href'))).toEqual(['#/works/52', '#/works/51']);
   });
 
   it('says, while a stop of the engine stands, when the engine is expected to end and how long each round has to go', async () => {

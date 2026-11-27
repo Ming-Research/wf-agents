@@ -50,8 +50,10 @@ import {
 } from './waited';
 import {
   cacheShare,
+  type Counted,
   mergeAverages,
   percent,
+  sentBackByItem,
   STANDING_WORDS,
   STANDINGS,
   type Standing,
@@ -638,10 +640,13 @@ function ranOnWords(on: RanOn) {
   }
 }
 
-/// What a list leaves out after the rows it draws.
-function More({ shown, of }: { shown: number; of: number }) {
-  return of > shown ? <p className="small muted">and {of - shown} more, the earliest</p> : null;
+/// What a list leaves out after the rows it draws, and which they are: the earliest, unless it says otherwise.
+function More({ shown, of, which = 'the earliest' }: { shown: number; of: number; which?: string }) {
+  return of > shown ? <p className="small muted">and {of - shown} more, {which}</p> : null;
 }
+
+/// The columns of the rounds sent back, by item.
+const SENT_BACK_HEADS = ['Item', 'Work', 'Sent back', 'Reasons', 'Cells', 'Cost', 'Latest'];
 
 /// A cost's share of the span's.
 const shareOf = (spent: Spent, of: Spent) => (of.usdMicros === 0 ? 'none' : percent(spent.usdMicros / of.usdMicros));
@@ -774,11 +779,32 @@ function SpentPart({ s, items }: { s: System; items: Map<number, Item> }) {
   );
 }
 
-/// What the span wasted or saw go wrong: the rounds sent back and what they cost, each count unfolding its rounds;
-/// and the rounds that failed, the latest first, each with its cause.
+/// Names each with how many rounds it holds of, on one line, the most first: a reason by its key in `[faults]` of
+/// `agents/return/sent_back.toml`, in the monospace as the Step shows it, or a cell.
+function CountedList({ list }: { list: Counted[] }) {
+  return (
+    <>
+      {list.map((c, i) => (
+        <Fragment key={c.name}>
+          {i > 0 && ', '}
+          <span className="mono">{c.name}</span>
+          <span className="muted"> ×{c.rounds}</span>
+        </Fragment>
+      ))}
+    </>
+  );
+}
+
+/// The words of a counted list, whole, for the pointer's tip.
+const countedWords = (list: Counted[]) => list.map((c) => `${c.name} ×${c.rounds}`).join(', ');
+
+/// What the span wasted or saw go wrong: the rounds sent back and what they cost, the count unfolding them by item, the
+/// items most sent back first, each with why, where and when; and the rounds that failed, the latest first, each with
+/// its cause.
 function GoneWrong({ s, items }: { s: System; items: Map<number, Item> }) {
   const [openSent, setOpenSent] = useState(false);
   const sentBack = summed(s.sentBack);
+  const byItem = useMemo(() => sentBackByItem(s.sentBack), [s.sentBack]);
   const failed = summed(s.failed);
   return (
     <PanelPart label="Gone wrong">
@@ -787,7 +813,7 @@ function GoneWrong({ s, items }: { s: System; items: Map<number, Item> }) {
           value={s.sentBack.length}
           label="Rounds sent back"
           more={s.sentBack.length > 0 ? dollars(sentBack.usdMicros) : undefined}
-          title="Rounds given back what the round before handed in, which did not meet what the flow requires"
+          title="Rounds given back what the round before handed in, which did not meet what the flow requires; pressed, they are listed by item"
           open={openSent}
           onOpen={s.sentBack.length > 0 ? () => setOpenSent(!openSent) : undefined}
         />
@@ -798,23 +824,46 @@ function GoneWrong({ s, items }: { s: System; items: Map<number, Item> }) {
         />
       </Tiles>
       {openSent && (
-        <ViewTable heads={['Began', 'Work', 'Item', 'Cell', 'Cost']} numbers={[4]}>
-          {s.sentBack.slice(0, ROWS).map((r) => (
-            <tr key={`${r.work}/${r.run}/${r.round}`}>
-              <td title={fullTime(r.began)}>{clock(r.began)}</td>
-              <td>
-                <RoundLink work={r.work} run={r.run} round={r.round} />
-              </td>
+        <ViewTable heads={SENT_BACK_HEADS} numbers={[2, 5]} label="Rounds sent back, by item">
+          {byItem.slice(0, ROWS).map((b) => (
+            <tr key={b.item}>
               <td className="view-cell-wide">
-                <ItemName item={r.item} title={items.get(r.item)?.title} />
+                <ItemName item={b.item} title={items.get(b.item)?.title} />
               </td>
-              <td className="mono">{r.cell}</td>
-              <td className="num">{r.spent === null ? 'under way' : dollars(r.spent.usdMicros)}</td>
+              <td>
+                <WorkLink work={b.work} />
+              </td>
+              <td className="num" title="How many of the item's rounds were given back what the round before handed in">
+                {b.rounds}
+              </td>
+              <td
+                className="view-cell-wide"
+                title={`${countedWords(b.reasons)}: each reason by its key in [faults] of agents/return/sent_back.toml, with how many of these rounds were told it; the work's Step gives what was recorded of each`}
+              >
+                <CountedList list={b.reasons} />
+              </td>
+              <td title={`${countedWords(b.cells)}: each cell with how many of these rounds ran it`}>
+                <CountedList list={b.cells} />
+              </td>
+              <td
+                className="num"
+                title={
+                  b.underWay === 0
+                    ? 'What these rounds took'
+                    : `What these rounds took, but ${b.underWay} still under way, counted once it ends`
+                }
+              >
+                {dollars(b.spent.usdMicros)}
+                {b.underWay > 0 && <span className="muted"> +{b.underWay} under way</span>}
+              </td>
+              <td title={fullTime(b.latest)}>{clock(b.latest)}</td>
             </tr>
           ))}
         </ViewTable>
       )}
-      {openSent && <More shown={Math.min(ROWS, s.sentBack.length)} of={s.sentBack.length} />}
+      {openSent && (
+        <More shown={Math.min(ROWS, byItem.length)} of={byItem.length} which="the items sent back least" />
+      )}
       <h4 className="view-sub label">The latest rounds that failed</h4>
       {s.failed.length === 0 ? (
         <p className="muted">No round failed in the span</p>

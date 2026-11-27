@@ -1,11 +1,12 @@
 // What the system's view works out from what it reads, apart from how it draws it: where each work stands now, as the
-// owner acts on it; where the span the view counts over starts; and what the span's merges and rounds add up to.
+// owner acts on it; where the span the view counts over starts; what the span's merges and rounds add up to; and the
+// rounds sent back, by item.
 
 import type { Period } from '../route';
 import type { Spent, Summary } from '../works-api';
 import { waitsOnOwner } from '../works/waiting';
 import { STATE, stateOf, waitingFor } from '../works/words';
-import type { Merged } from './api';
+import type { Merged, SentBack } from './api';
 
 /// Where a work stands now, as the owner acts on it, each work in one place: it is halted at a fault, or stalled, no
 /// cell able to move it on; its state cannot be worked out, though the engine goes on with it; it waits for the owner, as the engine's one list of it says; a round of it runs; its next
@@ -114,6 +115,61 @@ export function mergeAverages(merged: Merged[]): { took: number | null; usdMicro
 /// none merged. What the merged works cost themselves is [`mergeAverages`]'s, over their whole lives.
 export function spentPerMerge(spent: Spent, merged: Merged[]): number | null {
   return merged.length === 0 ? null : spent.usdMicros / merged.length;
+}
+
+/// A name with how many of an item's rounds sent back it holds of: a reason by its key, or a cell.
+export interface Counted {
+  name: string;
+  rounds: number;
+}
+
+/// What one item's rounds sent back in the span come to: how many there were; each reason they were told, by its key in
+/// `[faults]` of `agents/return/sent_back.toml`, with how many of them were told it; each cell they ran, with how many
+/// ran it; what they took, the rounds still under way counted in `underWay` and not yet in `spent`; when the latest
+/// began; and the work of the latest, which the item's row opens.
+export interface ItemSentBack {
+  item: number;
+  work: number;
+  rounds: number;
+  reasons: Counted[];
+  cells: Counted[];
+  spent: Spent;
+  underWay: number;
+  latest: number;
+}
+
+/// The names counted, the most first, and of as many the first by name.
+function countedOf(counts: Map<string, number>): Counted[] {
+  return [...counts]
+    .map(([name, rounds]) => ({ name, rounds }))
+    .sort((a, b) => b.rounds - a.rounds || a.name.localeCompare(b.name));
+}
+
+/// The rounds sent back, by item: the items most sent back first, and of as many the one sent back latest first. A
+/// reason a round was told more than once, as of two blocks, counts that round once.
+export function sentBackByItem(list: SentBack[]): ItemSentBack[] {
+  const by = new Map<number, SentBack[]>();
+  for (const round of list) by.set(round.item, [...(by.get(round.item) ?? []), round]);
+  const items = [...by].map(([item, rounds]): ItemSentBack => {
+    const latest = rounds.reduce((a, b) => (b.began > a.began ? b : a));
+    const reasons = new Map<string, number>();
+    const cells = new Map<string, number>();
+    for (const round of rounds) {
+      for (const key of new Set(round.unmet.map((u) => u.key))) reasons.set(key, (reasons.get(key) ?? 0) + 1);
+      cells.set(round.cell, (cells.get(round.cell) ?? 0) + 1);
+    }
+    return {
+      item,
+      work: latest.work,
+      rounds: rounds.length,
+      reasons: countedOf(reasons),
+      cells: countedOf(cells),
+      spent: summed(rounds),
+      underWay: rounds.filter((r) => r.spent === null).length,
+      latest: latest.began,
+    };
+  });
+  return items.sort((a, b) => b.rounds - a.rounds || b.latest - a.latest);
 }
 
 /// What a list of things that took something took, together.

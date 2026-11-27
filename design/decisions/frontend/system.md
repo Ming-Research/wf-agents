@@ -24,6 +24,10 @@ The System view's Waited part, after Produced, counts the works' stops by cause,
 - rejected: an agent proposed counting the stops in Produced and the slots held in Spent, with no part of its own; the owner rejected it, because Produced and Spent would each hold a meaning that is not theirs, and the week table would grow wider.
 - rejected: an agent proposed giving these figures only in the System data and by `wf-agents system`, and drawing them later with the monitoring of what is past its line; the owner rejected it, because the owner would still not see the numbers on the page.
 
+### decision the-rounds-sent-back-are-listed-by-item
+The Gone wrong part's tile Rounds sent back unfolds them by item, the most sent back first: how many, each reason by its key with how many, the cells, the cost and the latest.
+- replaced: A list of the rounds sent back one by one, the latest first, with no reason, was on main; the owner changed it, because why and where the returns were sent back could not be seen at a glance.
+
 ### decision the-page-changes-what-is-tuned-while-the-engine-runs
 The Settings view changes the language, each level's model, the highest level of an item and of a round, the context past which a line starts a new session, and the slots; the rest only in the file.
 - replaced: Four settings from the installation's file, shown but not changeable on the page, was on main; the owner changed it, because the page showed too little, and what is tuned while works go on should be changed there.
