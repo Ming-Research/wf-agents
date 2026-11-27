@@ -804,6 +804,9 @@ struct Part {
     /// Whether `stops` are read from the flow its work is on and what holds every work at once, rather than from what the
     /// work kept as it ended: they are read again as that changes.
     live: bool,
+    /// What the work waited for at the places of its records, as read from the flow installed, kept for the next time its
+    /// part is worked out ([`driver::time::Decided`]); none for a work whose stops are not read from it.
+    decided: driver::time::Decided,
     /// Each call and round that waited for a run of the project's CI and ended, from when it was made to when it ended.
     ci: Vec<(u64, u64)>,
     /// How long each job of a run of the project's CI waited for a runner, with when the run was read.
@@ -900,6 +903,7 @@ impl Part {
         at_once: &driver::AtOnce,
         held: &HeldAll,
         now: Time,
+        mut decided: driver::time::Decided,
     ) -> Result<Part, Broken> {
         let runs = runs(kept)?;
         let models = models(kept);
@@ -972,7 +976,7 @@ impl Part {
             }),
             None => None,
         };
-        let (stops, live) = stops_of(kept, held, ending.is_none(), now);
+        let (stops, live) = stops_of(kept, held, ending.is_none(), now, &mut decided);
         let (taking, running) = held_slots(kept, &runs);
         let ci = (driver::time::ci_waits(kept.work, now).into_iter())
             .filter(|(_, ended)| *ended)
@@ -1036,6 +1040,7 @@ impl Part {
             ending,
             stops,
             live,
+            decided: if live { decided } else { Default::default() },
             ci,
             queued,
             taking,
@@ -1049,8 +1054,15 @@ impl Part {
 /// a work that has not ended is read up to `now`. Each stop is a stretch of one cause, where the stretches that follow
 /// one another of the same cause are one. A stretch of what the work ran in is no stop. None where the work ended on a
 /// version no longer installed and kept nothing: what it waited for is not known. Whether it was read from the flow
-/// installed is the second.
-fn stops_of(kept: Kept<'_>, held: &HeldAll, going: bool, now: Time) -> (Option<Vec<WaitSpan>>, bool) {
+/// installed is the second. What an earlier reading of the work decided is in `decided`, and what this one decides is
+/// left in it.
+fn stops_of(
+    kept: Kept<'_>,
+    held: &HeldAll,
+    going: bool,
+    now: Time,
+    decided: &mut driver::time::Decided,
+) -> (Option<Vec<WaitSpan>>, bool) {
     let work = kept.work;
     let kept_time = (work.kept_time.last()).filter(|k| !work.records.reopens.iter().any(|reopen| *reopen > k.at));
     let (stretches, separated, live) = match kept_time {
@@ -1065,6 +1077,7 @@ fn stops_of(kept: Kept<'_>, held: &HeldAll, going: bool, now: Time) -> (Option<V
                 held.turns_of_others(&kept),
                 now,
                 going.then_some(now),
+                decided,
             );
             (stretches, true, true)
         }
@@ -1211,13 +1224,16 @@ impl Parts {
                 {
                     kept.insert(number, (was, generation, part));
                 }
-                _ => {
+                before => {
                     let at_once = at_once.get_or_insert_with(|| driver.at_once());
                     let held = self
                         .held
                         .as_ref()
                         .expect("what held every work is kept where a part is worked out");
-                    let part = Part::of(driver, work, at_once, held, now)?;
+                    // What the part before it decided at the places of the records stays decided: the records are only
+                    // added to.
+                    let decided = before.map(|(_, _, part)| part.decided).unwrap_or_default();
+                    let part = Part::of(driver, work, at_once, held, now, decided)?;
                     self.worked_out += 1;
                     // A work with no revision is worked out again at every read: no revision given is nought.
                     kept.insert(number, (revision.unwrap_or_default(), self.generation, part));
@@ -1966,6 +1982,7 @@ mod tests {
             ending: None,
             stops,
             live: false,
+            decided: Default::default(),
             ci: Vec::new(),
             queued: Vec::new(),
             taking,
@@ -2034,7 +2051,13 @@ mod tests {
                 turn: None,
                 separated,
             });
-            let (stops, live) = stops_of(stored.kept(&installed, &none, &work), &held, false, Time(20_000));
+            let (stops, live) = stops_of(
+                stored.kept(&installed, &none, &work),
+                &held,
+                false,
+                Time(20_000),
+                &mut Default::default(),
+            );
             let mut expected = vec![
                 stop(1_000, 3_000, OWNER, false),
                 stop(4_000, 4_500, SLOT, false),
@@ -2048,7 +2071,13 @@ mod tests {
             assert!(!live, "what was kept is not worked out again");
         }
         let work = Work::default();
-        let (stops, live) = stops_of(stored.kept(&installed, &none, &work), &held, false, Time(20_000));
+        let (stops, live) = stops_of(
+            stored.kept(&installed, &none, &work),
+            &held,
+            false,
+            Time(20_000),
+            &mut Default::default(),
+        );
         assert_eq!((stops, live), (None, false), "a work that kept nothing, on no version");
     }
 

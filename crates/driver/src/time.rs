@@ -162,12 +162,23 @@ pub fn stretches(
     turns: Vec<TurnSpan>,
     now: Time,
 ) -> Vec<Stretch> {
-    stretches_to(kept, spans, stops, cannot_run, down, turns, now, None)
+    stretches_to(
+        kept,
+        spans,
+        stops,
+        cannot_run,
+        down,
+        turns,
+        now,
+        None,
+        &mut Decided::default(),
+    )
 }
 
 /// What the work's time went to ([`stretches`]), its waits carried on after the last of what ran up to `to`, where one
 /// is given and is later: what a work that has not ended waits for now, which `stretches` leaves out because it reads
-/// only the time from the first round's begin to the last of what ran.
+/// only the time from the first round's begin to the last of what ran. What an earlier reading of the same work decided
+/// is in `decided`, and what this one decides is left in it ([`Decided`]).
 #[allow(clippy::too_many_arguments)]
 pub fn stretches_to(
     kept: &Kept<'_>,
@@ -178,13 +189,16 @@ pub fn stretches_to(
     turns: Vec<TurnSpan>,
     now: Time,
     to: Option<Time>,
+    decided: &mut Decided,
 ) -> Vec<Stretch> {
     let mut waits = Waits::new(*kept, spans, stops, cannot_run, down, turns, now);
+    waits.recall(decided);
     if let Some(to) = to {
         waits.until = waits.until.map(|until| until.max(to));
     }
     let mut out = waits.ran.clone();
     let (Some(from), Some(until)) = (waits.from, waits.until) else {
+        waits.remember(decided);
         return out;
     };
     // Where what holds the work may change: as something happened to it, and as what holds every work changed.
@@ -227,6 +241,7 @@ pub fn stretches_to(
         }
     }
     out.extend(stretches);
+    waits.remember(decided);
     out
 }
 
@@ -273,7 +288,37 @@ struct Then {
     held: bool,
 }
 
+/// What a work waited for at the places of its records, kept from one reading of its stretches to the next. A wait is
+/// decided by the flow installed, the records before the place it is decided at, and the rest of what [`Then`] says;
+/// records are only added, so what was decided at a place that records follow is what a later reading would decide there
+/// again, and is not decided again. What was decided after the latest record is not kept: the records that follow it
+/// will change what it was decided on. Kept for the version of the flow it was decided on, and dropped for another.
+#[derive(Clone, Debug, Default)]
+pub struct Decided {
+    version: Option<String>,
+    by: BTreeMap<Then, Went>,
+}
+
 impl<'a> Waits<'a> {
+    /// Takes what an earlier reading of the work decided on this version of the flow, leaving none in `decided`.
+    fn recall(&mut self, decided: &mut Decided) {
+        let version = self.kept.on.version();
+        if version.is_some() && decided.version.as_deref() == version {
+            self.decided = std::mem::take(&mut decided.by);
+        } else {
+            *decided = Decided::default();
+        }
+    }
+
+    /// Leaves in `decided` what was decided at a place that records follow, for the next reading.
+    fn remember(&mut self, decided: &mut Decided) {
+        decided.version = self.kept.on.version().map(str::to_string);
+        decided.by = std::mem::take(&mut self.decided)
+            .into_iter()
+            .filter(|(then, _)| then.place.is_some())
+            .collect();
+    }
+
     /// The waits of the work `kept` holds, as of `now`.
     pub fn new(
         kept: Kept<'a>,
@@ -674,6 +719,98 @@ mod tests {
             ]
         );
     }
+    // What was decided at a place that records follow is kept for the next reading of the work's stretches and is not
+    // decided again, and what was decided after the latest record is not kept, as the records that follow it change what
+    // it waited for: a work paused after a reading waits for no one after it. Fails where nothing is kept (a decision put
+    // wrong in `decided` is not read back), and where what was decided after the latest record is kept (it then reads as
+    // the wrong decision put in, or as the owner's wait after the pause).
+    #[test]
+    fn what_was_decided_at_a_place_records_follow_is_kept_for_the_next_reading_and_the_rest_is_not() {
+        let flow = flow();
+        let mut work = Work::default();
+        let wrote = Event::Wrote {
+            block: "request".into(),
+            by: Outsider::Person,
+            content: "Greet.".to_string(),
+            matters: true,
+            value: None,
+        };
+        let effects = engine::handle(&flow, &mut work, Time(0), wrote).expect("the request is taken");
+        let run = effects
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::Round { run, .. } => Some(*run),
+                _ => None,
+            })
+            .expect("the writer's round begins");
+        let failed = || Event::Failed {
+            run,
+            why: "it broke".to_string(),
+            failure: Failure::Other,
+            resets: None,
+            hindrance: None,
+            spent: Spent::default(),
+        };
+        engine::handle(&flow, &mut work, Time(1000), failed()).expect("the round fails");
+        engine::handle(&flow, &mut work, Time(3000), Event::Resumed).expect("the owner lets it on");
+        engine::handle(&flow, &mut work, Time(4000), failed()).expect("the round fails again");
+        let read = |work: &Work, decided: &mut Decided| {
+            with_kept(&flow, work, |kept| {
+                stretches_to(
+                    kept,
+                    &[],
+                    &[],
+                    &[],
+                    &[],
+                    Vec::new(),
+                    Time(9000),
+                    Some(Time(9000)),
+                    decided,
+                )
+            })
+        };
+        let model = |from, until| stretch(from, until, Went::Model);
+        let mut decided = Decided::default();
+        assert_eq!(
+            read(&work, &mut decided),
+            [
+                model(0, 1000),
+                model(3000, 4000),
+                stretch(1000, 3000, Went::Owner),
+                stretch(4000, 9000, Went::Owner)
+            ]
+        );
+        // Whatever was decided at a place a record follows is read back, and nothing decided after the last record is: a
+        // decision put wrong everywhere in what was kept reads back before the last record only.
+        let mut put_wrong = decided.clone();
+        put_wrong.by.values_mut().for_each(|went| *went = Went::Items);
+        assert_eq!(
+            read(&work, &mut put_wrong),
+            [
+                model(0, 1000),
+                model(3000, 4000),
+                stretch(1000, 3000, Went::Items),
+                stretch(4000, 9000, Went::Owner)
+            ]
+        );
+        // The owner pauses the work after the reading: what the stretch from the pause on waited for is read anew, and what
+        // came before it is as it was.
+        let paused = Event::Paused {
+            by: Pauser::Owner,
+            why: None,
+            waits_for: Vec::new(),
+        };
+        engine::handle(&flow, &mut work, Time(5000), paused).expect("the owner pauses it");
+        let again = read(&work, &mut decided);
+        assert_eq!(again, read(&work, &mut Decided::default()));
+        assert_eq!(again.last(), Some(&stretch(5000, 9000, Went::Paused)));
+        // Another version of the flow decided nothing that is kept.
+        let mut of_another = decided.clone();
+        of_another.version = Some("another".to_string());
+        of_another.by.values_mut().for_each(|went| *went = Went::Items);
+        assert_eq!(read(&work, &mut of_another), again);
+    }
+
     // The pause of everything holds a work that would begin a round from the time it was set, and no longer from the
     // time it was lifted, a pause not lifted holding it to the end, whoever set it: between, the work waited for nothing
     // that holds it. The work here, let on as the agents' wait held its round back, would begin the round all along.
