@@ -3,9 +3,13 @@
 How the engine tells why a round failed, and what it does about each kind of failure.
 
 ### decision a-failure-is-handled-by-its-kind
-A failed round is handled by the kind of its failure, and sent back only if what came back could not be read: some kinds are tried again, some make every work wait, and the rest pause its work.
+A failed round is handled by its kind, and sent back only if it could not be read: some kinds are tried again, one the host causes is waited out, some make every work wait, the rest pause the work.
 - replaced: Counting a failed round as a return sent back was on main; the owner changed it, because every error of the agents' command line, not only the usage limit, should be handled correctly and shown.
 - rejected: an agent proposed one way for every failure, trying the round twice and then pausing its work for the owner; the owner rejected it, because when a limit is spent or the network is lost, every work would then use up its tries and ask the owner on its own.
+
+### decision an-act-the-host-keeps-from-running-is-waited-out
+A round of an act that GitHub's limit or fault, or no runner, keeps from running is waited out until the host's reset and counts toward no pause; a network failure first looks at the host.
+- replaced: A round of an act that met GitHub's limit counted as a failure in passing, paused at the ninth, was on main; the owner changed it, because the waits total about 20 minutes and a limit lasts up to an hour, so the work paused for the owner to let it go, which changes nothing.
 
 ### decision the-fields-tell-the-kind-before-the-words
 The kind of a failed round, and when a usage limit resets, are read from the fields in which the command line reports its failure; its words decide only what the fields leave open.

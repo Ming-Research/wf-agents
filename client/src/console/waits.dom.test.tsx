@@ -115,7 +115,7 @@ const OWNERS: [string, Now, Wait][] = [
   ],
   [
     'a pause the engine made',
-    { kind: 'paused', at: 'plan', by: 'engine', why: 'a round failed' },
+    { kind: 'paused', ran: true, at: 'plan', by: 'engine', why: 'a round failed' },
     wait('pause', 'The engine paused the work. A round failed.', { kind: 'resume' }),
   ],
   [
@@ -150,8 +150,8 @@ const OWNERS: [string, Now, Wait][] = [
 
 /// What the engine's list leaves out, which is not the owner's to end whatever the work does.
 const NOT_OWNERS: [string, Now][] = [
-  ['a pause of the owner', { kind: 'paused', at: 'plan', by: 'owner', why: null }],
-  ['a pause of everything by the owner', { kind: 'everything', at: 'plan', by: 'owner' }],
+  ['a pause of the owner', { kind: 'paused', ran: true, at: 'plan', by: 'owner', why: null }],
+  ['a pause of everything by the owner', { kind: 'everything', ran: true, at: 'plan', by: 'owner' }],
   ['a fault', { kind: 'fault', words: 'Two entries at 3' }],
   ['a state the engine could not work out', { kind: 'broken', words: 'the driver names no turn' }],
   ['a free slot', { kind: 'waits', at: 'plan', on: [{ kind: 'slot' }] }],
@@ -213,6 +213,7 @@ function draw(
     level: item.level,
     project: item.project,
     history: item.history,
+    dependencies: { on: [], by: [] },
     outline: outlineOf(read.flow),
     flow: read.flow,
     cells: [],
@@ -303,12 +304,12 @@ describe("the work's state line", () => {
     expect(said({ kind: 'fault', words: 'Two entries at 3' })).toEqual({ word: 'Halted', cell: null, keys: null });
     expect(said({ kind: 'broken', words: 'the driver names no turn' })).toEqual({ word: 'Broken', cell: null, keys: null });
     expect(said(STALLED)).toEqual({ word: 'Halted', cell: 'merge', keys: null });
-    expect(said({ kind: 'paused', at: 'plan', by: 'owner', why: null })).toEqual({
+    expect(said({ kind: 'paused', ran: true, at: 'plan', by: 'owner', why: null })).toEqual({
       word: 'Paused',
       cell: 'plan',
       keys: null,
     });
-    expect(said({ kind: 'everything', at: 'plan', by: 'owner' })).toEqual({ word: 'Paused', cell: 'plan', keys: null });
+    expect(said({ kind: 'everything', ran: true, at: 'plan', by: 'owner' })).toEqual({ word: 'Paused', cell: 'plan', keys: null });
     expect(said(OWNERS[2][1], [OWNERS[2][2]])).toEqual({ word: 'Waiting for you', cell: 'plan', keys: null });
     expect(said(OWNERS[1][1], [OWNERS[1][2]])).toEqual({ word: 'Waiting for you', cell: 'plan', keys: null });
     expect(said({ kind: 'waits', at: 'M2', on: [{ kind: 'turn', holder: 12, since: 0 }] })).toEqual({
@@ -326,7 +327,7 @@ describe("the work's state line", () => {
 
 describe('the pause of every work', () => {
   it('is no card of a work it holds, and no wait of its own: the bar says it and lifts it', () => {
-    const container = draw({ kind: 'everything', at: 'plan', by: 'engine' }, [], undefined, none);
+    const container = draw({ kind: 'everything', ran: true, at: 'plan', by: 'engine' }, [], undefined, none);
     expect(container.querySelector('.cw-waits')).toBeNull();
     expect(container.textContent).not.toContain('Resume all');
   });
@@ -492,7 +493,7 @@ describe('the cards of what waits for the owner', () => {
     expect(engine.querySelector('.cw-acts .switch')?.getAttribute('aria-label')).toBe('Your own pause of the work');
     expect(pressed(engine)).toBe('Start');
     unmount();
-    const own = draw({ kind: 'paused', at: 'plan', by: 'owner', why: null }, [], undefined, none, { paused: 'owner' });
+    const own = draw({ kind: 'paused', ran: true, at: 'plan', by: 'owner', why: null }, [], undefined, none, { paused: 'owner' });
     expect(pressed(own)).toBe('Pause');
   });
 

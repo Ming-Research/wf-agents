@@ -1051,6 +1051,7 @@ impl Real {
                 title_max: 20,
             },
             backup: None,
+            github_app: None,
             sessions: Default::default(),
             wait: Default::default(),
         };

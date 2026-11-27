@@ -91,7 +91,7 @@ pub use tools::{QUERY, Querying, RUN_TESTS};
 /// carried out in no way but a failed round that says why ([`projects::declared`]).
 ///
 /// Each project's acts and tools are carried out on the host its settings say: GitHub where they have a table for it,
-/// with the engine's token from its environment, and its local repository where they have none. The tokens of the
+/// as the engine's GitHub App the settings name, and its local repository where they have none. The tokens of the
 /// accounts the agents run under are kept in the login keychain ([`keychain`]).
 pub fn carriers(
     settings: Settings,
@@ -174,8 +174,10 @@ fn carry_keeping(
     let mut declarations = projects::Declarations::new();
     // The network reaches a project's host on GitHub, one look for every such project, and no network a local one.
     let mut host_look: Option<Arc<dyn service::Network>> = None;
+    // The clock the hosts on GitHub read: the machines' turns, and when a token of the engine's GitHub App expires.
+    let clock: Arc<dyn service::Clock> = Arc::new(service::SystemClock);
     // The machines the projects' measurements run on, whose turns every project's host on GitHub shares.
-    let machines = Arc::new(host::github::Machines::new(Arc::new(service::SystemClock)));
+    let machines = Arc::new(host::github::Machines::new(clock.clone()));
     let (declared, faults) = projects::declared(&settings, &beside, flows);
     if !faults.is_empty() {
         return Err(faults.join("; "));
@@ -229,9 +231,11 @@ fn carry_keeping(
                 let merging = (declaration.pull_request.as_ref())
                     .ok_or_else(|| format!("projects.{name}: {} has no [pull_request]", flow::agents::DECLARATION))?;
                 let hosting = (tool.clone(), Some(words.check.clone()), beside.pull_request.clone());
-                let ids = (installation, machines.clone());
-                let host = host::GitHub::from_settings(github, &project, &data, ids, env, (ci, merging), hosting)
-                    .map_err(|why| format!("projects.{name}: {why}"))?;
+                let ids = (installation, machines.clone(), clock.clone());
+                let app = settings.github_app.as_ref();
+                let host =
+                    host::GitHub::from_settings((github, app), &project, &data, ids, env, (ci, merging), hosting)
+                        .map_err(|why| format!("projects.{name}: {why}"))?;
                 let host = Arc::new(host);
                 host::GitHub::share_machines(&host);
                 let look = (host_look.get_or_insert_with(|| Arc::new(failure::LookAt(host::github::LOOK.to_string()))))

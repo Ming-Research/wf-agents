@@ -126,6 +126,73 @@ fn an_item_not_begun_is_retitled_made_to_wait_cancelled_and_reopened_saying_why_
 }
 
 #[test]
+fn a_dependency_is_made_the_main_one_from_the_command_line_and_show_and_graph_say_which_one_is() {
+    let place = Place::new(SCRIPT);
+    let engine = Engine::start(&place);
+    engine.says(&add("Greet the user", "request=Please."));
+    engine.says(&add("Say goodbye", "request=Please."));
+    engine.says(&add("Wave", "request=Please."));
+    engine.says(&["add-dependency", "2", "1", "--why", "It greets first."]);
+    assert_eq!(
+        engine.says(&[
+            "add-dependency",
+            "3",
+            "1",
+            "--main",
+            "--why",
+            "It stands under the wave."
+        ]),
+        "#3 depends on #1: its work waits for it to merge.\n#3 depends on #1 by its main dependency: the page draws #1 \
+         whole under #3.\n"
+    );
+    assert_eq!(
+        engine.says(&["set-main", "3", "1", "--why", "Again."]),
+        "#3 depended on #1 by its main dependency already.\n"
+    );
+    assert_eq!(
+        engine.refuses(&["set-main", "1", "2", "--why", "Turned round."]),
+        "#1 does not depend on #2.\n"
+    );
+    let shown = engine.says(&["show", "1"]);
+    assert!(
+        shown.contains("\nDepends on: none.\nDepended on by: #2, #3 (by the main dependency).\n"),
+        "{shown}"
+    );
+    let shown = engine.says(&["show", "3"]);
+    assert!(
+        shown.contains("\nDepends on: #1 (by the main dependency).\n"),
+        "{shown}"
+    );
+    assert!(
+        shown.contains(": its dependency on #1 made the main one, because \"It stands under the wave.\"\n"),
+        "{shown}"
+    );
+    assert_eq!(
+        engine.says(&["graph", "1", "--down"]),
+        "#1 (project script) \"Greet the user\" at level 1, paused\nWhat depends on it:\n  #2 (project script) \"Say \
+         goodbye\" at level 1, paused\n  #3 (project script) \"Wave\" at level 1, paused, by the main dependency\n"
+    );
+    // Its item cancelled, the main one goes to the earliest made of those left, and `change` makes it the main one
+    // again once the item is reopened.
+    engine.says(&["cancel", "3", "--why", "Joined into item 2."]);
+    let shown = engine.says(&["show", "1"]);
+    assert!(
+        shown.contains("\nDepended on by: #2 (by the main dependency), #3.\n"),
+        "{shown}"
+    );
+    engine.says(&["reopen", "3", "--why", "Not joined after all."]);
+    assert_eq!(
+        engine.says(&["change", "--why", "It stands under the wave.", "3:main=1"]),
+        "#3 depends on #1 by its main dependency: the page draws #1 whole under #3.\n"
+    );
+    let shown = engine.says(&["show", "1"]);
+    assert!(
+        shown.contains("\nDepended on by: #2, #3 (by the main dependency).\n"),
+        "{shown}"
+    );
+}
+
+#[test]
 fn a_work_that_has_begun_waits_for_an_item_it_comes_to_depend_on_and_goes_on_when_it_no_longer_does() {
     let place = Place::new(SCRIPT);
     let engine = Engine::start(&place);
@@ -262,7 +329,7 @@ fn the_plan_is_read_by_what_changed_the_candidates_a_search_a_walk_and_the_text_
     assert_eq!(
         engine.says(&["graph", "1"]),
         "#1 (project script) \"Base\" at level 1, paused\nIt depends on no item.\nWhat depends on it:\n  #2 (project \
-         script) \"On base\" at level 1, paused\n"
+         script) \"On base\" at level 1, paused, by the main dependency\n"
     );
     assert_eq!(
         engine.says(&["graph", "2", "--down"]),
@@ -271,7 +338,7 @@ fn the_plan_is_read_by_what_changed_the_candidates_a_search_a_walk_and_the_text_
     assert_eq!(
         engine.says(&["graph", "2", "--up"]),
         "#2 (project script) \"On base\" at level 1, paused\nIt depends on:\n  #1 (project script) \"Base\" at level 1, \
-         paused\n"
+         paused, by the main dependency\n"
     );
     let text = engine.says(&["text", "1"]);
     assert!(

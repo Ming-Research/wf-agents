@@ -6,6 +6,10 @@ Where a project's repository is hosted, GitHub or the local repository, and what
 The engine reaches a project's host through one interface: on GitHub it pushes the work's branch, opens a pull request, runs CI and merges there; with a local host it does all of it in the clone.
 - rejected: an agent proposed doing every work in the local repository alone, running its check command and merging the branch there; the owner rejected it, because the project's rules have every change go through a pull request and its tests run only in CI.
 
+### decision the-engine-acts-on-github-as-its-app
+The engine makes every call of GitHub, through gh and git over HTTPS, as a GitHub App of its own, with a token of the App's installation that curl gets anew before it expires.
+- replaced: A token in the engine's environment, the owner's own sign-in of gh, was on main; the owner changed it, because the engine shared that sign-in's 5,000 calls an hour with the owner and the assistant, and when they ran out the checks before the merges failed for hours.
+
 ### decision the-engine-merges-the-pull-request
 The engine merges a work's pull request itself once the check before the merge passes; the owner reviews no pull request.
 - rejected: an agent proposed asking the owner to review a work's pull request before it merges; the owner rejected it, because he reviews no pull request, as the process already said, and his questions go where he works.
@@ -79,3 +83,7 @@ A measurement on a self-hosted machine takes the machine's gate and waits for th
 ### decision a-run-is-timed-only-while-it-is-not-waiting-for-a-runner
 A workflow's `too_long` counts the time its run is not waiting for a runner, as its jobs say, or for a measurement that holds its machine, and the time it waits while none of its label is online.
 - replaced: Counting a run's time from the moment it was asked for, the queue included, was on main; the owner changed it, because a run whose jobs queued behind a busy machine was cut as too long for the time it waited, not the time it ran.
+
+### decision a-jobs-wait-for-a-runner-is-kept-with-its-time
+How long each job of a run of the project's CI waited for a runner before it started is kept with the job's time, as GitHub's stamps of its creation and its start say; none where they do not.
+- replaced: Keeping only each job's time from its start to its end was on main; the owner changed it, because how long a job waited for a runner could not be told from how long it ran, and a queue of 29 runs showed nothing.

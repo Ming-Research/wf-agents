@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 
 use decide::run::{Failure, Limit, Unmet};
-use decide::{BlockId, CallId, Records, RunId, Seq, Who};
+use decide::{BlockId, CallId, Hindrance, Records, RunId, Seq, Who};
 use serde::{Deserialize, Serialize};
 
 pub mod filled;
@@ -312,6 +312,11 @@ pub enum Back {
         /// otherwise.
         #[serde(default)]
         resets: Option<Time>,
+        /// What kept the host from running the engine's act for now, and when it may be asked again where the host
+        /// says, where the failure is [`Failure::Held`]; none otherwise. Records kept before the kind was told hold
+        /// none.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        hindrance: Option<Hindrance>,
     },
 }
 
@@ -435,8 +440,9 @@ pub enum Call {
     Asked(Ask),
     /// The run reached a limit: the owner lets it go on or cancels the work.
     AtLimit(Limit),
-    /// The engine waits until this time before the run's last round, which failed in passing, the `failed`th time in
-    /// a row, is tried again. Its result comes from the clock, once the time has come.
+    /// The engine waits until this time before the run's last round, which failed in passing or which the host only
+    /// kept from running for now, the `failed`th time in a row of its kind, is tried again. Its result comes from the
+    /// clock, once the time has come.
     Wait { until: Time, failed: u32 },
 }
 

@@ -39,3 +39,7 @@ The works of a project take turns at the cells that say they take it: a work hol
 - replaced: A turn kept in the acts' memory, in the order the checks began to wait, let go fifteen minutes after a check that passed, was on main; the owner changed it, because its wait was drawn as the check running, was lost when the engine restarted, and was out of the flow's sight.
 - rejected: an agent proposed two records beside that memory, one as a check began to wait and one as its turn came; the owner rejected it, because the wait would stay outside the flow and be lost at a restart, the records saying again what the memory holds.
 - rejected: an agent proposed bringing each branch that is behind main up to date with it and checking it again, with the works side by side; the owner rejected it, because one pull request was brought up to date with main four times in an hour while main broke twice.
+
+### decision the-slots-set-are-kept-with-their-time
+Each number the slots are set to, at the engine's start and on the Settings view, is kept with its time, to set the slots held against the slots there were; no wait is read from it.
+- replaced: The slots known only from the installation's file and the engine's memory, so that a change left no trace, was on main; the owner changed it, because the past held no record of how many slots there were against how many were taken.

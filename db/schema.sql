@@ -40,6 +40,18 @@ CREATE TABLE depends (
     CHECK (on_item < item)
 );
 
+-- The main dependency of an item, from this time on: the dependency on it of `item`, the one the owner's page draws
+-- it whole under; or, with `item` null, none, as nothing depends on it any more. The latest row of an item says which,
+-- and a row is kept each time that changes, by the store itself as each write leaves the items (module `mains` of the
+-- crate `store`): an item some item depends on has exactly one main dependency, and an item nothing depends on none.
+-- `at` is null for a row marked as the store first kept main dependencies.
+CREATE TABLE mains (
+    n INTEGER PRIMARY KEY,
+    on_item INTEGER NOT NULL REFERENCES items (number),
+    item INTEGER REFERENCES items (number),
+    at INTEGER
+);
+
 -- An item carries a tag, which classifies it, as it is added.
 CREATE TABLE tagged (
     item INTEGER NOT NULL REFERENCES items (number),
@@ -104,16 +116,18 @@ CREATE TABLE on_flow (
 );
 
 -- What the work's time went to from its first round to its last, kept as it ended (JSON: each stretch with when it
--- began and ended, and `model`, `tools`, `owner`, `paused`, `stopping`, `items`, `turn` or `other`), and each stretch
+-- began and ended, and `model`, `tools`, `owner`, `paused`, `stopping`, `items`, `turn`, `slot` or `other`), and each stretch
 -- the work held the turn of its project to check and merge (JSON: each with `from` and `until`, in order), which the
 -- time of the project's other works that waited for the turn is read by: null for a work that kept its time before
 -- that was kept, which is read as one that never held it. A work reopened and ended again keeps it again; the latest is
--- the work's.
+-- the work's. `separated` is 1 where the stretches tell a wait for a slot (`slot`) apart from the other waits, and 0
+-- where they were kept before that was told apart, whose `other` holds such waits too.
 CREATE TABLE kept_time (
     work INTEGER NOT NULL REFERENCES works (number),
     at INTEGER NOT NULL,
     stretches TEXT NOT NULL,
     turn TEXT,
+    separated INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (work, at)
 );
 
@@ -411,6 +425,16 @@ CREATE TABLE accounts (
     left_resets INTEGER
 );
 
+-- The slots, which bound how many rounds of agents go on at once, were set to this number at `time`, as the engine
+-- started with them or the owner changed them, `n` counting from one: the latest row says how many there are, and a
+-- time before the first has none recorded. It is the installation's, not a work's, and it is the engine's own state
+-- and no setting, so that a change takes effect at once.
+CREATE TABLE slots_set (
+    n INTEGER PRIMARY KEY,
+    slots INTEGER NOT NULL,
+    time INTEGER NOT NULL
+);
+
 -- The engine's moving to another account at the usage limit of the one in use was switched on (1) or off (0), as the
 -- owner switched it on the page, at `time`, `n` counting from one: the latest row says whether it may now, and none
 -- that it may not, which is how an installation whose owner never switched it stands. It is the installation's, not a
@@ -661,12 +685,15 @@ CREATE TABLE timed (
     PRIMARY KEY (work, at)
 );
 
--- How long each job of a run kept in `timed` took from its start to its end, in milliseconds, as the host records it.
+-- How long each job of a run kept in `timed` took from its start to its end, in milliseconds, as the host records it,
+-- and how long it waited for a runner from when the host created it to when it started (`queued_millis`, NULL where
+-- the host gave no usable time of either, and for a job kept before that was kept).
 CREATE TABLE timed_jobs (
     work INTEGER NOT NULL,
     at INTEGER NOT NULL,
     name TEXT NOT NULL,
     millis INTEGER NOT NULL,
+    queued_millis INTEGER,
     PRIMARY KEY (work, at, name),
     FOREIGN KEY (work, at) REFERENCES timed (work, at)
 );

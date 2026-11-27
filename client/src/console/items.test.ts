@@ -3,12 +3,14 @@ import { describe, expect, it } from 'vitest';
 import type { CellNow, Item, Items, Now, Summary, Wait } from '../works-api';
 import {
   asksOf,
+  emptyOf,
   findItems,
   NO_PROJECT,
   projectsIn,
   shownTree,
   somethingUnread,
   STANDINGS,
+  type ItemStanding,
   type Shown,
   walkOrder,
 } from './items';
@@ -64,9 +66,30 @@ function item(number: number, standing: 'open' | 'done' | 'cancelled', dependsOn
     project: 'wf-agents',
     added: 0,
     dependsOn,
+    mainDependent: null,
     history,
     work: work(number, NOW[standing]),
   };
+}
+
+/// The items, each that some item depends on and that the test gave no main dependent marked with the one the tests
+/// take for it: the first by number of the items that depend on it. The engine's store keeps the real one.
+function marked(data: Items): Items {
+  const first = new Map<number, number>();
+  for (const i of [...data.items].sort((a, b) => a.number - b.number))
+    for (const on of i.dependsOn) if (!first.has(on)) first.set(on, i.number);
+  const main = (i: Item) => i.mainDependent ?? first.get(i.number) ?? null;
+  return { ...data, items: data.items.map((i) => ({ ...i, mainDependent: main(i) })) };
+}
+
+/// The tree `shownTree` makes of the items, marked as `marked` marks them.
+function markedTree(
+  data: Items,
+  shown?: ReadonlySet<ItemStanding>,
+  folds?: ReadonlyMap<number, boolean>,
+  project?: string,
+): Shown[] {
+  return shownTree(marked(data), shown, folds, project);
 }
 
 /// A tree as lines: each item's number, indented by its depth, a shadow's marked.
@@ -107,19 +130,47 @@ describe('the tree the console shows', () => {
   };
 
   it('puts each item under its main dependent and a shadow of it under each other, after the items there, and leaves out what is done or cancelled with nothing open under it', () => {
-    expect(lines(shownTree(data))).toEqual(['1', '  2', '  3', '4', '  8', '    9', '  3 shadow']);
+    expect(lines(markedTree(data))).toEqual(['1', '  2', '  3', '4', '  8', '    9', '  3 shadow']);
+  });
+
+  it('puts an item under the main dependent the store marks, not the first by number, and a shadow under each other', () => {
+    // 3 needs 1, and 4 needs 1 and 2: the main dependent of each of 1 and 2 is 4.
+    const data: Items = {
+      items: [
+        { ...item(1, 'open'), mainDependent: 4 },
+        { ...item(2, 'open'), mainDependent: 4 },
+        item(3, 'open', [1]),
+        item(4, 'open', [1, 2]),
+      ],
+    };
+    expect(lines(shownTree(data))).toEqual(['3', '  1 shadow', '4', '  1', '  2']);
+  });
+
+  it('puts an item under its open main dependent, not under a cancelled item of a lower number that depends on it', () => {
+    // 20 and 22, cancelled, and 29, open, need 51, whose main dependent is 29: 51 stands under 29, and the cancelled
+    // items, under which nothing open stands, are left out where only the open items are shown.
+    const data: Items = {
+      items: [
+        item(20, 'cancelled', [51]),
+        item(22, 'cancelled', [51]),
+        item(29, 'open', [51]),
+        { ...item(51, 'open'), mainDependent: 29 },
+      ],
+    };
+    expect(lines(shownTree(data))).toEqual(['29', '  51']);
+    expect(lines(shownTree(data, ALL))).toEqual(['20', '  51 shadow', '22', '  51 shadow', '29', '  51']);
   });
 
   it('indexes the tree by level, each item with its place among its level and the items under it', () => {
-    const { tree, items } = indexTree(shownTree(data), (s) => s.children);
+    const { tree, items } = indexTree(markedTree(data), (s) => s.children);
     expect(items.map((s) => s.id)).toEqual([1, 2, 3, 4, 8, 9, 3]);
     expect(tree.columns.map((c) => c.map((i) => items[i].id))).toEqual([[1, 4], [2, 3, 8, 3], [9]]);
     expect(Array.from(tree.childStart)).toEqual([0, 0, 0, 2, 0, 0, 1]);
   });
 
   it('shows the items that stand as one of the kinds ticked, and what stands over them, shadows only of items it shows', () => {
-    const shows = (...kinds: ('open' | 'done' | 'cancelled')[]) => lines(shownTree(data, new Set(kinds)));
-    expect(shows('open')).toEqual(lines(shownTree(data)));
+    const shows = (...kinds: ('open' | 'done' | 'cancelled')[]) => lines(markedTree(data, new Set(kinds)));
+    expect(shows('open')).toEqual(lines(markedTree(data)));
     expect(shows('done')).toEqual(['1', '  2', '    10', '4', '  8', '  10 shadow', '6', '  7']);
     expect(shows('cancelled')).toEqual(['1', '  3', '    5']);
     expect(shows('open', 'done', 'cancelled')).toEqual([
@@ -146,7 +197,7 @@ describe('the tree the console shows', () => {
     });
     // A work that has begun: its first cell runs.
     const going = changed({ ...item(1, 'open'), work: work(1, NOW.open, ['running', 'notYet', 'notYet']) }, 210, 40);
-    const [open, done, none] = shownTree(
+    const [open, done, none] = markedTree(
       { items: [going, changed(item(2, 'done'), 7, 3), changed(item(3, 'done'), 0, 0)] },
       new Set(['open', 'done']),
     );
@@ -158,7 +209,7 @@ describe('the tree the console shows', () => {
   });
 
   it("takes an item's standing from its work: merged is done, cancelled is cancelled, else open", () => {
-    const shown = shownTree({ items: [item(8, 'done', [9, 10]), item(9, 'open'), item(10, 'cancelled', [11]), item(11, 'open')] });
+    const shown = markedTree({ items: [item(8, 'done', [9, 10]), item(9, 'open'), item(10, 'cancelled', [11]), item(11, 'open')] });
     expect(shown.map((s) => [s.id, s.standing])).toEqual([[8, 'done']]);
     expect(shown[0].children.map((s) => [s.id, s.standing])).toEqual([
       [9, 'open'],
@@ -187,11 +238,22 @@ describe('the projects of the tree', () => {
     ]);
   });
 
-  it("stands an item in its own project's tree, under the first item of its own project that depends on it, and a shadow of it under an item of another project that does", () => {
-    // 1 (Halo) depends on 3 (Firn); 2 (Firn) and 1 both depend on 4 (Firn).
-    const data: Items = { items: [of(1, 'Halo', [3, 4]), of(2, 'Firn', [4]), of(3, 'Firn'), of(4, 'Firn')] };
-    expect(lines(shownTree(data, ALL, new Map(), 'Halo'))).toEqual(['1', '  3 shadow', '  4 shadow']);
-    expect(lines(shownTree(data, ALL, new Map(), 'Firn'))).toEqual(['2', '  4', '3']);
+  it("stands an item in its own project's tree, under its main dependent of its own project, and a shadow of it under an item of another project that depends on it", () => {
+    // 1 (Halo) depends on 3 (Firn); 2 (Firn) and 1 both depend on 4 (Firn), whose main dependent is 2.
+    const data: Items = {
+      items: [of(1, 'Halo', [3, 4]), of(2, 'Firn', [4]), of(3, 'Firn'), { ...of(4, 'Firn'), mainDependent: 2 }],
+    };
+    expect(lines(markedTree(data, ALL, new Map(), 'Halo'))).toEqual(['1', '  3 shadow', '  4 shadow']);
+    expect(lines(markedTree(data, ALL, new Map(), 'Firn'))).toEqual(['2', '  4', '3']);
+  });
+
+  it("stands an item whose main dependent is of another project at the top of its own project's tree, and a shadow of it under its own project's item that depends on it", () => {
+    // 1 (Halo) and 2 (Firn) depend on 3 (Firn), whose main dependent is 1.
+    const data: Items = {
+      items: [of(1, 'Halo', [3]), of(2, 'Firn', [3]), { ...of(3, 'Firn'), mainDependent: 1 }],
+    };
+    expect(lines(shownTree(data, ALL, new Map(), 'Firn'))).toEqual(['2', '  3 shadow', '3']);
+    expect(lines(shownTree(data, ALL, new Map(), 'Halo'))).toEqual(['1', '  3 shadow']);
   });
 });
 
@@ -218,7 +280,7 @@ describe('the folds of the tree', () => {
   };
 
   it('fold an item where neither it nor anything under it is open, and leave the others unfolded, each counting what stands under it by how it stands', () => {
-    expect(drawnLines(shownTree(data, ALL))).toEqual([
+    expect(drawnLines(markedTree(data, ALL))).toEqual([
       '10',
       '  11 folded done 2',
       '  12 folded done 2 cancelled 1',
@@ -229,7 +291,7 @@ describe('the folds of the tree', () => {
       '  22',
     ]);
     // A folded item still holds what stands under it; an item with nothing under it has no fold.
-    const [ten] = shownTree(data, ALL);
+    const [ten] = markedTree(data, ALL);
     expect(ten.fold).toEqual({ folded: false, under: { open: 0, done: 6, cancelled: 1, elsewhere: 0 } });
     expect(ten.children[0].children.map((c) => c.id)).toEqual([13, 14]);
     expect(ten.children[0].children[0].fold).toBeNull();
@@ -240,7 +302,7 @@ describe('the folds of the tree', () => {
       [12, false],
       [21, true],
     ]);
-    expect(drawnLines(shownTree(data, ALL, chosen))).toEqual([
+    expect(drawnLines(markedTree(data, ALL, chosen))).toEqual([
       '10',
       '  11 folded done 2',
       '  12',
@@ -266,7 +328,7 @@ describe('the folds of the tree', () => {
         item(7, 'done'),
       ],
     };
-    expect(drawnLines(shownTree(shadowed, ALL))).toEqual([
+    expect(drawnLines(markedTree(shadowed, ALL))).toEqual([
       '1',
       '  2',
       '  3',
@@ -275,20 +337,20 @@ describe('the folds of the tree', () => {
       '  3 shadow',
       '6 folded done 1 elsewhere 1',
     ]);
-    const five = shownTree(shadowed, ALL).find((s) => s.id === 5);
+    const five = markedTree(shadowed, ALL).find((s) => s.id === 5);
     expect(five?.fold).toEqual({ folded: false, under: { open: 0, done: 0, cancelled: 0, elsewhere: 1 } });
   });
 
   it('count and fold only what the boxes ticked show, and hide what is under an item whatever the boxes show', () => {
-    expect(drawnLines(shownTree(data))).toEqual(['10', '18', '  19', '21', '  22']);
-    expect(drawnLines(shownTree(data, new Set(['done'])))).toEqual([
+    expect(drawnLines(markedTree(data))).toEqual(['10', '18', '  19', '21', '  22']);
+    expect(drawnLines(markedTree(data, new Set(['done'])))).toEqual([
       '10',
       '  11 folded done 2',
       '  12 folded done 2',
       '18',
       '  20',
     ]);
-    expect(drawnLines(shownTree(data, new Set(['open']), new Map([[18, true]])))).toEqual([
+    expect(drawnLines(markedTree(data, new Set(['open']), new Map([[18, true]])))).toEqual([
       '10',
       '18 folded open 1',
       '21',
@@ -371,13 +433,13 @@ describe('what a card shows of an item', () => {
     expect(asksOf({ waits: listed })).toBe(3);
     expect(asksOf({ waits: [] })).toBe(0);
     // A card's mark is the same count.
-    const shown = shownTree({ items: [{ ...item(1, 'open'), work: { ...work(1, waits, ['done', 'resting', 'notYet']), waits: listed } }] });
+    const shown = markedTree({ items: [{ ...item(1, 'open'), work: { ...work(1, waits, ['done', 'resting', 'notYet']), waits: listed } }] });
     expect(shown[0].asks).toBe(3);
   });
 
   it('stands every item an item depends on under it, open, done or cancelled', () => {
     const items = [item(1, 'open', [2, 3, 4]), item(2, 'open'), item(3, 'done'), item(4, 'cancelled')];
-    const shown = shownTree({ items }, ALL);
+    const shown = markedTree({ items }, ALL);
     expect(shown[0].children.map((s) => [s.id, s.standing])).toEqual([
       [2, 'open'],
       [3, 'done'],
@@ -389,7 +451,7 @@ describe('what a card shows of an item', () => {
     const notBegun = item(1, 'open', [2, 3]);
     const listed: Wait[] = ['limit', 'write-confirmed', 'answer-which'].map((key) => ({ key, why: `${key}.`, ends: { kind: 'resume' } }));
     const begun: Item = { ...item(2, 'open'), work: { ...work(2, waits, ['done', 'resting', 'notYet']), waits: listed } };
-    const shown = shownTree({ items: [notBegun, begun, item(3, 'done')] });
+    const shown = markedTree({ items: [notBegun, begun, item(3, 'done')] });
     expect(shown[0].work).toBeNull();
     expect(shown[0].begun).toBe(false);
     const w = shown[0].children[0];
@@ -401,19 +463,19 @@ describe('what a card shows of an item', () => {
 
   it("draws an item whose work's flow delivers, as the engine says, as a deliverable with no row of its work", () => {
     const delivering: Item = { ...item(1, 'open', [2]), work: { ...work(1, NOW.open), delivers: true } };
-    const shown = shownTree({ items: [delivering, item(2, 'open')] });
+    const shown = markedTree({ items: [delivering, item(2, 'open')] });
     expect(shown[0].deliver).toBe(true);
     expect(shown[0].work).toBeNull();
     // A work whose flow does not deliver is no deliverable, whatever its flow is called.
     const making: Item = { ...item(1, 'open', [2]), work: { ...work(1, NOW.open), flow: 'deliver', delivers: false } };
-    const made = shownTree({ items: [making, item(2, 'open')] });
+    const made = markedTree({ items: [making, item(2, 'open')] });
     expect(made[0].deliver).toBe(false);
   });
 
   it('gives a work that has not run a round no second row, its colours only where it is halted or waits for the owner', () => {
     const paused: Item = {
       ...item(1, 'open', [4]),
-      work: work(1, { kind: 'paused', at: 'plan', by: 'owner', why: null }),
+      work: work(1, { kind: 'paused', ran: false, at: 'plan', by: 'owner', why: null }),
     };
     const fault: Item = { ...item(2, 'open'), work: work(2, { kind: 'fault', words: 'No session' }) };
     const owner: Now = {
@@ -424,9 +486,9 @@ describe('what a card shows of an item', () => {
     const ruling: Wait = { key: 'write-read', why: 'plan requires test = read, which read keeps from holding.', ends: { kind: 'write', block: 'read', value: 'yes' } };
     const waiting: Item = { ...item(3, 'open'), work: { ...work(3, owner), waits: [ruling] } };
     // Brought over from elsewhere: its first cell stands done, and no round of it ever ran.
-    const held: Now = { kind: 'paused', at: 'implement', by: 'owner', why: null };
+    const held: Now = { kind: 'paused', ran: false, at: 'implement', by: 'owner', why: null };
     const brought: Item = { ...item(5, 'open'), work: { ...work(5, held, ['done', 'notYet', 'notYet']), from: null } };
-    const shown = shownTree({ items: [paused, fault, waiting, item(4, 'open'), brought] });
+    const shown = markedTree({ items: [paused, fault, waiting, item(4, 'open'), brought] });
     // Paused before its first round, as the one brought over is, it is drawn as an open item with no work; halted, or
     // waiting for the owner, the card takes the work's state, with no time of a first round and so no second row.
     expect(shown.map((s) => [s.id, s.begun, s.work?.now.kind ?? null, s.work?.from ?? null])).toEqual([
@@ -438,7 +500,8 @@ describe('what a card shows of an item', () => {
     // Not begun, it still says what it waits on the owner for.
     expect(shown[2].asks).toBe(1);
     // Once its first round has begun, the same work paused is drawn, with the time of that round.
-    const ran = shownTree({ items: [{ ...paused, work: { ...paused.work, from: 1 } }, item(4, 'open')] });
+    const after: Now = { kind: 'paused', ran: true, at: 'plan', by: 'owner', why: null };
+    const ran = markedTree({ items: [{ ...paused, work: { ...work(1, after), from: 1 } }, item(4, 'open')] });
     expect(ran[0].begun).toBe(true);
     expect([ran[0].work?.now.kind, ran[0].work?.from]).toEqual(['paused', 1]);
   });
@@ -453,7 +516,7 @@ describe('what the owner has not read of an item', () => {
   const items = [unread(1, 'none', 0), unread(2, 'new', 0), unread(3, 'changed', 2), unread(4, 'none', 3), item(5, 'open')];
 
   it("is the engine's word, as the card shows it: new or changed, and how many replies are not read, none where it says nothing", () => {
-    const shown = shownTree({ items });
+    const shown = markedTree({ items });
     expect(shown.map((s) => [s.id, s.fresh, s.repliesUnread])).toEqual([
       [1, 'none', 0],
       [2, 'new', 0],
@@ -464,7 +527,7 @@ describe('what the owner has not read of an item', () => {
   });
 
   it('has something unread where the item is new or changed, or any reply is not read, and not where both are read', () => {
-    expect(shownTree({ items }).map((s) => [s.id, somethingUnread(s)])).toEqual([
+    expect(markedTree({ items }).map((s) => [s.id, somethingUnread(s)])).toEqual([
       [1, false],
       [2, true],
       [3, true],
@@ -474,7 +537,7 @@ describe('what the owner has not read of an item', () => {
   });
 
   it('walks the items by how many replies each has not read, in the order of the tree, as it walks the stops', () => {
-    const tree = shownTree({ items });
+    const tree = markedTree({ items });
     expect(walkOrder(tree).map((o) => [o.id, o.stops])).toEqual([[1, 0], [2, 0], [3, 0], [4, 0], [5, 0]]);
     expect(walkOrder(tree, (s) => s.repliesUnread).map((o) => [o.id, o.stops])).toEqual([
       [1, 0],
@@ -485,3 +548,37 @@ describe('what the owner has not read of an item', () => {
     ]);
   });
 });
+
+describe('why the tree of a project shows no item', () => {
+  const only = (standing: 'open' | 'done' | 'cancelled') => new Set<'open' | 'done' | 'cancelled'>([standing]);
+  const elsewhere = (n: number, standing: 'open' | 'done' | 'cancelled', project: string): Item => ({
+    ...item(n, standing),
+    project,
+  });
+
+  it('says there is no item where the project has none, whatever the boxes tick', () => {
+    const data: Items = { items: [item(1, 'open')] };
+    expect(emptyOf(data, only('open'), 'Birch')).toEqual({ kind: 'none' });
+    expect(emptyOf(data, new Set(STANDINGS), 'Birch')).toEqual({ kind: 'none' });
+  });
+
+  it('says that the boxes hide every item, how many, and which boxes to tick, those that hide one', () => {
+    const data: Items = { items: [item(1, 'open'), item(2, 'open'), item(3, 'done')] };
+    // Only Open is unticked of what hides an open item: the done one is hidden too, its box unticked.
+    expect(emptyOf(data, new Set(), 'wf-agents')).toEqual({ kind: 'hidden', count: 3, unticked: ['open', 'done'] });
+    // Only open items, Open unticked: Done and Cancelled would show nothing, and are not named.
+    const open: Items = { items: [item(1, 'open')] };
+    expect(emptyOf(open, only('done'), 'wf-agents')).toEqual({ kind: 'hidden', count: 1, unticked: ['open'] });
+    // Only done and cancelled items, as the first load shows them: the boxes to tick are those two.
+    const ended: Items = { items: [item(1, 'done'), item(2, 'cancelled'), item(3, 'done')] };
+    expect(emptyOf(ended, only('open'), 'wf-agents')).toEqual({ kind: 'hidden', count: 3, unticked: ['done', 'cancelled'] });
+  });
+
+  it('says nothing where an item of the project is shown, or only the project asked for is looked at', () => {
+    const data: Items = { items: [item(1, 'open'), item(2, 'done'), elsewhere(3, 'open', 'Birch')] };
+    expect(emptyOf(data, only('open'), 'wf-agents')).toBeNull();
+    // The items of another project do not count for this one: its own are hidden.
+    expect(emptyOf(data, only('cancelled'), 'wf-agents')).toEqual({ kind: 'hidden', count: 2, unticked: ['open', 'done'] });
+  });
+});
+

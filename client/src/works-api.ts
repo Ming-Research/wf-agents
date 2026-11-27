@@ -51,12 +51,13 @@ export type Limit = { of: 'returns'; sentBack: number } | { of: 'calls'; made: n
 
 /// What a call is: a tool the engine runs, a question for a person (only in a work recorded before the engine stopped
 /// making them, and read as recorded), a run at a limit that the owner lets go on, or the engine's wait until a time
-/// before a round that failed in passing, the `failed`th in a row, is tried again.
+/// before a round that failed in passing, or that the host only kept from running for now (then with what kept it), the
+/// `failed`th in a row, is tried again.
 export type Call =
   | { kind: 'tool'; name: string; input: string }
   | { kind: 'question'; who: Person; question: string }
   | { kind: 'atLimit'; limit: Limit }
-  | { kind: 'wait'; until: number; failed: number };
+  | { kind: 'wait'; until: number; failed: number; obstacle: Obstacle | null };
 
 /// What kept the host from carrying a call out for now: GitHub's limit on its requests, a fault of GitHub's own, no
 /// machine of the project's CI taking the run asked for, or a fault of the network.
@@ -73,6 +74,7 @@ export interface HeldCall {
 /// The kind of cause of a round that failed, as what carried it out told it apart.
 export type Failure =
   | 'passing'
+  | 'held'
   | 'unread'
   | 'flagged'
   | 'guarded'
@@ -198,11 +200,11 @@ export type Now =
       queuedFor?: string | null;
     }
   /// It is paused, and what it would do next is begin a round: by the owner, who gives no reason, or by the engine
-  /// for this one.
-  | { kind: 'paused'; at: string; by: Pauser; why: string | null }
+  /// for this one. `ran` is whether a round of it has begun: a work that is paused and has not is not started.
+  | { kind: 'paused'; at: string; by: Pauser; ran: boolean; why: string | null }
   /// The pause of everything holds it back, and what it would do next is begin a round; its own pause does not. `by` is
-  /// who set it: the owner, or the engine as it started again with works going on.
-  | { kind: 'everything'; at: string; by: Pauser }
+  /// who set it: the owner, or the engine as it started again with works going on. `ran` is as it is of a pause.
+  | { kind: 'everything'; at: string; by: Pauser; ran: boolean }
   /// It waits at this cell, for each of these.
   | { kind: 'waits'; at: string; on: Waited[] }
   /// It is about to do something at this cell; a work is never left so between two things that happen to it.
@@ -229,7 +231,8 @@ export interface Stalling {
 
 /// How a cell stands for a work: a round of its run, an agent's, is under way; the engine carries out something for
 /// its run that takes its time, an engine cell's act or a tool's call; its run is at rest, or its act waits for the
-/// project's turn; its run's last round failed, and is given again once the work is let on; its condition is not met;
+/// project's turn; its run's last round failed, or what it returned the engine sends back, and the round is given again
+/// once the work is let on; its condition is not met;
 /// it never finished a run; it has a record and runs again when the walk reaches it; its record knows everything.
 export type CellState =
   | 'running'
@@ -440,6 +443,9 @@ export interface Item {
   project: string | null;
   added: number;
   dependsOn: number[];
+  /// The item whose dependency on it is its main one, as the store keeps them: the one the console draws it whole
+  /// under, a shadow of it standing under each other item that depends on it; none where no item depends on it.
+  mainDependent: number | null;
   /// The tags it carries, which classify it; absent from an engine that does not give them yet.
   tags?: string[];
   /// What its work starts from, where it continues a branch or a pull request and not the head of main; absent from an
@@ -471,6 +477,8 @@ export type ItemChanged =
   | { kind: 'level'; level: string }
   | { kind: 'dependsOn'; item: number }
   | { kind: 'noLongerDependsOn'; item: number }
+  /// Its dependency on this item became that item's main one.
+  | { kind: 'main'; item: number }
   | { kind: 'tagged'; tag: string }
   | { kind: 'untagged'; tag: string }
   | { kind: 'continues'; continues: Continues | null };
@@ -795,6 +803,9 @@ export interface WorkPage {
   tags?: string[];
   /// What its item was as it was added, and each change made to it since, as `Item` has them.
   history: ItemHistory;
+  /// What its item depends on and what depends on it, each with whether it is the main dependency of the item
+  /// depended on.
+  dependencies: Dependencies;
   /// The version of its flow it runs on, as its outline has it: what its history, its card and its talk with the owner
   /// are drawn from, a work going on and one that ended alike.
   outline: Outline;
@@ -812,6 +823,20 @@ export interface WorkPage {
   /// Each question put to the owner, as it stands, in the order of their names; absent from an engine that does not
   /// give them.
   questions?: Question[];
+}
+
+/// The dependencies between an item and the others, both ways: `on` the items it depends on, `by` those that depend on
+/// it, each in the order of their numbers.
+export interface Dependencies {
+  on: Dependency[];
+  by: Dependency[];
+}
+
+/// A dependency between an item and another, by the other's number, and whether it is the main one of the item
+/// depended on.
+export interface Dependency {
+  item: number;
+  main: boolean;
 }
 
 /// A question put to the owner, as it stands: its latest version, with the keys a return writes it with, and the
@@ -940,6 +965,8 @@ export type ChangeAsked =
   | { kind: 'level'; item: number; level: string }
   | { kind: 'dependsOn'; item: number; on: number }
   | { kind: 'noLongerDependsOn'; item: number; on: number }
+  /// The item's dependency on `on` becomes the main one of `on`, which then stands whole under the item.
+  | { kind: 'main'; item: number; on: number }
   | { kind: 'tag'; item: number; tag: string }
   | { kind: 'untag'; item: number; tag: string }
   | { kind: 'continues'; item: number; continues: Continues | null }

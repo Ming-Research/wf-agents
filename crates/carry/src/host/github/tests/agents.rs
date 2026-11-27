@@ -150,7 +150,8 @@ async fn the_agents_run_says_how_long_its_jobs_and_tests_took_as_the_fast_workfl
             workflow: "fast.yml".to_string(),
             jobs: vec![work::timed::Job {
                 name: "test".to_string(),
-                millis: 60_000
+                millis: 60_000,
+                queued_millis: Some(5_000),
             }],
             tests: vec![test("tools::tests::a", true, 120), test("tools::tests::b", false, 2500)],
         }]

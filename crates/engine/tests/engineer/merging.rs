@@ -106,6 +106,7 @@ fn a_head_the_check_reads_that_the_review_has_not_seen_runs_the_review_before_th
         why: "The work's head is c3, which the review has not seen.".to_string(),
         failure: Failure::Passing,
         resets: None,
+        hindrance: None,
         spent: Spent::default(),
     });
     assert_eq!(w.round().1, "T1", "the reviews run first, on the head the check read");

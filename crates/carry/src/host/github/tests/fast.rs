@@ -445,6 +445,7 @@ async fn what_did_not_pass_and_the_jobs_are_said_before_the_tests_that_passed_ea
     let head = hub.committed().await;
     let lint = Check {
         took: Some(192),
+        queued: None,
         ..passed("lint")
     };
     let jobs = vec![lint, job("test", Outcome::Failed("failure".into()), 5)];
@@ -492,6 +493,7 @@ async fn each_job_is_said_with_how_it_ended_and_its_wall_time_or_why_it_has_none
     let jobs = vec![
         Check {
             took: Some(192),
+            queued: None,
             ..passed("lint")
         },
         check("page", Outcome::Broken("cancelled".into())),
@@ -499,6 +501,7 @@ async fn each_job_is_said_with_how_it_ended_and_its_wall_time_or_why_it_has_none
         check("deploy", Outcome::Pending),
         Check {
             took: None,
+            queued: None,
             ..passed("test")
         },
     ];
@@ -527,6 +530,7 @@ async fn the_fast_workflows_run_says_every_job_of_it_and_a_check_named_that_it_h
     let jobs = vec![
         Check {
             took: Some(95),
+            queued: None,
             ..passed("test")
         },
         check("lint", Outcome::Skipped),
@@ -665,13 +669,12 @@ async fn a_run_no_runner_took_is_cancelled_and_holds_what_asked() {
         "{failed}"
     );
     assert_eq!(
-        failed.held,
-        Some(crate::host::Held {
+        failed.hindrance,
+        Some(decide::Hindrance {
             obstacle: Obstacle::NoRunner,
             retry: None
         })
     );
-    assert_eq!(failed.kind, Some(Failure::Passing));
     assert!(
         began.elapsed() < Duration::from_secs(2),
         "the timeout was not waited for"
@@ -696,13 +699,12 @@ async fn a_run_github_never_lists_holds_what_asked_as_a_fault_of_its_own() {
         "{failed}"
     );
     assert_eq!(
-        failed.held,
-        Some(crate::host::Held {
+        failed.hindrance,
+        Some(decide::Hindrance {
             obstacle: Obstacle::Fault,
             retry: None
         })
     );
-    assert_eq!(failed.kind, Some(Failure::Passing));
     assert!(
         began.elapsed() < Duration::from_secs(2),
         "the timeout was not waited for"
@@ -728,15 +730,18 @@ async fn a_fault_of_githubs_or_its_limit_holds_what_asked_and_says_nothing_of_th
         hub.committed().await;
         hub.github().refuse_dispatch(refused);
         let failed = hub.named_failed(&named(&["a"], &[])).await.expect_err("held");
-        assert_eq!(failed.held, Some(crate::host::Held { obstacle, retry }), "{refused}");
-        assert_eq!(failed.kind, Some(Failure::Passing), "{refused}");
+        assert_eq!(
+            failed.hindrance,
+            Some(decide::Hindrance { obstacle, retry }),
+            "{refused}"
+        );
     }
     // Any other refusal is the agent's to read, and holds nothing.
     let hub = Hub::new();
     hub.committed().await;
     hub.github().refuse_dispatch("HTTP 422: No ref found for: main");
     let failed = hub.named_failed(&named(&["a"], &[])).await.expect_err("refused");
-    assert_eq!(failed.held, None);
+    assert_eq!(failed.hindrance, None);
 }
 
 // A run that ended, whose results GitHub cannot give for now, holds what asked and is not said to have no results;
@@ -752,8 +757,8 @@ async fn results_githubs_fault_keeps_from_being_read_hold_what_asked_and_are_rea
     let first = hub.host.run_tests(&at, &request, call, &mut Stop::never()).await;
     let failed = first.expect_err("held");
     assert_eq!(
-        failed.held,
-        Some(crate::host::Held {
+        failed.hindrance,
+        Some(decide::Hindrance {
             obstacle: Obstacle::Fault,
             retry: None
         })
@@ -779,8 +784,8 @@ async fn a_log_githubs_fault_keeps_from_being_read_holds_what_asked_and_is_read_
     let first = hub.host.run_tests(&at, &request, call, &mut Stop::never()).await;
     let failed = first.expect_err("held");
     assert_eq!(
-        failed.held,
-        Some(crate::host::Held {
+        failed.hindrance,
+        Some(decide::Hindrance {
             obstacle: Obstacle::Fault,
             retry: None
         })
@@ -810,8 +815,8 @@ async fn a_log_the_network_keeps_from_being_read_holds_what_asked_and_is_read_by
     let first = hub.host.run_tests(&at, &request, call, &mut Stop::never()).await;
     let failed = first.expect_err("held");
     assert_eq!(
-        failed.held,
-        Some(crate::host::Held {
+        failed.hindrance,
+        Some(decide::Hindrance {
             obstacle: Obstacle::Network,
             retry: None
         })

@@ -32,12 +32,21 @@ A work whose state the engine cannot work out is marked in the red of a fault, i
 - rejected: an agent proposed the word Unreadable; the owner rejected it, because the engine already names this state Broken, and one thing has one name everywhere (principle one-name-one-meaning).
 
 ### decision the-owners-pause-stands-beside-the-state
-In the list of works and the System view, Paused stands beside a work's state while the owner's pause holds it and the state says something else; the engine's pause is the state itself.
+In the list and the System view, Paused stands beside a work's state while the owner's pause holds it and the state is not a pause's own (Paused, Not started); the engine's pause is the state itself.
 - replaced: One place saying a work was paused and another that it waited for the owner was on main; the owner changed it, because he could not tell which of the two stopped the work.
+
+### decision a-paused-work-with-no-round-is-not-started
+A work that is paused and has begun no round has the state Not started, which the engine says in its pause; every view says it, and the console draws it as the plain card of an item with no work.
+- rejected: an agent proposed the word Paused for both and only the console's card of a work that never ran in the light grey; the owner rejected it, because the page would decide itself whether a work had run, and the other views would still say one word for both.
 
 ### decision red-is-the-one-colour-of-a-stop
 Red is the only colour of a stop: a work that waits for the owner and a work halted by a fault are red in every view.
 - replaced: Orange for what waits for the owner on the Works page and in the bar, but red on the console, was on main; the owner changed it, because one meaning has one colour, and he had chosen red for every stop.
+
+### decision a-wait-for-a-slot-is-drawn-as-nothing-having-run
+The time bar draws a wait for a slot in the colour of nothing having run, saying on pointing at it that it is a wait for a slot; the legend has no entry for it.
+- rejected: an agent proposed a colour of its own for it, listed in the legend; the owner rejected it, because no colour is left that does not clash with a state's: teal is the turn's, and violet was refused for the accent.
+- rejected: an agent proposed the turn's teal for it, the two told apart on pointing; the owner rejected it, because a glance could not tell a wait for a slot from a wait for the turn, which was to be told at a glance.
 
 ### decision a-call-waited-for-is-no-run
 Wherever the page shows a work waiting for tools' results, it says in a call's yellow that it waits for each tool, where it runs and how long, never that it runs; a held call, until when and why.
@@ -51,6 +60,10 @@ One set of marks shows how a run ended or how it stands now, filled for a run th
 - replaced: Nine marks, among them blue, red and light-blue hollow frames, was on main; the owner changed it, because so many shapes could not be remembered.
 - replaced: Separate marks in the history, a dash for a run that handed in nothing new and a mark for a run given up, was on main; the owner changed it, because what means one thing is drawn the same way everywhere, and the strip's dash already meant skipped.
 - replaced: Two different strips, one on the console's card and one in the window, where the window's neither blinked nor marked a stop red, was on main; the owner changed it, because the same kind of thing is drawn from the same parts.
+
+### decision a-round-to-be-given-again-is-said-in-words-where-a-pause-holds-it
+A run whose next round is its last again, failed or sent back, has the failed mark whatever holds it; where a pause does, the Step and the card say so in words, with no mark of its own.
+- rejected: an agent proposed a mark of its own for a round a pause holds back, beside the words; the owner rejected it, because marks are not added: the state line already says Paused and the cell (decision one-set-of-marks-for-how-a-run-stands).
 
 ### decision a-level-looks-as-the-level-it-runs-at
 A card, under its number, and the item's window write the level a cell really runs at as `L2`, or `L2+1` where it runs above its item's, in the look of that level: muted, text, accent, accent in bold.

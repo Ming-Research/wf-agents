@@ -37,19 +37,21 @@ import { fakeShown } from './fake';
 import { Find } from './find';
 import { ConsoleHelp } from './help';
 import {
+  type Empty,
   type ItemStanding,
   STANDINGS,
   NO_PROJECT,
   type Shown,
   projectOf,
   projectsIn,
+  emptyOf,
   shownTree,
   standingOf,
   walkOrder,
 } from './items';
 import { ItemPanel, type PageState } from './ItemWindow';
 import { SnapScene } from './snap';
-import { aheadCount, waitingCount } from '../works/waiting';
+import { aheadCount, repliesUnreadCount, waitingCount } from '../works/waiting';
 import { ProjectList } from './projects';
 import { type Heard, type Source, inOrder, pageSource } from './source';
 
@@ -100,10 +102,19 @@ function listedIn(
 
 /// Each kind of item as its box over the tree names it, and what pointing at the box says.
 const SHOWS: Record<ItemStanding, { name: string; title: string }> = {
-  open: { name: 'Open', title: 'The items not done or cancelled: running, paused or waiting' },
+  open: { name: 'Open', title: 'The items not done or cancelled: running, paused, waiting or not started' },
   done: { name: 'Done', title: 'The items whose work merged' },
   cancelled: { name: 'Cancelled', title: 'The items whose work was cancelled' },
 };
+
+/// What the console says where the tree of the project shown has no item to draw: that the project has none, or that
+/// the boxes hide them all, and which boxes to tick to see them.
+export function emptyWords(empty: Empty): string {
+  if (empty.kind === 'none') return 'No items in this project yet';
+  const names = empty.unticked.map((s) => SHOWS[s].name);
+  const boxes = names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`;
+  return `${empty.count === 1 ? 'The item is' : `All ${empty.count} items are`} hidden by the boxes: tick ${boxes}`;
+}
 
 export function ConsolePage({
   source: given,
@@ -178,6 +189,11 @@ export function ConsolePage({
   );
   const project = kept !== null && projects.includes(kept) ? kept : (projects[0] ?? null);
   const projectNow = useRef<string | null>(null);
+  // Why the tree of the project shown has nothing to draw, where it has not.
+  const empty = useMemo(
+    () => (data === undefined || project === null ? null : emptyOf(data, shows, project)),
+    [data, shows, project],
+  );
   // Whether the overview Space opens is open: every project's tree on the screen at once.
   const [overview, setOverview] = useState(false);
   const overviewNow = useRef(false);
@@ -517,12 +533,13 @@ export function ConsolePage({
   // overview is open, every tree stands small in a grid as near square as lets each be as large as can be, filled a
   // row at a time in the list's order, with a gap between, the grid in the room's middle; as it opens and closes, the
   // trees fade where they go rather than move there (`fade`).
-  // What waits for the owner in each project, counted as the bar counts it over every project.
+  // What waits for the owner in each project, and the replies of its works not read, counted as the bar counts them
+  // over every project.
   const counts = useMemo(() => {
-    const of = new Map<string, { waiting: number; ahead: number }>();
+    const of = new Map<string, { waiting: number; ahead: number; unread: number }>();
     for (const name of projects) {
       const works = (data?.items ?? []).filter((i) => projectOf(i) === name).map((i) => i.work);
-      of.set(name, { waiting: waitingCount(works), ahead: aheadCount(works) });
+      of.set(name, { waiting: waitingCount(works), ahead: aheadCount(works), unread: repliesUnreadCount(works) });
     }
     return of;
   }, [data, projects]);
@@ -890,6 +907,7 @@ export function ConsolePage({
                 </label>
               ))}
             </div>
+            {empty !== null && <p className="console-empty">{emptyWords(empty)}</p>}
             {failed !== null && <p className="console-message">The page could not read the items: {failed}</p>}
             {undrawn !== null && <p className="console-message">The browser could not draw the tree: {undrawn}</p>}
           </div>

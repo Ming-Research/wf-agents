@@ -187,7 +187,7 @@ describe('the rows of a history', () => {
       steps,
       outline: OUTLINE,
       blocks: blocksOf({ request: [[1, OWNER]] }),
-      summary: summary({ kind: 'paused', at: 'plan', by: 'owner', why: null }),
+      summary: summary({ kind: 'paused', ran: true, at: 'plan', by: 'owner', why: null }),
     });
     expect(rows.map(drawn)).toEqual([
       { names: ['request (people)'], divider: null, run: '0 handedIn', from: null, did: 'woken by request v1 from the owner' },
@@ -331,16 +331,23 @@ describe('how a run ended or stands', () => {
   it('marks an open run as its cell stands: running, waiting for a call, failed, at rest, or stopped where the work is stopped at it', () => {
     expect(runState(open([round(1, null)]), summary(waiting, [cell('running')]))).toBe('running');
     expect(runState(open([round(1, null)]), summary(waiting, [cell('calling')]))).toBe('waiting');
-    expect(runState(open([round(1, failed)]), summary(waiting, [cell('resting')]))).toBe('failed');
     expect(runState(open([round(1, null)]), summary(waiting, [cell('failed')]))).toBe('failed');
-    // What it handed in last was sent back: it is given its round again, as one whose round failed.
-    expect(runState(open([round(1, handedIn)]), summary(waiting, [cell('resting')]))).toBe('failed');
+    expect(runState(open([round(1, failed)]), summary(waiting, [cell('failed')]))).toBe('failed');
+    expect(runState(open([round(1, handedIn)]), summary(waiting, [cell('failed')]))).toBe('failed');
     expect(runState(open([round(1, { kind: 'asked', asks: [] })]), summary(waiting, [cell('resting')]))).toBe('atRest');
     // The cell's state for another run of it says nothing of this one.
     expect(runState(open([round(1, null)]), summary(waiting, [{ ...cell('running'), open: 9 }]))).toBe('atRest');
     const pause: Wait = { key: 'pause', why: 'The engine paused the work.', ends: { kind: 'resume' } };
-    const stopped = summary({ kind: 'paused', at: 'implement', by: 'engine', why: 'x' }, [cell('failed')], [pause], 'engine');
+    const stopped = summary({ kind: 'paused', ran: true, at: 'implement', by: 'engine', why: 'x' }, [cell('failed')], [pause], 'engine');
     expect(runState(open([round(1, failed)]), stopped)).toBe('stopped');
+  });
+
+  // The page does not work out for itself that a run is to be given its round again from what its last round came back
+  // as: the engine says it of the cell, for a round that failed and for a return it sends back, a pause holding it or not.
+  it('does not read from what the last round came back as whether an open run is to be given again', () => {
+    for (const back of [failed, handedIn, { kind: 'asked', asks: [] } as Back, null]) {
+      expect(runState(open([round(1, back)]), summary(waiting, [cell('resting')]))).toBe('atRest');
+    }
   });
 
   it("is the run the item's window shows where no row is chosen: the run under way, else the work's latest", () => {
@@ -401,6 +408,7 @@ function listed(
     project: 'wf-agents',
     added: 0,
     dependsOn: [],
+    mainDependent: null,
     history: { first: { title: `${number}`, level: '2', dependsOn: [] }, changes: [] },
     work,
   };

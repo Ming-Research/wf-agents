@@ -25,6 +25,7 @@ use store::WorkNumber;
 use tokio::sync::Mutex;
 
 use super::api::{Check, Outcome};
+use super::app::stand_in;
 use super::fake::{Asked, Fake};
 use super::*;
 use crate::git::Place;
@@ -119,7 +120,8 @@ fn config(bare: &std::path::Path) -> Config {
         tool: Some(tool()),
         check: Some(crate::acts::words().check),
         fast_poll: Duration::from_millis(10),
-        token: None,
+        slow_poll: Duration::from_millis(10),
+        credential: None,
         withheld: Vec::new(),
         words: words(),
         installation: INSTALLATION,
@@ -288,9 +290,10 @@ fn branch(place: &Place) -> Branch<'_> {
 }
 
 /// A check, at its own link, with an id made of its name, so that jobs of two names never share one; one that ran to a
-/// conclusion took a minute, as GitHub's job would say, and any other has no time.
+/// conclusion took a minute and waited five seconds for a runner, as GitHub's job would say, and any other has no time.
 fn check(name: &str, outcome: Outcome) -> Check {
     let took = matches!(outcome, Outcome::Passed | Outcome::Failed(_)).then_some(60);
+    let queued = took.map(|_| 5);
     let id = (name.bytes()).fold(0u64, |id, b| id.wrapping_mul(257).wrapping_add(u64::from(b)));
     Check {
         id,
@@ -298,6 +301,7 @@ fn check(name: &str, outcome: Outcome) -> Check {
         outcome,
         url: Some(format!("https://github.example/checks/{name}")),
         took,
+        queued,
     }
 }
 
@@ -617,11 +621,13 @@ async fn a_skipped_job_fails_nothing_and_every_job_of_a_passing_check_is_given_w
     let jobs = vec![
         Check {
             took: Some(192),
+            queued: None,
             ..passed("page")
         },
         check("docs", Outcome::Skipped),
         Check {
             took: None,
+            queued: None,
             ..passed("lint")
         },
     ];
@@ -711,11 +717,11 @@ fn cancelled(hub: &Hub) -> Vec<u64> {
         .collect()
 }
 
-// A full run no runner took is the engine's own to cancel, and fails the round in passing: what stops it is no work's,
+// A full run no runner took is the engine's own to cancel, and is held, not failed: what stops it is no work's,
 // and asked for again after a wait it may start. A project that declares no workflows has no check, which only its
 // owner mends.
 #[tokio::test]
-async fn a_full_run_no_runner_took_is_cancelled_and_fails_in_passing_and_a_project_with_no_workflows_has_no_check() {
+async fn a_full_run_no_runner_took_is_cancelled_and_held_and_a_project_with_no_workflows_has_no_check() {
     let hub = queued::on_14900k(Hub::new());
     let head = hub.committed().await;
     hub.github().queue_runs();
@@ -732,7 +738,14 @@ async fn a_full_run_no_runner_took_is_cancelled_and_fails_in_passing_and_a_proje
             .ends_with("none of 14900k is online, and the engine cancelled the run"),
         "{failed}"
     );
-    assert_eq!(failed.kind, Some(Failure::Passing));
+    assert_eq!(failed.kind, Some(Failure::Held));
+    assert_eq!(
+        failed.hindrance,
+        Some(decide::Hindrance {
+            obstacle: decide::Obstacle::NoRunner,
+            retry: None
+        })
+    );
     assert_eq!(cancelled(&hub), [1000], "the run asked for is cancelled");
     let hub = Hub::new().with(|config| config.ci = None);
     let head = hub.committed().await;
@@ -981,11 +994,35 @@ async fn the_merge_refuses_a_main_that_moved_on_github_since_the_check() {
     );
 }
 
+// GitHub's limit on its requests, met as the check asks for the project's full workflows, only keeps the check from
+// running for now: the round of the check is held, with what kept it and when GitHub says it may be asked again; a
+// refusal no wait mends is not held.
+#[tokio::test]
+async fn a_limit_met_as_the_full_workflows_are_asked_for_holds_the_check_with_the_time_github_says() {
+    for (said, kind, hindrance) in [
+        (
+            "HTTP 429: API rate limit exceeded",
+            Failure::Held,
+            Some(decide::Hindrance {
+                obstacle: decide::Obstacle::Limit,
+                retry: Some(decide::Retry::In(60)),
+            }),
+        ),
+        ("HTTP 422: No ref found for: main", Failure::Other, None),
+    ] {
+        let hub = Hub::new();
+        let head = hub.committed().await;
+        hub.github().refuse_dispatch(said);
+        let failed = hub.failing(&head).await.expect_err("the check does not run");
+        assert_eq!((failed.kind, failed.hindrance), (Some(kind), hindrance), "{said}");
+    }
+}
+
 // What GitHub's answer to a merge tells is its kind: a fault of GitHub's own passes, a refusal waits for the owner.
 #[tokio::test]
 async fn a_merge_github_fails_in_passing_or_refuses_is_of_the_kind_its_answer_tells() {
     for (said, kind) in [
-        ("HTTP 502: Bad Gateway", Failure::Passing),
+        ("HTTP 502: Bad Gateway", Failure::Held),
         ("HTTP 405: At least 1 approving review is required", Failure::Other),
     ] {
         let hub = Hub::new();
@@ -1087,8 +1124,9 @@ fn filled(with: &With, protocol: &str, host: &str) -> String {
 
 #[test]
 fn the_token_goes_to_git_in_its_environment_for_github_over_https_alone() {
-    let hub = Hub::new().with(|config| config.token = Some("the-token".to_string()));
-    let with = hub.host.credentials();
+    let given = Credential::Given("the-token".to_string());
+    let hub = Hub::new().with(|config| config.credential = Some(given));
+    let with = GitHub::<Fake>::credentials(Some("the-token"));
     assert_eq!(
         with.settings[0], "credential.helper=",
         "the owner's own helpers are not asked"
@@ -1112,11 +1150,41 @@ fn the_token_goes_to_git_in_its_environment_for_github_over_https_alone() {
     assert!(filled(&with, "https", "github.com").contains("password=the-token\n"));
     assert!(!filled(&with, "https", "elsewhere.example").contains("the-token"));
     assert!(!filled(&with, "http", "github.com").contains("the-token"));
-    let none = Hub::new().host.credentials();
+    let none = GitHub::<Fake>::credentials(None);
     assert!(none.env.iter().all(|(name, _)| name != TOKEN));
     assert!(
         !format!("{:?}", hub.host.config).contains("the-token"),
         "the token is not shown"
+    );
+}
+
+/// 2026-11-26T12:00:00Z, in seconds since 1970.
+const NOON: u64 = 1_795_694_400;
+
+// Each push and fetch is given the token the engine's GitHub App gives as it is made; where the App gets none, git is
+// not run, and the fetch of main fails saying why, though the repository on disk would take it with no token at all.
+// A key made for the test and a stand-in for GitHub; a second or so.
+#[tokio::test]
+async fn git_is_given_the_apps_token_and_is_not_run_without_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let (app, _) = stand_in::app(dir.path(), stand_in::Set::at(NOON));
+    std::fs::write(dir.path().join("expires"), "2026-11-26T13:00:00Z").unwrap();
+    let hub = Hub::new().with(|config| config.credential = Some(Credential::App(app)));
+    let with = hub.host.network().await.expect("git is given a token");
+    assert!(
+        with.env.contains(&(TOKEN.to_string(), "ghs_given-1".to_string())),
+        "{:?}",
+        with.env.iter().map(|(name, _)| name).collect::<Vec<_>>()
+    );
+    assert!(hub.host.main().await.is_ok(), "main is fetched with it");
+    let refused = tempfile::tempdir().unwrap();
+    let (app, _) = stand_in::app(refused.path(), stand_in::Set::at(NOON));
+    std::fs::write(refused.path().join("refuse"), "401 Unauthorized").unwrap();
+    let hub = Hub::new().with(|config| config.credential = Some(Credential::App(app)));
+    let failed = hub.host.main().await.expect_err("no token, no fetch");
+    assert!(
+        failed.starts_with("GitHub gave the engine's GitHub App") && failed.contains("HTTP 401"),
+        "{failed}"
     );
 }
 
@@ -1127,32 +1195,36 @@ fn a_length_of_time_is_said_in_minutes_or_seconds() {
     assert_eq!(span(Duration::from_millis(300)), "0 seconds");
 }
 
+// GitHub as the settings say is reached as the engine's GitHub App they name, and is not made where they name none or
+// its key cannot be read: there is no other way to reach it. A key made for the test; a second or so.
 #[test]
-fn github_as_the_settings_say_needs_the_engines_token() {
+fn github_as_the_settings_say_needs_the_engines_app() {
     let repo = Repo::new("true");
     let text = "repository = \"owner/name\"\n";
     let github: settings::GitHub = toml::from_str(text).unwrap();
-    let none = GitHub::from_settings(
-        &github,
-        &repo.project,
-        &repo.data,
-        (INSTALLATION, machines()),
-        |_| None,
-        (None, &merging()),
-        (None, None, words()),
+    let clock: Arc<dyn service::Clock> = stand_in::Set::at(NOON);
+    let made = |app: Option<&settings::GitHubApp>, ci: Option<flow::agents::Ci>| {
+        GitHub::from_settings(
+            (&github, app),
+            &repo.project,
+            &repo.data,
+            (INSTALLATION, machines(), clock.clone()),
+            |_| None,
+            (ci, &merging()),
+            (None, None, words()),
+        )
+    };
+    let refused = made(None, None).err().expect("refused");
+    assert!(
+        refused.starts_with("github_app: the engine acts on GitHub as its GitHub App"),
+        "{refused}"
     );
-    let refused = none.err().expect("refused");
-    assert!(refused.contains("no WF_GITHUB_TOKEN"), "{refused}");
-    let given = |name: &str| (name == "WF_GITHUB_TOKEN").then(|| "the-token".to_string());
-    let host = GitHub::from_settings(
-        &github,
-        &repo.project,
-        &repo.data,
-        (INSTALLATION, machines()),
-        given,
-        (Some(ci()), &merging()),
-        (None, None, words()),
-    );
+    let keys = tempfile::tempdir().unwrap();
+    let missing = stand_in::settings(&keys.path().join("missing.pem"));
+    let refused = made(Some(&missing), None).err().expect("refused");
+    assert!(refused.starts_with("github_app.private_key: "), "{refused}");
+    let (key, _) = stand_in::key(keys.path());
+    let host = made(Some(&stand_in::settings(&key)), Some(ci()));
     let host = host.expect("made");
     let config = &host.config;
     assert_eq!(config.url, "https://github.com/owner/name.git");
@@ -1172,7 +1244,11 @@ fn github_as_the_settings_say_needs_the_engines_token() {
         Some(ci()),
         "the project's workflows are the project's declaration"
     );
-    assert_eq!(config.token.as_deref(), Some("the-token"));
+    assert!(
+        matches!(&config.credential, Some(Credential::App(_))),
+        "{:?}",
+        config.credential
+    );
     assert_eq!(config.installation, INSTALLATION);
     assert!(
         repo.data.join("gh").is_dir(),

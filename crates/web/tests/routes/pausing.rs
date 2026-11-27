@@ -4,7 +4,7 @@
 use axum::http::StatusCode;
 use serde_json::{Value, json};
 
-use crate::{get_json, post, running};
+use crate::{get_json, pass, post, running};
 
 /// An item of the trial flow, added paused, depending on none.
 fn item(title: &str) -> Value {
@@ -185,4 +185,67 @@ async fn a_pause_that_is_lifted_says_no_items_and_is_no_line_when_they_end_after
     let cancel = json!({ "why": "Not needed", "changes": [{ "kind": "cancel", "item": 1 }] });
     post(router, "/api/v1/items/changes", &cancel).await;
     assert_eq!(over(&get_json(router, "/api/v1/attention").await), vec![]);
+}
+
+// An item is added with its work paused and no round of it begun: the pause says so, as the first of its rounds, which the
+// summary gives, is none. Once a round has begun and the work is paused, the pause says a round has.
+#[tokio::test(start_paused = true)]
+async fn a_pause_says_whether_a_round_of_the_work_has_begun() {
+    let running = running();
+    let router = &running.router;
+    post(router, "/api/v1/items", &item("Greet")).await;
+    let page = get_json(router, "/api/v1/works/1").await;
+    assert_eq!(
+        (&page["summary"]["now"]["kind"], &page["summary"]["now"]["ran"]),
+        (&json!("paused"), &json!(false))
+    );
+    assert_eq!(page["summary"]["from"], Value::Null);
+    // Let on, its first round runs for a second and a half; the owner pauses it while it does.
+    assert_eq!(
+        post(router, "/api/v1/works/1/acts", &json!({ "kind": "resume" })).await,
+        (StatusCode::NO_CONTENT, Value::Null)
+    );
+    pass(500).await;
+    assert_eq!(
+        post(router, "/api/v1/works/1/acts", &json!({ "kind": "pause" })).await,
+        (StatusCode::NO_CONTENT, Value::Null)
+    );
+    pass(3000).await;
+    let page = get_json(router, "/api/v1/works/1").await;
+    let now = &page["summary"]["now"];
+    assert_eq!(
+        (&now["kind"], &now["by"], &now["ran"]),
+        (&json!("paused"), &json!("owner"), &json!(true))
+    );
+    assert!(
+        page["summary"]["from"].is_u64(),
+        "a round has begun: {}",
+        page["summary"]["from"]
+    );
+}
+
+// A round the engine would send back, which the owner's pause holds back, is a cell whose round is given again, as one
+// whose round failed is; a cell whose round is under way is running, and that does not change with the pause.
+#[tokio::test(start_paused = true)]
+async fn a_return_the_engine_sends_back_that_a_pause_holds_is_a_cell_to_be_given_again() {
+    let running = running();
+    let router = &running.router;
+    post(router, "/api/v1/items", &item("Greet")).await;
+    post(router, "/api/v1/works/1/acts", &json!({ "kind": "resume" })).await;
+    pass(500).await;
+    let page = get_json(router, "/api/v1/works/1").await;
+    assert_eq!(page["summary"]["cells"][0]["state"], "running");
+    post(router, "/api/v1/works/1/acts", &json!({ "kind": "pause" })).await;
+    // The plan's first round returns nothing, which the engine sends back; the pause holds the round it is given again.
+    pass(3000).await;
+    let page = get_json(router, "/api/v1/works/1").await;
+    assert_eq!(page["summary"]["now"]["kind"], "paused");
+    assert_eq!(
+        page["summary"]["cells"][0],
+        json!({ "cell": "plan", "state": "failed", "finished": 0, "record": null, "open": 1 })
+    );
+    // Let on, it is given the round again: it runs.
+    post(router, "/api/v1/works/1/acts", &json!({ "kind": "resume" })).await;
+    let page = get_json(router, "/api/v1/works/1").await;
+    assert_eq!(page["summary"]["cells"][0]["state"], "running");
 }

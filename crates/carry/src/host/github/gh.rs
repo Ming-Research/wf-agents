@@ -1,10 +1,11 @@
 //! GitHub asked with the `gh` command line: each question is one `gh api` call of GitHub's REST API, its answer read
 //! with the status GitHub gave it.
 //!
-//! `gh` is given, of the engine's environment, only what git is given of it, with the engine's token as `GH_TOKEN`
-//! and a directory of its own for its configuration, so that no login or setting the owner keeps for their own use of
-//! `gh` is read. The token is given in the environment alone, never as an argument, and nothing `gh` is given is said
-//! where it fails.
+//! `gh` is given, of the engine's environment, only what git is given of it, with a directory of its own for its
+//! configuration, so that no login or setting the owner keeps for their own use of `gh` is read; and each call is
+//! given, as `GH_TOKEN`, the token its credential gives for it, the engine's GitHub App's (the module `app`). Where the
+//! credential gives none, `gh` is not run, and the call fails saying why. The token is given in the environment alone,
+//! never as an argument, and nothing `gh` is given is said where it fails.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -13,6 +14,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use tokio::io::AsyncWriteExt;
 
+use super::Credential;
 use super::api::{Api, Check, File, Jobs, Layer, Listed, OPEN_PULLS, Outcome, Pull, Run, Runner, Runners, State};
 use crate::acts::failing::told_by_its_words;
 use crate::host::Failed;
@@ -25,7 +27,10 @@ pub struct Gh {
     command: String,
     /// The repository, as `owner/name`.
     repository: String,
+    /// What `gh` is given of the engine's environment, and its own variables, the token apart.
     env: Vec<(String, String)>,
+    /// What gives each call its token.
+    credential: Credential,
     /// How long a call may take before it is given up.
     limit: Duration,
 }
@@ -36,7 +41,7 @@ pub const LIMIT: Duration = Duration::from_secs(120);
 
 impl std::fmt::Debug for Gh {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // The environment holds the token.
+        // The credential is not shown.
         f.debug_struct("Gh")
             .field("command", &self.command)
             .field("repository", &self.repository)
@@ -49,9 +54,9 @@ impl std::fmt::Debug for Gh {
 /// neither); when it may be asked again where its headers say (any answer may say it, a 503's `Retry-After` as well);
 /// and the entity tag its headers give the answer, where they give one.
 #[derive(Debug, PartialEq, Eq)]
-struct Answer {
-    status: u16,
-    body: String,
+pub(super) struct Answer {
+    pub(super) status: u16,
+    pub(super) body: String,
     limited: bool,
     retry: Option<Retry>,
     tag: Option<String>,
@@ -62,13 +67,14 @@ struct Answer {
 const LIMIT_WAIT: u64 = 60;
 
 impl Gh {
-    /// `gh` as this command, in the repository `owner/name`, with the engine's token, keeping its configuration in
-    /// this directory.
-    pub fn new(command: &str, repository: &str, token: &str, config_dir: &Path) -> Gh {
+    /// `gh` as this command, in the repository `owner/name`, each call given the token this credential gives for it,
+    /// keeping its configuration in this directory.
+    pub fn new(command: &str, repository: &str, credential: Credential, config_dir: &Path) -> Gh {
         Gh {
             command: command.to_string(),
             repository: repository.to_string(),
-            env: environment(crate::programs::engine().iter().cloned(), token, config_dir),
+            env: environment(crate::programs::engine().iter().cloned(), config_dir),
+            credential,
             limit: LIMIT,
         }
     }
@@ -81,13 +87,14 @@ impl Gh {
     }
 
     /// Asks GitHub, with this body where one is given, and gives what it answered whatever its status; or why `gh`
-    /// gave no answer.
-    async fn ask(&self, method: &str, path: &str, body: Option<Value>) -> Result<Answer, String> {
+    /// gave no answer, or why the credential gave no token, in which case `gh` is not run.
+    async fn ask(&self, method: &str, path: &str, body: Option<Value>) -> Result<Answer, Failed> {
         self.ask_with(method, path, body, &[]).await
     }
 
     /// Asks GitHub as [`Gh::ask`] does, `gh` given these flags beside.
-    async fn ask_with(&self, method: &str, path: &str, body: Option<Value>, flags: &[&str]) -> Result<Answer, String> {
+    async fn ask_with(&self, method: &str, path: &str, body: Option<Value>, flags: &[&str]) -> Result<Answer, Failed> {
+        let token = self.credential.token().await?;
         let mut args = vec![
             "api",
             "--include",
@@ -107,6 +114,7 @@ impl Gh {
             .args(&args)
             .env_clear()
             .envs(self.env.iter().cloned())
+            .env(GH_TOKEN, &token)
             .stdin(if body.is_some() { Stdio::piped() } else { Stdio::null() })
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -132,27 +140,29 @@ impl Gh {
         let out = String::from_utf8_lossy(&output.stdout);
         match included(&out) {
             Some(answer) => Ok(answer),
-            None => Err(format!(
+            None => Err(Failed::from(format!(
                 "{} api {method} {path} gave no answer ({}): {}",
                 self.command,
                 output.status,
                 String::from_utf8_lossy(&output.stderr).trim_end()
-            )),
+            ))),
         }
     }
 
     /// Runs `gh` with these arguments, other than `api`, given up as an ask is; says what it said where it failed.
-    async fn run(&self, args: &[&str]) -> Result<(), String> {
+    async fn run(&self, args: &[&str]) -> Result<(), Failed> {
         self.output(args, self.limit).await.map(|_| ())
     }
 
     /// Runs `gh` with these arguments, other than `api`, given up after `limit`; gives what it printed, or what it said
-    /// where it failed.
-    async fn output(&self, args: &[&str], limit: Duration) -> Result<String, String> {
+    /// where it failed, or why the credential gave no token, in which case `gh` is not run.
+    async fn output(&self, args: &[&str], limit: Duration) -> Result<String, Failed> {
+        let token = self.credential.token().await?;
         let child = crate::programs::command(&self.command)
             .args(args)
             .env_clear()
             .envs(self.env.iter().cloned())
+            .env(GH_TOKEN, &token)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -171,12 +181,12 @@ impl Gh {
         if output.status.success() {
             return Ok(String::from_utf8_lossy(&output.stdout).into_owned());
         }
-        Err(format!(
+        Err(Failed::from(format!(
             "{} {} failed: {}",
             self.command,
             args[..2].join(" "),
             String::from_utf8_lossy(&output.stderr).trim_end()
-        ))
+        )))
     }
 
     /// Whether the repository's owner is an organisation, which has runners of its own to list.
@@ -218,7 +228,13 @@ impl Gh {
     }
 
     /// As [`Gh::want`], the body read as JSON.
-    async fn json(&self, method: &str, path: &str, body: Option<Value>, ok: &[u16]) -> Result<Value, Failed> {
+    pub(super) async fn json(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<Value>,
+        ok: &[u16],
+    ) -> Result<Value, Failed> {
         let body = self.want(method, path, body, ok).await?;
         serde_json::from_str(&body).map_err(|e| format!("GitHub's answer to {method} {path} is not JSON: {e}").into())
     }
@@ -383,8 +399,10 @@ impl Api for Gh {
         let ran = self.run(&args).await;
         let files = match ran {
             Ok(()) => files_under(&dir, "").map_err(Failed::from),
-            Err(why) if why.contains("no artifact") || why.contains("no valid artifact") => Ok(Vec::new()),
-            Err(why) => Err(told_by_the_command(why)),
+            Err(why) if why.why.contains("no artifact") || why.why.contains("no valid artifact") => Ok(Vec::new()),
+            // The credential gave no token, and said of what kind its failure is.
+            Err(why) if why.kind.is_some() => Err(why),
+            Err(why) => Err(told_by_the_command(why.why)),
         };
         let _ = tokio::fs::remove_dir_all(&dir).await;
         let files = files?;
@@ -501,11 +519,13 @@ pub(crate) fn closing(repository: &str, number: u64, comment: &str) -> [Request;
     ]
 }
 
-/// The environment `gh` is given: of the engine's, what git is given of it; then the token, a directory of its own
-/// for its configuration, and no prompt, no notice of a newer version and no colour.
+/// The variable `gh` takes its token from.
+const GH_TOKEN: &str = "GH_TOKEN";
+
+/// The environment `gh` is given beside the token of each call: of the engine's, what git is given of it; then a
+/// directory of its own for its configuration, and no prompt, no notice of a newer version and no colour.
 pub(crate) fn environment(
     engine: impl IntoIterator<Item = (String, String)>,
-    token: &str,
     config_dir: &Path,
 ) -> Vec<(String, String)> {
     let kept = |name: &str| crate::cli::KEPT.contains(&name) || name.starts_with("LC_");
@@ -513,7 +533,6 @@ pub(crate) fn environment(
     env.sort();
     let dir: PathBuf = config_dir.to_path_buf();
     env.extend([
-        ("GH_TOKEN".to_string(), token.to_string()),
         ("GH_CONFIG_DIR".to_string(), dir.to_string_lossy().into_owned()),
         ("GH_PROMPT_DISABLED".to_string(), "1".to_string()),
         ("GH_NO_UPDATE_NOTIFIER".to_string(), "1".to_string()),
@@ -523,7 +542,8 @@ pub(crate) fn environment(
 }
 
 /// What `gh api --include` printed, read as GitHub's answer: the status line, the headers, an empty line, the body.
-fn included(out: &str) -> Option<Answer> {
+/// `curl --include` prints an answer in the same form.
+pub(super) fn included(out: &str) -> Option<Answer> {
     let (head, body) = (out.split_once("\r\n\r\n")).or_else(|| out.split_once("\n\n"))?;
     let mut lines = head.lines();
     let status: u16 = lines.next()?.split_whitespace().nth(1)?.parse().ok()?;
@@ -559,7 +579,7 @@ fn included(out: &str) -> Option<Answer> {
 /// (429, or another refusal that says it limits them) passes by itself, and only keeps what asked from being done for
 /// now, with when it may be asked again where GitHub says; a limit that says nothing of when is not asked again for at
 /// least a minute ([`LIMIT_WAIT`]); any other is a refusal no wait mends, whatever its words.
-fn refused(answer: &Answer) -> Failed {
+pub(super) fn refused(answer: &Answer) -> Failed {
     let why = refusal(answer);
     if answer.status >= 500 {
         Failed::held(why, Obstacle::Fault, answer.retry)
@@ -652,13 +672,21 @@ fn pull(value: &Value) -> Result<Pull, String> {
 fn run(run: &Value) -> Option<Run> {
     let status = run["status"].as_str();
     let completed = status == Some("completed");
+    let cancelled = completed && run["conclusion"].as_str() == Some("cancelled");
+    let took = match completed && !cancelled {
+        true => (run["run_started_at"].as_str())
+            .zip(run["updated_at"].as_str())
+            .and_then(|(from, to)| seconds_between(from, to)),
+        false => None,
+    };
     Some(Run {
         id: run["id"].as_u64()?,
         title: run["display_title"].as_str().unwrap_or_default().to_string(),
         started: matches!(status, Some("in_progress" | "completed")),
         completed,
-        cancelled: completed && run["conclusion"].as_str() == Some("cancelled"),
+        cancelled,
         url: run["html_url"].as_str().unwrap_or_default().to_string(),
+        took,
     })
 }
 
@@ -692,12 +720,22 @@ fn job(job: &Value) -> Option<Check> {
             .and_then(|(from, to)| seconds_between(from, to)),
         _ => None,
     };
+    // A job that a runner took has waited from when GitHub created it to when it started; one that did not run, or has
+    // not been taken, has not.
+    let queued = match outcome {
+        Outcome::Passed | Outcome::Failed(_) | Outcome::Pending | Outcome::Broken(_) => job["created_at"]
+            .as_str()
+            .zip(job["started_at"].as_str())
+            .and_then(|(from, to)| seconds_between(from, to)),
+        _ => None,
+    };
     Some(Check {
         id: job["id"].as_u64()?,
         name: job["name"].as_str()?.to_string(),
         outcome,
         url: job["html_url"].as_str().map(str::to_string),
         took,
+        queued,
     })
 }
 
@@ -709,7 +747,7 @@ fn seconds_between(from: &str, to: &str) -> Option<u64> {
 
 /// The seconds from 1970-01-01T00:00:00Z to a timestamp in the form GitHub gives, `YYYY-MM-DDTHH:MM:SSZ`; none for a
 /// timestamp in any other form or of a day that does not exist.
-fn epoch(stamp: &str) -> Option<i64> {
+pub(super) fn epoch(stamp: &str) -> Option<i64> {
     let bytes = stamp.as_bytes();
     let shaped = bytes.len() == 20
         && [(4, b'-'), (7, b'-'), (10, b'T'), (13, b':'), (16, b':'), (19, b'Z')]

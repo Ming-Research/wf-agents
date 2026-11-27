@@ -540,6 +540,10 @@ fn a_work_that_ends_keeps_what_its_time_went_to_which_a_later_install_leaves_as_
     let kept = h.d().work(work).expect("the work is there").work.kept_time.clone();
     assert_eq!(kept.len(), 1, "kept once, as it ended");
     assert!(!kept[0].stretches.is_empty());
+    assert!(
+        kept[0].separated,
+        "what is kept now tells a wait for a slot apart from the others"
+    );
     h.install(vec![followed()]);
     assert_eq!(h.d().work(work).expect("the work is there").work.kept_time, kept);
 }
@@ -629,6 +633,7 @@ fn a_usage_limit_met_by_a_work_that_ended_on_an_earlier_version_still_stands() {
         why: "You've hit your limit".to_string(),
         failure: decide::run::Failure::UsageLimit,
         resets: Some(resets),
+        hindrance: None,
         spent,
     };
     h.on(a, failed);

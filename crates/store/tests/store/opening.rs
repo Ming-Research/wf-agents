@@ -22,7 +22,7 @@ fn a_new_file_is_made_with_the_schema_its_version_and_a_write_ahead_log() {
     assert_eq!(store.works(), Ok(vec![]));
     let tables: BTreeSet<String> = dump(&db.path).into_keys().collect();
     assert_eq!(tables, schema_tables());
-    assert_eq!(tables.len(), 66);
+    assert_eq!(tables.len(), 68);
     let file = Connection::open(&db.path).expect("the database opens");
     let version: u32 = (file.query_row("SELECT version FROM schema_version", [], |row| row.get(0))).expect("a version");
     assert_eq!(version, SCHEMA_VERSION);
@@ -177,6 +177,16 @@ pub(crate) fn before_unpriced(work: &mut Work) {
     }
     for fork in &mut work.forked {
         fork.unpriced = false;
+    }
+}
+
+/// A work as a file made before version 39 of the schema holds it: no job of a run of the CI says how long it waited for
+/// a runner, which no column kept.
+pub(crate) fn before_jobs_said_how_long_they_queued(work: &mut Work) {
+    for timed in &mut work.timed {
+        for job in &mut timed.reading.jobs {
+            job.queued_millis = None;
+        }
     }
 }
 

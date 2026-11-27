@@ -26,10 +26,10 @@ The items form one tree by what depends on what: where one item depends on anoth
 - replaced: A grey padlock on a card with the count of the open items it depends on was on main; the owner changed it, because everything an item waits for stands under it, so the count only said again what the tree shows.
 
 ### decision an-item-stands-in-one-place
-An item stands whole in one place, under the lowest-numbered item of its own project that depends on it; under each other item that depends on it, a shadow of it points there.
+An item stands whole under its main dependent, the item whose dependency on it the store keeps as main, where it is of its own project; under each other item that depends on it, a shadow points there.
 - rejected: an agent proposed a count, on the item, of the other items that depend on it; the owner rejected it, because a count does not say which they are.
 - rejected: an agent proposed linking the item to the others that depend on it only while the pointer is on it; the owner rejected it, because the link could not be found without pointing at the item.
-- replaced: A main dependent chosen for each item was on main; the owner changed it, because the code takes the lowest-numbered one, and a decision never runs ahead of the code.
+- replaced: An item standing under the lowest-numbered item of its own project that depends on it was on main; the owner changed it, because every item depended on has exactly one main dependency at all times, which the rebuild had lost, and the lowest number put open work under a cancelled item.
 
 ### decision an-ended-item-stands-where-it-stood
 A done or cancelled item stands under the item that depends on it, by the rule every item stands by; the tree works out no place of its own from the items' changes.
@@ -69,6 +69,10 @@ A card writes the lines its work added and removed, `+210 −40`, on its second 
 An item that delivers is not a card: it has no box and no fill, only its number and its title over a line, like a heading.
 - rejected: an agent proposed the card as it was, with a small diamond before the title; the owner rejected it, because the diamond changes the least and so stands out the least, while a heading with no frame reads plainly in light and in dark.
 
+### decision a-pause-and-a-wait-are-one-grey-and-the-card-says-which
+A card of a paused work and a card of a waiting work are the same grey, neither needing the owner; pointing at a card says the engine's state word and its cell, so that the two are told apart there.
+- rejected: an agent proposed a colour of its own for a waiting work; the owner rejected it, because a stopped work that needs no one is one meaning and so one colour (principle colour-only-for-state), and the legend, map, cards and System view would all carry it.
+
 ### decision a-card-stands-still
 No card gets a ring or moves because of its work's state: a work under way, in a round or in a call the engine runs, shows by its cell's pulse and by the lit way to its root.
 - replaced: Red rings breathing round a card that waits for the owner was on main; the owner changed it, because the red background and its glow looked bad.
@@ -89,6 +93,10 @@ The selected item and the item under the pointer stand in a soft light, a blurre
 Three check boxes right of the map, Open, Done and Cancelled, one under another, choose which items every tree shows: only Open at first, and the choice is kept in the browser.
 - replaced: One switch, Open or All, was on main; the owner changed it, because done or cancelled items alone could not be shown with it.
 - replaced: A place under the map was on main; the owner changed it, because the list of the projects took that place.
+
+### decision an-empty-tree-says-why
+Where the tree of the project shown draws no item, the console says beside the boxes that the project has none, or how many items the boxes hide and which boxes to tick to see them.
+- rejected: an agent proposed saying it only where the project has no item, leaving the tree blank where the boxes hide every item; the owner rejected it, because that blank still left the owner guessing whether the page was broken (principle nothing-passes-for-normal).
 
 ### decision an-item-is-brought-just-into-view
 Selecting an item that is off the screen, or half under the window, moves the tree only until the item is wholly in the part of the view the window leaves free.

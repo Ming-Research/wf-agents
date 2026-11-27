@@ -16,6 +16,7 @@ import type {
   ProjectSettings,
   SettingsKey,
   SettingsPage,
+  Occupancy,
   System,
   Week,
 } from './api';
@@ -100,6 +101,14 @@ export function fixtureSystem(starts: number[], projects: number | null = null):
   const cancelled = items.filter((i) => i.work.now.kind === 'cancelled');
   const halted = items.find((i) => i.work.now.kind === 'paused' && i.work.now.by === 'engine');
   const weeks = starts.length;
+  const occupancy = (taking: number, running: number): Occupancy => ({
+    takingAvg: taking,
+    takingPeak: 3,
+    runningAvg: running,
+    runningPeak: 4,
+    slots: 3,
+    recorded: true,
+  });
   const week = (n: number): Week => ({
     start: starts[n],
     spent: n === weeks - 1 ? spent : nothing(),
@@ -108,6 +117,11 @@ export function fixtureSystem(starts: number[], projects: number | null = null):
     added: n === weeks - 1 ? items.length : 0,
     sentBack: 0,
     failed: n === weeks - 1 && halted ? 1 : 0,
+    waited: {
+      totalMs: n === weeks - 1 ? [7_200_000, 1_800_000, 900_000, 600_000, 3_600_000] : [0, 0, 0, 0, 0],
+      ciMs: n === weeks - 1 ? 1_500_000 : 0,
+      occupancy: n === weeks - 1 ? occupancy(2400, 2900) : occupancy(0, 0),
+    },
   });
   return {
     now,
@@ -161,6 +175,27 @@ export function fixtureSystem(starts: number[], projects: number | null = null):
       : [],
     past: [],
     underWay: [],
+    waited: {
+      by: [
+        { reason: 'owner', stops: 6, totalMs: 7_200_000, medianMs: 1_200_000, longestMs: 3_000_000 },
+        { reason: 'items', stops: 2, totalMs: 1_800_000, medianMs: 900_000, longestMs: 1_200_000 },
+        { reason: 'slot', stops: 9, totalMs: 900_000, medianMs: 60_000, longestMs: 300_000 },
+        { reason: 'turn', stops: 1, totalMs: 600_000, medianMs: 600_000, longestMs: 600_000 },
+        { reason: 'paused', stops: 3, totalMs: 3_600_000, medianMs: 1_200_000, longestMs: 2_400_000 },
+      ],
+      unseparated: { stops: 4, totalMs: 1_200_000, medianMs: 300_000, longestMs: 600_000 },
+      ci: {
+        stops: 5,
+        totalMs: 1_500_000,
+        medianMs: 240_000,
+        longestMs: 540_000,
+        jobs: 12,
+        queuedMedianMs: 20_000,
+        queuedLongestMs: 180_000,
+      },
+      occupancy: occupancy(2400, 2900),
+      uncounted: 1,
+    },
   };
 }
 
@@ -247,7 +282,7 @@ export function fixtureProjects(): ProjectSettings[] {
           leftOut: false,
           keys: [
             key('repository', '"owner/wf-agents"'),
-            key('token_env', '"WF_GITHUB_TOKEN"'),
+            key('remote', '"upstream"'),
             key('runners', '["github", "14900k"]'),
           ],
         },

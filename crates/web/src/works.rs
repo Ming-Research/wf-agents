@@ -162,6 +162,8 @@ pub enum Until {
 pub enum Failure {
     /// In passing: tried again after a wait.
     Passing,
+    /// The host only kept the engine's act from running for now: waited out, counted as no failure.
+    Held,
     /// What came back could not be read: sent back.
     Unread,
     /// The service's safety check flagged it: tried again in a new session of its line.
@@ -201,6 +203,10 @@ pub struct Item {
     pub added: u64,
     /// The items it depends on, in the order of their numbers.
     pub depends_on: Vec<u64>,
+    /// The item whose dependency on it is its main one, as the store keeps them: the one the owner's page draws it
+    /// whole under, a shadow of it standing under each other item that depends on it; none where no item depends on
+    /// it.
+    pub main_dependent: Option<u64>,
     /// The tags it carries, in the order of their names.
     #[serde(default)]
     pub tags: Vec<String>,
@@ -212,6 +218,51 @@ pub struct Item {
     pub history: ItemHistory,
     /// The one work done for it, which was added with it.
     pub work: Summary,
+}
+
+/// The dependencies between an item and the others, both ways, each with whether it is the main one of the item
+/// depended on: the one the owner's page draws that item whole under.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Dependencies {
+    /// The items it depends on, in the order of their numbers, each with whether its dependency on that item is that
+    /// item's main one.
+    pub on: Vec<Dependency>,
+    /// The items that depend on it, in the order of their numbers, each with whether that item's dependency on it is
+    /// its main one.
+    pub by: Vec<Dependency>,
+}
+
+/// A dependency between an item and another, by the other's number, and whether it is the main one of the item
+/// depended on.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Dependency {
+    pub item: u64,
+    pub main: bool,
+}
+
+impl Dependencies {
+    /// The dependencies of the item, as the driver holds the items and the main dependencies.
+    pub fn of(item: &store::Item, driver: &Driver) -> Dependencies {
+        let number = item.number;
+        let on = (item.depends_on.iter())
+            .map(|on| Dependency {
+                item: on.0,
+                main: driver.main_dependent(*on) == Some(number),
+            })
+            .collect();
+        let main = driver.main_dependent(number);
+        let mut by: Vec<Dependency> = (driver.works())
+            .filter(|kept| kept.item.depends_on.contains(&number))
+            .map(|kept| Dependency {
+                item: kept.item.number.0,
+                main: main == Some(kept.item.number),
+            })
+            .collect();
+        by.sort_by_key(|dependency| dependency.item);
+        Dependencies { on, by }
+    }
 }
 
 /// What an item continues: a branch of its project's repository, or a pull request on its host, whose head its work
@@ -295,6 +346,8 @@ pub enum ItemChanged {
     DependsOn { item: u64 },
     /// It no longer depends on this item.
     NoLongerDependsOn { item: u64 },
+    /// Its dependency on this item became that item's main one.
+    Main { item: u64 },
     /// It came to carry this tag.
     Tagged { tag: String },
     /// It no longer carries this tag.
@@ -350,8 +403,9 @@ pub struct Summary {
     /// ran most of the cell, `t` where an engine cell's rounds or the tools' calls did; where less than half of it was
     /// run by either, what the work waited for at the cell's middle, on the records as they stood then: `o` where it
     /// waited on the owner, as the one definition of that says ([`driver::owner`]), `p` where a pause held it, its own
-    /// or the owner's pause of everything, `w` where it waited for the items its item depends on, and `.` anything
-    /// else, a stalled work among it; empty for a work with no round or a span with no length.
+    /// or the owner's pause of everything, `w` where it waited for the items its item depends on, `q` where it waited
+    /// for its project's turn to check and merge, `s` where it waited for a slot, and `.` anything else, a stalled work
+    /// among it; empty for a work with no round or a span with no length.
     #[serde(default)]
     pub bar: String,
     /// How many of its rounds were given back what the round before handed in, sent back as it did not do.
@@ -541,6 +595,12 @@ impl Wait {
     }
 }
 
+/// What a pause of a work that a build before `ran` was said wrote reads as: it has run, so that no work is said to be
+/// not started on a record that did not say.
+fn ran() -> bool {
+    true
+}
+
 /// How many equal cells a work's time bar is cut into.
 const BAR_CELLS: u64 = 96;
 
@@ -574,11 +634,14 @@ pub enum Now {
     /// it would do next is begin a round there, or, where it is stalled and its own pause holds it, it stands there. An
     /// engine of a build before the cell was said gives none, read as empty. The owner's pause may say why, and the
     /// items it waits for to merge or be cancelled, `waits_for`, of which `open` are those that have not yet: with
-    /// `waits_for` and no `open`, what it waited for is over, and only the owner lets the work on.
+    /// `waits_for` and no `open`, what it waited for is over, and only the owner lets the work on. `ran` is whether a
+    /// round of it has begun, which is when the work has begun; a record of a build before it was said reads as run.
     Paused {
         #[serde(default)]
         at: String,
         by: Pauser,
+        #[serde(default = "ran")]
+        ran: bool,
         why: Option<String>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         waits_for: Vec<u64>,
@@ -588,10 +651,13 @@ pub enum Now {
     /// The pause of everything holds it back, and what it would do next is begin a round at this cell; its own pause
     /// does not hold it. `by` is who set it: the owner, or the engine as it started with works going on, which holds
     /// every work until the owner lifts it. An engine of a build before the cell was said gives none, read as empty.
+    /// `ran` is as it is of [`Now::Paused`].
     Everything {
         #[serde(default)]
         at: String,
         by: Pauser,
+        #[serde(default = "ran")]
+        ran: bool,
     },
     /// It waits at this cell, for each of these.
     Waits { at: String, on: Vec<Waited> },
@@ -785,9 +851,13 @@ pub enum Call {
     Question { who: Person, question: String },
     /// The run reached a limit: the owner lets it go on or cancels the work.
     AtLimit { limit: Limit },
-    /// The engine waits until this time before the run's last round, which failed in passing, the `failed`th time in
-    /// a row, is tried again.
-    Wait { until: u64, failed: u32 },
+    /// The engine waits until this time before the run's last round, which failed in passing or which the host only
+    /// kept from running for now, the `failed`th time in a row, is tried again; in the second case, what kept it.
+    Wait {
+        until: u64,
+        failed: u32,
+        obstacle: Option<Obstacle>,
+    },
 }
 
 /// The limit a run reached.
@@ -826,8 +896,9 @@ pub enum CellState {
     /// Its run is at rest: for a call's result, or only for its next round, which may wait for the project's turn to
     /// check and merge.
     Resting,
-    /// Its run's last round failed: the run is at rest, and its next round, once the work is let on, is that round
-    /// again.
+    /// Its run's next round, once the work is let on, is its last round again: that round failed, or what it returned
+    /// the engine sends back. The run is at rest, and whatever holds the round back, a pause among it, does not change
+    /// this.
     Failed,
     /// Its condition is not met, and it never finished a run.
     Skipped,
@@ -905,6 +976,9 @@ pub struct WorkPage {
     pub tags: Vec<String>,
     /// What its item was as it was added, and each change made to it since, as [`Item`] has them.
     pub history: ItemHistory,
+    /// What its item depends on and what depends on it, each with whether it is the main dependency of the item
+    /// depended on.
+    pub dependencies: Dependencies,
     /// The version of its flow it runs on, as its outline has it: what its history, its card and its talk with the
     /// owner are drawn from, a work going on and one that ended alike (decision `a-works-past-is-drawn-from-its-outline`).
     pub outline: OutlineView,
@@ -1731,6 +1805,9 @@ pub enum ChangeAsked {
     DependsOn { item: u64, on: u64 },
     /// The item no longer depends on this one, until its work ends.
     NoLongerDependsOn { item: u64, on: u64 },
+    /// The item's dependency on this one becomes that one's main one, until the item's work ends: the owner's page
+    /// draws that one whole under the item.
+    Main { item: u64, on: u64 },
     /// The item comes to carry this tag.
     Tag { item: u64, tag: String },
     /// The item no longer carries this tag.
@@ -1760,6 +1837,7 @@ impl ChangeAsked {
             | ChangeAsked::Level { item, .. }
             | ChangeAsked::DependsOn { item, .. }
             | ChangeAsked::NoLongerDependsOn { item, .. }
+            | ChangeAsked::Main { item, .. }
             | ChangeAsked::Tag { item, .. }
             | ChangeAsked::Untag { item, .. }
             | ChangeAsked::Continues { item, .. }
@@ -1787,6 +1865,7 @@ impl ChangeAsked {
             )),
             ChangeAsked::DependsOn { on, .. } => Asked::Item(C::DependsOn(ItemNumber(on))),
             ChangeAsked::NoLongerDependsOn { on, .. } => Asked::Item(C::NoLongerDependsOn(ItemNumber(on))),
+            ChangeAsked::Main { on, .. } => Asked::Item(C::Main(ItemNumber(on))),
             ChangeAsked::Tag { tag, .. } => Asked::Item(C::Tagged(tag)),
             ChangeAsked::Untag { tag, .. } => Asked::Item(C::Untagged(tag)),
             ChangeAsked::Continues { continues, .. } => Asked::Item(C::Continues(continues.map(Continues::kept))),
@@ -2274,6 +2353,7 @@ impl Item {
             project: kept.item.project.clone(),
             added: kept.item.added.0,
             depends_on: kept.item.depends_on.iter().map(|on| on.0).collect(),
+            main_dependent: driver.main_dependent(kept.item.number).map(|main| main.0),
             tags: kept.item.tags.clone(),
             continues: kept.item.continues.as_ref().map(Continues::of),
             history: ItemHistory::of(kept.item),
@@ -2313,6 +2393,7 @@ impl ItemChanged {
             store::ItemChange::Level(level) => ItemChanged::Level { level: level.clone() },
             store::ItemChange::DependsOn(on) => ItemChanged::DependsOn { item: on.0 },
             store::ItemChange::NoLongerDependsOn(on) => ItemChanged::NoLongerDependsOn { item: on.0 },
+            store::ItemChange::Main(on) => ItemChanged::Main { item: on.0 },
             store::ItemChange::Tagged(tag) => ItemChanged::Tagged { tag: tag.clone() },
             store::ItemChange::Untagged(tag) => ItemChanged::Untagged { tag: tag.clone() },
             store::ItemChange::Continues(continues) => ItemChanged::Continues {
@@ -2389,7 +2470,9 @@ impl Summary {
                         (Some(open), ..) if open.under_way && engine(&cell.cell) => CellState::Calling,
                         (Some(open), ..) if open.under_way => CellState::Running,
                         _ if calling == Some(cell.cell.as_str()) => CellState::Calling,
-                        (Some(open), ..) if failed(work, open.run) => CellState::Failed,
+                        (Some(open), ..) if failed(work, open.run) || driver.sends_back(number, open.run) => {
+                            CellState::Failed
+                        }
                         (Some(_), ..) => CellState::Resting,
                         (None, applies, record) => settled(applies, record.is_some(), !cell.needs.is_empty()),
                     },
@@ -2558,28 +2641,32 @@ fn levels_of(
 /// What holds every work at once, as the bar reads it at a moment: each stretch the pause of everything held, from the
 /// store's record of every pause set and lifted; each stretch a stop of the engine stood, from its record of each stop
 /// and each start after one; each wait in which the agents' command line could not run, from the rounds that failed so
-/// and the next round of an agent that began, and the one that stands now, from when it began; and each stretch each
-/// work of a project held the turn to check and merge, by the project and the work, as the work kept it or as it is
-/// worked out.
-struct HeldAll {
-    everything: Vec<driver::Span>,
-    stops: Vec<driver::StopSpan>,
-    cannot_run: Vec<driver::CannotRun>,
-    turns: Vec<(Option<String>, store::WorkNumber, Vec<work::TurnSpan>)>,
+/// and the next round of an agent that began, and the one that stands now, from when it began; each stretch a cause
+/// every work shares held the rounds of agents, read the same way; and each stretch each work of a project held the
+/// turn to check and merge, by the project and the work, as the work kept it or as it is worked out.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct HeldAll {
+    pub(crate) everything: Vec<driver::Span>,
+    pub(crate) stops: Vec<driver::StopSpan>,
+    pub(crate) cannot_run: Vec<driver::CannotRun>,
+    pub(crate) down: Vec<driver::Down>,
+    pub(crate) turns: Vec<(Option<String>, store::WorkNumber, Vec<work::TurnSpan>)>,
 }
 
 impl HeldAll {
-    fn of(driver: &Driver, at_once: &driver::AtOnce) -> HeldAll {
+    pub(crate) fn of(driver: &Driver, at_once: &driver::AtOnce) -> HeldAll {
+        let (cannot_run, down) = driver.shared_waits(at_once);
         HeldAll {
             everything: driver.everything_spans().to_vec(),
             stops: driver.stop_spans(),
-            cannot_run: driver.cannot_runs(at_once),
+            cannot_run,
+            down,
             turns: driver.turn_spans(),
         }
     }
 
     /// Each stretch another work of the work's project held the turn, which the work's own bar is read by.
-    fn turns_of_others(&self, kept: &Kept<'_>) -> Vec<work::TurnSpan> {
+    pub(crate) fn turns_of_others(&self, kept: &Kept<'_>) -> Vec<work::TurnSpan> {
         let (project, number) = (kept.item.project.as_ref(), kept.head.number);
         (self.turns.iter())
             .filter(|(of, work, _)| of.as_ref() == project && *work != number)
@@ -2612,6 +2699,7 @@ impl<'a> TimeOf<'a> {
                 &all.everything,
                 &all.stops,
                 &all.cannot_run,
+                &all.down,
                 all.turns_of_others(&kept),
                 now,
             )));
@@ -2654,6 +2742,9 @@ fn mark(went: Went) -> char {
         Went::Paused | Went::Stopping => 'p',
         Went::Items => 'w',
         Went::Turn => 'q',
+        // A wait for a slot has a character of its own, which the page draws as it draws what nothing says, saying on
+        // pointing at it what it is.
+        Went::Slot => 's',
         Went::Other => '.',
     }
 }
@@ -2793,7 +2884,11 @@ impl Now {
         // Held by the pause of everything, which holds while the driver says it holds the work.
         let everything = |at: &CellId| -> Result<Now, Broken> {
             let by = (outages.everything).ok_or_else(|| Broken("the pause of everything holds no work".to_string()))?;
-            Ok(Now::Everything { at: at.to_string(), by })
+            Ok(Now::Everything {
+                at: at.to_string(),
+                by,
+                ran: ran_a_round(work),
+            })
         };
         // The wait that holds the rounds of a cell now: the agents' for an agent's, the host's for an act's.
         let holding = |cell: &CellId| {
@@ -2974,6 +3069,7 @@ impl Now {
         Ok(Now::Paused {
             at: at.to_string(),
             by: Pauser::of(pause.by),
+            ran: ran_a_round(work),
             why: pause.why.clone(),
             waits_for: pause.waits_for.clone(),
             open: open.iter().map(|item| item.0).collect(),
@@ -3327,6 +3423,7 @@ impl WorkPage {
             project: kept.item.project.clone(),
             tags: kept.item.tags.clone(),
             history: ItemHistory::of(kept.item),
+            dependencies: Dependencies::of(kept.item, driver),
             outline: OutlineView::of(kept.on.outline(), &kept.flow.card, records, &|id| {
                 kept.came_from(id).cloned()
             }),
@@ -3676,6 +3773,11 @@ fn said_to(work: &Work, block: &BlockId, at: Seq) -> Option<String> {
         .and_then(|w| w.said_to.as_ref().map(|c| c.0.clone()))
 }
 
+/// Whether a round of the work has begun: the same fact as the first of its rounds having a time ([`Summary::from`]).
+fn ran_a_round(work: &Work) -> bool {
+    !work.records.rounds.is_empty()
+}
+
 /// Whether the run's last round that ended failed.
 fn failed(work: &Work, run: RunId) -> bool {
     let ended = work.records.returned.iter().filter(|r| r.run == run).count();
@@ -3722,6 +3824,23 @@ fn held_call(work: &Work, call: CallId) -> Option<HeldCall> {
     })
 }
 
+/// What kept the host from running the act's round that the engine's wait is for, where the round the wait follows was
+/// one it only kept from running for now.
+fn wait_obstacle(work: &Work, wait: CallId) -> Option<Obstacle> {
+    let called = work.records.called.iter().find(|called| called.call == wait)?;
+    let ended = (work.records.returned.iter())
+        .filter(|returned| returned.run == called.run && returned.at < called.at)
+        .count();
+    match work.back.get(&(called.run, ended)) {
+        Some(BackOf::Failed {
+            failure: FailureOf::Held,
+            hindrance: Some(hindrance),
+            ..
+        }) => Some(Obstacle::of(hindrance.obstacle)),
+        _ => None,
+    }
+}
+
 /// What the call is.
 fn call_of(work: &Work, call: CallId) -> Result<Call, Broken> {
     Ok(match work.calls.get(&call) {
@@ -3738,6 +3857,7 @@ fn call_of(work: &Work, call: CallId) -> Result<Call, Broken> {
         Some(CallOf::Wait { until, failed }) => Call::Wait {
             until: until.0,
             failed: *failed,
+            obstacle: wait_obstacle(work, call),
         },
         None => return Err(Broken(format!("call {} is not held", call.0))),
     })
@@ -3900,7 +4020,9 @@ pub(crate) fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
                         })
                         .collect(),
                 },
-                BackOf::Failed { why, failure, resets } => Back::Failed {
+                BackOf::Failed {
+                    why, failure, resets, ..
+                } => Back::Failed {
                     why: why.clone(),
                     failure: Failure::of(*failure),
                     resets: resets.map(|at| at.0),
@@ -4087,6 +4209,7 @@ impl Failure {
     fn of(failure: FailureOf) -> Failure {
         match failure {
             FailureOf::Passing => Failure::Passing,
+            FailureOf::Held => Failure::Held,
             FailureOf::Unread => Failure::Unread,
             FailureOf::Flagged => Failure::Flagged,
             FailureOf::Guarded => Failure::Guarded,
@@ -4780,6 +4903,7 @@ pub(crate) mod tests {
             everything: Vec::new(),
             stops: Vec::new(),
             cannot_run: Vec::new(),
+            down: Vec::new(),
             turns: Vec::new(),
         };
         let third = (BAR_CELLS / 3) as usize;
@@ -5075,6 +5199,7 @@ pub(crate) mod tests {
                 why: "it broke".to_string(),
                 failure: Failure::Other,
                 resets: None,
+                hindrance: None,
                 spent: work::Spent::default(),
             };
             engine::handle(&flow, &mut work, Time(t), failed).expect("the round fails");
@@ -5096,6 +5221,7 @@ pub(crate) mod tests {
             everything,
             stops: Vec::new(),
             cannot_run: Vec::new(),
+            down: Vec::new(),
             turns: Vec::new(),
         };
         let stored = Stored::new(&flow.name);
@@ -5106,6 +5232,7 @@ pub(crate) mod tests {
             &all.everything,
             &all.stops,
             &[],
+            &[],
             Vec::new(),
             now,
         );
@@ -5114,17 +5241,87 @@ pub(crate) mod tests {
             at: work.tick(),
             stretches,
             turn: Some(Vec::new()),
+            separated: true,
         });
         assert_eq!(live, bar(stored.kept(&flow, &on, &ended), &all, now));
-        for went in ['m', 'o', 'p', '.'] {
+        for went in ['m', 'o', 'p', 's'] {
             assert!(live.contains(went), "{live}");
+        }
+    }
+
+    // The engine's wait before a round the host only kept from running for now says what kept it, which the record of
+    // the round holds beside its kind; the wait before a round that failed in passing says none.
+    #[test]
+    fn the_wait_before_a_round_the_host_kept_from_running_says_what_kept_it_and_one_in_passing_says_none() {
+        use decide::run::Failure;
+        use decide::{Hindrance, Retry};
+        use engine::{Effect, Event};
+
+        let flow = flow_with("");
+        let mut work = Work::default();
+        let wrote = Event::Wrote {
+            block: "request".into(),
+            by: Outsider::Person,
+            content: "Greet.".to_string(),
+            matters: true,
+            value: None,
+        };
+        let effects = engine::handle(&flow, &mut work, Time(0), wrote).expect("the request is taken");
+        let run = effects
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::Round { run, .. } => Some(*run),
+                _ => None,
+            })
+            .expect("the writer's round begins");
+        let limit = Hindrance {
+            obstacle: decide::Obstacle::Limit,
+            retry: Some(Retry::In(60)),
+        };
+        for (n, (failure, hindrance, expected)) in [
+            (Failure::Held, Some(limit), Some(Obstacle::Limit)),
+            (Failure::Passing, None, None),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let failed = Event::Failed {
+                run,
+                why: "it broke".to_string(),
+                failure,
+                resets: None,
+                hindrance,
+                spent: work::Spent::default(),
+            };
+            let at = Time(1_000 * (n as u64 + 1));
+            let effects = engine::handle(&flow, &mut work, at, failed).expect("the round fails");
+            let wait = effects
+                .iter()
+                .find_map(|effect| match effect {
+                    Effect::Call {
+                        call,
+                        what: work::Call::Wait { .. },
+                        ..
+                    } => Some(*call),
+                    _ => None,
+                })
+                .expect("the engine waits before the round is tried again");
+            match call_of(&work, wait) {
+                Ok(Call::Wait { failed, obstacle, .. }) => assert_eq!((failed, obstacle), (1, expected)),
+                other => panic!("not the engine's wait: {other:?}"),
+            }
+            let over = Event::Done {
+                call: wait,
+                result: String::new(),
+            };
+            engine::handle(&flow, &mut work, Time(at.0 + 1_000_000), over).expect("the wait is over");
         }
     }
 
     // The bar draws the wait for the turn to check and merge, `q`, where another work of the work's project held the
     // turn while the work would have begun a round of a cell that takes it, and draws it alike live and from what the
-    // work kept as it ended; where none held it, the same time is `.`. The work is paused from 1000 to 3000, let on
-    // then, and begins its round at 6000. Milliseconds.
+    // work kept as it ended; where none held it, the same time is `s`, the work waiting for a slot. The work is paused
+    // from 1000 to 3000, let on then, and begins its round at 6000. Milliseconds.
     #[test]
     fn the_bar_draws_the_wait_for_the_turn_live_and_as_kept_and_nothing_where_none_held_it() {
         use decide::run::Failure;
@@ -5152,6 +5349,7 @@ pub(crate) mod tests {
             why: "it broke".to_string(),
             failure: Failure::Other,
             resets: None,
+            hindrance: None,
             spent: work::Spent::default(),
         };
         engine::handle(&flow, &mut work, Time(1000), failed()).expect("the round fails");
@@ -5163,6 +5361,7 @@ pub(crate) mod tests {
             everything: Vec::new(),
             stops: Vec::new(),
             cannot_run: Vec::new(),
+            down: Vec::new(),
             turns,
         };
         // Another work of the same project (an item of no project), and one of another project.
@@ -5183,17 +5382,18 @@ pub(crate) mod tests {
         let now = Time(9000);
         let live = bar(stored.kept(&flow, &on, &work), &all, now);
         assert_eq!(shape(live.clone()), "moqm");
-        // Held by no other work of its project, only by the work itself and one of another project: nothing says what it
-        // waited for.
+        // Held by no other work of its project, only by the work itself and one of another project: the turn was free,
+        // and the round that did not begin is the slots'.
         let none = bar(stored.kept(&flow, &on, &work), &held(vec![elsewhere, own]), now);
-        assert_eq!(shape(none), "mo.m");
+        assert_eq!(shape(none), "mosm");
         let kept = stored.kept(&flow, &on, &work);
-        let stretches = driver::time::stretches(&kept, &[], &[], &[], all.turns_of_others(&kept), now);
+        let stretches = driver::time::stretches(&kept, &[], &[], &[], &[], all.turns_of_others(&kept), now);
         let mut ended = work.clone();
         ended.kept_time.push(work::KeptTime {
             at: work.tick(),
             stretches,
             turn: Some(Vec::new()),
+            separated: true,
         });
         assert_eq!(live, bar(stored.kept(&flow, &on, &ended), &all, now));
     }
@@ -5711,5 +5911,24 @@ pub(crate) mod tests {
             serde_json::json!({ "machine": "14900k", "since": 1_700_000_000_000u64, "behind": 33 }),
             "{said}"
         );
+    }
+
+    // A pause a build before `ran` was said wrote reads as one of a work that has run, so that no stored page says Not
+    // started of a work it never said that of; one that says it reads as it says.
+    #[test]
+    fn a_pause_written_before_ran_was_said_reads_as_one_of_a_work_that_ran() {
+        let read = |said: serde_json::Value| serde_json::from_value::<Now>(said).expect("a state");
+        let ran = |now: Now| match now {
+            Now::Paused { ran, .. } | Now::Everything { ran, .. } => ran,
+            other => panic!("not a pause: {other:?}"),
+        };
+        assert!(ran(read(
+            serde_json::json!({ "kind": "paused", "at": "plan", "by": "owner", "why": null })
+        )));
+        assert!(ran(read(
+            serde_json::json!({ "kind": "everything", "at": "plan", "by": "owner" })
+        )));
+        let said = serde_json::json!({ "kind": "paused", "at": "plan", "by": "owner", "ran": false, "why": null });
+        assert!(!ran(read(said)));
     }
 }

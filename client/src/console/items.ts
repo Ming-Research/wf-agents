@@ -7,8 +7,7 @@
 // goes on, whether the work has begun, and how many of the things its work waits for wait for the owner; and a work's
 // age and what it has taken, as a card and the item's window say them. Pure, so that it is tested on its own.
 //
-// It reads the items as `works-api.ts` gives them. The interface does not say which of an item's dependents is its
-// main one: the first of them by number is.
+// It reads the items as `works-api.ts` gives them, each with its main dependent as the engine's store keeps it.
 
 import type { CellNow, Fresh, Held, Item, Items, Now, Pauser, Summary, Wait } from '../works-api';
 import { mocksShown } from '../mock-data';
@@ -93,6 +92,9 @@ export type Shown = {
   /// A shadow of the item under an item that depends on it by a dependency that is not its main one: it points to the
   /// item's place, and carries none of its work, its questions or the items under it.
   shadow: boolean;
+  /// How its work stands as the engine says, whether or not the card draws the work: what pointing at the card says
+  /// (`stateSaid`). None for a shadow, and for an item with no work.
+  stands: Pick<ShownWork, 'now' | 'cells' | 'waits'> | null;
   /// Its work while it goes on, once it has run a round, or before that while it is halted or waits for the owner, the
   /// card then of one row ([`drawn`]); else none, the card an open item's, of one row.
   work: ShownWork | null;
@@ -152,17 +154,18 @@ export function projectsIn(data: Items, kept: readonly string[], named: readonly
   return [...known, ...rest];
 }
 
-/// Each item's main dependent, which it stands under in the tree: the first by number of the items of its own project
-/// that depend on it. An item that only items of other projects depend on stands at the top of its own project's tree,
-/// and a shadow of it stands under each of them.
+/// Each item's main dependent, which it stands under in the tree: the item whose dependency on it the engine's store
+/// keeps as its main one (`Item.mainDependent`), where that item is of its own project. An item whose main dependent is
+/// of another project stands at the top of its own project's tree, and a shadow of it under each item that depends on
+/// it.
 function mainDependents(data: Items): Map<number, number> {
   const byId = new Map(data.items.map((i) => [i.number, i]));
   const main = new Map<number, number>();
-  for (const i of [...data.items].sort((a, b) => a.number - b.number))
-    for (const d of i.dependsOn) {
-      const of = byId.get(d);
-      if (of !== undefined && !main.has(d) && projectOf(of) === projectOf(i)) main.set(d, i.number);
-    }
+  for (const i of data.items) {
+    if (i.mainDependent === null) continue;
+    const dependent = byId.get(i.mainDependent);
+    if (dependent !== undefined && projectOf(dependent) === projectOf(i)) main.set(i.number, i.mainDependent);
+  }
   return main;
 }
 
@@ -263,6 +266,7 @@ export function shownTree(
       repliesUnread: mock?.repliesUnread ?? 0,
       begun: w !== undefined && started(w),
       shadow: false,
+      stands: w === undefined ? null : { now: w.now, cells: w.cells, waits: waitsOf(w) },
       work:
         w !== undefined && drawn(w) && !deliverable && !w.delivers
           ? {
@@ -302,6 +306,7 @@ export function shownTree(
     repliesUnread: 0,
     begun: false,
     shadow: true,
+    stands: null,
     work: null,
     children: [],
   });
@@ -309,6 +314,21 @@ export function shownTree(
     .filter((i) => !above.has(i.number) && keep(i.number) && (project === undefined || projectOf(i) === project))
     .sort((a, b) => a.number - b.number)
     .map((i) => make(i.number));
+}
+
+/// Why the tree of a project shows no item: the project has none; or it has some, every one of a kind whose box is not
+/// ticked, `count` of them, the boxes `unticked` being those of the kinds they are of, in the order of [`STANDINGS`].
+export type Empty = { kind: 'none' } | { kind: 'hidden'; count: number; unticked: ItemStanding[] };
+
+/// Why the tree of `project` shows no item with the boxes `shown` ticked; none where it shows one, and where the items
+/// it has stand in the trees of other projects, under the items those depend on, which the boxes do not hide.
+export function emptyOf(data: Items, shown: ReadonlySet<ItemStanding>, project: string): Empty | null {
+  if (shownTree(data, shown, new Map(), project).length > 0) return null;
+  const own = data.items.filter((i) => projectOf(i) === project);
+  if (own.length === 0) return { kind: 'none' };
+  const hidden = own.filter((i) => !shown.has(standingOf(i)));
+  const unticked = STANDINGS.filter((s) => hidden.some((i) => standingOf(i) === s));
+  return hidden.length === 0 ? null : { kind: 'hidden', count: hidden.length, unticked };
 }
 
 /// The items of the tree `roots` in its order, each before the items under it, with how many stops each has: by default

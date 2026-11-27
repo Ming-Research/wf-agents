@@ -59,6 +59,7 @@ const pageOf = (i: Item, speaking: Speaking[] = SPEAKING): PageState => ({
     level: i.level,
     project: i.project,
     history: i.history,
+    dependencies: { on: [], by: [] },
     outline: outlineOf(ASKING),
     flow: ASKING,
     cells: [],
@@ -721,9 +722,9 @@ describe("the work's state line, one part for every state", () => {
 
   it('names the cell a paused or held work would go on at, as the engine names it, and none for a faulted work', () => {
     const states: [Now, CellNow[], string | null][] = [
-      [{ kind: 'paused', at: 'implement', by: 'owner', why: null }, cellsAt('implement', 'resting'), 'implement'],
-      [{ kind: 'paused', at: 'check', by: 'engine', why: 'It failed.' }, cellsAt('check', 'failed'), 'check'],
-      [{ kind: 'everything', at: 'implement', by: 'engine' }, cellsAt('implement', 'resting'), 'implement'],
+      [{ kind: 'paused', ran: true, at: 'implement', by: 'owner', why: null }, cellsAt('implement', 'resting'), 'implement'],
+      [{ kind: 'paused', ran: true, at: 'check', by: 'engine', why: 'It failed.' }, cellsAt('check', 'failed'), 'check'],
+      [{ kind: 'everything', ran: true, at: 'implement', by: 'engine' }, cellsAt('implement', 'resting'), 'implement'],
       [{ kind: 'fault', words: 'Two entries at 3' }, cellsAt('implement', 'resting'), null],
     ];
     for (const [now, cells, cell] of states) {

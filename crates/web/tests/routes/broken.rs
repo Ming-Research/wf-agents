@@ -51,6 +51,10 @@ impl Storage for Unreadable {
         self.store.items()
     }
 
+    fn mains(&self) -> Result<store::Mains, Fault> {
+        self.store.mains()
+    }
+
     fn works(&self) -> Result<Vec<WorkHead>, Fault> {
         self.store.works()
     }
@@ -109,6 +113,14 @@ impl Storage for Unreadable {
 
     fn keep_stop(&mut self, record: &StopRecord) -> Result<(), Fault> {
         self.store.keep_stop(record)
+    }
+
+    fn slots_set(&self) -> Result<Vec<store::SlotsRecord>, Fault> {
+        self.store.slots_set()
+    }
+
+    fn keep_slots(&mut self, record: &store::SlotsRecord) -> Result<(), Fault> {
+        self.store.keep_slots(record)
     }
 }
 

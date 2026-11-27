@@ -546,6 +546,7 @@ class History {
       // How many projects there are is the build's to say (`build`), which gives the work its project.
       project: null,
       history: { first: { title, level: '2', dependsOn: [] }, changes: [] },
+      dependencies: { on: [], by: [] },
       outline: outlineOf(FLOW),
       flow: FLOW,
       cells: details,
@@ -754,7 +755,7 @@ function build(now: number, projects: number): { works: Map<number, Built>; item
     const s = built.page.summary;
     built.page.project = projectOf(s.number, projects);
     const { title, level, project, history } = built.page;
-    items.push({ number: s.item, title, level, project, added: s.added, dependsOn: [], history, work: s });
+    items.push({ number: s.item, title, level, project, added: s.added, dependsOn: [], mainDependent: null, history, work: s });
   };
 
   keep(long(hours(30)));
@@ -885,7 +886,7 @@ function build(now: number, projects: number): { works: Map<number, Built>; item
         46,
         146,
         'Fold the panel away',
-        { kind: 'paused', at: 'implement', by: 'owner', why: null },
+        { kind: 'paused', ran: true, at: 'implement', by: 'owner', why: null },
         { paused: 'owner' },
       ),
       history: h,
@@ -911,7 +912,7 @@ function build(now: number, projects: number): { works: Map<number, Built>; item
         50,
         150,
         'Say why a work is paused',
-        { kind: 'paused', at: 'implement', by: 'engine', why },
+        { kind: 'paused', ran: true, at: 'implement', by: 'engine', why },
         { paused: 'engine', waits: [paused] },
       ),
       history: h,

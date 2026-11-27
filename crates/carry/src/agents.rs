@@ -403,7 +403,7 @@ impl Rounds for Agents {
                                     format!("{}{between}{over}", flow::agents::fill(&failed, &[("why", &cause)]));
                                 reply.failed_and_paused(failure, resets, why, spent, pause);
                             }
-                            None => reply.failed_as(failure, resets, why, spent),
+                            None => reply.failed_as(failure, resets, None, why, spent),
                         }
                     }
                     Some(Failing::End(reply)) => reply.ended(Came::hands_in(Vec::new()), spent),
@@ -2816,6 +2816,7 @@ mod tests {
                     why: "it failed".to_string(),
                     failure: *failure,
                     resets: None,
+                    hindrance: None,
                 },
                 None => Back::HandedIn(Vec::new()),
             };
@@ -2871,6 +2872,7 @@ mod tests {
             why: "the program crashed".to_string(),
             failure: Failure::Passing,
             resets: None,
+            hindrance: None,
         };
         assert_eq!(chars_of(&failed), 0);
     }

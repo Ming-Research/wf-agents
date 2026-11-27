@@ -1117,7 +1117,8 @@ textarea:disabled {
 }
 
 .us-gap,
-.us-items {
+.us-items,
+.us-slot {
   background: var(--track-gap);
 }
 

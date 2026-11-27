@@ -188,7 +188,7 @@ describe('the Settings view', () => {
       'env',
       'work_budget_usd',
     ]);
-    expect(page.textContent).toContain('"WF_GITHUB_TOKEN"');
+    expect(page.textContent).toContain('"upstream"');
     expect(save(page).disabled).toBe(true);
     expect(save(page).title).toBe('Nothing is changed yet');
   });

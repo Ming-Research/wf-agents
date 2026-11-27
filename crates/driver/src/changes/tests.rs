@@ -37,6 +37,7 @@ fn planned(number: u64, on: &[u64], gone: Gone) -> Planned {
         letting_go: false,
         placed: false,
         starts: true,
+        main_dependent: None,
     }
 }
 
@@ -511,6 +512,58 @@ fn a_reopen_asked_with_the_cancel_that_ended_the_item_is_refused_for_the_letting
     );
 }
 
+/// The items of [`graph`], with the main dependency of each item depended on: that of 2 on 1, of 3 on 2 and of 4 on 3.
+fn with_mains() -> BTreeMap<ItemNumber, Planned> {
+    let mut items = graph();
+    for (of, main) in [(1, 2), (2, 3), (3, 4)] {
+        let p = items.get_mut(&ItemNumber(of)).expect("the item is there");
+        p.main_dependent = Some(ItemNumber(main));
+    }
+    items
+}
+
+/// Item `item`'s dependency on 1 made 1's main one.
+fn main_on_1(item: u64) -> (ItemNumber, Asked) {
+    (ItemNumber(item), Asked::Item(ItemChange::Main(ItemNumber(1))))
+}
+
+#[test]
+fn a_dependency_is_made_the_main_one_and_is_no_change_where_it_is_the_main_one_already() {
+    let items = with_mains();
+    // 4 depends on 1, whose main dependency is that of 2.
+    assert_eq!(one(&items, 4, main_on_1(4).1), Ok(true));
+    assert_eq!(one(&items, 2, main_on_1(2).1), Ok(false));
+    // An item it does not depend on, and one there is not, are refused, and so is a change of an item that ended.
+    assert_eq!(
+        one(&items, 5, main_on_1(5).1),
+        unchangeable(Unchangeable::NotDependent(ItemNumber(1)))
+    );
+    assert_eq!(
+        one(&items, 4, Asked::Item(ItemChange::Main(ItemNumber(9)))),
+        Err(Refused::NoSuchItem(ItemNumber(9)))
+    );
+    let ended = with(with_mains(), 4, Gone::Ended(End::Cancelled));
+    assert_eq!(
+        one(&ended, 4, main_on_1(4).1),
+        unchangeable(Unchangeable::Ended(End::Cancelled))
+    );
+    // Made the main one in turn, each is judged against the one before: the second time is no change.
+    assert_eq!(
+        judge(&items, &[main_on_1(4), main_on_1(4), main_on_1(2), main_on_1(2)]),
+        Ok(vec![true, false, true, false])
+    );
+    // A dependency added and made the main one together: both are changes.
+    let added = (ItemNumber(5), Asked::Item(ItemChange::DependsOn(ItemNumber(1))));
+    assert_eq!(judge(&items, &[added, main_on_1(5)]), Ok(vec![true, true]));
+    // Once a change before it takes the main one away, which is the main one is the store's to say, and making it so
+    // again is a change.
+    let gone = (ItemNumber(2), Asked::Item(ItemChange::NoLongerDependsOn(ItemNumber(1))));
+    let again = (ItemNumber(2), Asked::Item(ItemChange::DependsOn(ItemNumber(1))));
+    assert_eq!(judge(&items, &[gone, again, main_on_1(2)]), Ok(vec![true, true, true]));
+    let cancelled = (ItemNumber(2), Asked::Cancel);
+    assert_eq!(judge(&items, &[cancelled, main_on_1(4)]), Ok(vec![true, true]));
+}
+
 /// A small generator of numbers, so that the property below is tried on the same many cases on every run.
 struct Dice(u64);
 
@@ -547,11 +600,12 @@ fn some_items(dice: &mut Dice) -> BTreeMap<ItemNumber, Planned> {
 fn some_change(dice: &mut Dice) -> (ItemNumber, Asked) {
     let item = ItemNumber(dice.roll(6) + 1);
     let on = ItemNumber(dice.roll(6) + 1);
-    let asked = match dice.roll(6) {
+    let asked = match dice.roll(7) {
         0 | 1 => Asked::Cancel,
         2 => Asked::Reopen,
         3 => Asked::Item(ItemChange::DependsOn(on)),
         4 => Asked::Item(ItemChange::NoLongerDependsOn(on)),
+        5 => Asked::Item(ItemChange::Main(on)),
         _ => Asked::Item(ItemChange::Title("t".into())),
     };
     (item, asked)

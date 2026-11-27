@@ -40,6 +40,10 @@ impl Storage for Failing {
         self.store.items()
     }
 
+    fn mains(&self) -> Result<store::Mains, store::Fault> {
+        self.store.mains()
+    }
+
     fn works(&self) -> Result<Vec<WorkHead>, store::Fault> {
         self.store.works()
     }
@@ -97,6 +101,14 @@ impl Storage for Failing {
 
     fn keep_stop(&mut self, record: &store::StopRecord) -> Result<(), store::Fault> {
         self.store.keep_stop(record)
+    }
+
+    fn slots_set(&self) -> Result<Vec<store::SlotsRecord>, store::Fault> {
+        self.store.slots_set()
+    }
+
+    fn keep_slots(&mut self, record: &store::SlotsRecord) -> Result<(), store::Fault> {
+        self.store.keep_slots(record)
     }
 
     fn keep_flow(&mut self, kept: &store::KeptFlow) -> Result<(), store::Fault> {

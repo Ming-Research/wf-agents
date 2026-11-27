@@ -134,6 +134,9 @@ async fn a_walk_goes_up_to_what_an_item_depends_on_and_down_to_what_depends_on_i
     let graph = get_json(router, "/api/v1/plan/graph/2").await;
     assert_eq!(graph["item"]["item"], 2);
     assert_eq!(graph["up"][0]["row"]["item"], 1);
+    // Each step says whether its dependency is the main one of the item depended on: the first on each one is.
+    assert_eq!(graph["up"][0]["main"], json!(true));
+    assert_eq!(graph["down"][0]["main"], json!(true));
     assert_eq!(graph["down"][0]["row"]["item"], 3);
     assert_eq!(graph["down"][0]["next"][0]["row"]["item"], 4);
     // One step down: what is past it is counted, not shown.

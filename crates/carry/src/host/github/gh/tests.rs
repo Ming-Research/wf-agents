@@ -94,6 +94,52 @@ fn a_jobs_wall_time_is_read_from_its_two_stamps_when_it_ran_to_a_conclusion() {
     }
 }
 
+// How long a job waited for a runner is the whole seconds from its `created_at` to its `started_at`, for a job a runner
+// took, whatever came of it; a job no runner took, or that did not run, has none, and neither has one whose stamps GitHub
+// gave in no usable form: none is read as no time, never as a time of none. Milliseconds.
+#[test]
+fn how_long_a_job_waited_for_a_runner_is_read_from_its_stamps_for_a_job_a_runner_took() {
+    let queued = |status: &str, conclusion: Option<&str>, created: Value, started: Value| {
+        job(&json!({
+            "id": 2, "name": "test", "status": status, "conclusion": conclusion,
+            "created_at": created, "started_at": started, "completed_at": "2026-11-14T10:10:00Z",
+        }))
+        .map(|j| j.queued)
+    };
+    let (created, started) = (json!("2026-11-14T10:00:00Z"), json!("2026-11-14T10:00:25Z"));
+    for (status, conclusion) in [
+        ("completed", Some("success")),
+        ("completed", Some("failure")),
+        ("completed", Some("cancelled")),
+        ("in_progress", None),
+    ] {
+        assert_eq!(
+            queued(status, conclusion, created.clone(), started.clone()),
+            Some(Some(25)),
+            "{status} {conclusion:?} was taken by a runner"
+        );
+    }
+    for (status, conclusion) in [("queued", None), ("completed", Some("skipped"))] {
+        assert_eq!(
+            queued(status, conclusion, created.clone(), started.clone()),
+            Some(None),
+            "{status} {conclusion:?} was never taken"
+        );
+    }
+    for (made, began) in [
+        (json!(null), started.clone()),
+        (created.clone(), json!(null)),
+        (started.clone(), created.clone()),
+        (created.clone(), json!("2026-11-14T10:00:25.000Z")),
+    ] {
+        assert_eq!(
+            queued("completed", Some("success"), made.clone(), began.clone()),
+            Some(None),
+            "{made} to {began}"
+        );
+    }
+}
+
 // The seconds between two stamps hold over a day, a month, a year and a leap day, and none is lost at the March of a
 // leap year.
 #[test]
@@ -255,6 +301,7 @@ fn a_run_is_read_by_its_status_and_one_that_completed_cancelled_is_said_so() {
             completed: false,
             cancelled: false,
             url: "https://github.com/o/r/actions/runs/43658592831".to_string(),
+            took: None,
         }
     );
     let queued = run("queued", None);
@@ -265,6 +312,27 @@ fn a_run_is_read_by_its_status_and_one_that_completed_cancelled_is_said_so() {
         let ended = run("completed", Some(judged));
         assert!(ended.completed && !ended.cancelled, "{judged}");
     }
+}
+
+// A run that completed and was not cancelled took the time from its start to its last change, as GitHub records them;
+// one under way, one cancelled and one whose times are not in GitHub's form took none. Milliseconds.
+#[test]
+fn a_run_that_completed_and_judged_took_from_its_start_to_its_last_change() {
+    let run = |status: &str, conclusion: Option<&str>, updated: &str| {
+        run(&json!({
+            "id": 7, "display_title": "fast 0f3a", "status": status, "conclusion": conclusion,
+            "html_url": "https://github.com/o/r/actions/runs/7",
+            "run_started_at": "2026-11-26T12:00:00Z", "updated_at": updated,
+        }))
+        .expect("a run")
+        .took
+    };
+    assert_eq!(run("completed", Some("success"), "2026-11-26T12:03:20Z"), Some(200));
+    assert_eq!(run("completed", Some("failure"), "2026-11-26T12:00:41Z"), Some(41));
+    assert_eq!(run("in_progress", None, "2026-11-26T12:03:20Z"), None);
+    assert_eq!(run("completed", Some("cancelled"), "2026-11-26T12:03:20Z"), None);
+    assert_eq!(run("completed", Some("success"), "2026-11-26 12:03:20"), None);
+    assert_eq!(run("completed", Some("success"), "2026-11-26T11:59:00Z"), None);
 }
 
 #[test]
@@ -396,7 +464,7 @@ fn a_refusal_is_of_the_kind_its_status_tells_whatever_its_words() {
         "HTTP/2.0 403 Forbidden\r\nX-RateLimit-Remaining: 0",
         "HTTP/2.0 403 Forbidden\r\nretry-after: 60",
     ] {
-        assert_eq!(kind(passes), Some(Failure::Passing), "{passes}");
+        assert_eq!(kind(passes), Some(Failure::Held), "{passes}");
     }
     for refused in [
         "HTTP/2.0 403 Forbidden\r\nX-RateLimit-Remaining: 4999",
@@ -417,7 +485,7 @@ fn a_limit_says_when_it_may_be_asked_again_as_github_says_it() {
     let held = |head: &str, message: &str| {
         let out = format!("{head}\r\nContent-Type: application/json\r\n\r\n{{\"message\":\"{message}\"}}");
         refused(&included(&out).expect("an answer"))
-            .held
+            .hindrance
             .map(|held| (held.obstacle, held.retry))
     };
     let limit = |retry| Some((Obstacle::Limit, retry));
@@ -454,8 +522,10 @@ fn a_limit_says_when_it_may_be_asked_again_as_github_says_it() {
     assert_eq!(held("HTTP/2.0 422 Unprocessable Entity", "Validation Failed"), None);
 }
 
+// `gh` is given of the engine's environment only what git is given: no token the owner keeps there, which the call's
+// own token is given beside (the module `app`). Milliseconds.
 #[test]
-fn gh_is_given_the_token_and_nothing_else_of_the_engines_but_what_git_is() {
+fn gh_is_given_nothing_of_the_engines_environment_but_what_git_is() {
     let engine = [
         ("PATH", "/bin"),
         ("HOME", "/home/someone"),
@@ -464,26 +534,25 @@ fn gh_is_given_the_token_and_nothing_else_of_the_engines_but_what_git_is() {
         ("ANTHROPIC_API_KEY", "a key"),
     ]
     .map(|(n, v)| (n.to_string(), v.to_string()));
-    let env = environment(engine, "the engine's", Path::new("/data/gh"));
+    let env = environment(engine, Path::new("/data/gh"));
     let names: Vec<&str> = env.iter().map(|(n, _)| n.as_str()).collect();
     assert_eq!(
         names,
         [
             "HOME",
             "PATH",
-            "GH_TOKEN",
             "GH_CONFIG_DIR",
             "GH_PROMPT_DISABLED",
             "GH_NO_UPDATE_NOTIFIER",
             "NO_COLOR"
         ]
     );
-    let token: Vec<&str> = (env.iter())
-        .filter(|(n, _)| n == "GH_TOKEN")
-        .map(|(_, v)| v.as_str())
-        .collect();
-    assert_eq!(token, ["the engine's"]);
-    let gh = Gh::new("gh", "o/r", "the engine's", Path::new("/data/gh"));
+    let gh = Gh::new(
+        "gh",
+        "o/r",
+        Credential::Given("the engine's".to_string()),
+        Path::new("/data/gh"),
+    );
     assert!(!format!("{gh:?}").contains("the engine's"), "the token is not shown");
 }
 
@@ -494,8 +563,13 @@ async fn a_gh_that_never_answers_is_given_up_within_its_limit() {
     std::fs::write(&script, "#!/bin/sh\nexec sleep 30\n").unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let gh = Gh::new(&script.display().to_string(), "o/r", "the-token", dir.path())
-        .within(std::time::Duration::from_millis(500));
+    let gh = Gh::new(
+        &script.display().to_string(),
+        "o/r",
+        Credential::Given("the-token".to_string()),
+        dir.path(),
+    )
+    .within(std::time::Duration::from_millis(500));
     let began = std::time::Instant::now();
     let given_up = gh.pulls("work-1").await.expect_err("given up");
     assert!(given_up.why.contains("did not end within"), "{given_up}");
@@ -522,7 +596,12 @@ async fn a_jobs_log_is_asked_for_with_its_escapes_allowed_and_given_as_github_ga
     std::fs::write(&script, text).unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let gh = Gh::new(&script.display().to_string(), "o/r", "the-token", dir.path());
+    let gh = Gh::new(
+        &script.display().to_string(),
+        "o/r",
+        Credential::Given("the-token".to_string()),
+        dir.path(),
+    );
     let log = gh.log(5).await.expect("the log");
     assert_eq!(
         log,
@@ -566,7 +645,12 @@ fn gh_with_open_pulls(dir: &std::path::Path, count: u64) -> Gh {
     std::fs::write(&script, text).unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-    Gh::new(&script.display().to_string(), "o/r", "the-token", dir)
+    Gh::new(
+        &script.display().to_string(),
+        "o/r",
+        Credential::Given("the-token".to_string()),
+        dir,
+    )
 }
 
 // A repository's open pull requests come in pages of a hundred, and every page is read: a list cut at the first would
@@ -635,7 +719,12 @@ esac
     std::fs::write(&script, text).unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-    Gh::new(&script.display().to_string(), "o/r", "the-token", dir)
+    Gh::new(
+        &script.display().to_string(),
+        "o/r",
+        Credential::Given("the-token".to_string()),
+        dir,
+    )
 }
 
 /// What each look the `gh` of [`gh_with_runs`] was given asked, as its arguments.
@@ -662,6 +751,7 @@ async fn a_look_at_the_runs_sends_the_tag_it_is_given_and_reads_githubs_304_as_u
         completed: false,
         cancelled: false,
         url: "https://github.com/o/r/actions/runs/11".to_string(),
+        took: None,
     };
     let tagged = Listed::Runs {
         runs: vec![run],
@@ -699,7 +789,12 @@ async fn a_304_to_a_look_that_sent_no_tag_is_refused() {
     std::fs::write(&script, text).unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let gh = Gh::new(&script.display().to_string(), "o/r", "the-token", dir.path());
+    let gh = Gh::new(
+        &script.display().to_string(),
+        "o/r",
+        Credential::Given("the-token".to_string()),
+        dir.path(),
+    );
     let refused = gh.runs("fast.yml", "main", None).await.expect_err("no runs");
     assert!(refused.why.contains("though it was sent no entity tag"), "{refused}");
 }
@@ -730,7 +825,12 @@ esac
     std::fs::write(&script, text).unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-    Gh::new(&script.display().to_string(), "o/r", "the-token", dir)
+    Gh::new(
+        &script.display().to_string(),
+        "o/r",
+        Credential::Given("the-token".to_string()),
+        dir,
+    )
 }
 
 // A look at a run's jobs sends the entity tag it is given, as a look at a workflow's runs does, and GitHub's 304 to it is
@@ -748,6 +848,7 @@ async fn a_look_at_the_jobs_sends_the_tag_it_is_given_and_reads_githubs_304_as_u
         outcome,
         url: Some(format!("https://github.com/o/r/runs/{id}")),
         took: None,
+        queued: None,
     };
     assert_eq!(
         listed,
@@ -802,7 +903,12 @@ esac
     std::fs::write(&script, text).unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-    Gh::new(&script.display().to_string(), "o/r", "the-token", dir)
+    Gh::new(
+        &script.display().to_string(),
+        "o/r",
+        Credential::Given("the-token".to_string()),
+        dir,
+    )
 }
 
 /// The runners as GitHub lists them: one online and busy, one offline.
@@ -884,7 +990,12 @@ fn gh_whose_download_fails(dir: &std::path::Path, said: &str) -> Gh {
     std::fs::write(&script, text).unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-    Gh::new(&script.display().to_string(), "o/r", "the-token", dir)
+    Gh::new(
+        &script.display().to_string(),
+        "o/r",
+        Credential::Given("the-token".to_string()),
+        dir,
+    )
 }
 
 // What a run uploaded is fetched by `gh run download`, which says what GitHub refused in words on its standard error and
@@ -910,7 +1021,7 @@ async fn a_download_githubs_limit_or_fault_refuses_is_held_as_any_other_request_
         let gh = gh_whose_download_fails(dir.path(), said);
         let failed = gh.artifact(9, "test-results").await.expect_err("refused");
         assert_eq!(
-            failed.held.map(|held| held.obstacle),
+            failed.hindrance.map(|held| held.obstacle),
             Some(obstacle),
             "{said}: {failed:?}"
         );
@@ -919,7 +1030,7 @@ async fn a_download_githubs_limit_or_fault_refuses_is_held_as_any_other_request_
         let dir = tempfile::tempdir().unwrap();
         let gh = gh_whose_download_fails(dir.path(), said);
         let failed = gh.artifact(9, "test-results").await.expect_err("refused");
-        assert_eq!(failed.held, None, "{said}: a refusal no wait mends is not held");
+        assert_eq!(failed.hindrance, None, "{said}: a refusal no wait mends is not held");
     }
 }
 
@@ -935,7 +1046,7 @@ async fn a_download_the_network_keeps_from_being_done_is_held() {
     );
     let failed = gh.artifact(9, "test-results").await.expect_err("not fetched");
     assert_eq!(
-        failed.held.map(|held| held.obstacle),
+        failed.hindrance.map(|held| held.obstacle),
         Some(Obstacle::Network),
         "{failed:?}"
     );
@@ -956,7 +1067,7 @@ fn a_429_that_says_nothing_of_when_is_asked_again_after_at_least_a_minute() {
         ),
     ] {
         let out = format!("{head}\r\nContent-Type: application/json\r\n\r\n{{\"message\":\"{message}\"}}");
-        let held = refused(&included(&out).expect("an answer")).held.expect("held");
+        let held = refused(&included(&out).expect("an answer")).hindrance.expect("held");
         let waits = match held.retry {
             Some(Retry::In(seconds)) => seconds,
             other => panic!("{head}: a wait of at least a minute, not {other:?}"),
@@ -971,6 +1082,6 @@ fn a_429_that_says_nothing_of_when_is_asked_again_after_at_least_a_minute() {
 fn a_503_that_says_when_to_ask_again_is_not_asked_again_before_then() {
     use decide::Retry;
     let out = "HTTP/2.0 503 Service Unavailable\r\nretry-after: 120\r\n\r\n{\"message\":\"Service Unavailable\"}";
-    let held = refused(&included(out).expect("an answer")).held.expect("held");
+    let held = refused(&included(out).expect("an answer")).hindrance.expect("held");
     assert_eq!(held.retry, Some(Retry::In(120)));
 }

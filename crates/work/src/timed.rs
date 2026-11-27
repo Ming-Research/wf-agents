@@ -36,11 +36,16 @@ impl Source {
     }
 }
 
-/// How long a job of a run took, from its start to its end, as the host records it.
+/// How long a job of a run took, from its start to its end, as the host records it, and how long it waited for a runner
+/// before it started.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Job {
     pub name: String,
     pub millis: u64,
+    /// How long it waited from when the host created it to when it started, in milliseconds, as the host records them;
+    /// none where the host gave no usable time of either, and for a job read before this was kept.
+    #[serde(default)]
+    pub queued_millis: Option<u64>,
 }
 
 /// How long a test took in a run, in the run's own results: the unit it is in (a test binary, a test file), its name,
@@ -189,10 +194,12 @@ mod tests {
                 Job {
                     name: "b".to_string(),
                     millis: 2,
+                    queued_millis: None,
                 },
                 Job {
                     name: "a".to_string(),
                     millis: 1,
+                    queued_millis: None,
                 },
             ],
             tests: vec![

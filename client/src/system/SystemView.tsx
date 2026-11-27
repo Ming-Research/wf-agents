@@ -1,8 +1,9 @@
 // The System view: how the whole system stands, in parts, each for what the owner does with it. Now says whether the
 // owner needs to step in: the engine, its slots, the wait every work shares, the copies of the database, the works by
 // where they stand, and the rounds under way, each with what its calls have come to so far against the lines it is
-// judged by, read again as the engine says it changed. Produced says what got done, Spent where the money and the time
-// went, by project too, and Gone wrong what was wasted or failed, each over the span the owner picks in the view's
+// judged by, read again as the engine says it changed. Produced says what got done, Waited what the works stopped for and
+// for how long, how long CI took them and how many slots they held, Spent where the money and the time went, by project
+// too, and Gone wrong what was wasted or failed, each over the span the owner picks in the view's
 // line, as links: the week under way, the four weeks to its end, or all time. Each part sums up first, in numbers that
 // stand alone, over every project; a number that counts a list unfolds it under the numbers. Each thing is said once:
 // the engine's pause and its slots in Now, and the rounds under way in their list, not among the numbers of the works.
@@ -33,6 +34,20 @@ import { type Figure, type Going, type RanOn, type Rest, type System, type Under
 import { copiesTone, copiesWords } from './copies';
 import { ItemName, ProjectName, Tile, Tiles, ViewTable, WorkLink } from './parts';
 import { redMainWords } from './redMain';
+import {
+  crowdWords,
+  endedWords,
+  slotsWords,
+  takingTitle,
+  takingWords,
+  took,
+  WAIT_REASONS,
+  WAIT_WORDS,
+  WAITED_WORDS,
+  waitedBy,
+  weekCells,
+  works,
+} from './waited';
 import {
   cacheShare,
   mergeAverages,
@@ -158,6 +173,7 @@ export function SystemView({ period, active = true }: { period: Period; active?:
         ) : (
           <>
             <Produced s={span.value} items={byNumber} />
+            <WaitedPart s={span.value} />
             <SpentPart s={span.value} items={byNumber} />
             <GoneWrong s={span.value} items={byNumber} />
           </>
@@ -501,6 +517,111 @@ function Produced({ s, items }: { s: System; items: Map<number, Item> }) {
         </ViewTable>
       )}
       <More shown={open === 'added' ? Math.min(ROWS, s.added.length) : 0} of={open === 'added' ? s.added.length : 0} />
+    </PanelPart>
+  );
+}
+
+/// What the works waited for over the span: for each cause how long they stopped, how often and for how long at a time;
+/// how long the calls and rounds that waited for CI took, and how long its jobs waited for a runner; how many works held
+/// a slot and how many ran, against how many slots there were; and, over more than one week, each week by itself. What
+/// the engine does not know is said, never shown as nothing.
+export function WaitedPart({ s }: { s: System }) {
+  const waited = s.waited;
+  if (waited === undefined) return null;
+  const ci = waited.ci;
+  const o = waited.occupancy;
+  const stopsWords = (stops: number, what: string) => `${stops} ${stops === 1 ? what : `${what}s`}`;
+  return (
+    <PanelPart label="Waited">
+      <Tiles>
+        {waitedBy(waited).map((by) => (
+          <Tile
+            key={by.reason}
+            value={took(by.totalMs)}
+            more={[stopsWords(by.stops, 'stop'), endedWords(by)].filter(Boolean).join(' · ')}
+            label={WAIT_WORDS[by.reason].name}
+            title={`${WAIT_WORDS[by.reason].title}. ${
+              by.longestMs === null ? '' : `The longest stop that ended: ${duration(by.longestMs)}. `
+            }Counted where a stop ended; a stop still going on counts its time so far.`}
+          />
+        ))}
+      </Tiles>
+      <Tiles>
+        <Tile
+          value={took(ci.totalMs)}
+          more={[stopsWords(ci.stops, 'call'), endedWords(ci)].filter(Boolean).join(' · ')}
+          label={WAITED_WORDS.ci}
+          title={WAITED_WORDS.ciTitle}
+        />
+        <Tile
+          value={ci.queuedMedianMs === null ? 'not kept' : duration(ci.queuedMedianMs)}
+          more={
+            ci.queuedLongestMs === null
+              ? undefined
+              : `${WAITED_WORDS.longest} ${duration(ci.queuedLongestMs)} · ${stopsWords(ci.jobs, 'job')}`
+          }
+          label={WAITED_WORDS.queued}
+          title={`${WAITED_WORDS.queuedTitle}. Jobs run before the engine kept it say none.`}
+        />
+        <Tile
+          value={works(o.takingAvg)}
+          more={`${o.takingPeak} at most, of ${slotsWords(o.slots, o.recorded)}`}
+          label={WAITED_WORDS.taking}
+          title={takingTitle(o)}
+        />
+        <Tile
+          value={works(o.runningAvg)}
+          more={`${o.runningPeak} at most`}
+          label={WAITED_WORDS.running}
+          title={WAITED_WORDS.runningTitle}
+        />
+      </Tiles>
+      {s.weeks.length > 1 && (
+        <>
+          <h4 className="view-sub label">Week by week</h4>
+          <ViewTable
+            heads={[
+              WAITED_WORDS.week,
+              ...WAIT_REASONS.map((reason) => WAIT_WORDS[reason].name),
+              WAITED_WORDS.ci,
+              WAITED_WORDS.taking,
+              WAITED_WORDS.running,
+            ]}
+            numbers={[1, 2, 3, 4, 5, 6, 7, 8]}
+          >
+            {s.weeks.map((w) => (
+              <tr key={w.start}>
+                <td title={fullTime(w.start)}>{clock(w.start).slice(0, 5)}</td>
+                {weekCells(w).map((cell, i) => (
+                  <td key={WAIT_REASONS[i]} className="num" title={WAIT_WORDS[WAIT_REASONS[i]].title}>
+                    {cell}
+                  </td>
+                ))}
+                <td className="num">{w.waited === undefined ? '' : took(w.waited.ciMs)}</td>
+                <td className="num" title={w.waited === undefined ? undefined : takingTitle(w.waited.occupancy)}>
+                  {w.waited === undefined ? '' : takingWords(w.waited.occupancy)}
+                </td>
+                <td className="num">
+                  {w.waited === undefined
+                    ? ''
+                    : crowdWords(w.waited.occupancy.runningAvg, w.waited.occupancy.runningPeak)}
+                </td>
+              </tr>
+            ))}
+          </ViewTable>
+        </>
+      )}
+      <p className="small muted">{WAITED_WORDS.beforeFirstRound}</p>
+      {waited.unseparated.totalMs > 0 && (
+        <p className="small muted">
+          {took(waited.unseparated.totalMs)} {WAITED_WORDS.unseparated}
+        </p>
+      )}
+      {waited.uncounted > 0 && (
+        <p className="small muted">
+          {waited.uncounted} {WAITED_WORDS.uncounted}
+        </p>
+      )}
     </PanelPart>
   );
 }

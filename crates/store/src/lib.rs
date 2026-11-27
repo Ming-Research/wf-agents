@@ -26,6 +26,8 @@
 //! whose token is kept outside the store; and each version of a flow a work runs on.
 //!
 //! - `items`: the items and the works done for them.
+//! - `mains`: the main dependency of each item some item depends on, which the store keeps in every write that can
+//!   change it.
 //! - `flows`: the versions of the flows works run on, each kept once as its files and its outline.
 //! - `tables`: a work's entries, table by table.
 //! - `backups`: the copies of the database that were taken and uploaded, and what failed in keeping them. They belong
@@ -39,6 +41,7 @@ mod backups;
 pub mod before_migration;
 mod flows;
 mod items;
+mod mains;
 mod observations;
 pub mod repair;
 mod tables;
@@ -52,6 +55,7 @@ use work::{Time, Work};
 pub use backups::{Backups, Failure, Kept, Records};
 pub use flows::{KeptFlow, KeptOutline};
 pub use items::{Change, Continues, First, Item, ItemChange, ItemNumber, TAG_CHARS, WorkHead, WorkNumber, tag_is_bad};
+pub use mains::Mains;
 pub use observations::{
     FromRound, NewObservation, NotMade, Observation, ObservationChange, Observations, Refusal, TagCount,
 };
@@ -64,7 +68,7 @@ pub const SCHEMA: &str = include_str!("../../../db/schema.sql");
 
 /// The version of [`SCHEMA`]. A database made with an earlier one is migrated to it as it is opened; one made with
 /// any other is not opened.
-pub const SCHEMA_VERSION: u32 = 37;
+pub const SCHEMA_VERSION: u32 = 39;
 
 /// A step of the store after a migration's SQL.
 type Step = fn(&Connection) -> Result<(), Fault>;
@@ -194,6 +198,13 @@ const MIGRATIONS: &[Migration] = &[
         sql: include_str!("../../../db/migrations/202611261400-keep-what-the-owner-read.sql"),
         then: Some(tables::fill_owner_read),
     },
+    Migration {
+        sql: include_str!("../../../db/migrations/202611261700-keep-the-main-dependency-of-each-item.sql"),
+        then: Some(mains::mark),
+    },
+    Migration::sql(include_str!(
+        "../../../db/migrations/202611261800-keep-the-slots-and-how-long-jobs-waited-for-a-runner.sql"
+    )),
 ];
 
 // The migrations bring a database of every earlier version to this one.
@@ -251,6 +262,13 @@ pub enum AccountAct {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StopRecord {
     pub what: StopAct,
+    pub at: Time,
+}
+
+/// The slots were set to this number at this time: what the store keeps of it, every one in order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SlotsRecord {
+    pub slots: usize,
     pub at: Time,
 }
 
@@ -330,8 +348,9 @@ pub trait Storage {
     /// Adds an item as it is to be added, at its level, of its project, depending on items which must all be in the
     /// store already, of any project, and carrying its tags, together with the work done for it on the flow of this
     /// name and what is kept of that work from its start, and gives their numbers. The item, the work and what is kept
-    /// of it are added in one transaction: all of them or none. Which version of the flow the work runs on is the
-    /// work's first entry, a version the store keeps already.
+    /// of it are added in one transaction: all of them or none, with the main dependency of each item it depends on
+    /// as the item leaves it ([`Storage::mains`]). Which version of the flow the work runs on is the work's first
+    /// entry, a version the store keeps already.
     fn add(&mut self, item: &First, flow: &str, at: Time, first: &Work) -> Result<(ItemNumber, WorkNumber), Fault>;
 
     /// Keeps a version of a flow where it is not kept already, and each of its files where no version holds it.
@@ -342,8 +361,10 @@ pub trait Storage {
 
     /// Keeps changes of items made together, at one time and for one reason, each after its item's earlier changes and
     /// in the order given, with what each of these works has that the store does not hold yet, in one transaction: all
-    /// of it or none. Each item, and any item one comes to depend on, must be in the store, and each work saved as
-    /// [`Storage::save`] saves it. Whether the changes may be made is not the store's to judge.
+    /// of it or none, with the main dependencies as they leave them ([`Storage::mains`]), each main one chosen among
+    /// them taking the place of the one before in the order given. Each item, and any item one comes to depend on, must
+    /// be in the store, and each work saved as [`Storage::save`] saves it. Whether the changes may be made is not the
+    /// store's to judge.
     fn change(
         &mut self,
         at: Time,
@@ -355,6 +376,11 @@ pub trait Storage {
     /// Every item, in the order of their numbers, each as it stands after its changes.
     fn items(&self) -> Result<Vec<Item>, Fault>;
 
+    /// The main dependency of each item that some item depends on, which the store keeps in every write that can change
+    /// it (module `mains`): exactly one of each such item, and none of any other. Refused where what it keeps breaks
+    /// that.
+    fn mains(&self) -> Result<Mains, Fault>;
+
     /// Every work, in the order of their numbers.
     fn works(&self) -> Result<Vec<WorkHead>, Fault>;
 
@@ -362,9 +388,10 @@ pub trait Storage {
     fn load(&self, work: WorkNumber) -> Result<Work, Fault>;
 
     /// Keeps what the work has that the store does not hold yet, in one transaction: each observation its runs kept is
-    /// numbered then, as the installation's. What the store holds of it must be where the given work begins: where it
-    /// holds an entry the work lacks or holds otherwise, nothing is kept and the fault says where. Saving a work the
-    /// store holds whole keeps nothing.
+    /// numbered then, as the installation's, and where it was cancelled or reopened, the main dependencies as that
+    /// leaves them. What the store holds of it must be where the given work begins: where it holds an entry the work
+    /// lacks or holds otherwise, nothing is kept and the fault says where. Saving a work the store holds whole keeps
+    /// nothing.
     fn save(&mut self, work: WorkNumber, given: &Work) -> Result<(), Fault>;
 
     /// The pause of everything, where it holds: when it began and who set it; none where it does not, as in a store
@@ -403,6 +430,12 @@ pub trait Storage {
 
     /// Keeps that the engine was asked to stop, or started again after a stop.
     fn keep_stop(&mut self, record: &StopRecord) -> Result<(), Fault>;
+
+    /// Every number the slots were set to, in the order they were kept; none in a store that never kept one.
+    fn slots_set(&self) -> Result<Vec<SlotsRecord>, Fault>;
+
+    /// Keeps that the slots were set to this number at this time.
+    fn keep_slots(&mut self, record: &SlotsRecord) -> Result<(), Fault>;
 }
 
 impl Store {
@@ -495,6 +528,7 @@ impl Storage for Store {
         let item = items::add_item(&tx, item, at)?;
         let work = items::add_work(&tx, item, flow, at)?;
         tables::save(&tx, work, first)?;
+        mains::settle(&tx, Some(at), &[])?;
         tx.commit()?;
         Ok((item, work))
     }
@@ -523,12 +557,24 @@ impl Storage for Store {
             items::known(&tx, *work)?;
             tables::save(&tx, *work, given)?;
         }
+        // Each main dependency chosen, by the item it is on and in the order given.
+        let chosen: Vec<(ItemNumber, ItemNumber)> = (changes.iter())
+            .filter_map(|(item, change)| match change {
+                ItemChange::Main(on) => Some((*on, *item)),
+                _ => None,
+            })
+            .collect();
+        mains::settle(&tx, Some(at), &chosen)?;
         tx.commit()?;
         Ok(())
     }
 
     fn items(&self) -> Result<Vec<Item>, Fault> {
         items::items(&self.db)
+    }
+
+    fn mains(&self) -> Result<Mains, Fault> {
+        mains::mains(&self.db)
     }
 
     fn works(&self) -> Result<Vec<WorkHead>, Fault> {
@@ -544,7 +590,13 @@ impl Storage for Store {
     fn save(&mut self, work: WorkNumber, given: &Work) -> Result<(), Fault> {
         let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate)?;
         items::known(&tx, work)?;
+        let ends = mains::ends(&tx, work)?;
         tables::save(&tx, work, given)?;
+        // A cancel or a reopen may move a main dependency, at the time of the last thing that happened to the work;
+        // nothing else a work keeps does.
+        if mains::ends(&tx, work)? != ends {
+            mains::settle(&tx, given.time_of(given.tick()), &[])?;
+        }
         tx.commit()?;
         Ok(())
     }
@@ -663,6 +715,25 @@ impl Storage for Store {
         (self.db).execute(
             "INSERT INTO stops (what, time) VALUES (?1, ?2)",
             rusqlite::params![what, record.at.0],
+        )?;
+        Ok(())
+    }
+
+    fn slots_set(&self) -> Result<Vec<SlotsRecord>, Fault> {
+        let mut query = (self.db).prepare("SELECT slots, time FROM slots_set ORDER BY n")?;
+        let rows = query.query_map([], |row| Ok((row.get::<_, usize>(0)?, row.get::<_, u64>(1)?)))?;
+        let mut records = Vec::new();
+        for row in rows {
+            let (slots, time) = row?;
+            records.push(SlotsRecord { slots, at: Time(time) });
+        }
+        Ok(records)
+    }
+
+    fn keep_slots(&mut self, record: &SlotsRecord) -> Result<(), Fault> {
+        (self.db).execute(
+            "INSERT INTO slots_set (slots, time) VALUES (?1, ?2)",
+            rusqlite::params![record.slots, record.at.0],
         )?;
         Ok(())
     }
