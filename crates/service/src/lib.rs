@@ -162,7 +162,7 @@ pub enum Message {
     /// than the warning.
     Add {
         item: NewItem,
-        reply: oneshot::Sender<Result<(ItemNumber, WorkNumber, Vec<Crowded>), Refusal>>,
+        reply: oneshot::Sender<Result<AddedItem, Refusal>>,
     },
     /// Whoever plans the work changes items, for one reason, all of the changes or none: a level is one whoever asks
     /// has checked; the reply says whether each changed its item, and each item they left with more open children
@@ -170,7 +170,7 @@ pub enum Message {
     Change {
         why: String,
         changes: Vec<(ItemNumber, Asked)>,
-        reply: oneshot::Sender<Result<(Vec<bool>, Vec<Crowded>), Refusal>>,
+        reply: oneshot::Sender<Result<ItemsChanged, Refusal>>,
     },
     /// A source outside the works says this now of the project of this name: the head of the project's main branch,
     /// for one.
@@ -265,6 +265,13 @@ pub enum Act {
         versions: Vec<(BlockId, u64)>,
     },
 }
+
+/// An item added: its number, its work's, and each item the add left with more open children than the warning.
+pub type AddedItem = (ItemNumber, WorkNumber, Vec<Crowded>);
+
+/// Changes asked together and made: whether each changed its item, and each item they left with more open children
+/// than the warning.
+pub type ItemsChanged = (Vec<bool>, Vec<Crowded>);
 
 /// What came of an act the loop took: of one that says the owner's words, the cell the engine gave them to; of a
 /// cancel, each item it left with more open children than the warning.
@@ -1466,7 +1473,7 @@ impl Handle {
 
     /// Adds an item with its work, which is added paused unless it is added going on, and gives their
     /// numbers, with each item it left with more open children than the warning.
-    pub async fn add(&self, item: NewItem) -> Result<(ItemNumber, WorkNumber, Vec<Crowded>), Refusal> {
+    pub async fn add(&self, item: NewItem) -> Result<AddedItem, Refusal> {
         let (reply, answer) = oneshot::channel();
         self.to.send(Message::Add { item, reply }).map_err(|_| Refusal::Gone)?;
         answer.await.map_err(|_| Refusal::Gone)?
@@ -1475,11 +1482,7 @@ impl Handle {
     /// Changes items, for this reason, all of the changes or none, and says whether each changed its item: a level is
     /// one the caller has checked against the installation's levels; and each item they left with more open children
     /// than the warning.
-    pub async fn change(
-        &self,
-        why: String,
-        changes: Vec<(ItemNumber, Asked)>,
-    ) -> Result<(Vec<bool>, Vec<Crowded>), Refusal> {
+    pub async fn change(&self, why: String, changes: Vec<(ItemNumber, Asked)>) -> Result<ItemsChanged, Refusal> {
         let (reply, answer) = oneshot::channel();
         (self.to.send(Message::Change { why, changes, reply })).map_err(|_| Refusal::Gone)?;
         answer.await.map_err(|_| Refusal::Gone)?
