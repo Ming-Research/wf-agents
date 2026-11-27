@@ -2,6 +2,11 @@
 // four other numbers stand in rows of tiles that keep inside the window, and the week table of nine columns fits it with
 // no cell cut, as a table squeezed until it cannot be read would be (principle `room-goes-to-content`). A stand-in for
 // the browser has no layout, so only here can a cell cut at its edge, or a table wider than its window, be seen.
+//
+// A row of tiles wraps where it is wider than the window: that is the rule of every row of tiles on the System view
+// (`.tiles` in system.css, `flex-wrap: wrap`, which this work did not change), the page fitting a narrow window by
+// letting a row fold rather than a number be cut or the window scroll sideways. So the test of the narrow window asks
+// only that no tile reach beyond the window; in a window wide enough for a row, each row stands on one line.
 
 import '../styles/tokens.css';
 import '../styles/parts.css';
@@ -20,10 +25,10 @@ describe('the Waited part of the System view', () => {
   let host: HTMLDivElement;
   afterEach(() => host.remove());
 
-  /// The part drawn over three weeks in a host as wide as the window, with the weeks' table in it.
-  function drawn() {
+  /// The part drawn over three weeks in a host of this width, with the weeks' table in it.
+  function drawn(width = 1100) {
     host = document.createElement('div');
-    host.style.width = '1100px';
+    host.style.width = `${width}px`;
     document.body.append(host);
     const now = Date.now();
     const root = createRoot(host);
@@ -48,6 +53,17 @@ describe('the Waited part of the System view', () => {
     expect(table!.querySelectorAll('thead th').length).toBe(9);
     for (const cell of table!.querySelectorAll<HTMLElement>('td')) {
       expect(cell.scrollWidth, `the cell "${cell.textContent}" is cut at its edge`).toBeLessThanOrEqual(cell.clientWidth);
+    }
+    root.unmount();
+  });
+
+  it('stands the tiles of each row side by side in a window wide enough for the row', () => {
+    const root = drawn(1600);
+    const rows = [...host.querySelectorAll<HTMLElement>('.tiles')];
+    expect(rows.map((row) => row.querySelectorAll('.tile').length)).toEqual([5, 4]);
+    for (const row of rows) {
+      const tops = new Set([...row.querySelectorAll<HTMLElement>('.tile')].map((tile) => tile.getBoundingClientRect().top));
+      expect(tops.size, `the tiles of the row of ${row.children.length} stand side by side, none wrapped under another`).toBe(1);
     }
     root.unmount();
   });

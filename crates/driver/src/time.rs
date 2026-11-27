@@ -569,13 +569,52 @@ mod tests {
 
     /// What a work on these records waited for, with what held every work at once then.
     fn waited_on(work: &Work, everything: Option<Pauser>) -> Went {
+        waited_in(&flow(), work, everything)
+    }
+
+    /// The same, as this flow decides the work.
+    fn waited_in(flow: &Compiled, work: &Work, everything: Option<Pauser>) -> Went {
         let then = owner::Shared {
             everything,
             cannot_run: None,
         };
-        with_kept(&flow(), work, |kept| {
+        with_kept(flow, work, |kept| {
             waited(kept, &work.records, then, false, false, Room::FREE)
         })
+    }
+
+    /// A flow of the merge alone, which the owner's request runs: a cell of the engine's own act, which takes no slot.
+    fn act_flow() -> Compiled {
+        let text = r#"
+            name = "small"
+            order = ["merge"]
+            [limits]
+            runs = 3
+            returns = 2
+            calls = 3
+            [lines.main]
+            [blocks.request]
+            people = true
+            [blocks.merged]
+            shown = true
+        "#;
+        let merge =
+            "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nwatches = [\"request\"]\noutputs = [\"merged\"]\n";
+        let source = Source {
+            flow: text.to_string(),
+            cells: [("merge".to_string(), merge.to_string())].into(),
+            files: [(
+                flow::waits_file(),
+                include_str!("../../../flow/agents/waits.toml").to_string(),
+            )]
+            .into(),
+            ..Source::default()
+        };
+        let has = Has {
+            acts: ["merge".to_string()].into(),
+            ..Has::default()
+        };
+        compile(&source, &has).expect("the definition compiles")
     }
 
     /// A work the owner's request runs the writer of, paused by this pauser where one is given.
@@ -622,6 +661,13 @@ mod tests {
             assert!(takes_slot(kept, &decide::CellId::from("write")));
             assert!(!takes_slot(kept, &decide::CellId::from("merge")));
         });
+        // The same request run by a cell that takes no slot: the walk says it would begin that, and no slot kept it.
+        let act = act_flow();
+        with_kept(&act, &requested(None), |kept| {
+            let decision = decide::decide_in(&kept.flow.flow, &requested(None).records, Room::FREE);
+            assert!(matches!(decision, Decision::Run { .. }), "{decision:?}");
+        });
+        assert_eq!(waited_in(&act, &requested(None), None), Went::Other);
     }
 
     #[test]
