@@ -2,11 +2,13 @@
 //! (`T1`, watching `change`). The agent is told the group ran its round and names it as dealt with, by its name; the
 //! return is taken, the versions of the group's blocks that ran the round are consumed, and the cell does not run again
 //! for them. And of every cell of the flow, each datum or group it watches named as dealt with is taken by the run's
-//! check for any block of it that ran the round, and consumes that block.
+//! check for any block of it that ran the round, and consumes that block. The implementation reads the plan's
+//! conditions through the group but does not write them: its return that does is sent back, while the plan's writers
+//! write them.
 
 use std::collections::BTreeMap;
 
-use decide::run::{Log, Requires, Return, Round, Step, Told, next};
+use decide::run::{Log, Requires, Return, Round, Step, Told, Unmet, next};
 use decide::{BlockId, Decision, End, RunId};
 use engine::{Effect, Given};
 
@@ -189,4 +191,58 @@ fn each_datum_or_group_a_cell_watches_named_as_dealt_with_is_taken_for_any_block
             }
         }
     }
+}
+
+/// The unmet needs that sent a return of the run back, where one was.
+fn unmet_of(effects: &[Effect], run: RunId) -> Option<Vec<Unmet>> {
+    effects.iter().find_map(|e| match e {
+        Effect::Round {
+            run: r,
+            given: Given::SentBack(unmet),
+            ..
+        } if *r == run => Some(unmet.clone()),
+        _ => None,
+    })
+}
+
+#[test]
+fn a_return_of_the_implementation_that_writes_the_acceptance_is_sent_back() {
+    let mut w = planned();
+    w.hands_in("R2", &[], Vec::new());
+    w.hands_in("P1", &[("plan_ok", Some("yes"))], Vec::new());
+    w.hands_in("P2", &[("tree_ok", Some("yes"))], Vec::new());
+    let (run, cell) = w.round();
+    assert_eq!(cell, "I1");
+    let told = w.told(run, "I1");
+    let told: Vec<&str> = told.iter().map(String::as_str).collect();
+    let effects = w.returns("I1", &told, &[("code", None), ("evidence", None), ("acceptance", None)]);
+    let unmet = unmet_of(&effects, run).expect("the return is sent back");
+    assert!(
+        unmet.contains(&Unmet::NotAnOutput {
+            block: "acceptance".into()
+        }),
+        "{unmet:?}"
+    );
+    // The same return without the acceptance is taken.
+    let effects = w.returns("I1", &told, &[("code", None), ("evidence", None)]);
+    assert_eq!(unmet_of(&effects, run), None, "{effects:?}");
+}
+
+#[test]
+fn a_return_of_the_research_that_writes_the_acceptance_is_not_sent_back() {
+    let mut w = W::started();
+    w.hands_in("S1", &[("place", None)], Vec::new());
+    w.hands_in("R0", &[("tree_entries", None)], Vec::new());
+    let (run, cell) = w.round();
+    assert_eq!(cell, "R1");
+    let told = w.told(run, "R1");
+    let told: Vec<&str> = told.iter().map(String::as_str).collect();
+    let writes = [
+        ("deep_needed", Some("no")),
+        ("plan_owner", None),
+        ("plan_agent", None),
+        ("acceptance", None),
+    ];
+    let effects = w.returns("R1", &told, &writes);
+    assert_eq!(unmet_of(&effects, run), None, "{effects:?}");
 }

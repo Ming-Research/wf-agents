@@ -1832,7 +1832,7 @@ type Directed = fn(&mut Reached, History) -> Result<(), String>;
 
 /// The blocks the implementation hands in as changing nothing in meaning, so that no review that watches the change is
 /// run.
-const UNCHANGED: [&str; 5] = ["code", "title", "decisions", "evidence", "acceptance"];
+const UNCHANGED: [&str; 4] = ["code", "title", "decisions", "evidence"];
 
 /// The owner and the outside write, the owner speaks to the cells that wrote the plan and the change and answers what
 /// they asked, and the plan is written anew, which the implementation then answers, in what it hands in with `changed`
@@ -1935,7 +1935,7 @@ fn the_tests_written_between(reached: &mut Reached, mut history: History) -> Res
         history.says.insert(
             "I1".to_string(),
             vec![Say::with(
-                &["acceptance", "testing", "i1_words"],
+                &["testing", "i1_words"],
                 &["code", "title", "decisions", "evidence"],
             )],
         );
@@ -1947,7 +1947,7 @@ fn the_tests_written_between(reached: &mut Reached, mut history: History) -> Res
             "I1".to_string(),
             vec![Say::with(
                 &["testing", dialogue],
-                &["code", "title", "decisions", "evidence", "acceptance"],
+                &["code", "title", "decisions", "evidence"],
             )],
         );
         history.carry_next(reached, cell)?;
