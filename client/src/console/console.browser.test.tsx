@@ -5,7 +5,9 @@
 // the item it points to, brought to the middle; the tree drawn again stands where it stood, the item selected kept; an
 // item revealed comes into the room the panel leaves, or to the middle when it is above or below what is seen; the
 // columns beside the one scrolled follow it, each where what joins it to the next near the middle of the screen is
-// level, only the way the one it follows moves and never faster than half again; the view stands through a change of height or theme; and
+// level, only the way the one it follows moves and never faster than half again; asked, as `o` and `O` ask, every
+// column glides to where a new column is placed, after the column of the roots, which keeps its place; the view stands
+// through a change of height or theme; and
 // once destroyed, the scene listens to nothing. The pointer and the wheel are events sent to the canvas at the points
 // the test works out from where the columns stand (`place`), so that each lands where the test means; the keys are the
 // browser's own. They pin as well: a click on an item's funnel folds what is under it
@@ -943,6 +945,83 @@ describe('the tree in columns', () => {
     expect(p.columns[1].at).toBeLessThanOrEqual(slot1(9) + 1 + 1e-9);
   });
 
+  it('brings every column back to where its links put it when asked, as a new column is placed, after the column of the roots, which keeps its place', async () => {
+    // Ten roots, each with two items under it and two under each of those; all but the first folded, or none.
+    const under = { open: 6, done: 0, cancelled: 0, elsewhere: 0 };
+    const tree = (folded: boolean) =>
+      Array.from({ length: 10 }, (_, k) => ({
+        ...card(
+          k + 1,
+          [0, 1].map((j) => card(100 + 2 * k + j, [0, 1].map((i) => card(1000 + 4 * k + 2 * j + i)))),
+        ),
+        fold: { folded: folded && k > 0, under },
+      }));
+    /// The columns of a scene of its own, made for the tree `roots` and drawn once: each placed as a column new to
+    /// the tree is.
+    const placedNew = async (roots: Shown[]) => {
+      const other = document.createElement('div');
+      other.style.cssText = host.style.cssText;
+      document.body.append(other);
+      const fresh = new SnapScene();
+      await fresh.mount(other);
+      fresh.show(roots);
+      const columns = fresh.place().columns.map((c) => c.at);
+      fresh.destroy();
+      other.remove();
+      return columns;
+    };
+    const ats = () => scene.place().columns.map((c) => c.at);
+    const onScreen = (id: number) => {
+      const y = scene.cardAt(id)?.y;
+      return y !== undefined && y > 0 && y < HEIGHT;
+    };
+    scene.show(tree(false));
+    settle(scene);
+    const start = ats();
+    // Root 5 stands in the middle. Folded, the items under it are gone, and the columns beside it stand where they
+    // stood, past the ends of what they now hold: none of what stands under root 1 is on the screen.
+    expect(start[0]).toBe(4.5);
+    scene.show(tree(true));
+    settle(scene);
+    expect([100, 101, 1000, 1001, 1002, 1003].some(onScreen)).toBe(false);
+    // Asked, they glide over frames to where a new column is placed, the column of the roots staying where it is.
+    const was = ats();
+    scene.realign();
+    scene.step();
+    const first = ats();
+    settle(scene);
+    const folded = ats();
+    expect(folded).toEqual((await placedNew(tree(true))).map((at) => expect.closeTo(at, 9)));
+    expect(folded[0]).toBe(4.5);
+    for (const d of [1, 2]) {
+      expect(Math.sign(first[d] - was[d])).toBe(Math.sign(folded[d] - was[d]));
+      expect(Math.abs(first[d] - was[d])).toBeLessThan(Math.abs(folded[d] - was[d]));
+    }
+    expect([100, 101, 1000, 1001, 1002, 1003].every(onScreen)).toBe(true);
+    // Unfolded and asked at once, as the console asks, they follow the folds as they turn, and come back to where the
+    // tree first placed them, the column of the roots never moving.
+    scene.show(tree(false));
+    scene.realign();
+    for (let k = 0; k < 90; k += 1) {
+      scene.step();
+      expect(scene.place().columns[0].at).toBe(4.5);
+    }
+    expect(scene.place().turns).toBe(0);
+    expect(ats()).toEqual(start.map((at) => expect.closeTo(at, 9)));
+    // A scroll ends it where the columns then stand, the column scrolled the one the others follow.
+    scene.scroll(2, 5 * ROW);
+    settle(scene);
+    const scrolled = ats();
+    scene.realign();
+    scene.step();
+    const stopped = ats();
+    expect(stopped).not.toEqual(scrolled);
+    scene.scroll(2, 0);
+    for (let k = 0; k < 20; k += 1) scene.step();
+    expect(scene.place().driver).toBe(2);
+    expect(ats()).toEqual(stopped);
+  });
+
   it('leaves the column beside the one scrolled where it is while every want is met, and an item far out wants little', async () => {
     // One item with ten under it: it wants the column beside it anywhere along the ten, and the further it is from the
     // middle, the more room it gives.
@@ -1342,7 +1421,7 @@ describe('the console page', () => {
     expect(JSON.parse(kept() ?? '')).toEqual({ 27: 'folded' });
   });
 
-  it('unfolds every item of the tree at `O`, folds at `o` those under which no work is under way, keeps both, and does neither while the owner types in a field or with Ctrl held', async () => {
+  it('unfolds every item of the tree at `O`, folds at `o` those under which no work is under way, keeps both, brings the columns back after the column of the roots once the folds are drawn, and does neither while the owner types in a field or with Ctrl held', async () => {
     const scene = await drawn();
     const done = [...container.querySelectorAll<HTMLLabelElement>('.console-shows label')]
       .find((l) => l.textContent === 'Done')
@@ -1367,10 +1446,29 @@ describe('the console page', () => {
     await expect.poll(() => kept()).toEqual(Object.fromEntries(all.map((id) => [id, 'unfolded'])));
     await expect.poll(turnedItems).toBeGreaterThan(30);
     const unfolded = turnedItems();
+    // The deepest column scrolled away, it is the one the others follow; once `o` has drawn its folds, every column
+    // comes back after the column of the roots, which stays where it stood.
+    const deepest = scene.place().columns.length - 1;
+    expect(deepest).toBeGreaterThan(0);
+    scene.scroll(deepest, 40 * ROW);
+    settle(scene);
+    expect(scene.place().driver).toBe(deepest);
+    const roots = scene.place().columns[0].at;
+    const realigned: number[] = [];
+    const realign = scene.realign.bind(scene);
+    vi.spyOn(scene, 'realign').mockImplementation(() => {
+      realigned.push(scene.place().turns);
+      realign();
+    });
     press('o');
     const after = Object.fromEntries(all.map((id) => [id, quiet.has(id) ? 'folded' : 'unfolded']));
     await expect.poll(() => kept()).toEqual(after);
     await expect.poll(turnedItems).toBeLessThan(unfolded);
+    // Asked once, as the folds began to turn.
+    expect(realigned).toHaveLength(1);
+    expect(realigned[0]).toBeGreaterThan(0);
+    expect(scene.place().driver).toBe(0);
+    expect(scene.place().columns[0].at).toBeCloseTo(roots, 9);
     // With Ctrl held, or while the owner types in a field, neither key changes a fold.
     press('O', document.body, { shiftKey: true, ctrlKey: true });
     const field = container.appendChild(document.createElement('input'));

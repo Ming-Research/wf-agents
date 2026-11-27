@@ -6,6 +6,11 @@
 // it, or the item above it, level with it, any part of either doing; the column stays where it is while every want is
 // met, and else glides only as far as the weighed wants call for, so that no column leaps, and only the way the column
 // it follows moves, so that none goes against it. Each column further out follows the one beside it the same way.
+// Asked to, as the console asks once the keys that fold the quiet trees and unfold every item have drawn their folds,
+// every column comes to where its links put it, out from the column of the roots, as a column new to the tree is placed,
+// so that what is drawn stands beside what it hangs from and no column is left off the screen where it had been
+// scrolled; the column of the roots keeps its place, and the others glide there as the columns do to bring an item into
+// view, following the folds as they turn.
 //
 // Each item is a card; one a work goes on on is a faint tint of the colour of what the work does, and one above such
 // an item has an edge of the light accent. Under each item that depends on an item besides its main dependent, a
@@ -1313,6 +1318,10 @@ export class SnapScene {
   private softLit = new Map<number, number>();
   /// The column last scrolled, or whose item was last brought to the middle, which the others follow.
   private driver = 0;
+  /// Whether every column but the one followed is coming to where its links put it, as [`realign`] asked; and where
+  /// each column is going, worked out again while folds turn and once a tree is drawn, or none yet.
+  private realigning = false;
+  private realignTo: number[] | null = null;
   private left = 40;
   /// Where the columns are moving sideways to, when the scene brings an item into view, until they are there or the
   /// owner moves them.
@@ -1825,14 +1834,8 @@ export class SnapScene {
     }
     this.driver = Math.min(this.driver, tree.columns.length - 1);
     this.columns[this.driver].aim = this.columns[this.driver].at;
-    // The new columns, out from the one followed: each with what joins it to the item nearest the middle of the column
-    // beside it level with that item, then where its links put it, at once.
-    for (let d = this.driver + 1; d < this.columns.length; d += 1) if (placeless.has(d)) this.level(d, d - 1);
-    for (let d = this.driver - 1; d >= 0; d -= 1) if (placeless.has(d)) this.level(d, d + 1);
-    for (let k = 0; k < 100 && placeless.size > 0; k += 1) {
-      for (let d = this.driver + 1; d < this.columns.length; d += 1) if (placeless.has(d)) this.link(d, d - 1);
-      for (let d = this.driver - 1; d >= 0; d -= 1) if (placeless.has(d)) this.link(d, d + 1);
-    }
+    this.placeOut(placeless);
+    this.realignTo = null;
     this.buildMap(tree);
     this.stats.items = items.length;
     if (this.selected !== null && !this.real.has(this.selected)) this.selected = null;
@@ -1845,6 +1848,62 @@ export class SnapScene {
       this.toFocus = null;
     }
     this.announce();
+  }
+
+  /// Places each column of `placeless` as a column new to the tree is placed, out from the one followed: with what
+  /// joins it to the item nearest the middle of the column beside it level with that item, then where its links put it,
+  /// at once.
+  private placeOut(placeless: Set<number>): void {
+    for (let d = this.driver + 1; d < this.columns.length; d += 1) if (placeless.has(d)) this.level(d, d - 1);
+    for (let d = this.driver - 1; d >= 0; d -= 1) if (placeless.has(d)) this.level(d, d + 1);
+    for (let k = 0; k < 100 && placeless.size > 0; k += 1) {
+      for (let d = this.driver + 1; d < this.columns.length; d += 1) if (placeless.has(d)) this.link(d, d - 1);
+      for (let d = this.driver - 1; d >= 0; d -= 1) if (placeless.has(d)) this.link(d, d + 1);
+    }
+  }
+
+  /// Where each column would stand were every column but the one followed new to the tree ([`placeOut`]); the columns
+  /// themselves are left where they stand.
+  private placedOut(): number[] {
+    const was = this.columns.map((c) => c.at);
+    this.placeOut(new Set(this.columns.flatMap((_, d) => (d === this.driver ? [] : [d]))));
+    const placed = this.columns.map((c) => c.at);
+    this.columns.forEach((c, d) => {
+      c.at = was[d];
+    });
+    return placed;
+  }
+
+  /// Brings every column to where its links put it, out from the column of the roots, as a column new to the tree is
+  /// placed ([`placeOut`]): the column of the roots keeps its place, and each other glides there as the columns do to
+  /// bring an item into view ([`SNAP`]), towards where the folds turning put it at each frame. It ends once every
+  /// column is there and no fold turns, or where the columns then stand once the owner scrolls a column, an item is
+  /// brought to the middle or a fold is turned by its funnel or its dot.
+  realign(): void {
+    if (this.tree === null || this.columns.length === 0) return;
+    this.mark('view');
+    this.driver = 0;
+    this.columns[0].aim = this.columns[0].at;
+    this.realigning = true;
+    this.realignTo = null;
+  }
+
+  /// One frame of [`realign`]: each column but the one followed goes a part of the way to where it is placed, worked
+  /// out where it was not, or while folds turn; once every column is there and no fold turns, it ends.
+  private realignStep(): void {
+    const to = this.realignTo === null || this.turns.size > 0 ? this.placedOut() : this.realignTo;
+    this.realignTo = to;
+    let there = this.turns.size === 0;
+    this.columns.forEach((c, d) => {
+      if (d === this.driver) return;
+      c.at += (to[d] - c.at) * SNAP;
+      if (Math.abs(to[d] - c.at) * ROW < REST) c.at = to[d];
+      else there = false;
+    });
+    if (there) {
+      this.realigning = false;
+      this.realignTo = null;
+    }
   }
 
   /// Begins the turn of each fold that `roots` shows folded the other way than the tree before did: from where it
@@ -2359,6 +2418,7 @@ export class SnapScene {
   private focus(d: number, rank: number): void {
     const t = this.tree;
     if (t === null) return;
+    this.realigning = false;
     this.driver = d;
     this.columns[d].aim = this.middle(d, Math.max(0, Math.min(t.columns[d].length - 1, rank)));
   }
@@ -2992,6 +3052,7 @@ export class SnapScene {
     const t = this.tree;
     if (t === null || d < 0 || d >= this.columns.length) return;
     const c = this.columns[d];
+    this.realigning = false;
     if (d !== this.driver) {
       this.driver = d;
       c.aim = c.at;
@@ -3143,6 +3204,7 @@ export class SnapScene {
     const fold = k < 0 ? null : this.shownItems[k].fold;
     if (fold == null || this.tree === null) return false;
     const c = this.tree.depth[k];
+    this.realigning = false;
     this.driver = c;
     this.columns[c].aim = this.columns[c].at;
     this.onFold?.(this.ids[k], !fold.folded);
@@ -3221,8 +3283,11 @@ export class SnapScene {
       if (Math.abs(c.aim - c.at) * ROW < REST) c.at = c.aim;
     });
     const moved = (d: number) => PACE * (this.columns[d].at - was[d]);
-    for (let d = this.driver + 1; d < this.columns.length; d += 1) this.link(d, d - 1, moved(d - 1));
-    for (let d = this.driver - 1; d >= 0; d -= 1) this.link(d, d + 1, moved(d + 1));
+    if (this.realigning) this.realignStep();
+    else {
+      for (let d = this.driver + 1; d < this.columns.length; d += 1) this.link(d, d - 1, moved(d - 1));
+      for (let d = this.driver - 1; d >= 0; d -= 1) this.link(d, d + 1, moved(d + 1));
+    }
     const y = (d: number, rank: number) => {
       const c = this.columns[d];
       return line + (this.middle(d, rank) - c.at) * ROW;

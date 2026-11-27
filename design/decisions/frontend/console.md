@@ -19,6 +19,10 @@ Items stand in columns, one for each level from the roots at the left; each scro
 - replaced: A line across the middle, onto which an item of each column snapped, was on main; the owner changed it, because the snap still jumped, and nothing pulls a block of items away from its parent.
 - replaced: A column next to it that could glide against the column it follows, as the wants near the middle changed, was on main; the owner changed it, because the third column ran up off the screen as he dragged the second.
 
+### decision the-fold-keys-bring-the-columns-back
+Once `o` or `O` has drawn its folds, every column glides to where its links put it, as a new column is placed, after the column of the roots, which keeps its place.
+- replaced: Every column staying where it stood as `o` and `O` turned the folds was on main; the owner changed it, because cards scrolled off the screen stayed off it, and the owner had to drag each column back.
+
 ### decision the-tree-follows-what-depends-on-what
 The items form one tree by what depends on what: where one item depends on another, the other stands under it, directly or further down; nothing else shapes the tree.
 - rejected: an agent proposed giving each item a parent, besides its dependencies, for the tree to show it under; the owner rejected it, because the parent relation and the dependencies can be one, merged into the dependencies.
