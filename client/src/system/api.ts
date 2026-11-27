@@ -24,7 +24,7 @@ import { createContext, useContext } from 'react';
 
 import { read } from '../api';
 import { projectsAsked, usesFixtures } from '../mock-data';
-import type { Against, Failure, Judged, Line, Refusal, Spent } from '../works-api';
+import type { Against, Failure, Judged, Line, Refusal, Spent, Unmet } from '../works-api';
 
 export interface Week {
   /// When it begins, as the page gave it.
@@ -152,7 +152,9 @@ export interface Added {
   at: number;
 }
 
-export interface RoundAt {
+/// A round given back what the round before it handed in: what it took, none while it is under way, and why what came
+/// back was sent back, as the round was told it and the work's page gives it.
+export interface SentBack {
   work: number;
   item: number;
   cell: string;
@@ -160,6 +162,7 @@ export interface RoundAt {
   round: number;
   began: number;
   spent: Spent | null;
+  unmet: Unmet[];
 }
 
 export interface FailedRound {
@@ -193,7 +196,7 @@ export interface System {
   merged: Merged[];
   cancelled: Cancelled[];
   added: Added[];
-  sentBack: RoundAt[];
+  sentBack: SentBack[];
   failed: FailedRound[];
   /// What ended in the span past the line of its history, the latest first.
   past: Past[];

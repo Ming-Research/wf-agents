@@ -197,8 +197,10 @@ async fn a_span_counts_only_what_happened_in_it() {
     assert!(words.starts_with("The span cannot be read"), "{words}");
 }
 
+// The plan's returns are sent back until its run reaches its limit, and once it is let go on, its next round fails: each
+// round sent back is given with why, as the work's page gives the round, and the failed one with its cause.
 #[tokio::test(start_paused = true)]
-async fn a_round_that_failed_is_given_with_its_cause() {
+async fn a_round_sent_back_is_given_with_why_and_a_round_that_failed_with_its_cause() {
     const WHY: &str = "The agent's program could not start.";
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(dir.path().join("store.sqlite")).unwrap();
@@ -225,6 +227,38 @@ async fn a_round_that_failed_is_given_with_its_cause() {
     assert_eq!(failed[0]["failure"], "other");
     assert_eq!(failed[0]["why"], WHY);
     assert_eq!(system["weeks"][0]["failed"], 1);
+    // Each round the work's page says was given a return sent back, the latest first, with the reasons it was told.
+    let page = get_json(router, "/api/v1/works/1").await;
+    let mut told: Vec<Value> = (page["steps"].as_array().unwrap().iter())
+        .filter(|step| step["kind"] == "run")
+        .flat_map(|step| {
+            (step["rounds"].as_array().unwrap().iter())
+                .filter(|round| round["given"]["kind"] == "sentBack")
+                .map(|round| {
+                    json!({
+                        "cell": step["cell"], "run": step["run"], "round": round["number"],
+                        "began": round["began"], "unmet": round["given"]["unmet"],
+                    })
+                })
+        })
+        .collect();
+    told.reverse();
+    let sent_back: Vec<Value> = (system["sentBack"].as_array().unwrap().iter())
+        .map(|r| {
+            assert_eq!((&r["work"], &r["item"]), (&json!(1), &json!(1)), "{r}");
+            json!({ "cell": r["cell"], "run": r["run"], "round": r["round"], "began": r["began"], "unmet": r["unmet"] })
+        })
+        .collect();
+    assert!(sent_back.len() >= 2, "{system}");
+    assert_eq!(sent_back, told, "{system}");
+    for round in &sent_back {
+        assert_eq!(
+            round["unmet"],
+            json!([{ "key": "dealt_with_nothing", "values": [] }]),
+            "the plan handed in nothing and asked for nothing: {round}"
+        );
+    }
+    assert_eq!(system["weeks"][0]["sentBack"], json!(sent_back.len()));
 }
 
 /// What every agent's round runs on, in the history below.

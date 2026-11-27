@@ -1,8 +1,9 @@
 // The system and the settings to look at their views by before the interface serves them, opened with `?fixtures`
 // in the page's address (api.ts), and for the tests. The system is worked out from the works' fixtures, so that the two
-// views agree: what each work spent, the one merged, the one cancelled, and a round failed of the work the engine
-// paused. What was spent by cell, by model and by project is split from what the works spent in all; the projects are
-// those the works' fixtures name, then made-up ones, as many as the address asks for, else three and the items of none.
+// views agree: what each work spent, the one merged, the one cancelled, a round failed of the work the engine paused,
+// and rounds sent back of two works. What was spent by cell, by model and by project is split from what the works spent
+// in all; the projects are those the works' fixtures name, then made-up ones, as many as the address asks for, else
+// three and the items of none.
 // The settings are a file like the sample's, with a value the engine runs at another and a table left out, and four
 // projects, each in a state the engine may hold its declaration in.
 
@@ -100,6 +101,29 @@ export function fixtureSystem(starts: number[], projects: number | null = null):
   const merged = items.filter((i) => i.work.now.kind === 'merged');
   const cancelled = items.filter((i) => i.work.now.kind === 'cancelled');
   const halted = items.find((i) => i.work.now.kind === 'paused' && i.work.now.by === 'engine');
+  // Rounds sent back of the first two works that ran: the first's implement twice and its review once, the latest
+  // still under way; the second's plan once.
+  const ran = items.filter((i) => i.work.spent.rounds > 0).slice(0, 2);
+  const sentBack: System['sentBack'] = ran.flatMap((i, n) => {
+    const back = (cell: string, round: number, ago: number, usd: number | null, keys: string[]) => ({
+      work: i.work.number,
+      item: i.number,
+      cell,
+      run: ['plan', 'implement', 'review'].indexOf(cell) + 2,
+      round,
+      began: now - ago,
+      spent: usd === null ? null : { ...nothing(), usdMicros: usd, workingMs: 90_000, rounds: 1 },
+      unmet: keys.map((key) => ({ key, values: [{ name: 'block', value: cell === 'plan' ? 'plan' : 'code' }] })),
+    });
+    return n === 0
+      ? [
+          back('implement', 3, 600_000, null, ['not_handed_in']),
+          back('implement', 2, 3_600_000, 820_000, ['not_handed_in', 'written_twice']),
+          back('review', 2, 7_200_000, 410_000, ['no_point']),
+        ]
+      : [back('plan', 2, 5_400_000, 260_000, ['not_a_choice'])];
+  });
+  sentBack.sort((a, b) => b.began - a.began);
   const weeks = starts.length;
   const occupancy = (taking: number, running: number): Occupancy => ({
     takingAvg: taking,
@@ -115,7 +139,7 @@ export function fixtureSystem(starts: number[], projects: number | null = null):
     merged: n === weeks - 1 ? merged.length : 0,
     cancelled: n === weeks - 1 ? cancelled.length : 0,
     added: n === weeks - 1 ? items.length : 0,
-    sentBack: 0,
+    sentBack: n === weeks - 1 ? sentBack.length : 0,
     failed: n === weeks - 1 && halted ? 1 : 0,
     waited: {
       totalMs: n === weeks - 1 ? [7_200_000, 1_800_000, 900_000, 600_000, 3_600_000] : [0, 0, 0, 0, 0],
@@ -157,7 +181,7 @@ export function fixtureSystem(starts: number[], projects: number | null = null):
       why: 'The chart is drawn another way.',
     })),
     added: items.map((i) => ({ work: i.work.number, item: i.number, at: i.added })).sort((a, b) => b.at - a.at),
-    sentBack: [],
+    sentBack,
     failed: halted
       ? [
           {
