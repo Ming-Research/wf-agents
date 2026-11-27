@@ -19,7 +19,7 @@ import '../styles/parts.css';
 
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { userEvent } from 'vitest/browser';
+import { page as browserPage, userEvent } from 'vitest/browser';
 
 import { DEFAULT_ACCENT, pickAccent, PRESETS, tones } from '../accent';
 import { apart, lchOf } from '../colour';
@@ -32,7 +32,15 @@ import { fixtureSource } from './fixtures';
 import { FIND_SAYS } from './find';
 import { CONSOLE_MARKS } from './help';
 import { ConsolePage, emptyWords } from './index';
-import { STANDINGS, type Shown, type ShownWork, standingOf } from './items';
+import {
+  foldable,
+  quietFolds,
+  shownTree,
+  STANDINGS,
+  type Shown,
+  type ShownWork,
+  standingOf,
+} from './items';
 import {
   DIM,
   DOT_AT,
@@ -64,6 +72,7 @@ const card = (id: number, children: Shown[] = []): Shown => ({
   ahead: 0,
   deliver: false,
   begun: false,
+  underWay: false,
   shadow: false,
   stands: null,
   work: null,
@@ -1333,6 +1342,45 @@ describe('the console page', () => {
     expect(JSON.parse(kept() ?? '')).toEqual({ 27: 'folded' });
   });
 
+  it('unfolds every item of the tree at `O`, folds at `o` those under which no work is under way, keeps both, and does neither while the owner types in a field or with Ctrl held', async () => {
+    const scene = await drawn();
+    const done = [...container.querySelectorAll<HTMLLabelElement>('.console-shows label')]
+      .find((l) => l.textContent === 'Done')
+      ?.querySelector('input') as HTMLInputElement;
+    done.click();
+    await expect.poll(() => scene.stats.items).toBe(30);
+    // The tree shown, of the project first in the list.
+    const tree = shownTree(await fixtureSource().items.loadItems(), new Set(['open', 'done']), new Map(), 'wf-agents');
+    const all = foldable(tree);
+    const quiet = new Set(quietFolds(tree));
+    // The made-up items hold both kinds, so that `o` is seen to leave the folds over a work under way as they are.
+    expect(quiet.size).toBeGreaterThan(0);
+    expect(quiet.size).toBeLessThan(all.length);
+    const press = (key: string, on: Element = document.body, keys: KeyboardEventInit = {}) =>
+      on.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...keys }));
+    const kept = () => JSON.parse(localStorage.getItem('wf-agents.console-folds') ?? '{}') as Record<string, string>;
+    const turnedItems = () => {
+      settle(scene);
+      return scene.stats.items;
+    };
+    press('O', document.body, { shiftKey: true });
+    await expect.poll(() => kept()).toEqual(Object.fromEntries(all.map((id) => [id, 'unfolded'])));
+    await expect.poll(turnedItems).toBeGreaterThan(30);
+    const unfolded = turnedItems();
+    press('o');
+    const after = Object.fromEntries(all.map((id) => [id, quiet.has(id) ? 'folded' : 'unfolded']));
+    await expect.poll(() => kept()).toEqual(after);
+    await expect.poll(turnedItems).toBeLessThan(unfolded);
+    // With Ctrl held, or while the owner types in a field, neither key changes a fold.
+    press('O', document.body, { shiftKey: true, ctrlKey: true });
+    const field = container.appendChild(document.createElement('input'));
+    field.focus();
+    press('O', field, { shiftKey: true });
+    field.remove();
+    await drew();
+    expect(kept()).toEqual(after);
+  });
+
   /// The search's field, while the search is open, and the numbers of the rows it finds.
   const field = () => container.querySelector('.console-find input') as HTMLInputElement | null;
   const found = () => [...container.querySelectorAll('.console-found-row > .mono')].map((s) => s.textContent);
@@ -1461,6 +1509,8 @@ describe('the console page', () => {
     expect(listed("The console's keys")).toEqual([
       '/ search',
       'e fold or unfold the card under the pointer',
+      'o fold every card with no work under way under it',
+      'O unfold every card',
       'n / N next / previous question',
       'm / M next / previous reply you have not read',
       '1 – 9 the tree of the project of that place in the list',
@@ -1484,6 +1534,41 @@ describe('the console page', () => {
     expect(look().pointerEvents).toBe('none');
     await expect.poll(() => look().visibility).toBe('hidden');
     await expect.poll(() => look().opacity).toBe('0');
+  });
+
+  it('lays the legend out across, and keeps it inside the window at every size', async () => {
+    await drawn();
+    const mark = container.querySelector('.console-help-mark') as HTMLElement;
+    const panel = container.querySelector('.console-help-panel') as HTMLElement;
+    await userEvent.hover(mark);
+    await expect.poll(() => panel.classList.contains('shown')).toBe(true);
+    const inside = () => {
+      const r = panel.getBoundingClientRect();
+      return [r.left >= 0, r.top >= 0, r.right <= window.innerWidth, r.bottom <= window.innerHeight];
+    };
+    try {
+      for (const [width, height] of [
+        [1920, 1080],
+        [1280, 800],
+        [640, 480],
+        [400, 300],
+      ]) {
+        await browserPage.viewport(width, height);
+        await expect.poll(() => window.innerWidth).toBe(width);
+        expect(inside(), `${width} by ${height}`).toEqual([true, true, true, true]);
+      }
+      // In a window of the usual size, the marks stand in several columns side by side, and the legend is read whole
+      // with no scrolling.
+      await browserPage.viewport(1280, 800);
+      await expect.poll(() => window.innerWidth).toBe(1280);
+      const lefts = [...panel.querySelectorAll('ul[aria-label="The console\'s marks"] > li')].map(
+        (li) => li.getBoundingClientRect().left,
+      );
+      expect(new Set(lefts).size).toBeGreaterThan(1);
+      expect(panel.scrollHeight).toBeLessThanOrEqual(panel.clientHeight);
+    } finally {
+      await browserPage.viewport(1280, 800);
+    }
   });
 
   it('writes the item selected into the address, so that the tab of the console leads back to it', async () => {

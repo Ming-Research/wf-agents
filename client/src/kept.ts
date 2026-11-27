@@ -98,20 +98,21 @@ export function useKeptTicks<T extends string>(key: string, first: readonly T[],
 
 /// Of each item the owner folded or unfolded, by its number, whether it is folded, as he last chose; an item he never
 /// folded or unfolded is not in it. Kept under `key` as each number with `folded` or `unfolded`, in JSON; an entry kept
-/// by an earlier page that is no such pair is taken as none kept.
+/// by an earlier page that is no such pair is taken as none kept. `turn` keeps one choice; `turnEach` keeps the choices
+/// of many items at once, written once for them all.
 export function useKeptFolds(key: string) {
   const [value, setValue] = useState<ReadonlyMap<number, boolean>>(() => keptFolds(key));
-  const turn = useCallback(
-    (id: number, folded: boolean) =>
+  const turnEach = useCallback(
+    (chosen: ReadonlyMap<number, boolean>) =>
       setValue((was) => {
-        const now = new Map(was);
-        now.set(id, folded);
+        const now = new Map([...was, ...chosen]);
         write(key, JSON.stringify(Object.fromEntries([...now].map(([n, f]) => [n, f ? 'folded' : 'unfolded']))));
         return now;
       }),
     [key],
   );
-  return [value, turn] as const;
+  const turn = useCallback((id: number, folded: boolean) => turnEach(new Map([[id, folded]])), [turnEach]);
+  return [value, turn, turnEach] as const;
 }
 
 /// The folds kept under `key`, as `useKeptFolds` keeps them.

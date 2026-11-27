@@ -134,6 +134,7 @@ export function fakeShown(count: number): Shown[] {
     ahead: 0,
     deliver: false,
     begun: i.state !== 'new',
+    underWay: i.state === 'working' || i.state === 'waiting',
     shadow: false,
     stands: work(i),
     work: work(i),

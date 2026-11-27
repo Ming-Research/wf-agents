@@ -5,6 +5,8 @@ import {
   asksOf,
   emptyOf,
   findItems,
+  foldable,
+  quietFolds,
   NO_PROJECT,
   projectsIn,
   shownTree,
@@ -356,6 +358,67 @@ describe('the folds of the tree', () => {
       '21',
       '  22',
     ]);
+  });
+});
+
+describe('the folds of the keys o and O', () => {
+  const round: Now = { kind: 'round', cell: 'plan', run: 1, round: 1, since: 0 };
+  /// Item `n`, open, its work under way: a round of it runs.
+  const going = (n: number, dependsOn: number[] = []): Item => ({ ...item(n, 'open', dependsOn), work: work(n, round) });
+  // 1, open, depends on 2 and 5. 2, open, depends on 3, whose work is under way and which depends on 4, done. 5, open,
+  // depends on 6, done, over 8, which merged after it had begun, and on 7, whose round runs but which is paused. 9,
+  // done, depends on 10, under way. 11, under way, depends on 12, done. 13, open, depends on 14, open and not begun, and
+  // on 3, whose shadow stands under it.
+  const data: Items = {
+    items: [
+      item(1, 'open', [2, 5]),
+      item(2, 'open', [3]),
+      going(3, [4]),
+      item(4, 'done'),
+      item(5, 'open', [6, 7]),
+      item(6, 'done', [8]),
+      { ...going(7), work: { ...work(7, round), paused: 'owner' } },
+      { ...item(8, 'done'), work: { ...work(8, NOW.done), from: 1 } },
+      item(9, 'done', [10]),
+      going(10),
+      going(11, [12]),
+      item(12, 'done'),
+      item(13, 'open', [14, 3]),
+      item(14, 'open'),
+    ],
+  };
+  const sorted = (ids: number[]) => [...ids].sort((a, b) => a - b);
+
+  it('fold, at every level, each item under which no work is under way: begun, not ended and not paused', () => {
+    // Not 1 and 2, over 3; nor 9, over 10. A paused work (7), one that ended (8) and one not begun (14) are not under
+    // way; the item's own work (11) and a shadow's (3 under 13) do not count.
+    expect(sorted(quietFolds(markedTree(data, ALL)))).toEqual([3, 5, 6, 11, 13]);
+  });
+
+  it('leave folded, once an item it folded is unfolded, the next level under it', () => {
+    const chosen = new Map(quietFolds(markedTree(data, ALL)).map((id): [number, boolean] => [id, true]));
+    chosen.set(5, false);
+    expect(drawnLines(markedTree(data, ALL, chosen))).toEqual([
+      '1',
+      '  2',
+      '    3 folded done 1',
+      '  5',
+      '    6 folded done 1',
+      '    7',
+      '9',
+      '  10',
+      '11 folded done 1',
+      '13 folded open 1 elsewhere 1',
+    ]);
+  });
+
+  it('fold only what the tree shows, by the boxes ticked', () => {
+    // With only open items shown, 6 and 12, done, are not in the tree: 5 is over 7 alone, and 11 has nothing under it.
+    expect(sorted(quietFolds(markedTree(data)))).toEqual([5, 13]);
+  });
+
+  it('unfold at O every item with a fold, and no other', () => {
+    expect(sorted(foldable(markedTree(data, ALL)))).toEqual([1, 2, 3, 5, 6, 9, 11, 13]);
   });
 });
 

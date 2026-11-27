@@ -89,6 +89,8 @@ export type Shown = {
   repliesUnread: number;
   /// Whether its work has begun, which is whether it has run a round ([`started`]).
   begun: boolean;
+  /// Whether its work is under way: it has begun, has not ended, and is not paused ([`underWay`]). Never of a shadow.
+  underWay: boolean;
   /// A shadow of the item under an item that depends on it by a dependency that is not its main one: it points to the
   /// item's place, and carries none of its work, its questions or the items under it.
   shadow: boolean;
@@ -126,6 +128,10 @@ export const started = (w: Summary): boolean => w.from != null;
 
 /// Whether a work still goes on: not merged and not cancelled.
 const live = (w: Summary) => w.now.kind !== 'merged' && w.now.kind !== 'cancelled';
+
+/// Whether a work is under way: it has begun ([`started`]), has not ended, and is not paused.
+export const underWay = (w: Summary): boolean =>
+  started(w) && live(w) && w.paused === null && w.now.kind !== 'paused';
 
 /// Whether a card draws the work, in the colours of how it stands: while it goes on, once it has begun, and before
 /// that while it is halted or waits for the owner, which a card says in red whether or not the work has run. Its second
@@ -265,6 +271,7 @@ export function shownTree(
       fresh: mock?.fresh ?? 'none',
       repliesUnread: mock?.repliesUnread ?? 0,
       begun: w !== undefined && started(w),
+      underWay: w !== undefined && underWay(w),
       shadow: false,
       stands: w === undefined ? null : { now: w.now, cells: w.cells, waits: waitsOf(w) },
       work:
@@ -305,6 +312,7 @@ export function shownTree(
     fresh: 'none',
     repliesUnread: 0,
     begun: false,
+    underWay: false,
     shadow: true,
     stands: null,
     work: null,
@@ -346,6 +354,34 @@ export function walkOrder(
   };
   roots.forEach(go);
   return order;
+}
+
+/// The items of the tree `roots` that have a fold, which `O` unfolds.
+export function foldable(roots: Shown[]): number[] {
+  const ids: number[] = [];
+  const go = (s: Shown) => {
+    if (s.fold != null) ids.push(s.id);
+    s.children.forEach(go);
+  };
+  roots.forEach(go);
+  return ids;
+}
+
+/// The items of the tree `roots` that `o` folds: each with a fold under which no item, at any depth, has its work under
+/// way, at every level, so that unfolding one shows the next level folded. Whether the item's own work is under way
+/// does not count: folding it hides only what is under it. A shadow's item stands elsewhere, and its work is shown
+/// there, so a shadow counts for nothing.
+export function quietFolds(roots: Shown[]): number[] {
+  const ids: number[] = [];
+  // Whether `s` or an item under it has its work under way.
+  const busy = (s: Shown): boolean => {
+    if (s.shadow) return false;
+    const under = s.children.map(busy).some((b) => b);
+    if (s.fold != null && !under) ids.push(s.id);
+    return s.underWay || under;
+  };
+  roots.forEach(busy);
+  return ids;
 }
 
 /// The fold of an item that stands as `own` stands, with `children` standing under it and `shadows` shadows beside

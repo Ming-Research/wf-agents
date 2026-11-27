@@ -102,6 +102,7 @@ describe('what a fold hides', () => {
     fresh: 'none',
     repliesUnread: 0,
     begun: false,
+    underWay: false,
     shadow,
     stands: null,
     work: null,
