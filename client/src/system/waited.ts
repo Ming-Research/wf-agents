@@ -42,6 +42,7 @@ export const WAITED_WORDS = {
   slots: 'Slots',
   noneEnded: 'none ended',
   notKept: 'not kept',
+  keptInPart: 'kept in part',
   notKeptTitle: 'The engine kept the number of slots only from the time it began to',
   unseparated:
     'Waits of works that ended before a wait for a slot was told apart are in none of these: they are kept as anything else.',
@@ -74,16 +75,30 @@ export function works(thousandths: number): string {
   return (thousandths / 1000).toFixed(1);
 }
 
-/// How many works held a slot, or ran: on average, and at most at once; and, for a slot, of how many there were: said
-/// `not kept` where the engine kept none in the stretch.
-export function crowdWords(average: number, peak: number, slots?: number | null): string {
-  const of = slots === undefined ? '' : slots === null ? `, of ${WAITED_WORDS.notKept}` : `, of ${slots}`;
+/// How many slots there were, as the engine kept them over a stretch: said `not kept` where it kept none in it, and `kept
+/// in part` beside the number where it kept them only from some time within it, so that the number is not read as the
+/// slots of the whole stretch.
+export function slotsWords(slots: number | null, recorded: boolean): string {
+  if (slots === null) return WAITED_WORDS.notKept;
+  return recorded ? `${slots}` : `${slots} (${WAITED_WORDS.keptInPart})`;
+}
+
+/// How many works held a slot, or ran: on average, and at most at once; and, for a slot, of how many there were
+/// ([`slotsWords`]).
+export function crowdWords(average: number, peak: number, slots?: number | null, recorded = true): string {
+  const of = slots === undefined ? '' : `, of ${slotsWords(slots, recorded)}`;
   return `${works(average)} avg, ${peak} at most${of}`;
 }
 
 /// The occupancy of a stretch in a table's cell: the slots taken on average and at most, of the slots there were.
 export function takingWords(o: Occupancy): string {
-  return crowdWords(o.takingAvg, o.takingPeak, o.slots);
+  return crowdWords(o.takingAvg, o.takingPeak, o.slots, o.recorded);
+}
+
+/// What the occupancy of a stretch counts, said on pointing at it, and that the engine kept the slots only from some time
+/// where it did not keep them over the whole stretch.
+export function takingTitle(o: Occupancy): string {
+  return `${WAITED_WORDS.takingTitle}${o.recorded ? '' : `. ${WAITED_WORDS.notKeptTitle}`}`;
 }
 
 /// What a week's row of the table says of each cause, in the order of `WAIT_REASONS`, as how long, or none.

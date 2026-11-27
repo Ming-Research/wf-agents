@@ -711,6 +711,38 @@ describe('the System view', () => {
     ]);
   });
 
+  it('says of a week that the slots were kept for only part of it, and counts a single job as one job', async () => {
+    const s = sources();
+    s.system.loadSystem = async (weeks) => {
+      const system = fixtureSystem(weeks);
+      const waited = system.waited!;
+      return {
+        ...system,
+        // The first week of the span began before the engine kept the slots.
+        weeks: system.weeks.map((w, i) =>
+          i === 0 && w.waited
+            ? { ...w, waited: { ...w.waited, occupancy: { ...w.waited.occupancy, slots: 3, recorded: false } } }
+            : w,
+        ),
+        waited: { ...waited, ci: { ...waited.ci, jobs: 1 } },
+      };
+    };
+    const { container } = draw(<SystemView period="4w" />, s);
+    await settle();
+    const waited = part(container, 'Waited');
+    const rows = [...tableUnder(waited, 'Week by week').querySelectorAll('tbody tr')];
+    const taking = (row: Element) => row.querySelectorAll('td')[7] as HTMLElement;
+    // Slots taken is the eighth cell of a row, after the week, the five causes and CI.
+    expect(taking(rows[0]).textContent?.trim()).toBe('0.0 avg, 3 at most, of 3 (kept in part)');
+    expect(taking(rows[0]).getAttribute('title')).toContain('only from the time it began to');
+    expect(taking(rows[3]).textContent?.trim()).toBe('2.4 avg, 3 at most, of 3');
+    expect(taking(rows[3]).getAttribute('title')).not.toContain('only from the time it began to');
+    const queue = [...waited.querySelectorAll('.tile')].find(
+      (t) => t.querySelector('.label')?.textContent === 'Job in the queue',
+    ) as HTMLElement;
+    expect(queue.querySelector('.tile-more')?.textContent?.trim()).toBe('longest 3m 0s · 1 job');
+  });
+
   it("shows what each project spent before the cells and the models, the costliest first as given, each project's share of the totals, which count every project", async () => {
     const s = sources();
     const byProject: ProjectSpent[] = [

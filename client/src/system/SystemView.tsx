@@ -37,6 +37,8 @@ import { redMainWords } from './redMain';
 import {
   crowdWords,
   endedWords,
+  slotsWords,
+  takingTitle,
   takingWords,
   took,
   WAIT_REASONS,
@@ -556,16 +558,16 @@ export function WaitedPart({ s }: { s: System }) {
           more={
             ci.queuedLongestMs === null
               ? undefined
-              : `${WAITED_WORDS.longest} ${duration(ci.queuedLongestMs)} · ${ci.jobs} jobs`
+              : `${WAITED_WORDS.longest} ${duration(ci.queuedLongestMs)} · ${stopsWords(ci.jobs, 'job')}`
           }
           label={WAITED_WORDS.queued}
           title={`${WAITED_WORDS.queuedTitle}. Jobs run before the engine kept it say none.`}
         />
         <Tile
           value={works(o.takingAvg)}
-          more={`${o.takingPeak} at most, of ${o.slots === null ? WAITED_WORDS.notKept : o.slots}`}
+          more={`${o.takingPeak} at most, of ${slotsWords(o.slots, o.recorded)}`}
           label={WAITED_WORDS.taking}
-          title={`${WAITED_WORDS.takingTitle}${o.recorded ? '' : `. ${WAITED_WORDS.notKeptTitle}`}`}
+          title={takingTitle(o)}
         />
         <Tile
           value={works(o.runningAvg)}
@@ -596,7 +598,9 @@ export function WaitedPart({ s }: { s: System }) {
                   </td>
                 ))}
                 <td className="num">{w.waited === undefined ? '' : took(w.waited.ciMs)}</td>
-                <td className="num">{w.waited === undefined ? '' : takingWords(w.waited.occupancy)}</td>
+                <td className="num" title={w.waited === undefined ? undefined : takingTitle(w.waited.occupancy)}>
+                  {w.waited === undefined ? '' : takingWords(w.waited.occupancy)}
+                </td>
                 <td className="num">
                   {w.waited === undefined
                     ? ''

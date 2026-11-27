@@ -2643,20 +2643,6 @@ impl Driver {
         &self.spans
     }
 
-    /// Each wait in which the agents' command line could not run, in order, as a bar reads them: those that are over,
-    /// worked out from the records of every work, and the one that stands now, where one does, from what every work
-    /// reads alike ([`AtOnce::cannot_run`]).
-    pub fn cannot_runs(&self, at_once: &AtOnce) -> Vec<CannotRun> {
-        self.shared_waits(at_once).0
-    }
-
-    /// Each stretch in which a cause every work shares held the rounds of agents, in order, as a bar reads them: those that
-    /// are over, worked out from the records of every work, and the one that stands now, where one does, from what every
-    /// work reads alike ([`AtOnce::down`]).
-    pub fn downs(&self, at_once: &AtOnce) -> Vec<Down> {
-        self.shared_waits(at_once).1
-    }
-
     /// What holds every work at once as far as the agents' wait goes ([`AtOnce`] with none of the rest): what
     /// [`Driver::shared_waits`] reads, for a reader of the waits that asks nothing of the slots taken, the turns and the
     /// acts' host, whose worth is a scan of the records of every work each.
@@ -2671,7 +2657,10 @@ impl Driver {
         }
     }
 
-    /// [`Driver::cannot_runs`] and [`Driver::downs`], worked out from the records of every work once, for a reader of both.
+    /// Each wait in which the agents' command line could not run, and each stretch in which a cause every work shares held
+    /// the rounds of agents, in order, as a bar reads them: those that are over, worked out from the records of every
+    /// work once, and the one of each that stands now, where one does, from what every work reads alike
+    /// ([`AtOnce::cannot_run`], [`AtOnce::down`]).
     pub fn shared_waits(&self, at_once: &AtOnce) -> (Vec<CannotRun>, Vec<Down>) {
         let (mut cannot_run, mut down) = outage::shared_spans(self.rounds());
         cannot_run.extend(at_once.cannot_run().map(|(since, why)| CannotRun {

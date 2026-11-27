@@ -1,7 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Waited } from './api';
-import { crowdWords, endedWords, WAIT_REASONS, WAIT_WORDS, waitedBy, weekCells, works } from './waited';
+import type { Occupancy, Waited } from './api';
+import {
+  crowdWords,
+  endedWords,
+  slotsWords,
+  takingTitle,
+  takingWords,
+  WAIT_REASONS,
+  WAIT_WORDS,
+  waitedBy,
+  weekCells,
+  works,
+} from './waited';
 
 describe("what the system's Waited part says", () => {
   it('names each cause once, in the order the engine counts them, with what it counts said on pointing at it', () => {
@@ -37,6 +48,18 @@ describe("what the system's Waited part says", () => {
     expect(crowdWords(2400, 3, 16)).toBe('2.4 avg, 3 at most, of 16');
     expect(crowdWords(2400, 3, null)).toBe('2.4 avg, 3 at most, of not kept');
     expect(crowdWords(2900, 4)).toBe('2.9 avg, 4 at most');
+  });
+
+  it('says of the slots that the engine kept them for only part of a stretch, never as the slots of the whole of it', () => {
+    expect(slotsWords(16, true)).toBe('16');
+    expect(slotsWords(16, false)).toBe('16 (kept in part)');
+    expect(slotsWords(null, false)).toBe('not kept');
+    expect(crowdWords(2400, 3, 16, false)).toBe('2.4 avg, 3 at most, of 16 (kept in part)');
+    const occupancy = { takingAvg: 2400, takingPeak: 3, runningAvg: 2900, runningPeak: 4, slots: 3, recorded: true } as Occupancy;
+    expect(takingWords(occupancy)).toBe('2.4 avg, 3 at most, of 3');
+    expect(takingWords({ ...occupancy, recorded: false })).toBe('2.4 avg, 3 at most, of 3 (kept in part)');
+    expect(takingTitle(occupancy)).not.toContain('only from the time it began to');
+    expect(takingTitle({ ...occupancy, recorded: false })).toContain('only from the time it began to');
   });
 
   it('gives a week of an engine that does not say as no figure, and a week it says nothing waited in as none', () => {

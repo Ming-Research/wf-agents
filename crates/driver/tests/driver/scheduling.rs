@@ -241,12 +241,13 @@ fn the_time_a_work_waited_for_a_slot_is_what_its_time_went_to_as_a_wait_for_one(
     let d = h.d();
     let kept = d.work(one).expect("the work is there");
     let at_once = d.at_once();
+    let (cannot_run, down) = d.shared_waits(&at_once);
     let stretches = driver::time::stretches(
         &kept,
         d.everything_spans(),
         &d.stop_spans(),
-        &d.cannot_runs(&at_once),
-        &d.downs(&at_once),
+        &cannot_run,
+        &down,
         Vec::new(),
         Time(h.clock),
     );
