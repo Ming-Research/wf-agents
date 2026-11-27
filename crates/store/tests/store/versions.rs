@@ -438,6 +438,7 @@ fn a_file_of_version_36_is_migrated_with_every_version_read_but_the_cells_replie
     // A file of version 36 holds no read, whatever the history the work was made from has: what it holds is what the
     // migration writes.
     let mut expected = ran_on_it.work.clone();
+    before_jobs_said_how_long_they_queued(&mut expected);
     expected.records.owner_reads.clear();
     let at = expected.tick();
     let read: Vec<(BlockId, Seq)> = (expected.contents.keys())
@@ -460,6 +461,7 @@ fn a_file_of_version_36_is_migrated_with_every_version_read_but_the_cells_replie
     );
     // The work that ran on both versions of the flow has the replies of both unread: the block each declares as words.
     let mut both = ran_on_two.work.clone();
+    before_jobs_said_how_long_they_queued(&mut both);
     both.records.owner_reads.clear();
     let at = both.tick();
     let unread: BTreeSet<(BlockId, Seq)> = written_by_runs(&both, "text")
@@ -485,6 +487,7 @@ fn a_file_of_version_36_is_migrated_with_every_version_read_but_the_cells_replie
     );
     // The work that ran on no version that was kept has no outline: all it has is read, in one entry after its last.
     let mut everything = ran_on_none.work.clone();
+    before_jobs_said_how_long_they_queued(&mut everything);
     everything.records.owner_reads.clear();
     let at = everything.tick();
     let versions: Vec<(BlockId, Seq)> = everything.contents.keys().cloned().collect();
