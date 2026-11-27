@@ -83,7 +83,9 @@ reports (`wf-agents wait`):
 
 - Every parent and child pass the test of a dependency (section 5).
 - The roots are only the few things the project delivers.
-- No item has more than ten open items side by side under it, and items on one level do not wait for each other.
+- No item has more than `items.children_warn` open items side by side under it, and items on one level do not wait
+  for each other. The engine warns of a change that leaves an item with more, and refuses one that leaves it with
+  more than `items.children_max`.
 - Items on one topic, one thing or things close and alike, are one item; no item joins unrelated things.
 - Nothing is there twice: before an item is added, the unfinished ones are searched for one that already says it.
 - Every paused item says what it waits for (`--why`), and the items it waits for to merge (`--waits-for`).
@@ -111,9 +113,10 @@ reports (`wf-agents wait`):
    fits under no deliver item shows a deliver item not yet named: name it first. Nothing goes to a root, or into an item
    that holds whatever fits nowhere, because it is urgent, small, or seems to belong nowhere.
 5. Items are grouped by what is delivered, never by topic, by who asked, by where it came from, or by the kind of work.
-6. Split layer by layer, each part something the whole is not delivered without. More than ten open side by side, not
-   counting those merged or cancelled, means the arrangement is wrong: the few of them that make one thing go under one
-   deliver item that says that thing, never a class.
+6. Split layer by layer, each part something the whole is not delivered without. More than `items.children_warn` open
+   side by side, not counting those merged or cancelled, means the arrangement is wrong: the few of them that make one
+   thing go under one deliver item that says that thing, never a class. More than `items.children_max` the engine
+   refuses: group some of them under a deliver item first.
 7. The children of an item do not wait for each other; where one must come first, it goes under the one that waits for
    it. A last measurement, comparison or wrapping up of everything under an item is that item's own work: the item is
    then a work item, and what is under it is what it waits for.

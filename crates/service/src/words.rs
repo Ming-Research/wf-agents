@@ -4,7 +4,7 @@
 use std::fmt;
 
 use decide::{End, Outsider, RecordFault};
-use driver::{Failed, NotMade, Unchangeable};
+use driver::{Crowded, Failed, NotMade, Unchangeable};
 use engine::Refused;
 use engine::spoken::NoOne;
 use store::{Continues, ItemNumber};
@@ -96,6 +96,22 @@ fn failed_words(failed: &Failed) -> String {
                 .collect();
             format!("{}; so none of the changes was made", said.join("; "))
         }
+        Failed::Crowded(crowded) => {
+            let said: Vec<String> = (crowded.iter())
+                .map(|crowded| {
+                    let item = match crowded.item {
+                        Some(item) => item.to_string(),
+                        None => "the new item".to_string(),
+                    };
+                    format!(
+                        "{item} would have {} open children, more than {} ({}): group some of them under a deliver \
+                         item first",
+                        crowded.children, crowded.limit, CHILDREN_MAX
+                    )
+                })
+                .collect();
+            format!("{}; so nothing was changed", said.join("; "))
+        }
         Failed::BlankTitle => blank_title().to_string(),
         Failed::WaitsForItself(item) => {
             format!("a pause cannot wait for item {item} of its own work, which would wait for ever")
@@ -114,6 +130,23 @@ fn failed_words(failed: &Failed) -> String {
             format!("the agents run under {name}: take another account first, then remove it")
         }
     }
+}
+
+/// The key of the installation's settings that holds how many open children an act may leave an item with.
+const CHILDREN_MAX: &str = "items.children_max";
+
+/// The key of the installation's settings past which an act that leaves an item with more open children is warned of.
+const CHILDREN_WARN: &str = "items.children_warn";
+
+/// What an act that was done says of an item it left with more open children than the warning, as a sentence.
+pub fn crowded_words(crowded: &Crowded) -> String {
+    let item = crowded
+        .item
+        .map_or_else(|| "The new item".to_string(), |item| item.to_string());
+    format!(
+        "{item} has {} open children now, more than {} ({CHILDREN_WARN}): group some of them under a deliver item.",
+        crowded.children, crowded.limit
+    )
 }
 
 /// Why a title of no words is refused, as a clause.
@@ -669,6 +702,29 @@ mod tests {
             failed_words(&failed),
             "the work of #3 has made its branch, and what an item continues changes only until its work's branch is \
              made: the branch was made from it"
+        );
+    }
+
+    #[test]
+    fn an_act_that_leaves_an_item_with_too_many_open_children_names_it_and_the_count() {
+        let crowded = |item: Option<u64>, children: usize, limit: usize| Crowded {
+            item: item.map(ItemNumber),
+            children,
+            limit,
+        };
+        // Refused, each item named, the one to be added as new, and the way out said.
+        let refusal = Refusal::Failed(Failed::Crowded(vec![crowded(Some(4), 16, 15), crowded(None, 17, 15)]));
+        assert_eq!(
+            refusal.to_string(),
+            "#4 would have 16 open children, more than 15 (items.children_max): group some of them under a deliver \
+             item first; the new item would have 17 open children, more than 15 (items.children_max): group some of \
+             them under a deliver item first; so nothing was changed."
+        );
+        // Done, and warned of.
+        assert_eq!(
+            crowded_words(&crowded(Some(4), 11, 10)),
+            "#4 has 11 open children now, more than 10 (items.children_warn): group some of them under a deliver \
+             item."
         );
     }
 }

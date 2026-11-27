@@ -747,6 +747,9 @@ pub struct Carriers {
     /// How many rounds of agents may go on at once as the engine starts: it gives the agents no more than this, until the
     /// owner sets other slots, and the others wait for a slot in the engine's order. The engine's own acts take none.
     pub slots: usize,
+    /// How many open children an act may leave an item with, as the installation's settings say
+    /// ([`driver::Driver::hold_children`]); none where no settings say, when no act is held to a number of them.
+    pub children: Option<driver::Children>,
     /// The check of the outside the agents' rounds need, while they wait for it.
     pub outside: Arc<dyn Outside>,
     /// The look at the network to the host the acts reach; none where no network reaches it, as the local repository.
@@ -1306,6 +1309,7 @@ mod tests {
             acts: Arc::new(Keeps(acts)),
             tools: Arc::new(NoTools),
             slots: 1,
+            children: None,
             outside: Arc::new(Well),
             host: None,
             tokens: Arc::new(KeptTokens::new()),

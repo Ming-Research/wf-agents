@@ -564,6 +564,82 @@ fn a_dependency_is_made_the_main_one_and_is_no_change_where_it_is_the_main_one_a
     assert_eq!(judge(&items, &[cancelled, main_on_1(4)]), Ok(vec![true, true]));
 }
 
+#[test]
+fn an_items_open_children_are_those_whose_main_dependency_is_on_it_and_have_not_ended() {
+    // 1, 2 and 3 are drawn under 9, and 4 under 8; 2 has ended.
+    let mains: Mains = [(1, 9), (2, 9), (3, 9), (4, 8)]
+        .into_iter()
+        .map(|(child, parent)| (ItemNumber(child), ItemNumber(parent)))
+        .collect();
+    let children = open_children(&mains, |item| item != ItemNumber(2));
+    assert_eq!(children, BTreeMap::from([(ItemNumber(9), 2), (ItemNumber(8), 1)]));
+    let none = open_children(&mains, |_| false);
+    assert!(none.is_empty(), "an item with no open child has none counted");
+}
+
+#[test]
+fn an_act_is_warned_of_past_the_warning_and_refused_past_the_most_only_where_it_raises_a_count() {
+    let limits = Children { warn: 10, most: 15 };
+    let count = |pairs: &[(u64, usize)]| -> BTreeMap<ItemNumber, usize> {
+        pairs.iter().map(|(item, n)| (ItemNumber(*item), *n)).collect()
+    };
+    let crowded = |item: u64, children: usize, limit: usize| Crowded {
+        item: Some(ItemNumber(item)),
+        children,
+        limit,
+    };
+    // Up to the warning nothing is said; past it, warned; up to the most still done; past it, refused.
+    for (after, said) in [
+        (10, Ok(vec![])),
+        (11, Ok(vec![crowded(1, 11, 10)])),
+        (15, Ok(vec![crowded(1, 15, 10)])),
+        (16, Err(vec![crowded(1, 16, 15)])),
+    ] {
+        assert_eq!(
+            crowding(&count(&[(1, 9)]), &count(&[(1, after)]), limits, None),
+            said,
+            "{after}"
+        );
+    }
+    // An item left past a limit with no more than it had, or fewer, is neither warned of nor refused.
+    assert_eq!(
+        crowding(&count(&[(1, 20)]), &count(&[(1, 20)]), limits, None),
+        Ok(vec![])
+    );
+    assert_eq!(
+        crowding(&count(&[(1, 20)]), &count(&[(1, 17)]), limits, None),
+        Ok(vec![])
+    );
+    assert_eq!(
+        crowding(&count(&[(1, 12)]), &count(&[(1, 11)]), limits, None),
+        Ok(vec![])
+    );
+    // An item that had none counts from none.
+    assert_eq!(
+        crowding(&count(&[]), &count(&[(2, 11)]), limits, None),
+        Ok(vec![crowded(2, 11, 10)])
+    );
+    // A refusal names every item past the most, and a warning past it says nothing of those past the warning only.
+    assert_eq!(
+        crowding(
+            &count(&[(1, 9), (2, 9)]),
+            &count(&[(1, 16), (2, 11), (3, 17)]),
+            limits,
+            None
+        ),
+        Err(vec![crowded(1, 16, 15), crowded(3, 17, 15)])
+    );
+    // The item the act adds is said as none.
+    assert_eq!(
+        crowding(&count(&[]), &count(&[(7, 16)]), limits, Some(ItemNumber(7))),
+        Err(vec![Crowded {
+            item: None,
+            children: 16,
+            limit: 15
+        }])
+    );
+}
+
 /// A small generator of numbers, so that the property below is tried on the same many cases on every run.
 struct Dice(u64);
 

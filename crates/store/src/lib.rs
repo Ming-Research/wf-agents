@@ -55,7 +55,7 @@ use work::{Time, Work};
 pub use backups::{Backups, Failure, Kept, Records};
 pub use flows::{KeptFlow, KeptOutline};
 pub use items::{Change, Continues, First, Item, ItemChange, ItemNumber, TAG_CHARS, WorkHead, WorkNumber, tag_is_bad};
-pub use mains::Mains;
+pub use mains::{Mains, settled};
 pub use observations::{
     FromRound, NewObservation, NotMade, Observation, ObservationChange, Observations, Refusal, TagCount,
 };

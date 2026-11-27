@@ -1821,11 +1821,14 @@ pub enum ChangeAsked {
 }
 
 /// Whether each change of those asked together changed its item, in the order asked: it was so already where not, as
-/// when the item was at that level already.
+/// when the item was at that level already; and what the changes say of each item they left with more open children
+/// than the warning, each a sentence ([`service::crowded_words`]), left out where there is none.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ItemsChanged {
     pub changed: Vec<bool>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 impl ChangeAsked {
@@ -2286,12 +2289,28 @@ pub struct NewWrite {
     pub value: Option<String>,
 }
 
-/// The item and the work that were added.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// The item and the work that were added, with what the add says of each item it left with more open children than
+/// the warning, each a sentence ([`service::crowded_words`]), left out where there is none.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Added {
     pub item: u64,
     pub work: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+}
+
+/// What a cancel of a work answers with where it left an item with more open children than the warning: what it says
+/// of each, a sentence ([`service::crowded_words`]).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Warned {
+    pub warnings: Vec<String>,
+}
+
+/// What is said of each item an act left with more open children than the warning, each a sentence.
+pub fn warnings(crowded: &[service::Crowded]) -> Vec<String> {
+    crowded.iter().map(service::crowded_words).collect()
 }
 
 /// Something happened: these works grew, an item was added where `items`, the copies of the database changed where

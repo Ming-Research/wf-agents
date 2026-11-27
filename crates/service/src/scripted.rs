@@ -60,6 +60,7 @@ impl Scripted {
             acts: Arc::new(self.clone()),
             tools: Arc::new(self.clone()),
             slots: self.inner.script.slots.unwrap_or(crate::script::SLOTS),
+            children: None,
             outside: Arc::new(self.clone()),
             host: Some(Arc::new(self.clone())),
             tokens: Arc::new(KeptTokens::new()),

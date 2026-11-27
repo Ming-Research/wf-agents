@@ -3,7 +3,7 @@
 How the architect arranges the items: the tree they make, their dependencies, their size and how they are joined, what becomes an item, how one is written and which starts first.
 
 ### decision a-parent-delivers-one-thing
-From the top down, items are related by dependency, never by class: a parent waits for its children and delivers one thing, and more than ten items side by side show a wrong arrangement.
+From the top down, items are related by dependency, never by class: a parent waits for its children and delivers one thing; more than `items.children_warn` open side by side are wrongly arranged.
 - rejected: an agent proposed parents that name a class of work, such as a part of the code; the owner rejected it, because a parent waits for its children, so it must deliver one thing of its own.
 - replaced: Gathering more than ten parallel dependencies of an item under intermediate items was on main; the owner changed it, because what matters is that items are arranged sensibly in layers of deliver items, not crammed together, and more than ten only shows that something is wrong.
 

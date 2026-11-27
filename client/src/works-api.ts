@@ -10,6 +10,7 @@
 // - `POST /api/v1/items`: adds an item with its work (`NewItem`), and gives their numbers (`Added`).
 // - `POST /api/v1/items/changes`: changes items, several at once for one reason, all or none (`ItemChanges`), and says
 //   whether each changed its item (`ItemsChanged`).
+//   Both say, where they left an item with more open children than the installation's warning, what they say of each.
 // - `GET  /api/v1/levels`: the levels an item may be given, with what each is for (`Levels`).
 // - `GET  /api/v1/projects`: the projects the installation names, in order of their names (`Projects`).
 // - `GET  /api/v1/works/{work}`: one work, as it is now and step by step from its start (`WorkPage`).
@@ -31,7 +32,8 @@
 //   number, the line's first being none, began with (`SystemPage`).
 // - `GET  /api/v1/works/{work}/calls/{call}`: a call with its result (`CallPage`).
 // - `POST /api/v1/works/{work}/acts`: what the owner does to a work (`Act`); answers with no content, words said with
-//   the cell the engine gave them to (`Said`), or with why it was refused (`Refusal`) and a status of 4xx.
+//   the cell the engine gave them to (`Said`), a cancel that left an item with more open children than the warning
+//   with what it says of each as `warnings`, or with why it was refused (`Refusal`) and a status of 4xx.
 // - `GET  /api/v1/engine`: the engine as a whole, its slots and the pause of everything (`Engine`).
 // - `POST /api/v1/engine/acts`: what the owner does to the engine as a whole (`EngineAct`); answers as an act on a work.
 // - `GET  /api/v1/changes`: a stream of server-sent events, one each time something happened (`Changed`), on which a
@@ -973,9 +975,11 @@ export type ChangeAsked =
   | { kind: 'cancel'; item: number }
   | { kind: 'reopen'; item: number };
 
-/// Whether each change asked together changed its item, in the order asked.
+/// Whether each change asked together changed its item, in the order asked; and what they say of each item they left
+/// with more open children than the warning, left out where there is none.
 export interface ItemsChanged {
   changed: boolean[];
+  warnings?: string[];
 }
 
 /// What a round was told and what came back of it, each try in order, as its carrier kept them; no try where it kept
@@ -1093,9 +1097,12 @@ export interface EverythingPaused {
 /// which way it was moved.
 export type EngineAct = { kind: 'pause' } | { kind: 'resume' } | { kind: 'keepWarm'; on: boolean };
 
+/// The item and the work that were added, and what the add says of each item it left with more open children than the
+/// warning, left out where there is none.
 export interface Added {
   item: number;
   work: number;
+  warnings?: string[];
 }
 
 /// Why something asked of the interface was refused, in words. `kept` is there where the engine stopped as it was
