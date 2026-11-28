@@ -29,7 +29,7 @@ import { DEFAULT_ACCENT, pickAccent, PRESETS, tones } from '../accent';
 import { apart, lchOf } from '../colour';
 import { MARKS } from '../marks';
 import { useBarItems } from '../Engine';
-import { NO_LEVEL, STATE } from '../works/words';
+import { NO_LEVEL, STATE, stateSaid } from '../works/words';
 import type { CellNow, Changed, Items, Now } from '../works-api';
 import { FIXTURES, type Source as PageSource, SourceContext } from '../works/source';
 import { fixtureSource } from './fixtures';
@@ -242,8 +242,10 @@ describe('the tree', () => {
 
   it('says on pointing at the level on a card what the item window says of it, in every case, and turns the pointer to no hand over it', async () => {
     const change = (id: number, work: Partial<ShownWork>): Shown => worked(id, { ...running(id), ...work });
-    // The card's own middle stands at the screen's, with the level in its second row, under the number.
+    // The card's own middle stands at the screen's, with the level in its second row, under the number. The rest of the
+    // card says how its work stands, which is passed over.
     const said = (item: Shown) => {
+      const standing = item.stands === null ? '' : stateSaid(item.stands);
       scene.show([item]);
       settle(scene);
       const left = scene.place().left;
@@ -255,7 +257,8 @@ describe('the tree', () => {
         for (let x = left + 4; x < left + 80; x += 4) {
           move(x, y);
           scene.step();
-          if (canvas().title !== '') return { title: canvas().title, cursor: canvas().style.cursor };
+          const title = canvas().title;
+          if (title !== '' && title !== standing) return { title, cursor: canvas().style.cursor };
         }
       }
       return { title: '', cursor: canvas().style.cursor };
