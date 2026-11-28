@@ -2039,7 +2039,7 @@ export class SnapScene {
     // The pointer over a column this tree has no more is over none, until it moves.
     if (this.hovered >= tree.columns.length) this.hovered = -1;
     if (tree.columns.length === 0) {
-      this.buildMap(tree);
+      this.buildMap();
       this.stats.items = 0;
       return;
     }
@@ -2051,7 +2051,7 @@ export class SnapScene {
     if (this.turns.size === 0) this.anchor = null;
     // While every project's tree is shown at once, this one stays whole as it changes.
     if (this.gridBack !== null) this.fitNow();
-    this.buildMap(tree);
+    this.buildMap();
     this.stats.items = items.length;
     if (this.selected !== null && !this.real.has(this.selected)) this.selected = null;
     // An item a click on its shadow asked for, once the folds over it are open and it is drawn whole, comes to the
@@ -3027,7 +3027,7 @@ export class SnapScene {
   /// Makes the map's frame, and how large the tree is drawn in it: the whole tree fits inside its padding, in its
   /// middle.
   /// The console is told the map's size once it is first made.
-  private buildMap(t: Tree) {
+  private buildMap() {
     this.map.removeChildren();
     const [wide, high] = [MAP_WIDE, MAP_HIGH];
     const whole = this.extent();
