@@ -9,7 +9,8 @@ import { ItemTitlesProvider } from '../itemNumbers';
 import { levelWords } from '../marks';
 import { outlineOf } from '../testing';
 import { cellNowWords } from '../works/marks';
-import { NO_LEVEL, REPLY_READ, stateOf, stoppedAt } from '../works/words';
+import { cellRunState, pulses } from '../works/state-marks';
+import { NO_LEVEL, REPLY_READ, stateOf, stoppedAt, waitsItsTurn } from '../works/words';
 import type { Act, CellNow, Item, Items, Now, Question, Speaking, Version, VersionPage, Wait, WorkPage } from '../works-api';
 import type { Block, Flow } from '../api';
 import { FLOW, fixtureItems } from './fixtures';
@@ -251,9 +252,12 @@ describe('the panel of the item selected', () => {
       const strip = el.querySelectorAll('.cw-item > .status-line .cw-progress .strip');
       expect(strip).toHaveLength(1);
       const marks = [...strip[0].querySelectorAll<HTMLElement>('.state-mark')];
-      expect(marks.map((m) => m.title)).toEqual(cells.map(cellNowWords));
-      // The cell the work is stopped at, for the owner or by the engine, filled in red as on its card; no other.
+      // The cell the work is stopped at, for the owner or by the engine, filled in red as on its card; no other. The
+      // cell of a work that waits its turn waits its turn.
       const stopped = stoppedAt(work);
+      const states = cells.map((c) => cellRunState(c.state, c.cell === stopped, waitsItsTurn(work)));
+      const said = cells.map((c, k) => cellNowWords(c, states[k]));
+      expect(marks.map((m) => m.title)).toEqual(said);
       expect(marks.filter((m) => m.style.background === 'var(--red)').map((m) => cells[marks.indexOf(m)].cell)).toEqual(
         stopped === null ? [] : [stopped],
       );
@@ -265,11 +269,9 @@ describe('the panel of the item selected', () => {
       const at = el.querySelector('.cw-item > .status-line .cw-progress .cw-at > .mono');
       expect(at?.textContent ?? null).toBe(stateOf(work).cell);
       // The bright marks pulse, as on the card.
-      expect(marks.map((m) => m.classList.contains('pulses'))).toEqual(
-        cells.map((c) => c.state === 'running' || c.state === 'calling'),
-      );
+      expect(marks.map((m) => m.classList.contains('pulses'))).toEqual(states.map(pulses));
       // The strip's own words, cell by cell.
-      expect(strip[0].getAttribute('aria-label')).toBe(cells.map(cellNowWords).join('; '));
+      expect(strip[0].getAttribute('aria-label')).toBe(said.join('; '));
     }
   });
 
@@ -699,9 +701,9 @@ describe("the work's state line, one part for every state", () => {
     expect(el.querySelector('.cw-item > .status-line:nth-of-type(2) .status-word a')?.getAttribute('href')).toBe(link);
     expect(noKeys(el)).toBe(true);
     expect(el.querySelector('.cw-item')?.textContent).not.toContain('{"tests"');
-    // The cell's mark in the strip pulses in the yellow of a call.
+    // The cell's mark in the strip pulses in the blue of what the system does, the engine carrying the call out.
     const marks = [...el.querySelectorAll<HTMLElement>('.cw-item > .status-line .strip .state-mark.pulses')];
-    expect(marks.map((m) => m.style.background)).toEqual(['var(--yellow)']);
+    expect(marks.map((m) => m.style.background)).toEqual(['var(--mark-running)']);
   });
 
   it("says an engine cell's act under way as waiting for it where it runs, as a call", () => {

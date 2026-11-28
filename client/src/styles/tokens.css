@@ -150,6 +150,7 @@
   /* The marks of a work's cells, in the accent's hue: a cell done a light step of it, the cell running a deep one. */
   --mark-done: var(--own-mark-done, #a0bffd);
   --mark-running: var(--own-mark-running, #134dcb);
+  --mark-handed-in: #a1d3be;
   /* What a hover adds to a row under it, and to a control filled already: one step. What can be pressed is filled with
      the accent's tint instead (principle quiet-motion). */
   --step: rgb(0 0 0 / 4%);
@@ -175,16 +176,15 @@
   --red-text: #c53030;
   --on-colour: #ffffff;
 
-  /* Where a work's time went: a model's stretches in the accent, the tools' in the yellow of a call under way, as a
-     cell's mark says a call, those nothing ran in a light grey, on a muted ground. A stretch nothing
-     ran in takes the colour of what the work waited for: the owner's red, a pause's muted grey, this light grey for
-     the items it depends on as for anything else, and a teal of its own for the project's turn to check and merge,
-     which another work holds. The teal stands in the band of hues around the green of a work done that the accent
-     keeps clear of (accent.ts), so that no accent picked is taken for it. */
+  /* Where a work's time went, in the colours a card takes for who moves it: what the system did in the accent, a
+     model's stretches in the accent itself and the tools' in its light step; those nothing ran in a light grey, on a
+     muted ground. A stretch nothing ran in takes the colour of what the work waited for: the owner's red, a pause's
+     muted grey, the yellow of waiting its turn for the project's turn to check and merge, which another work holds,
+     and for a slot, and this light grey for the items it depends on as for anything else. */
   --track-ground: #818b981f;
   --track-model: var(--accent);
-  --track-tool: var(--yellow);
-  --track-turn: #2a9d91;
+  --track-tool: color-mix(in srgb, var(--track-model) 45%, var(--card));
+  --track-turn: var(--yellow);
   --track-gap: #e8ecf2;
 
   /* The lines of the flow told apart in a chart of them, each in its colour, in the order the flow lists its lines: who
@@ -222,6 +222,7 @@
     /* On the dark ground the cell done stands back and the cell running is the bright one. */
     --mark-done: var(--own-mark-done-dark, #3f6093);
     --mark-running: var(--own-mark-running-dark, #8fb3ff);
+    --mark-handed-in: #34785d;
     --step: rgb(255 255 255 / 5%);
     --window-shadow: 0 0 0 1px #3d444d, 0 6px 12px -3px #01040966, 0 6px 18px 0 #01040966;
     --green: #45c08a;
@@ -234,8 +235,6 @@
     --red-text: #ff6b70;
     --on-colour: #0f1012;
     --track-ground: #656c7633;
-    --track-tool: var(--yellow);
-    --track-turn: #4eb9ad;
     --track-gap: #2a2d33;
     --flow-line-1: #3987e5;
     --flow-line-2: #d95926;
@@ -260,6 +259,7 @@
   --head: var(--accent);
   --mark-done: var(--own-mark-done-dark, #3f6093);
   --mark-running: var(--own-mark-running-dark, #8fb3ff);
+  --mark-handed-in: #34785d;
   --step: rgb(255 255 255 / 5%);
   --window-shadow: 0 0 0 1px #3d444d, 0 6px 12px -3px #01040966, 0 6px 18px 0 #01040966;
   --green: #45c08a;
@@ -272,8 +272,6 @@
   --red-text: #ff6b70;
   --on-colour: #0f1012;
   --track-ground: #656c7633;
-  --track-tool: var(--yellow);
-  --track-turn: #4eb9ad;
   --track-gap: #2a2d33;
   --flow-line-1: #3987e5;
   --flow-line-2: #d95926;
@@ -296,8 +294,6 @@
   --orange-tint: color-mix(in srgb, var(--orange) 10%, var(--card));
   --red-tint: color-mix(in srgb, var(--red) 10%, var(--card));
   --running-tint: color-mix(in srgb, var(--running) 10%, var(--card));
-  /* The light step of red an item's edge takes where something under it waits for the owner. */
-  --red-under: color-mix(in srgb, var(--red) 50%, var(--card));
   /* The frame of an option not picked, and its radio mark: a grey halfway from the muted colour to the card, so that it
      shows on a card that waits for an answer as on any other. */
   --option-edge: color-mix(in srgb, var(--muted) 50%, var(--card));

@@ -92,7 +92,6 @@ import {
   itemName,
   stateOf,
   stateParts,
-  stoppedAt,
   waitedWords,
   workName,
 } from '../works/words';
@@ -383,7 +382,7 @@ const replyOf = (key: string): ReadVersion => ({
 const STOP = '.cw-choice[data-wait]:not(.cw-choice-done)';
 
 /// The keys of the stops the window draws, in its order; what the button under one does; and the key of the stop
-/// chosen, which stands in the soft light of a card chosen on the console.
+/// chosen, which stands in a soft light.
 const StopsContext = createContext<{ keys: string[]; next?: (at: number) => void; chosen: string | null }>({
   keys: [],
   chosen: null,
@@ -1081,7 +1080,7 @@ function Progress({ w, page }: { w: Summary; page: WorkPage | null }) {
     <span className="cw-progress">
       <span className="cw-at">
         {cell !== null && <span className="mono muted">{cell}</span>}
-        <Strip cells={w.cells} stopped={stoppedAt(w)} />
+        <Strip work={w} />
       </span>
       <span className="cw-track">
         <TimeTrack spans={barSpans(w.bar ?? (page === null ? '' : barOf(page)))} />

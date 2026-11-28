@@ -17,6 +17,9 @@ export const CONSOLE_MARKS: MarkKey[] = [
   'cardWaiting',
   'cardPaused',
   'cardAbove',
+  'cardGlows',
+  'pointedAt',
+  'chosen',
   'cardMerged',
   'cardCancelled',
   'cardElsewhere',
@@ -32,6 +35,7 @@ export const CONSOLE_MARKS: MarkKey[] = [
   'funnel',
   'folded',
   'litWay',
+  'stillWay',
   'map',
   ...TRACK_KINDS.map((kind) => TRACK_MARKS[kind]),
 ];

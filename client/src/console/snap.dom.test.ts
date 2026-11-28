@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
-// What the canvas draws of a work on its card, apart from drawing it: the colour of its age, how its rings move, the
-// mood its card takes and who moves it next; what a fold hides, which counts at the item folded; where each item of
+// What the canvas draws of a work on its card, apart from drawing it: the colour of its age, how its rings move, and
+// who moves it next, which its card's colour says; what a fold hides, which counts at the item folded; where each item of
 // the tree stands; how large the items near the pointer are drawn; and how an item's brightness goes up and down.
 
 import { describe, expect, it } from 'vitest';
@@ -28,17 +28,11 @@ import {
   DIM,
   eased,
   gatherAt,
-  grounded,
   headAt,
-  type Light,
   layOut,
   lensSize,
   lightOn,
   linksStrength,
-  moodOf,
-  NODE_W,
-  PITCH,
-  ROW,
   sparkAt,
   strandOf,
   tonesOf,
@@ -55,45 +49,6 @@ describe("a work's age on its card", () => {
     expect(age(90 * MINUTE).tone).toBe('danger');
     expect(age(30 * 60 * MINUTE).tone).toBe('danger');
     expect(age(3 * 24 * 60 * MINUTE)).toEqual({ label: '3d', tone: 'danger' });
-  });
-});
-
-describe("a card's mood", () => {
-  it('is taken from the state every view names a work by', () => {
-    // A work that waits for the turn, whatever call is under way at another cell: the state says it waits, and the card
-    // says so too.
-    const now: Now = { kind: 'waits', at: 'M2', on: [{ kind: 'turn', holder: 3, since: 0 }] };
-    const cells: CellNow[] = [{ cell: 'M1', state: 'calling', finished: 0, record: null, open: 1 }];
-    expect(stateOf({ now, cells, waits: [] }).tone).toBe('quiet');
-    expect(moodOf({ now, cells, waits: [] })).toBe('waiting');
-    // One that waits at its cell for the call of a tool the engine carries out waits, in the yellow of a call, and its
-    // card waits for the call, in that yellow (decision a-call-waited-for-is-no-run).
-    const tool: Now = {
-      kind: 'waits',
-      at: 'M2',
-      on: [{ kind: 'call', call: 4, who: null, what: { kind: 'tool', name: 'run_tests', input: '' } }],
-    };
-    const at: CellNow[] = [{ ...cells[0], cell: 'M2' }];
-    expect(stateOf({ now: tool, cells: at, waits: [] }).tone).toBe('calling');
-    expect(moodOf({ now: tool, cells: at, waits: [] })).toBe('calling');
-    // The act of an engine cell under way, its cell marked as calling, is waited for as a call, and its card waits in
-    // that yellow; an agent's round, its cell marked as running, runs.
-    const act: Now = { kind: 'round', cell: 'M2', run: 2, round: 1, since: 0 };
-    expect(stateOf({ now: act, cells: at, waits: [] }).tone).toBe('calling');
-    expect(moodOf({ now: act, cells: at, waits: [] })).toBe('calling');
-    const agent: CellNow[] = [{ ...at[0], state: 'running' }];
-    expect(moodOf({ now: act, cells: agent, waits: [] })).toBe('running');
-  });
-
-  // A pause and a wait are one grey and two moods: the mood is read from which state it is, not from the word that
-  // says it, so that a state added with a word of its own does not turn into the mood of a pause or a wait by it.
-  it('tells a pause from a wait by which state it is, and says Paused and Waiting differently', () => {
-    const paused: Now = { kind: 'paused', ran: true, at: 'M1', by: 'owner', why: null };
-    const waits: Now = { kind: 'waits', at: 'M1', on: [{ kind: 'items', items: [4] }] };
-    expect(moodOf({ now: paused, cells: [], waits: [] })).toBe('paused');
-    expect(moodOf({ now: { kind: 'everything', ran: true, at: 'M1', by: 'owner' }, cells: [], waits: [] })).toBe('paused');
-    expect(moodOf({ now: waits, cells: [], waits: [] })).toBe('waiting');
-    expect(stateOf({ now: paused, cells: [], waits: [] }).word).not.toBe(stateOf({ now: waits, cells: [], waits: [] }).word);
   });
 });
 
@@ -291,34 +246,6 @@ describe('the lit ways of the items whose work runs', () => {
   });
 });
 
-describe('the ground of the page under the soft lights', () => {
-  // A light behind item 0, a card two rows high at the top of its column, reaching 40 pixels past it.
-  const light: Light = { item: 0, gx: 0, gy: ROW, gh: ROW / 2, reach: 40 };
-  const under = (item: number, x: number, rows: number, boxed = true) =>
-    grounded(item, x, ROW + rows * ROW, ROW / 2, boxed, [light]);
-
-  it('lies under the card lit and under the cards beside it in its column that the light reaches', () => {
-    expect(under(0, 0, 0)).toBe(true);
-    expect(under(1, 0, 1)).toBe(true);
-    expect(under(2, 0, -1)).toBe(true);
-  });
-
-  it('lies under no card the light does not reach: one further down the column, or one in the next column', () => {
-    expect(under(3, 0, 4)).toBe(false);
-    expect(under(4, PITCH, 0)).toBe(false);
-    expect(PITCH).toBeGreaterThan(NODE_W + light.reach);
-  });
-
-  it('lies under an item with no box only where the light is its own', () => {
-    expect(under(1, 0, 1, false)).toBe(false);
-    expect(under(0, 0, 0, false)).toBe(true);
-  });
-
-  it('lies nowhere while nothing is lit', () => {
-    expect(grounded(0, 0, ROW, ROW / 2, true, [])).toBe(false);
-  });
-});
-
 describe('who moves an item next, as its card says', () => {
   const shown = (id: number, now: Now | null, children: Shown[] = [], more: Partial<Shown> = {}): Shown => ({
     id,
@@ -350,6 +277,50 @@ describe('who moves an item next, as its card says', () => {
   const broken: Now = { kind: 'broken', words: 'the driver names no turn' };
   const asks = { key: 'answer-which', why: 'Which?', ends: { kind: 'resume' as const } };
 
+  it('takes the tone of the state every view names a work by, a call waited for being blue while the engine carries it out and yellow while it waits its turn', () => {
+    const tone = (now: Now, cells: CellNow[] = []) => {
+      const item = { ...shown(1, now), stands: { now, cells, waits: [] } };
+      return tonesOf([item]).tone.get(item);
+    };
+    // A work that waits for the turn, whatever call is under way at another cell: the state says it waits, and its
+    // card waits its turn.
+    const atM1: CellNow[] = [{ cell: 'M1', state: 'calling', finished: 0, record: null, open: 1 }];
+    const turnAt: Now = { kind: 'waits', at: 'M2', on: [{ kind: 'turn', holder: 3, since: 0 }] };
+    expect(stateOf({ now: turnAt, cells: atM1, waits: [] }).which).toBe('waiting');
+    expect(tone(turnAt, atM1)).toBe('yellow');
+    // A call of a tool the engine carries out, and the act of an engine cell under way, its cell marked as calling:
+    // the system works on it.
+    const atM2: CellNow[] = [{ ...atM1[0], cell: 'M2' }];
+    const tool: Now = {
+      kind: 'waits',
+      at: 'M2',
+      on: [{ kind: 'call', call: 4, who: null, what: { kind: 'tool', name: 'run_tests', input: '' } }],
+    };
+    expect(stateOf({ now: tool, cells: atM2, waits: [] }).which).toBe('calling');
+    expect(tone(tool, atM2)).toBe('blue');
+    const act: Now = { kind: 'round', cell: 'M2', run: 2, round: 1, since: 0 };
+    expect(tone(act, atM2)).toBe('blue');
+    expect(tone(act, [{ ...atM2[0], state: 'running' }])).toBe('blue');
+    // The same call waiting for a runner, nothing carried out yet: it waits its turn.
+    const queued: Now = {
+      kind: 'waits',
+      at: 'M2',
+      on: [
+        {
+          kind: 'call',
+          call: 4,
+          who: null,
+          what: { kind: 'tool', name: 'run_tests', input: '' },
+          queuedFor: 'a runner',
+        },
+      ],
+    };
+    expect(tone(queued, atM2)).toBe('yellow');
+    // A pause, the owner's or of everything, does not move by itself.
+    expect(tone({ kind: 'paused', ran: true, at: 'M1', by: 'owner', why: null })).toBe('grey');
+    expect(tone({ kind: 'everything', ran: true, at: 'M1', by: 'owner' })).toBe('grey');
+  });
+
   it('is the owner where its work waits for the owner or was stopped, the system where a round or a call runs, its turn where it waits for one, and no one where it does not move by itself', () => {
     const owner = { ...shown(1, round), stands: { now: round, cells: [], waits: [asks] } };
     const roots = [
@@ -366,8 +337,8 @@ describe('who moves an item next, as its card says', () => {
       shown(11, round, [], { standing: 'cancelled' }),
       shown(12, round, [], { shadow: true }),
     ];
-    const { own } = tonesOf(roots);
-    expect(roots.map((r) => own.get(r))).toEqual([
+    const { tone, moves } = tonesOf(roots);
+    expect(roots.map((r) => tone.get(r))).toEqual([
       'red',
       'red',
       'red',
@@ -381,20 +352,41 @@ describe('who moves an item next, as its card says', () => {
       'grey',
       'grey',
     ]);
+    // What moves of its own, and so glows: what the owner, the system or its turn moves.
+    expect(roots.filter((r) => moves.has(r)).map((r) => r.id)).toEqual([1, 2, 3, 4, 5, 6]);
   });
 
-  it('says of every item the most pressing tone at any depth under it, blue before red before yellow, and none where nothing under it moves or only a shadow does', () => {
+  it('gives an item that waits for the items under it the most pressing tone under it, blue before red before yellow, and grey where nothing under it moves or only a shadow does; a paused item stays grey', () => {
     const red = shown(2, fault);
     const blue = shown(3, round);
     const yellow = shown(4, turn);
-    // Under 1, at two depths, a red and a yellow; under 5, a blue as well; under 6 a grey; under 7 a shadow of a running
-    // item, which is drawn elsewhere.
-    const one = shown(1, items, [shown(20, paused, [red]), yellow]);
-    const five = shown(5, null, [shown(21, null, [red, yellow]), blue]);
+    // Under 1, a paused item over a red, and a yellow; under 5, a red and a yellow under an item of its own, and a
+    // blue; under 6 a grey; under 7 a shadow of a running item, which is drawn elsewhere.
+    const twenty = shown(20, paused, [red]);
+    const twentyOne = shown(21, null, [red, yellow]);
+    const one = shown(1, items, [twenty, yellow]);
+    const five = shown(5, null, [twentyOne, blue]);
     const six = shown(6, null, [shown(22, paused)]);
     const seven = shown(7, null, [shown(23, round, [], { shadow: true })]);
-    const { under } = tonesOf([one, five, six, seven]);
-    expect([one, five, six, seven, yellow].map((s) => under.get(s))).toEqual(['red', 'blue', null, null, null]);
+    const { tone, moves } = tonesOf([one, five, six, seven]);
+    expect([one, twenty, five, twentyOne, six, seven, yellow].map((s) => tone.get(s))).toEqual([
+      'yellow',
+      'grey',
+      'blue',
+      'red',
+      'grey',
+      'grey',
+      'yellow',
+    ]);
+    // An item takes its tone from under it, but moves only of its own.
+    expect([one, five, twentyOne, red, blue, yellow].map((s) => moves.has(s))).toEqual([
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+    ]);
   });
 });
 

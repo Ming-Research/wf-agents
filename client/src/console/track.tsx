@@ -13,8 +13,8 @@ import { STATE } from '../works/words';
 /// not having been kept.
 export type TrackKind = 'model' | 'tool' | 'owner' | 'paused' | 'items' | 'turn' | 'gap' | 'unknown';
 
-/// What a block of a track may be: any of the kinds the legend lists, and a wait for a slot, which is drawn as the gap is,
-/// in the colour of nothing having run, and says what it is only on pointing at it, so that it has no entry of its own
+/// What a block of a track may be: any of the kinds the legend lists, and a wait for a slot, which is drawn as the turn
+/// is, in the yellow of waiting its turn, and says what it is only on pointing at it, so that it has no entry of its own
 /// in the legend.
 export type BarKind = TrackKind | 'slot';
 

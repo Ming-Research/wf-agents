@@ -489,9 +489,9 @@ tr.row.chosen > .block-head {
 }
 
 /* The console's marks, as samples (marks.tsx), as its canvas draws them (console/snap.ts). A card, filled and edged by
-   how its work stands: stopped in red, running in the accent; waiting for a call edged in its yellow, paused in grey;
-   an open item whose work has not run a round, or an item that delivers, plain, as the card itself is; above a work
-   in the accent's light step; a shadow edged in dashes. */
+   who moves it next: the owner in red, the system in the running colour; waiting its turn edged in yellow; one that
+   does not move by itself plain, as the card itself is; a shadow edged in dashes. A card whose own work moves is lit
+   round its edges in its colour. */
 .legend-card {
   display: inline-block;
   width: var(--space-16);
@@ -519,8 +519,9 @@ tr.row.chosen > .block-head {
   border-color: var(--muted);
 }
 
-.legend-card.above {
-  border-color: var(--red-under);
+.legend-card.glows {
+  border-color: var(--running-text);
+  box-shadow: 0 0 var(--space-2) var(--running);
 }
 
 .legend-card.elsewhere {
@@ -590,14 +591,40 @@ tr.row.chosen > .block-head {
   width: 100%;
 }
 
-/* What joins the cards: the funnel to the items under one, in the grey of the canvas's funnels; the lit way, in the
-   running colour. */
+/* What joins the cards: the funnel to the items under one, in the grey of the canvas's funnels; a lit way, in the
+   colour of the item it leads to, and a way to a work paused after it began, grey. */
 .legend-funnel path {
   fill: var(--track-ground);
 }
 
 .legend-lit {
   color: var(--running);
+}
+
+.legend-lit.red {
+  color: var(--red);
+}
+
+.legend-lit.yellow {
+  color: var(--yellow);
+}
+
+.legend-lit.grey {
+  color: var(--muted);
+}
+
+/* A card lit along its edges, as the canvas lights the card under the pointer and the card chosen: a light in the
+   text's colour, near white where the page is dark, with a glow round it. */
+.legend-lit-card rect {
+  fill: var(--card);
+  stroke: var(--line);
+}
+
+.legend-lit-card .lit {
+  fill: none;
+  stroke: var(--text);
+  stroke-width: var(--glyph-line-thin);
+  filter: drop-shadow(0 0 var(--space-2) var(--text));
 }
 
 /* A column on the map at the console's corner, in the light step of the accent its bars are drawn in. */

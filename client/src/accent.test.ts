@@ -182,7 +182,7 @@ describe('the tokens', () => {
   });
 
   it('give every colour of theirs a place: a tone of the accent, what follows it, a grey or a ground, or a meaning the accent keeps clear of', () => {
-    const accent = [...Object.keys(TONES.light), 'running', 'running-text', 'track-model'];
+    const accent = [...Object.keys(TONES.light), 'running', 'running-text', 'track-model', 'track-tool'];
     const neutral = [
       'ground',
       'card',
@@ -196,9 +196,10 @@ describe('the tokens', () => {
       'track-ground',
       'track-gap',
     ];
-    // The tools' time follows a meaning: it is drawn in the yellow of a call. The wait for the project's turn to check and
-    // merge is a colour of its own, a teal in the band of hues around the green that the accent keeps clear of.
-    const meanings = [...(Object.values(MEANINGS).flat() as string[]), 'track-tool', 'track-turn'];
+    // The tools' time follows the accent, in a light step of the model's. The wait for the project's turn to check and
+    // merge is drawn in the yellow of what waits its turn, and a cell handed in in a light step of the green of what
+    // is done.
+    const meanings = [...(Object.values(MEANINGS).flat() as string[]), 'track-turn', 'mark-handed-in'];
     // What tells things of one kind apart and says how nothing stands: the lines of the flow in a chart of them, and the
     // kinds of the words of code. The accent keeps clear of the meanings alone (decision
     // an-accent-keeps-clear-of-the-meanings).

@@ -7,8 +7,19 @@ import { type ReactNode, useEffect, useRef, useState } from 'react';
 
 import { type MarkKey, StateMark, markName } from '../marks';
 import type { CellNow, Summary } from '../works-api';
-import { STATE_OF_CELL, stripStyle } from './state-marks';
-import { type Part, STATE, callsTook, callsWaited, nowTone, nowWords, stateOf, stateWords } from './words';
+import { type RunState, cellRunState, stripStyle } from './state-marks';
+import {
+  type Part,
+  STATE,
+  callsTook,
+  callsWaited,
+  nowTone,
+  nowWords,
+  stateOf,
+  stateWords,
+  stoppedAt,
+  waitsItsTurn,
+} from './words';
 
 /// A line of pieces, each name or value in monospace, and a link out of the page opened beside it.
 export function Parts({ parts }: { parts: Part[] }) {
@@ -53,22 +64,26 @@ export function CallsTook({ work }: { work: Pick<Summary, 'now' | 'cells'> }) {
   return took === null ? null : <span className="muted">{took}</span>;
 }
 
-/// What a cell's mark says on the pointer's tip: `plan: handed in, 2 runs finished`.
-export function cellNowWords(c: CellNow): string {
-  return `${c.cell}: ${markName(STATE_OF_CELL[c.state])}, ${c.finished} run${c.finished === 1 ? '' : 's'} finished`;
+/// What a cell's mark says on the pointer's tip, the cell standing as `state`: `plan: handed in, 2 runs finished`.
+export function cellNowWords(c: CellNow, state: RunState): string {
+  return `${c.cell}: ${markName(state)}, ${c.finished} run${c.finished === 1 ? '' : 's'} finished`;
 }
 
-/// One mark per cell of a work's flow, in the order of the walk, each as its run stands, the cell the work is `stopped`
-/// at as stopped.
-export function Strip({ cells, stopped = null }: { cells: CellNow[]; stopped?: string | null }) {
+/// One mark per cell of a work's flow, in the order of the walk, each as its run stands in the work (`cellRunState`):
+/// the cell the work is stopped at as stopped, the cell of a work that waits its turn as queued.
+export function Strip({ work }: { work: Pick<Summary, 'now' | 'cells' | 'waits'> }) {
+  const stopped = stoppedAt(work);
+  const queued = waitsItsTurn(work);
+  const cells = work.cells.map((c) => ({ c, state: cellRunState(c.state, c.cell === stopped, queued) }));
   return (
-    <span className="strip" style={stripStyle()} role="img" aria-label={cells.map(cellNowWords).join('; ')}>
-      {cells.map((c) => (
-        <StateMark
-          key={c.cell}
-          state={c.cell === stopped ? 'stopped' : STATE_OF_CELL[c.state]}
-          title={cellNowWords(c)}
-        />
+    <span
+      className="strip"
+      style={stripStyle()}
+      role="img"
+      aria-label={cells.map(({ c, state }) => cellNowWords(c, state)).join('; ')}
+    >
+      {cells.map(({ c, state }) => (
+        <StateMark key={c.cell} state={state} title={cellNowWords(c, state)} />
       ))}
     </span>
   );
@@ -79,6 +94,7 @@ export const STRIP_MARKS: MarkKey[] = [
   'handedIn',
   'running',
   'waiting',
+  'queued',
   'atRest',
   'failed',
   'again',

@@ -37,10 +37,11 @@ export const interfaceSource: Source = {
 };
 
 /// The source the page's address asks for: with `?fixtures`, the made-up items, of as many projects as `projects=`
-/// asks.
+/// asks, and with `states` as well, the made-up project of every state a work can stand in.
 export function pageSource(): Source {
   const search = window.location.search;
-  return usesFixtures(search) ? fixtureSource(Date.now(), projectsAsked(search) ?? 1) : interfaceSource;
+  const states = new URLSearchParams(search).has('states');
+  return usesFixtures(search) ? fixtureSource(Date.now(), projectsAsked(search) ?? 1, states) : interfaceSource;
 }
 
 /// Reads of one kind of thing, of which an answer is taken only when it is newer than the one shown: an answer to a read

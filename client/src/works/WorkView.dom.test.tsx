@@ -385,10 +385,10 @@ describe('the list of works', () => {
     expect(row.querySelector('.now-words')?.textContent).toBe('Waiting for you · implement');
     expect(row.querySelector('.now')?.className).toContain('now-owner');
     expect(row.querySelector('.now-paused')).toBeNull();
-    // The cell the work is stopped at is filled in the stop's red, and no other.
+    // The cell the work is stopped at is filled in the stop's red, and no other, and says it is stopped.
     const marks = [...row.querySelectorAll<HTMLElement>('.strip .state-mark')];
     expect(marks.filter((m) => m.style.background === 'var(--red)').map((m) => m.title)).toEqual([
-      'implement: failed, 0 runs finished',
+      'implement: stopped, 0 runs finished',
     ]);
     const fault = page.querySelector('[data-work="49"]') as HTMLElement;
     expect(fault.querySelector('.now-words')?.textContent).toBe('Halted');

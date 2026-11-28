@@ -55,8 +55,8 @@
 
 /* The search, while it is open: one card over the middle of the console's top, a sixth of the way down, so that what
    it finds has room under it, over the tree and the window: with a card's corners, its hairline frame lit with the
-   accent, in a soft light of the accent's colour, which is the focus's, close round it and wider further out (decision
-   what-the-owner-points-at-stands-in-a-soft-light), and the shadow of what floats over a view. In it the page's
+   accent, in a soft light of the accent's colour, which is the focus's, close round it and wider further out, and the
+   shadow of what floats over a view. In it the page's
    field, as wide as the card, with no frame and no ring of the focus of its own, written on the card, the card's light
    saying where the keys are; and under the field what it finds, or that it finds nothing.
    Each item found is a list row of one line, its number, its title cut at the edge, and how it stands: under the
@@ -497,9 +497,7 @@
   background: var(--red-tint);
 }
 
-/* The stop chosen, by n and N or by a click on its frame: in the soft light a card chosen on the console stands in, a
-   blurred glow in the stop's own colour, as far out and as strong as the console's (decision
-   what-the-owner-points-at-stands-in-a-soft-light). */
+/* The stop chosen, by n and N or by a click on its frame: in a soft light, a blurred glow in the stop's own colour. */
 .cw-choice.cw-stop-chosen {
   box-shadow: 0 0 var(--glow-blur) var(--glow-spread) color-mix(in srgb, var(--stop-colour) var(--glow-strength), transparent);
 }

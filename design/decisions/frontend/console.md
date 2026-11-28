@@ -7,7 +7,7 @@ The console's tree is the old engine's console brought over, its layout and its 
 - rejected: an agent proposed restyling the console in the page's new look; the owner rejected it, because its graph shows the dependencies, the progress and the activity at a glance, and even its sliding had been tuned.
 
 ### decision the-tree-is-drawn-on-a-canvas
-PixiJS draws the console's tree in WebGL on a canvas, only what is on the screen, with the titles from one shared set of glyphs; what an item opens is HTML.
+PixiJS draws the console's tree in WebGL on a canvas, what is on the screen and half a screen round it, with the titles from one shared set of glyphs; what an item opens is HTML.
 - rejected: an agent proposed drawing the tree in HTML and CSS with React, reusing the flowchart's viewer; the owner rejected it, because the nodes must scale one by one, carry animations and keep 60 frames a second with many of them on the screen.
 - rejected: an agent proposed three.js; the owner rejected it, because it needs glyph atlases for thousands of characters and its own picking and layout, and no test can see into it.
 
@@ -28,6 +28,15 @@ Room stands between the items under one item and those under the next only where
 ### decision the-tree-is-moved-and-zoomed-as-one-canvas
 The wheel and a drag move the whole tree every way; the wheel with Shift held, or a pinch, makes it larger or smaller round the pointer, at most its full size, which the map says.
 - rejected: an agent proposed the wheel with Command held to make it larger or smaller; the owner rejected it, because he is used to Shift.
+
+### decision the-tree-is-moved-whole-as-it-was-drawn
+The tree is moved and zoomed whole as drawn until the screen leaves the room it was drawn for; a way's strength is the alpha of its strokes, and its glow is blurred at each frame.
+- replaced: Every lit way built again at each frame the tree moved was on main; the owner changed it, because zoomed out to the whole tree a frame that scrolled took 55 ms, and 12 ms moved whole (data: `research/console-frame-times-measured.md`).
+- replaced: A way's strength drawn into its strokes, its glow at rest blurred once onto a texture, was on main; the owner changed it, because the pointer's easing light rebuilt every way, 40 ms a frame against 14 ms, for 1 ms more blur (data: `research/console-frame-times-measured.md`).
+
+### decision a-glow-is-made-smaller-with-the-tree
+Every glow is blurred as far as it reaches at the tree's full size and made smaller with the tree; a card drawn larger near the pointer is lit as large as it is drawn.
+- replaced: Blurs laid in the screen's pixels, as wide at every size, was on main; the owner changed it, because zoomed out the glows were too large beside the cards.
 
 ### decision space-fits-the-whole-tree
 Space makes the whole tree fit the room the list of projects and the window leave, and pressed again gives it back its size round the pointer; a click on an item while it fits shows it at full size.
@@ -100,14 +109,15 @@ An item that delivers is a card like any other, with no row for a work of its ow
 - replaced: A heading with no box and no fill, its number and its title over a line, was on main; the owner changed it, because the edge that says work goes on under an item should show on a deliverable too, and he wanted every item drawn one way.
 
 ### decision a-cards-colour-says-who-moves-it-next
-A card is filled red where the owner moves it next, blue where the system does, edged yellow where it waits its turn, grey where nothing moves it, green when done; its edge says what presses under it.
+A card is filled red where the owner moves it next, blue where the system does, yellow where it waits its turn, else grey; one waiting for the items under it takes their most pressing.
 - rejected: an agent proposed a colour of its own for a waiting work; the owner rejected it, because a stopped work that needs no one is one meaning and so one colour (principle colour-only-for-state), and the legend, map, cards and System view would all carry it.
 - replaced: A paused work and a waiting work in one grey, the card saying which on pointing, was on main; the owner changed it, because a work waiting its turn could not be seen, and red mixed works that waited with works that needed him.
-- rejected: an agent proposed a yellow fill for a work waiting its turn; the owner rejected it, because it looked bad.
+- replaced: A yellow edge alone, with no fill, for a work waiting its turn was on main; the owner changed it, because with the cards' edges lit, the yellow ones read unlike the red and the blue.
 - rejected: an agent proposed an edge saying red first where something under the item waited for the owner; the owner rejected it, because while anything under an item goes on, the item is in progress, so blue comes first.
+- replaced: An edge saying what pressed under an item, the item itself grey, was on main; the owner changed it, because what moves under an item moves the item, and where all under it wait or need him, so does it.
 
 ### decision a-card-stands-still
-No card gets a ring or moves because of its work's state: a work under way, in a round or in a call the engine runs, shows by its cell's pulse and by the lit way to its root.
+No card moves for its work's state: a card whose own work moves is lit round its edges in its colour, still, as a way is; a work under way shows by its cell's pulse and its way's light.
 - replaced: Red rings breathing round a card that waits for the owner was on main; the owner changed it, because the red background and its glow looked bad.
 - replaced: Red cards breathing was on main; the owner changed it, because the breathing could hardly be seen.
 - replaced: A light going round a running card's edge was on main; the owner changed it, because motion should be on the running cell, which carries information, and should take little room.
@@ -115,12 +125,20 @@ No card gets a ring or moves because of its work's state: a work under way, in a
 - replaced: Dashes scrolling along the way from the root to a running card was on main; the owner changed it, because he wanted that way lit by a running light, as in a reference he showed.
 - rejected: an agent proposed the lit way in purple, with its line and glow tinged purple at rest too; the owner rejected it, because at rest the way keeps the colour the settings give it, and only the running light may take some purple.
 - replaced: A lit way only to a work whose round ran, and none to a work in a call the engine ran for it, such as its tests, was on main; the owner changed it, because he counts a work in such a call as under way.
+- rejected: an agent proposed a soft light, a blurred fill in its colour behind each card whose own work moves; the owner rejected it, because a light along the edges, as on the card under the pointer, looked far better.
 
-### decision what-the-owner-points-at-stands-in-a-soft-light
-The selected item and the item under the pointer stand in a soft light, a blurred glow behind the card in its own colour; the selected one's glow is wider and its ring thicker.
+### decision a-way-takes-the-colour-of-the-item-it-leads-to
+A way up from an item that moves is lit in that item's colour, the running light only where the system moves it; a way to a work the owner paused after it began is a faint grey line.
+- replaced: A lit way in the running colour only to a work under way was on main; the owner changed it, because he wants to see what waits and what needs him as he sees what runs, and a paused work still joined to its parent.
+
+### decision what-the-owner-points-at-is-lit-along-its-edges
+Light reaches in along the top and bottom edges of the card under the pointer from both its ends, and goes back out as the pointer leaves; the selected card is lit all round, stronger.
 - rejected: an agent proposed a bar at the selected card's left, a light fill, its words in the accent, a thicker ring, a spotlight or a card lifted on a shadow; the owner rejected it, because on a page drawn in WebGL he wanted an effect beyond these.
 - replaced: A translucent frame drawn round the card under the pointer was on main; the owner changed it, because the soft light already looked like a hover effect.
 - replaced: The same blue round every card that was selected or under the pointer was on main; the owner changed it, because the light should be in the item's own colour, red for red and grey for grey.
+- replaced: A soft light, a blurred glow behind the card in its own colour, was on main; the owner changed it, because he wanted what he points at marked in a light of its own, apart from the colours that say who moves an item.
+- rejected: the owner proposed a triangle at either side of the card, open under the pointer and filled once selected; the owner rejected it, because the triangles were hard to see and not pretty.
+- rejected: the owner proposed streaks and points of light drifting slowly along the card's top and bottom edges; the owner rejected it, because it did not go with the rest of the page.
 
 ### decision the-boxes-choose-the-items-shown
 Three check boxes right of the map, Open, Done and Cancelled, one under another, choose which items every tree shows: only Open at first, and the choice is kept in the browser.

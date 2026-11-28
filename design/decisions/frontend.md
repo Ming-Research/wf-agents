@@ -43,17 +43,17 @@ A work that is paused and has begun no round has the state Not started, which th
 Red is the only colour of a stop: a work that waits for the owner and a work halted by a fault are red in every view.
 - replaced: Orange for what waits for the owner on the Works page and in the bar, but red on the console, was on main; the owner changed it, because one meaning has one colour, and he had chosen red for every stop.
 
-### decision a-wait-for-a-slot-is-drawn-as-nothing-having-run
-The time bar draws a wait for a slot in the colour of nothing having run, saying on pointing at it that it is a wait for a slot; the legend has no entry for it.
-- rejected: an agent proposed a colour of its own for it, listed in the legend; the owner rejected it, because no colour is left that does not clash with a state's: teal is the turn's, and violet was refused for the accent.
-- rejected: an agent proposed the turn's teal for it, the two told apart on pointing; the owner rejected it, because a glance could not tell a wait for a slot from a wait for the turn, which was to be told at a glance.
+### decision five-colours-say-who-moves-a-thing
+Red is what needs the owner, blue what the system does, yellow what waits its turn, grey what does not move by itself, green what is done: on cards, ways, strips, the time bar and the map alike.
+- replaced: Yellow for a call under way and the tools' time, teal for the turn, a light blue for a cell handed in, and only the cards coloured by who moves them, was on main; the owner changed it, because he wants to see at a glance what moves, what waits and what needs him.
 
 ### decision a-call-waited-for-is-no-run
-Wherever the page shows a work waiting for tools' results, it says in a call's yellow that it waits for each tool, where it runs and how long, never that it runs; a held call, until when and why.
+Wherever the page shows a work waiting for tools' results, it says it waits for each tool, where and how long, never that it runs; its cell's mark is blue while carried out, yellow while queued.
 - rejected: an agent proposed a separate mark for the tool, after the cell that asked for it; the owner rejected it, because every call that takes time should keep the motion on the card: its cell's mark turned yellow and still blinking.
 - rejected: an agent proposed a cell in the flow for each tool, as the old system had; the owner rejected it, because cells for tools do not fit the flow's new model.
 - replaced: Different words for such a work in each place, finished in one, a call under way in another and running in a third, was on main; the owner changed it, because every place should show the same thing.
 - replaced: Teal for the part of a work's time spent in a tool, while the cells marked a call in yellow, was on main; the owner changed it, because one meaning in two colours breaks the rule that one meaning has one colour.
+- replaced: A call's yellow for every call waited for, and for the tools' time, was on main; the owner changed it, because yellow is waiting one's turn, and a call the engine carries out is the system at work (decision five-colours-say-who-moves-a-thing).
 
 ### decision one-set-of-marks-for-how-a-run-stands
 One set of marks shows how a run ended or how it stands now, filled for a run that ran or is running and hollow for one still to run; a work's strip of cells and its history both use it.
@@ -83,10 +83,12 @@ The flow's views draw a way back in the accent, a thick line and arrow on the ma
 Every mark the page draws is defined once, with a name of a word or two, in one table, and each view's legend lists only the marks that view draws, on one line, or on the console in a panel.
 - replaced: Separate marks and legends in each view, which named one thing in several ways, was on main; the owner changed it, because a legend's words had grown too long for its line, and things that were alike looked different from view to view.
 
-### decision the-wait-for-the-turn-has-a-colour-of-its-own
-The time bar draws a work's wait for its project's turn to check and merge in a teal of its own, said on pointing at it and listed with the bar's other colours in the console's legend.
-- rejected: an agent proposed drawing it in the grey of the items it waits for and of nothing running, told apart only on pointing; the owner rejected it, because a glance could not tell a work queued for the turn from any other grey stretch, each having to be pointed at.
-- rejected: an agent proposed a violet for it; the owner rejected it, because the accent would then also have to keep clear of violet, leaving only a short stretch of blue to choose from, and its rule would gain one more colour.
+### decision a-wait-for-its-turn-is-yellow-on-the-time-bar
+The time bar draws a work's wait for its project's turn to check and merge, and its wait for a slot, in the yellow of waiting its turn; pointing at it says which, and the legend lists it once.
+- replaced: The turn in a teal of its own, and a wait for a slot in the colour of nothing having run, was on main; the owner changed it, because both are a work waiting its turn (decision five-colours-say-who-moves-a-thing).
+- rejected: an agent proposed drawing the turn in the grey of the items it waits for and of nothing running, told apart only on pointing; the owner rejected it, because a glance could not tell a work queued for the turn from any other grey stretch, each having to be pointed at.
+- rejected: an agent proposed a violet for the turn; the owner rejected it, because the accent would then also have to keep clear of violet, leaving only a short stretch of blue to choose from, and its rule would gain one more colour.
+- rejected: an agent proposed a colour of its own for a wait for a slot, listed in the legend; the owner rejected it, because no colour is left that does not clash with a state's: teal was the turn's, and violet was refused for the accent.
 
 ### decision the-page-draws-markdown-itself
 The page draws the Markdown that agents write with its own renderer and its own parts, and uses no Markdown library.

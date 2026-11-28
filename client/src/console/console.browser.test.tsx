@@ -29,7 +29,7 @@ import { DEFAULT_ACCENT, pickAccent, PRESETS, tones } from '../accent';
 import { apart, lchOf } from '../colour';
 import { MARKS } from '../marks';
 import { useBarItems } from '../Engine';
-import { NO_LEVEL, STATE } from '../works/words';
+import { NO_LEVEL, STATE, stateSaid } from '../works/words';
 import type { CellNow, Changed, Items, Now } from '../works-api';
 import { FIXTURES, type Source as PageSource, SourceContext } from '../works/source';
 import { fixtureSource } from './fixtures';
@@ -241,9 +241,11 @@ describe('the tree', () => {
   });
 
   it('says on pointing at the level on a card what the item window says of it, in every case, and turns the pointer to no hand over it', async () => {
-    const worked = (id: number, work: Partial<ShownWork>): Shown => ({ ...card(id), work: { ...running(id), ...work } });
-    // The card's own middle stands at the screen's, with the level in its second row, under the number.
+    const change = (id: number, work: Partial<ShownWork>): Shown => worked(id, { ...running(id), ...work });
+    // The card's own middle stands at the screen's, with the level in its second row, under the number. The rest of the
+    // card says how its work stands, which is passed over.
     const said = (item: Shown) => {
+      const standing = item.stands === null ? '' : stateSaid(item.stands);
       scene.show([item]);
       settle(scene);
       const left = scene.place().left;
@@ -255,24 +257,25 @@ describe('the tree', () => {
         for (let x = left + 4; x < left + 80; x += 4) {
           move(x, y);
           scene.step();
-          if (canvas().title !== '') return { title: canvas().title, cursor: canvas().style.cursor };
+          const title = canvas().title;
+          if (title !== '' && title !== standing) return { title, cursor: canvas().style.cursor };
         }
       }
       return { title: '', cursor: canvas().style.cursor };
     };
     // Held by the highest level a round may run at: written at the level it runs at, and what held it said.
-    expect(said(worked(1, { level: '3', raise: 0, cellLevel: '3', held: { asks: 1, by: 'agents.highest_level' } }))).toEqual({
+    expect(said(change(1, { level: '3', raise: 0, cellLevel: '3', held: { asks: 1, by: 'agents.highest_level' } }))).toEqual({
       title: 'level 3, levels_above 1, agents.highest_level 3',
       cursor: '',
     });
     // Raised, and held by nothing: its keys alone.
-    expect(said(worked(2, { level: '3', raise: 1, cellLevel: '4', held: null }))).toEqual({
+    expect(said(change(2, { level: '3', raise: 1, cellLevel: '4', held: null }))).toEqual({
       title: 'level 3, levels_above 1',
       cursor: '',
     });
-    expect(said(worked(3, { level: '2', raise: 0, cellLevel: '2', held: null })).title).toBe('level 2');
+    expect(said(change(3, { level: '2', raise: 0, cellLevel: '2', held: null })).title).toBe('level 2');
     // A work whose engine gives no level: a dash, and why there is none.
-    expect(said(worked(4, { level: null, raise: 0, cellLevel: null, held: null })).title).toBe(NO_LEVEL.level);
+    expect(said(change(4, { level: null, raise: 0, cellLevel: null, held: null })).title).toBe(NO_LEVEL.level);
   });
 
   // A pause and a wait stand in one grey, neither needing the owner, so the card says which on pointing at it, in the
@@ -444,7 +447,7 @@ describe('the tree', () => {
     const under = { open: 1, done: 0, cancelled: 0, elsewhere: 0 };
     // Under 1, item 2, whose work runs.
     const tree = (folded: boolean) => [
-      { ...card(1, [{ ...card(2), begun: true, work: running(2) }]), fold: { folded, under } },
+      { ...card(1, [worked(2, running(2))]), fold: { folded, under } },
     ];
     /// The way into item 2 is lit, and ends where item 2 is drawn, smaller than whole.
     const endsAtCard = () => {
@@ -487,7 +490,7 @@ describe('the tree', () => {
   });
 
   it('draws a frame in which only the lights move without drawing the cards, the funnels or the map again', () => {
-    scene.show([card(1, [{ ...card(2), begun: true, work: running(2) }])]);
+    scene.show([card(1, [worked(2, running(2))])]);
     settle(scene);
     scene.step();
     const redraws = scene.stats.redraws;
@@ -503,8 +506,8 @@ describe('the tree', () => {
     expect(scene.stats.redraws).toBe(redraws + 1);
   });
 
-  it('flashes the soft light of the item selected once, in view, without moving the tree, and once it has come to rest draws nothing that stands again while only the lights move', () => {
-    scene.show([card(1, [{ ...card(2), begun: true, work: running(2) }])]);
+  it('flashes the light along the edges of the item selected once, in view, without moving the tree, and once it has come to rest draws nothing that stands again while only the lights move', () => {
+    scene.show([card(1, [worked(2, running(2))])]);
     scene.select(2);
     settle(scene);
     // Frames a second long bring the dimming of the items not selected, and all else that eases, to rest.
@@ -520,8 +523,8 @@ describe('the tree', () => {
     scene.step();
     expect(JSON.stringify(scene.place())).toBe(place);
     expect(scene.chosenLight()).toEqual(rest);
-    // Flashed, its light is wider and stronger from the next frame, more than twice as wide at its height, and back at
-    // rest by the end of the flash's time, the tree unmoved.
+    // Flashed, its light is stronger from the next frame, the flash well on at its height, and back at rest by the end
+    // of the flash's time, the tree unmoved.
     scene.flash(2);
     const lights: { out: number; alpha: number }[] = [];
     for (let k = 0; k < FLASH_MS / 16; k += 1) {
@@ -542,8 +545,8 @@ describe('the tree', () => {
     expect(scene.stats.redraws).toBe(redraws);
   });
 
-  it('moves only the light down a way from frame to frame, what stands of the way built once where it stands, and again where it moves', () => {
-    scene.show([card(1, [{ ...card(2), begun: true, work: running(2) }])]);
+  it('moves only the light down a way from frame to frame, what stands of the way built once where it stands, and again only where the screen moves past the room it was built for', () => {
+    scene.show([card(1, [worked(2, running(2))])]);
     settle(scene);
     scene.step();
     const builds = scene.stats.wayBuilds;
@@ -555,8 +558,13 @@ describe('the tree', () => {
       expect(scene.litWays().map((w) => w.id)).toEqual([2]);
     }
     expect(scene.stats.wayBuilds).toBe(builds);
-    // Moved sideways, the way is built again where it now stands.
+    // Moved sideways a little, the tree is moved whole as it was drawn, and nothing is built again.
     wheel(100, 0);
+    scene.step();
+    expect(scene.stats.wayBuilds).toBe(builds);
+    // Moved sideways as far as it goes, past the half screen more it was drawn for, the way is built again where it
+    // now stands.
+    wheel(-5000, 0);
     scene.step();
     expect(scene.stats.wayBuilds).toBe(builds + 1);
     expect(scene.litWays().map((w) => w.id)).toEqual([2]);
@@ -568,8 +576,8 @@ describe('the tree', () => {
     expect(scene.stats.wayBuilds).toBe(builds + 2);
   });
 
-  it('blurs a layer of glow only in a frame in which it draws something', () => {
-    scene.show([card(1, [{ ...card(2), begun: true, work: running(2) }])]);
+  it('blurs a layer of glow only while it draws something', () => {
+    scene.show([card(1, [worked(2, running(2))])]);
     settle(scene);
     /// How many layers each frame blurs over a whole run of the light and the dark after it.
     const run = () =>
@@ -577,19 +585,22 @@ describe('the tree', () => {
         scene.step(16);
         return scene.stats.blurs;
       });
-    // While the light runs, the glow it lights is blurred; in the dark, with nothing pointed at or selected, nothing is.
-    const free = run();
-    expect(Math.max(...free)).toBeGreaterThan(0);
-    expect(free.filter((b) => b === 0).length).toBeGreaterThanOrEqual(Math.floor(RUN.dark / 16) - 1);
-    // The soft light of the item selected is blurred in every frame, the dark's too, until the item is let go.
+    // The glow of a way into a work that moves is blurred at every frame, while the light runs and in the dark.
+    expect(Math.min(...run())).toBeGreaterThan(0);
+    // With no work that moves and nothing pointed at or selected, nothing is blurred.
+    scene.show([card(1, [card(2)])]);
+    settle(scene);
+    expect(Math.max(...run())).toBe(0);
+    // The light along the edges of the item selected is blurred in every frame until the item is let go, and goes
+    // back out to the card's ends a moment after.
     scene.select(2);
     expect(Math.min(...run())).toBeGreaterThan(0);
     scene.select(null);
-    expect(run().filter((b) => b === 0).length).toBeGreaterThanOrEqual(Math.floor(RUN.dark / 16) - 1);
+    expect(run().slice(-5)).toEqual([0, 0, 0, 0, 0]);
   });
 
   it('draws no frame while the page is hidden, nor while its view is, and draws again once both show', async () => {
-    scene.show([card(1, [{ ...card(2), begun: true, work: running(2) }])]);
+    scene.show([card(1, [worked(2, running(2))])]);
     await drew();
     const page = (state: DocumentVisibilityState) => {
       Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
@@ -625,11 +636,11 @@ describe('the tree', () => {
     const asks = [{ key: 'answer-which', why: 'Which?', ends: { kind: 'resume' as const } }];
     const paused: Now = { kind: 'paused', ran: true, at: 'implement', by: 'owner', why: null };
     const items: Shown[] = [
-      { ...card(1), begun: true, work: running(1) },
-      { ...card(2), begun: true, work: { ...running(2), now: call } },
-      { ...card(3), begun: true, work: { ...running(3), waits: asks } },
-      { ...card(4), begun: true, work: { ...running(4), now: { kind: 'fault', words: 'No session' } } },
-      { ...card(5), begun: true, work: { ...running(5), now: paused, paused: 'owner', from: now } },
+      worked(1, running(1)),
+      worked(2, { ...running(2), now: call }),
+      worked(3, { ...running(3), waits: asks }),
+      worked(4, { ...running(4), now: { kind: 'fault', words: 'No session' } }),
+      worked(5, { ...running(5), now: paused, paused: 'owner', from: now }),
       card(6),
       { ...card(7), standing: 'done' },
       { ...card(8), standing: 'cancelled' },
@@ -638,9 +649,10 @@ describe('the tree', () => {
     settle(scene);
     const colour = new Map(scene.drawnMap().pieces.map((p) => [p.id, p.colour]));
     const p = themed();
+    // A call the engine carries out is the system's work, blue as a round is.
     expect([1, 2, 3, 4, 5, 6, 7, 8].map((id) => colour.get(id))).toEqual([
       p.running,
-      p.calling,
+      p.running,
       p.halted,
       p.halted,
       p.paused,
@@ -812,7 +824,7 @@ describe('the tree', () => {
     expect(unworked?.rows).toBe(1);
   });
 
-  it('lights the way to a work the engine runs a call for, as to one whose round runs, and to no work that waits for the owner or is paused', () => {
+  it("lights the way to every work that moves, the owner's as the system's, and draws a grey way to a work the owner paused after it began", () => {
     const call: Now = {
       kind: 'waits',
       at: 'implement',
@@ -820,8 +832,8 @@ describe('the tree', () => {
     };
     const paused: Now = { kind: 'paused', ran: true, at: 'implement', by: 'owner', why: null };
     const asks = [{ key: 'answer-which', why: 'Which?', ends: { kind: 'resume' as const } }];
-    const under = (k: number, work: ShownWork) => ({ ...card(k), begun: true, work });
-    // Under 1: 2 runs a round, 3 waits for the engine's call, 4 waits for the owner, and 5 is paused.
+    const under = (k: number, work: ShownWork) => worked(k, work);
+    // Under 1: 2 runs a round, 3 waits for the engine's call, 4 waits for the owner, and 5 is paused after it began.
     const kids = [
       under(2, running(2)),
       under(3, { ...running(3), now: call }),
@@ -830,7 +842,7 @@ describe('the tree', () => {
     ];
     scene.show([card(1, kids)]);
     settle(scene);
-    expect(scene.litWays().map((w) => w.id).sort()).toEqual([2, 3]);
+    expect(scene.litWays().map((w) => w.id).sort()).toEqual([2, 3, 4, 5]);
     // Folded away under 1, the work in its call ends the lit way at 1's dot, as a work whose round runs does.
     const folded = { open: 4, done: 0, cancelled: 0, elsewhere: 0 };
     scene.show([card(10, [{ ...card(1, [kids[1], kids[2]]), fold: { folded: true, under: folded } }])]);
@@ -843,7 +855,7 @@ describe('the tree', () => {
     // steeply out of 1's edge.
     const rest = Array.from({ length: 11 }, (_, k) => card(3 + k));
     const under = { open: 12, done: 0, cancelled: 0, elsewhere: 0 };
-    const two = { ...card(2), begun: true, work: running(2) };
+    const two = worked(2, running(2));
     scene.show([{ ...card(1, [two, ...rest]), fold: { folded: false, under } }]);
     settle(scene);
     const way = scene.litWays().find((w) => w.id === 2);
@@ -1702,8 +1714,9 @@ describe('the console page', () => {
     expect(swatch('turn')?.getAttribute('title')).toBe('Waiting for its turn to check and merge');
     const colour = (kind: string) => getComputedStyle(swatch(kind) as Element).backgroundColor;
     for (const other of TRACK_KINDS.filter((kind) => kind !== 'turn')) expect(colour('turn')).not.toBe(colour(other));
-    // Once the pointer leaves, it takes the pointer no more at once, and is hidden once it has faded.
-    await userEvent.unhover(mark);
+    // Once the pointer leaves for the tree, above where the panel reaches, it takes the pointer no more at once, and is
+    // hidden once it has faded.
+    await userEvent.hover(container.querySelector('canvas') as HTMLElement, { position: { x: 4, y: 4 } });
     await expect.poll(() => panel().classList.contains('shown')).toBe(false);
     expect(look().pointerEvents).toBe('none');
     await expect.poll(() => look().visibility).toBe('hidden');
@@ -1897,8 +1910,8 @@ describe('the console page', () => {
     scene.select(12);
     await expect.poll(title).toBe('Show the cost of a work');
     expect(folded()).toBe(false);
-    // Once the tree stands where the panel brought the item, its soft light is at rest; a click on the title, which
-    // leaves the keys where they were, flashes it, wider at the next frame.
+    // Once the tree stands where the panel brought the item, its light is at rest; a click on the title, which leaves
+    // the keys where they were, flashes it, stronger at the next frame.
     settle(scene);
     const rest = scene.chosenLight() as { id: number; out: number };
     expect(rest.id).toBe(12);

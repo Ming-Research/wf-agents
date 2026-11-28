@@ -269,7 +269,7 @@ describe('the rows of a history', () => {
       steps,
       outline: OUTLINE,
       blocks,
-      summary: summary({ kind: 'waits', at: 'implement', on: [] }),
+      summary: summary({ kind: 'waits', at: 'implement', on: [{ kind: 'items', items: [4] }] }),
       questions: [scope],
     });
     expect(rows).toHaveLength(8);
@@ -322,21 +322,27 @@ describe('how a run ended or stands', () => {
   const open = (rounds: Round[]) => run(3, 'implement', 5, [], [], { end: 'open', rounds });
   const cell = (state: CellNow['state']): CellNow => ({ cell: 'implement', state, finished: 0, record: null, open: 3 });
   const waiting: Now = { kind: 'waits', at: 'implement', on: [] };
+  // A work that waits for the items it depends on: nothing of it waits its turn.
+  const held: Now = { kind: 'waits', at: 'implement', on: [{ kind: 'items', items: [4] }] };
 
   it('takes the states of the strip of the console: a run that ended handed in, or runs again where it was abandoned', () => {
     expect(runState(run(3, 'implement', 5, [], []), summary(waiting))).toBe('handedIn');
     expect(runState(run(3, 'implement', 5, [], [], { end: 'abandoned' }), summary(waiting))).toBe('again');
   });
 
-  it('marks an open run as its cell stands: running, waiting for a call, failed, at rest, or stopped where the work is stopped at it', () => {
-    expect(runState(open([round(1, null)]), summary(waiting, [cell('running')]))).toBe('running');
-    expect(runState(open([round(1, null)]), summary(waiting, [cell('calling')]))).toBe('waiting');
-    expect(runState(open([round(1, null)]), summary(waiting, [cell('failed')]))).toBe('failed');
-    expect(runState(open([round(1, failed)]), summary(waiting, [cell('failed')]))).toBe('failed');
-    expect(runState(open([round(1, handedIn)]), summary(waiting, [cell('failed')]))).toBe('failed');
-    expect(runState(open([round(1, { kind: 'asked', asks: [] })]), summary(waiting, [cell('resting')]))).toBe('atRest');
+  it('marks an open run as its cell stands: running, waiting for a call, failed, at rest, waiting its turn, or stopped where the work is stopped at it', () => {
+    expect(runState(open([round(1, null)]), summary(held, [cell('running')]))).toBe('running');
+    expect(runState(open([round(1, null)]), summary(held, [cell('calling')]))).toBe('waiting');
+    expect(runState(open([round(1, null)]), summary(held, [cell('failed')]))).toBe('failed');
+    expect(runState(open([round(1, failed)]), summary(held, [cell('failed')]))).toBe('failed');
+    expect(runState(open([round(1, handedIn)]), summary(held, [cell('failed')]))).toBe('failed');
+    expect(runState(open([round(1, { kind: 'asked', asks: [] })]), summary(held, [cell('resting')]))).toBe('atRest');
     // The cell's state for another run of it says nothing of this one.
-    expect(runState(open([round(1, null)]), summary(waiting, [{ ...cell('running'), open: 9 }]))).toBe('atRest');
+    expect(runState(open([round(1, null)]), summary(held, [{ ...cell('running'), open: 9 }]))).toBe('atRest');
+    // A work that waits its turn: a run at rest or waiting for a call waits its turn, nothing carried out for it.
+    expect(runState(open([round(1, null)]), summary(waiting, [cell('calling')]))).toBe('queued');
+    expect(runState(open([round(1, null)]), summary(waiting, [cell('resting')]))).toBe('queued');
+    expect(runState(open([round(1, null)]), summary(waiting, [cell('failed')]))).toBe('failed');
     const pause: Wait = { key: 'pause', why: 'The engine paused the work.', ends: { kind: 'resume' } };
     const stopped = summary({ kind: 'paused', ran: true, at: 'implement', by: 'engine', why: 'x' }, [cell('failed')], [pause], 'engine');
     expect(runState(open([round(1, failed)]), stopped)).toBe('stopped');
@@ -346,7 +352,7 @@ describe('how a run ended or stands', () => {
   // as: the engine says it of the cell, for a round that failed and for a return it sends back, a pause holding it or not.
   it('does not read from what the last round came back as whether an open run is to be given again', () => {
     for (const back of [failed, handedIn, { kind: 'asked', asks: [] } as Back, null]) {
-      expect(runState(open([round(1, back)]), summary(waiting, [cell('resting')]))).toBe('atRest');
+      expect(runState(open([round(1, back)]), summary(held, [cell('resting')]))).toBe('atRest');
     }
   });
 

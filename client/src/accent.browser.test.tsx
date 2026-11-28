@@ -32,8 +32,8 @@ const MEANINGS = [
   '--yellow',
   '--green',
   '--green-text',
-  '--track-tool',
   '--track-turn',
+  '--mark-handed-in',
 ];
 
 describe('the tokens, with an accent picked', () => {

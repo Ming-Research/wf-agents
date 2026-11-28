@@ -14,10 +14,31 @@ import { STATE, nowTone, stateOf } from '../works/words';
 import type { Flow } from '../api';
 import type { Act, Block, Failure, Item, Now, Outage, Pauser, Question, Step, Summary, Wait, WorkPage } from '../works-api';
 import { FLOW, fixtureItems } from './fixtures';
-import { asksOf } from './items';
+import { asksOf, type Shown } from './items';
 import { ItemPanel } from './ItemWindow';
 import type { LoadVersion } from './real';
-import { moodOf } from './snap';
+import { tonesOf } from './snap';
+
+/// The colour a card takes for a work that stands as `stands`, by who moves it next ([`tonesOf`]).
+function toneOf(stands: NonNullable<Shown['stands']>) {
+  const item: Shown = {
+    id: 1,
+    title: 'Item 1',
+    standing: 'open',
+    asks: 0,
+    ahead: 0,
+    deliver: false,
+    fresh: 'none',
+    repliesUnread: 0,
+    begun: true,
+    underWay: false,
+    shadow: false,
+    stands,
+    work: null,
+    children: [],
+  };
+  return tonesOf([item]).tone.get(item);
+}
 
 let root: Root | undefined;
 afterEach(() => {
@@ -258,7 +279,7 @@ describe("what waits for the owner, as the engine's one list names it", () => {
     expect(waitsOnOwner(summary)).toBe(true);
     expect(asksOf(summary)).toBe(1);
     expect(waitingCount([summary, { waits: [] }])).toBe(1);
-    expect(moodOf({ now, cells: [], waits: [w] })).toBe('owner');
+    expect(toneOf({ now, cells: [], waits: [w] })).toBe('red');
     const container = draw(now, [w], w.key, none, { read: { flow: RULED, blocks: [SAID_NO] } });
     // A ruling is read with the body, once the page has drawn.
     await act(async () => undefined);
@@ -273,7 +294,6 @@ describe("what waits for the owner, as the engine's one list names it", () => {
     const summary = { ...base.work, now, waits: [] };
     expect(waitsOnOwner(summary)).toBe(false);
     expect(asksOf(summary)).toBe(0);
-    expect(moodOf({ now, cells: [], waits: [] })).not.toBe('owner');
     const container = draw(now, [], undefined, none);
     expect(container.querySelectorAll('[data-wait]')).toHaveLength(0);
     expect(workLine(container).querySelector('.status-word')?.textContent).not.toBe(STATE.owner);
@@ -348,7 +368,7 @@ describe('a stop that no one waits on', () => {
     }
     const fault: Now = { kind: 'fault', words: 'Two entries at 3' };
     const summary = (now: Now) => ({ ...base.work, now, waits: [] });
-    expect(moodOf({ now: STALLED, cells: [], waits: [] })).toBe(moodOf({ now: fault, cells: [], waits: [] }));
+    expect(toneOf({ now: STALLED, cells: [], waits: [] })).toBe(toneOf({ now: fault, cells: [], waits: [] }));
     expect(nowTone(summary(STALLED))).toBe(nowTone(summary(fault)));
     // In the list's column of states the two stand together, after what waits for the owner and before what runs.
     const running = summary({ kind: 'round', cell: 'plan', run: 1, round: 1, since: 0 });
@@ -358,7 +378,7 @@ describe('a stop that no one waits on', () => {
     expect(standingOf(summary(STALLED))).toBe('halted');
     // A state that cannot be worked out is a stop in the same red, and stands in a tile of its own, not the halted one.
     const broken: Now = { kind: 'broken', words: 'the driver names no turn' };
-    expect(moodOf({ now: broken, cells: [], waits: [] })).toBe(moodOf({ now: fault, cells: [], waits: [] }));
+    expect(toneOf({ now: broken, cells: [], waits: [] })).toBe(toneOf({ now: fault, cells: [], waits: [] }));
     expect(nowTone(summary(broken))).toBe(nowTone(summary(fault)));
     expect(standingOf(summary(broken))).toBe('broken');
     expect(stateOf(summary(broken)).word).not.toBe(stateOf(summary(fault)).word);

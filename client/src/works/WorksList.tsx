@@ -38,7 +38,6 @@ import {
   duration,
   fullTime,
   itemName,
-  stoppedAt,
   waitCount,
 } from './words';
 
@@ -335,7 +334,7 @@ export const WorkRow = memo(function WorkRow({ item }: { item: Item }) {
             {UNREAD.shown}
           </span>
         ) : (
-          <Strip cells={work.cells} stopped={stoppedAt(work)} />
+          <Strip work={work} />
         )}
       </td>
       <td className="mono col-level">

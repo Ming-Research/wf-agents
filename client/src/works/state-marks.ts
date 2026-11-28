@@ -26,7 +26,8 @@ export type MarkLook =
   | { shape: 'dash'; fill: string };
 
 /// How a cell stands in its work, and how a run of it ended or stands, in one set, the console's strip's: a round of it
-/// runs; the engine carries out a call or an act for it, which it waits for; it is at rest between two rounds; its last
+/// runs; the engine carries out a call or an act for it, which it waits for; it waits its turn, for a slot, a machine
+/// or the host, and nothing is carried out for it yet; it is at rest between two rounds; its last
 /// round failed, or what it handed in last was sent back, and it is given its round again; the work is stopped at it,
 /// for the owner or by the engine; it finished; it runs again, done before, or abandoned, and to be run anew; it has
 /// not run yet; it is skipped; of a work that ended, it did not run. Whether a finished run changed anything is not its
@@ -34,6 +35,7 @@ export type MarkLook =
 export type RunState =
   | 'running'
   | 'waiting'
+  | 'queued'
   | 'atRest'
   | 'failed'
   | 'stopped'
@@ -43,18 +45,21 @@ export type RunState =
   | 'skipped'
   | 'notRun';
 
-/// Filled is a run that ran or runs, hollow one still to run. Handed in is filled in a light step of the accent; a run
-/// under way in its deep step, a round of it running or at rest; waiting for a call in the yellow of a call; failed a
-/// hollow ring in red, stopped filled in red. Runs again is a hollow ring of handed in's light step; not run yet a
-/// hairline ring; skipped a muted dash, and did not run the same dash, which says only that no run of it finished.
+/// Filled is a run that ran or runs, hollow one still to run, each in the colour a card takes for the same: what the
+/// system moves in blue, what waits its turn in yellow, what needs the owner in red, what is done in green. Handed in
+/// is filled in a light step of green; a run under way in the running colour's deep step, a round of it running or at
+/// rest, or a call carried out for it; what waits its turn in yellow; failed a hollow ring in red, stopped
+/// filled in red. Runs again is a hollow ring of handed in's light step; not run yet a hairline ring; skipped a muted
+/// dash, and did not run the same dash, which says only that no run of it finished.
 export const RUN_STATES: Record<RunState, MarkLook> = {
   running: { shape: 'square', fill: '--mark-running', edge: '--mark-running', width: 'ring' },
-  waiting: { shape: 'square', fill: '--yellow', edge: '--yellow', width: 'ring' },
+  waiting: { shape: 'square', fill: '--mark-running', edge: '--mark-running', width: 'ring' },
+  queued: { shape: 'square', fill: '--yellow', edge: '--yellow', width: 'ring' },
   atRest: { shape: 'square', fill: '--mark-running', edge: '--mark-running', width: 'ring' },
   failed: { shape: 'square', fill: null, edge: '--red', width: 'ring' },
   stopped: { shape: 'square', fill: '--red', edge: '--red', width: 'ring' },
-  handedIn: { shape: 'square', fill: '--mark-done', edge: '--mark-done', width: 'ring' },
-  again: { shape: 'square', fill: null, edge: '--mark-done', width: 'ring' },
+  handedIn: { shape: 'square', fill: '--mark-handed-in', edge: '--mark-handed-in', width: 'ring' },
+  again: { shape: 'square', fill: null, edge: '--mark-handed-in', width: 'ring' },
   notYet: { shape: 'square', fill: null, edge: '--muted', width: 'hairline' },
   skipped: { shape: 'dash', fill: '--muted' },
   notRun: { shape: 'dash', fill: '--muted' },
@@ -72,6 +77,15 @@ export const STATE_OF_CELL: Record<CellState, RunState> = {
   skipped: 'skipped',
   notRun: 'notRun',
 };
+
+/// How a cell's run stands in a work's strip: as the cell stands, but the cell the work is `stopped` at stands as
+/// stopped, whatever its state, and, the work waiting its turn (`queued`), a cell at rest or waiting for a call waits
+/// its turn, nothing being carried out for it.
+export function cellRunState(state: CellState, stopped: boolean, queued: boolean): RunState {
+  if (stopped) return 'stopped';
+  const run = STATE_OF_CELL[state];
+  return queued && (run === 'waiting' || run === 'atRest') ? 'queued' : run;
+}
 
 /// The look of each cell's state, for the console's cards. The cell a work is stopped at is drawn as `stopped`,
 /// whatever its state, so that where the work stands shows in its strip as on its card.

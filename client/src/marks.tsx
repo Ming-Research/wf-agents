@@ -70,6 +70,9 @@ export type ConsoleMark =
   | 'cardWaiting'
   | 'cardPaused'
   | 'cardAbove'
+  | 'cardGlows'
+  | 'pointedAt'
+  | 'chosen'
   | 'cardMerged'
   | 'cardCancelled'
   | 'cardElsewhere'
@@ -86,6 +89,7 @@ export type ConsoleMark =
   | 'funnel'
   | 'folded'
   | 'litWay'
+  | 'stillWay'
   | 'map';
 
 /// How a run ended or stands, as a square of its look, a round running and waiting for a call pulsing; `title` says
@@ -115,14 +119,29 @@ function NodeSample({ lit = false }: { lit?: boolean }) {
   return <span className={`legend-node${lit ? ' lit' : ''}`} aria-hidden="true" />;
 }
 
-type CardLook = 'stopped' | 'running' | 'waiting' | 'paused' | 'above' | 'elsewhere';
+type CardLook = 'stopped' | 'running' | 'waiting' | 'paused' | 'elsewhere';
 
 /// A card of the console's tree, as a sample, by who moves it next, as the canvas draws it (`Tone`): filled red for
 /// the owner, filled blue for the system; edged in yellow while it waits its turn; grey, plain, where it does not move
-/// by itself, its edge in a light step of the most pressing tone under it; a shadow of an item shown elsewhere edged in
-/// dashes.
-function CardSample({ look }: { look: CardLook }) {
-  return <span className={`legend-card ${look}`} aria-hidden="true" />;
+/// by itself; a shadow of an item shown elsewhere edged in dashes. A card whose own work moves `glows` round its edges
+/// in its colour.
+function CardSample({ look, glows = false }: { look: CardLook; glows?: boolean }) {
+  return <span className={`legend-card ${look}${glows ? ' glows' : ''}`} aria-hidden="true" />;
+}
+
+/// A card lit along its edges: the card the pointer is over, the light reaching in from both its ends along its top
+/// and bottom edges, its sides lit; or the card chosen, lit all round.
+function LitSample({ whole }: { whole: boolean }) {
+  return (
+    <svg className="legend-lit-card" viewBox="0 0 32 12" width="32" height="12" aria-hidden="true">
+      <rect x="1" y="1" width="30" height="10" rx="2" />
+      {whole ? (
+        <rect className="lit" x="1" y="1" width="30" height="10" rx="2" />
+      ) : (
+        <path className="lit" d="M10 1H3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h7M22 1h7a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-7" />
+      )}
+    </svg>
+  );
 }
 
 /// An item's number on a card whose work ended, as a sample: green where it merged, a pale grey where it was cancelled,
@@ -150,15 +169,15 @@ export function SentBackMark({ count, says }: { count: number; says?: string }) 
   );
 }
 
-/// What joins a card to the items under it, as a sample: the grey funnel; the dot it folds into; or the lit way into a
-/// running item, ending in the dot that ends it while the item is folded away.
-function JoinSample({ look }: { look: 'funnel' | 'lit' }) {
+/// What joins a card to the items under it, as a sample: the grey funnel; or a lit way into an item that moves, in
+/// the colour of the item it leads to, `tone`, ending in the dot that ends it while the item is folded away.
+function JoinSample({ look, tone = 'blue' }: { look: 'funnel' | 'lit'; tone?: 'red' | 'blue' | 'yellow' | 'grey' }) {
   return look === 'funnel' ? (
     <svg className="legend-funnel" viewBox="0 0 16 12" width="16" height="12" aria-hidden="true">
       <path d="M0 3C8 3 8 0 16 0V12C8 12 8 9 0 9Z" />
     </svg>
   ) : (
-    <svg className="legend-lit" viewBox="0 0 16 12" width="16" height="12" aria-hidden="true">
+    <svg className={`legend-lit ${tone}`} viewBox="0 0 16 12" width="16" height="12" aria-hidden="true">
       <path d="M0 6H11" stroke="currentColor" strokeWidth="1.5" />
       <circle cx="12.5" cy="6" r="2.5" fill="currentColor" />
     </svg>
@@ -232,7 +251,8 @@ export const MARKS: Record<MarkKey, Entry> = {
   shown: { name: 'shown', draw: (words) => <Sign name="shown" words={words} /> },
   filesChanged: { name: 'files changed', draw: () => <FilesChangedMark /> },
   running: ofRun('running', 'running'),
-  waiting: ofRun('waiting', 'waiting'),
+  waiting: ofRun('waiting', 'a call carried out'),
+  queued: ofRun('queued', 'waits its turn'),
   atRest: ofRun('atRest', 'at rest'),
   failed: ofRun('failed', 'failed'),
   stopped: ofRun('stopped', 'stopped'),
@@ -253,7 +273,10 @@ export const MARKS: Record<MarkKey, Entry> = {
   cardRunning: { name: 'the system moves it', draw: () => <CardSample look="running" /> },
   cardWaiting: { name: 'waits its turn', draw: () => <CardSample look="waiting" /> },
   cardPaused: { name: 'does not move by itself', draw: () => <CardSample look="paused" /> },
-  cardAbove: { name: 'edge: the most pressing under it', draw: () => <CardSample look="above" /> },
+  cardAbove: { name: 'over others: the most pressing under it', draw: () => <CardSample look="running" /> },
+  cardGlows: { name: 'its own work moves: its edges lit in its colour', draw: () => <CardSample look="running" glows /> },
+  pointedAt: { name: 'under the pointer: lit from its ends in', draw: () => <LitSample whole={false} /> },
+  chosen: { name: 'chosen: lit all round', draw: () => <LitSample whole /> },
   cardMerged: { name: 'merged', draw: () => <NumberSample look="merged" /> },
   cardCancelled: { name: 'cancelled', draw: () => <NumberSample look="cancelled" /> },
   cardElsewhere: { name: 'shown elsewhere', draw: () => <CardSample look="elsewhere" /> },
@@ -291,6 +314,8 @@ export const MARKS: Record<MarkKey, Entry> = {
       <span className="legend-cells" aria-hidden="true">
         <StateMark state="handedIn" />
         <StateMark state="running" />
+        <StateMark state="queued" />
+        <StateMark state="stopped" />
         <StateMark state="notYet" />
       </span>
     ),
@@ -299,7 +324,17 @@ export const MARKS: Record<MarkKey, Entry> = {
   age: { name: 'age', draw: () => <AgeSample /> },
   funnel: { name: 'items under it', draw: () => <JoinSample look="funnel" /> },
   folded: { name: 'folded', draw: () => <span className="dot" aria-hidden="true" /> },
-  litWay: { name: 'lit way', draw: () => <JoinSample look="lit" /> },
+  litWay: {
+    name: "way, in its item's colour; the light runs on blue",
+    draw: () => (
+      <span className="legend-cells" aria-hidden="true">
+        <JoinSample look="lit" tone="blue" />
+        <JoinSample look="lit" tone="red" />
+        <JoinSample look="lit" tone="yellow" />
+      </span>
+    ),
+  },
+  stillWay: { name: 'way to a work paused after it began', draw: () => <JoinSample look="lit" tone="grey" /> },
   map: { name: 'map', draw: () => <span className="legend-map" aria-hidden="true" /> },
 };
 
