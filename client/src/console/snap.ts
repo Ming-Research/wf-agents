@@ -329,9 +329,9 @@ const EDGE_TAIL = 0.45;
 const EDGE_HOVER = 0.75;
 /// How strong the light round the edges of a card whose own work moves is, in its tone, as a part of a lit way's.
 const TONE_EDGE = 0.8;
-/// How bright the glow in yellow is drawn, as a part of the yellow: about the red's and the blue's brightness over
-/// yellow's, 0.33 and 0.35 over 0.64 where the page is dark.
-const YELLOW_GLOW = 0.55;
+/// How bright the glow in yellow is drawn, as a part of the yellow: where the page is dark, the yellow taken this far
+/// is as bright as the red and the blue are, 0.34 against the yellow's own 0.64.
+const YELLOW_GLOW = 0.76;
 export const FLASH_MS = 800;
 /// The room a blur is drawn in past what it blurs, in strengths of the blur: wide enough that the blur fades out before
 /// its edge.
@@ -3898,8 +3898,8 @@ export class SnapScene {
       const base = TONE_COLOUR()[tone];
       const run = mix(PALETTE.card, base, EDGE_RUNNING);
       const glint = mix(between(PALETTE.card, base, EDGE_RUNNING), PALETTE.glowTo, RUN.core);
-      // The glow in yellow is drawn darker, yellow being about twice as bright as the red and the blue, so that it adds
-      // as much light round its line as they do round theirs.
+      // The glow in yellow is drawn darker, as bright as the red and the blue, yellow being brighter than both, so that
+      // it adds as much light round its line as they do round theirs.
       const glowIn = tone === 'yellow' ? between('#000000', base, YELLOW_GLOW) : base;
       const shades = Array.from({ length: RUN.lightPieces + 1 }, (_, k) =>
         mix(glowIn, PALETTE.pulse, tone === 'blue' ? (RUN.hue * k) / RUN.lightPieces : 0),
