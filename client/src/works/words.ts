@@ -596,6 +596,27 @@ export function callsWaited(s: Pick<Summary, 'now' | 'cells'>): CallWaited[] {
   );
 }
 
+/// Whether every call of a tool a work waits for the result of only waits its turn, none of them carried out now: its
+/// run waits for a runner, or its measurement for the turn of its machine, or the host could not take it for now and
+/// the engine asks again later.
+export function callQueued(s: Pick<Summary, 'now'>): boolean {
+  const now = s.now;
+  if (now.kind === 'round') return (now.queuedFor ?? null) !== null;
+  if (now.kind !== 'waits') return false;
+  const calls = now.on.filter(engineToolCall);
+  const waitsTurn = (w: (typeof calls)[number]) =>
+    (w.queuedFor ?? null) !== null || (w.machine ?? null) !== null || (w.held ?? null) !== null;
+  return calls.length > 0 && calls.every(waitsTurn);
+}
+
+/// Whether a work waits its turn, nothing carried out for it now and nothing it waits for the owner's or other items':
+/// it waits for whoever gives it what it waits for, or every call it waits for waits its turn ([`callQueued`]). The
+/// console colours such a work yellow, and the cell it stands at in its strip.
+export function waitsItsTurn(s: Pick<Summary, 'now' | 'cells' | 'waits'>): boolean {
+  const { which } = stateOf(s);
+  return which === 'waiting' || (which === 'calling' && callQueued(s));
+}
+
 /// Whether a wait is for the result of a tool's call the engine carries out.
 const engineToolCall = (w: Waited): w is Extract<Waited, { kind: 'call' }> & { what: { kind: 'tool' } } =>
   w.kind === 'call' && w.who === null && w.what.kind === 'tool';

@@ -22,7 +22,17 @@
 import type { Watch } from '../api';
 import type { CallRow, Item, Outline, Run, Step, Summary, WorkPage, Writer } from '../works-api';
 import { type RunState } from './state-marks';
-import { type Part, callWords, causeWords, plain, sentence, stateOf, stoppedAt, writerWords } from './words';
+import {
+  type Part,
+  callWords,
+  causeWords,
+  plain,
+  sentence,
+  stateOf,
+  stoppedAt,
+  waitsItsTurn,
+  writerWords,
+} from './words';
 
 /// A new session of a line, as a step.
 export type SessionStep = Step & { kind: 'session' };
@@ -205,7 +215,8 @@ export function sessionsBegun(steps: Step[]): Map<number, SessionStep[]> {
 /// How a run ended or stands, in the console's strip's states: it finished; it was abandoned, and its cell runs again;
 /// the work is stopped at its cell; a round of it runs, or it waits for a call or an act carried out for it; its next
 /// round is its last again, that round having failed or what it returned being sent back, as the engine says of its
-/// cell; or else it is at rest between two rounds. A run still open stands as the engine says its cell stands, and is
+/// cell; or else it is at rest between two rounds. A run still open of a work that waits its turn, at rest or waiting
+/// for a call, waits its turn. A run still open stands as the engine says its cell stands, and is
 /// not read again from what its last round came back as.
 export function runState(run: Run, summary: Pick<Summary, 'now' | 'cells' | 'waits'>): RunState {
   const end = run.end;
@@ -214,8 +225,9 @@ export function runState(run: Run, summary: Pick<Summary, 'now' | 'cells' | 'wai
   if (stoppedAt(summary) === run.cell) return 'stopped';
   const now = summary.cells.find((c) => c.cell === run.cell && c.open === run.run)?.state;
   if (now === 'running') return 'running';
-  if (now === 'calling') return 'waiting';
-  return now === 'failed' ? 'failed' : 'atRest';
+  if (now === 'failed') return 'failed';
+  if (waitsItsTurn(summary)) return 'queued';
+  return now === 'calling' ? 'waiting' : 'atRest';
 }
 
 /// The run the item's window's Step shows where no row of the history is chosen: the run whose round is under way,

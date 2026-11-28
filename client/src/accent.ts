@@ -33,8 +33,8 @@ export const TONES: Record<Theme, Record<string, Kind>> = {
   dark: { accent: 'read', 'accent-tint': 'tint', 'mark-done': 'read', 'mark-running': 'read' },
 };
 
-/// The colours with a meaning of their own, which the accent keeps clear of, by the tokens that draw each: red, a
-/// problem; orange, a block's meaning changed; yellow, a call under way, and the tools' time; green, a work done.
+/// The colours with a meaning of their own, which the accent keeps clear of, by the tokens that draw each: red, what
+/// needs the owner; orange, a block's meaning changed; yellow, what waits its turn; green, what is done.
 export const MEANINGS = {
   red: ['red', 'red-text'],
   orange: ['orange', 'orange-text'],

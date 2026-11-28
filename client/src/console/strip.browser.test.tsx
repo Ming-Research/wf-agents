@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { pickAccent, PRESETS, tones } from '../accent';
 import { Strip } from '../works/marks';
-import type { CellNow, CellState } from '../works-api';
+import type { CellNow, CellState, Summary } from '../works-api';
 import type { Shown } from './items';
 import { type DrawnStrip, SnapScene } from './snap';
 
@@ -91,11 +91,12 @@ describe("a card's strip", () => {
     pickAccent(null);
   });
 
-  /// The works page's strip of `cells`, laid out by the browser: each mark's place from the first's left and from the
-  /// strip's middle, and its computed look.
+  /// The works page's strip of a work whose round is under way, as on the card ([`working`]), its cells `cells`, laid
+  /// out by the browser: each mark's place from the first's left and from the strip's middle, and its computed look.
   function laidOut(cells: CellNow[]) {
     const root = createRoot(page);
-    flushSync(() => root.render(<Strip cells={cells} />));
+    const now: Summary['now'] = { kind: 'round', cell: 'c1', run: 1, round: 1, since: 0 };
+    flushSync(() => root.render(<Strip work={{ now, cells, waits: [] }} />));
     const strip = page.querySelector('.strip') as HTMLElement;
     const box = strip.getBoundingClientRect();
     const marks = [...strip.querySelectorAll('.state-mark')].map((m) => {
@@ -186,9 +187,11 @@ describe("a card's strip", () => {
     await frame();
     const light = scene.drawnStrip(1) as DrawnStrip;
     expect(drawn(light)).toEqual(laidOut(cells));
+    // What runs is in the accent's deep step; what is handed in is green, whatever the accent.
+    const handedIn = () => getComputedStyle(document.documentElement).getPropertyValue('--mark-handed-in').trim();
     const done = light.marks.find((m) => m.state === 'done');
     const running = light.marks.find((m) => m.state === 'running');
-    expect(done?.fill).toBe(tones(violet).light['mark-done']);
+    expect(done?.fill).toBe(handedIn());
     expect(running?.fill).toBe(tones(violet).light['mark-running']);
 
     document.documentElement.setAttribute('data-theme', 'dark');
@@ -196,7 +199,7 @@ describe("a card's strip", () => {
     await frame();
     const dark = scene.drawnStrip(1) as DrawnStrip;
     expect(drawn(dark)).toEqual(laidOut(cells));
-    expect(dark.marks.find((m) => m.state === 'done')?.fill).toBe(tones(violet).dark['mark-done']);
+    expect(dark.marks.find((m) => m.state === 'done')?.fill).toBe(handedIn());
   });
 
   it('draws every cell of the longest flow on the tree, every mark at one size small enough for it, and none larger than the works page draws it', () => {

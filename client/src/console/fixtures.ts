@@ -635,6 +635,231 @@ export function fixtureItems(start = Date.now()): Items {
   };
 }
 
+/// The made-up project of every state a work can stand in (`?fixtures&states`): the items numbered from 3000 and their
+/// works from 30000, each titled by the state it stands in, so that how each is drawn can be looked at side by side;
+/// groups of an item over items in mixed states, to look at what an item over others takes from them; and a larger
+/// tree of a hundred or so items in states drawn at random, the same each time, to look at the tree as a whole.
+export function stateItems(start = Date.now()): Item[] {
+  const project = 'States';
+  let number = 3000;
+  let workNumber = 30000;
+  let seed = 11;
+  const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const items: Item[] = [];
+  const call = (o: Partial<Extract<Waited, { kind: 'call' }>> = {}): Waited => ({
+    kind: 'call',
+    call: 7,
+    who: null,
+    what: { kind: 'tool', name: 'run_tests', input: 'all' },
+    made: start - 4 * MINUTE,
+    ...o,
+  });
+  const outage: Waited = {
+    kind: 'agents',
+    outage: {
+      service: 'agents',
+      failure: 'usageLimit',
+      why: 'the account reached its usage limit',
+      work: 30000,
+      run: 1,
+      round: 1,
+      since: start - 40 * MINUTE,
+      checked: null,
+      until: { kind: 'checked', at: start + 2 * HOUR },
+      holds: true,
+      mayMove: false,
+    },
+  };
+  const answer = (q: string, why: string): Wait => wait(`answer-${q}`, why, { kind: 'answer', question: q, version: 1 });
+  /// How a work stands, by a name of the state the owner reads.
+  const states: Record<string, { now: Now; cells: CellNow[]; waits?: Wait[]; paused?: Pauser }> = {
+    问题等你回答: {
+      now: { kind: 'waits', at: 'research', on: [{ kind: 'answer', question: 'scope' }] },
+      cells: cellsAt('research', 'resting'),
+      waits: [answer('scope', 'Which of two scopes should the work take?')],
+    },
+    改了受保护文件等你批准: {
+      now: { kind: 'waits', at: 'merge', on: [{ kind: 'answer', question: 'protected_files' }] },
+      cells: cellsAt('merge', 'resting'),
+      waits: [answer('protected_files', 'This work changes files the project protects.')],
+    },
+    退回到了上限等你放行: {
+      now: { kind: 'waits', at: 'review_plan', on: [{ kind: 'limit', runs: 3 }] },
+      cells: cellsAt('review_plan', 'again'),
+      waits: [wait('limit', 'The cell ran 3 times in a row.', { kind: 'letGo', cell: 'review_plan' })],
+    },
+    前提条件要你写: {
+      now: { kind: 'waits', at: 'implement', on: [owners(PLAN_CONFIRMED)] },
+      cells: cellsAt('implement', 'notYet'),
+      waits: [ruling(PLAN_CONFIRMED, 'plan_confirmed')],
+    },
+    超出预算被引擎暂停: {
+      now: { kind: 'paused', ran: true, at: 'implement', by: 'engine', why: 'the work spent more than it may' },
+      cells: cellsAt('implement', 'resting'),
+      paused: 'engine',
+      waits: [wait('pause', 'The engine paused the work: it spent more than it may.', { kind: 'resume' })],
+    },
+    引擎出错: { now: { kind: 'fault', words: 'The agent could not be started' }, cells: cellsAt('test', 'resting') },
+    算不出状态: { now: { kind: 'broken', words: 'a record could not be read' }, cells: cellsAt('test', 'resting') },
+    走不下去: {
+      now: { kind: 'stalled', at: 'test', on: [], by: [], why: 'no cell can run' },
+      cells: cellsAt('test', 'resting'),
+    },
+    代理这一轮在跑: { now: { kind: 'round', cell: 'implement', run: 44, round: 2, since: start - 6 * MINUTE }, cells: cellsAt('implement', 'running') },
+    CI作业在机器上跑: {
+      now: { kind: 'waits', at: 'test', on: [call({ at: 'https://example.invalid/run/1' })] },
+      cells: cellsAt('test', 'calling'),
+    },
+    测量在跑: {
+      now: {
+        kind: 'waits',
+        at: 'test',
+        on: [call({ what: { kind: 'tool', name: 'run_tests', input: 'measure' }, at: 'https://example.invalid/run/2' })],
+      },
+      cells: cellsAt('test', 'calling'),
+    },
+    等空槽位: { now: { kind: 'waits', at: 'implement', on: [{ kind: 'slot' }] }, cells: cellsAt('implement', 'resting') },
+    等轮到合并: {
+      now: { kind: 'waits', at: 'merge', on: [{ kind: 'turn', holder: 30001, since: start - 10 * MINUTE }] },
+      cells: cellsAt('merge', 'notYet'),
+    },
+    CI作业等空闲机器: {
+      now: { kind: 'waits', at: 'test', on: [call({ at: 'https://example.invalid/run/3', queuedFor: '14900K' })] },
+      cells: cellsAt('test', 'calling'),
+    },
+    测量等机器轮到它: {
+      now: {
+        kind: 'waits',
+        at: 'test',
+        on: [call({ machine: { machine: '14900K', since: start - 20 * MINUTE, behind: 30002 } })],
+      },
+      cells: cellsAt('test', 'calling'),
+    },
+    GitHub限额稍后重试: {
+      now: {
+        kind: 'waits',
+        at: 'test',
+        on: [call({ held: { until: start + 5 * MINUTE, failed: 2, obstacle: 'limit' } })],
+      },
+      cells: cellsAt('test', 'calling'),
+    },
+    上一轮临时失败等重试: {
+      now: {
+        kind: 'waits',
+        at: 'implement',
+        on: [{ kind: 'call', call: 9, who: null, what: { kind: 'wait', until: start + 3 * MINUTE, failed: 1, obstacle: null } }],
+      },
+      cells: cellsAt('implement', 'failed'),
+    },
+    账号额度用完等重置: { now: { kind: 'waits', at: 'implement', on: [outage] }, cells: cellsAt('implement', 'resting') },
+    等main前进: {
+      now: { kind: 'waits', at: 'merge', on: [{ kind: 'outside', source: 'main', cell: 'merge', why: 'main has to move' }] },
+      cells: cellsAt('merge', 'resting'),
+    },
+    引擎正在重启: {
+      now: { kind: 'waits', at: 'implement', on: [{ kind: 'stopping', since: start - MINUTE }] },
+      cells: cellsAt('implement', 'resting'),
+    },
+    还没开始: {
+      now: { kind: 'paused', ran: false, at: ORDER[0], by: 'owner', why: null },
+      cells: cellsAt(ORDER[0], 'notYet'),
+      paused: 'owner',
+    },
+    做到一半被你暂停: {
+      now: { kind: 'paused', ran: true, at: 'implement', by: 'owner', why: null },
+      cells: cellsAt('implement', 'resting'),
+      paused: 'owner',
+    },
+    合并了: { now: { kind: 'merged' }, cells: cellsAt(null, 'done') },
+    取消了: { now: { kind: 'cancelled' }, cells: cellsAt('implement', 'notYet') },
+  };
+  const waitsFor = (on: number[]): { now: Now; cells: CellNow[] } => ({
+    now: { kind: 'waits', at: ORDER[0], on: [{ kind: 'items', items: on }] },
+    cells: cellsAt(ORDER[0], 'notYet'),
+  });
+  /// An item of `title` whose work stands as `state`, depending on `on`, numbered next; gives its number.
+  const add = (title: string, state: { now: Now; cells: CellNow[]; waits?: Wait[]; paused?: Pauser }, on: number[] = []) => {
+    const n = number++;
+    const begun = state.now.kind === 'round' || state.cells.some((c) => c.state !== 'notYet' && c.state !== 'skipped');
+    const summary: Summary = {
+      number: workNumber++,
+      item: n,
+      flow: FLOW.name,
+      added: start - 5 * HOUR,
+      paused: state.paused ?? null,
+      now: state.now,
+      cells: state.cells,
+      waits: state.waits ?? [],
+      spent: spentOf(1.5, 1, 12),
+      last: start - 4 * MINUTE,
+      ...(begun ? { from: start - 4 * HOUR, bar: BARS[n % BARS.length] } : { from: null, bar: '' }),
+    };
+    items.push({
+      number: n,
+      title,
+      level: '2',
+      project,
+      added: summary.added,
+      dependsOn: on,
+      mainDependent: null,
+      history: { first: { title, level: '2', dependsOn: on }, changes: [] },
+      work: summary,
+    });
+    return n;
+  };
+  /// An item over the items `on`, titled `title`, its work waiting for them.
+  const over = (title: string, on: number[]) => add(title, waitsFor(on), on);
+  // Every state, under an item of its colour.
+  const names = Object.keys(states);
+  const of = (from: string, to: string) => names.slice(names.indexOf(from), names.indexOf(to) + 1);
+  const each = (list: string[]) => list.map((name) => add(name, states[name]));
+  over('红：卡在你这里', each(of('问题等你回答', '走不下去')));
+  over('蓝：系统在干活', each(of('代理这一轮在跑', '测量在跑')));
+  over('黄：在排队', each(of('等空槽位', '引擎正在重启')));
+  over('灰：不会自己动', [...each(of('还没开始', '做到一半被你暂停')), over('在等依赖的条目', each(['还没开始']))]);
+  over('结束', each(of('合并了', '取消了')));
+  // What an item over others takes from them.
+  const s = (name: string) => add(name, states[name]);
+  const blueRed = over('下面有蓝有红：取蓝', [s('代理这一轮在跑'), s('问题等你回答')]);
+  const redYellow = over('下面有红有黄：取红', [s('问题等你回答'), s('等空槽位')]);
+  const yellows = over('下面全是黄：取黄', [s('等轮到合并'), s('CI作业等空闲机器')]);
+  const greys = over('下面都不动：灰', [s('还没开始'), s('做到一半被你暂停')]);
+  const pausedOver = add('被你暂停，下面在跑：灰', states['还没开始'], [s('代理这一轮在跑'), s('等空槽位')]);
+  over('父条目取下面最急的', [blueRed, redYellow, yellows, greys, pausedOver]);
+  // A larger tree, its works in states drawn at random, weighted as a project's mostly are.
+  const weights: [string, number][] = [
+    ['还没开始', 30],
+    ['做到一半被你暂停', 8],
+    ['代理这一轮在跑', 9],
+    ['CI作业在机器上跑', 4],
+    ['等空槽位', 6],
+    ['等轮到合并', 3],
+    ['CI作业等空闲机器', 3],
+    ['问题等你回答', 6],
+    ['改了受保护文件等你批准', 2],
+    ['退回到了上限等你放行', 1],
+    ['合并了', 10],
+  ];
+  const total = weights.reduce((t, [, w]) => t + w, 0);
+  const pick = () => {
+    let r = random() * total;
+    for (const [name, w] of weights) if ((r -= w) < 0) return name;
+    return weights[0][0];
+  };
+  const roots = ['首发版', '性能', '工具链', '文档', '下游项目'];
+  for (const root of roots) {
+    const parts = Array.from({ length: 3 + Math.floor(random() * 3) }, (_, k) => {
+      const leaves = Array.from({ length: 2 + Math.floor(random() * 5) }, (_, j) => {
+        const name = pick();
+        return add(`${root} ${k + 1}.${j + 1} ${name}`, states[name]);
+      });
+      return over(`${root} 第${k + 1}部分`, leaves);
+    });
+    over(root, parts);
+  }
+  return items;
+}
+
 /// The made-up items, each some item depends on given its main dependent, which the engine's store keeps of real
 /// items: here the first by number of the items that depend on it.
 function withMains(items: Item[]): Item[] {
@@ -754,8 +979,9 @@ function pageOf(item: Item, summary: Summary, questions: Record<number, Question
 }
 
 /// The made-up items as a source the console reads: what the owner does changes them, and the console is told.
-export function fixtureSource(start = Date.now(), projects = 1): Source {
-  const data = withProjects(fixtureItems(start), projects);
+export function fixtureSource(start = Date.now(), projects = 1, states = false): Source {
+  const made = withProjects(fixtureItems(start), projects);
+  const data = states ? { items: withMains([...made.items, ...stateItems(start)]) } : made;
   // The projects named: those of the items, and with more than one asked, one more that has no item yet.
   const named = [...new Set(data.items.flatMap((i) => (i.project === null ? [] : [i.project])))];
   const empty = MORE_PROJECTS.find((p) => !named.includes(p));
