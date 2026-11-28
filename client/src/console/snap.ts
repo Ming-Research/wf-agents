@@ -1154,9 +1154,9 @@ const TONE_COLOUR = (): Record<Tone, string> => ({
 /// paused after it began, does not.
 type Paint = { line: number; glint: number; tint: (bright: number) => number; runs: boolean; glows: boolean };
 
-/// How much of its work's colour a card in work takes, the rest white, and its edge, a deeper shade of it.
-/// How much of its state's colour fills a card whose work is running or that needs the owner.
-const FILL = 0.18;
+/// How much of its tone a card that moves is filled with, the rest the card's own colour, and its edge, a deeper shade
+/// of it.
+const FILL = 0.12;
 const EDGE_TINT = 0.45;
 /// How much of the running colour the edge of a card whose work runs takes: nearly all of it, so that it is bright.
 const EDGE_RUNNING = 0.9;
@@ -2239,11 +2239,12 @@ export class SnapScene {
     const row1 = top + NODE_H / 2;
     if (item.shadow) return this.shadow(item, k, view, top, h, row1);
     const card = new Graphics().roundRect(0, top, NODE_W, h, CARD_CORNER);
-    // Every card, a deliverable's as a work's, says who moves it next in the same colours (`Tone`): red and blue fill
-    // it, edged in a deeper shade; yellow, a work waiting its turn, edges it in its yellow with no fill.
+    // Every card, a deliverable's as a work's, says who moves it next in the same colours (`Tone`): red, blue and yellow
+    // fill it, edged in a deeper shade, the yellow taken as bright as the red and the blue ([`YELLOW_GLOW`]).
     const tone = this.tones.tone.get(item) ?? 'grey';
     const toned = TONE_COLOUR()[tone];
-    const fill = tone === 'red' || tone === 'blue' ? mix(PALETTE.card, toned, FILL) : PALETTE.card;
+    const filled = tone === 'yellow' ? between('#000000', toned, YELLOW_GLOW) : toned;
+    const fill = tone === 'red' || tone === 'blue' || tone === 'yellow' ? mix(PALETTE.card, filled, FILL) : PALETTE.card;
     const edge =
       tone === 'red' || tone === 'blue'
         ? mix(PALETTE.card, toned, tone === 'blue' ? EDGE_RUNNING : EDGE_TINT)

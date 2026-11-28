@@ -109,10 +109,10 @@ An item that delivers is a card like any other, with no row for a work of its ow
 - replaced: A heading with no box and no fill, its number and its title over a line, was on main; the owner changed it, because the edge that says work goes on under an item should show on a deliverable too, and he wanted every item drawn one way.
 
 ### decision a-cards-colour-says-who-moves-it-next
-A card is filled red where the owner moves it next, blue where the system does, edged yellow where it waits its turn, else grey; one waiting for the items under it takes their most pressing.
+A card is filled red where the owner moves it next, blue where the system does, yellow where it waits its turn, else grey; one waiting for the items under it takes their most pressing.
 - rejected: an agent proposed a colour of its own for a waiting work; the owner rejected it, because a stopped work that needs no one is one meaning and so one colour (principle colour-only-for-state), and the legend, map, cards and System view would all carry it.
 - replaced: A paused work and a waiting work in one grey, the card saying which on pointing, was on main; the owner changed it, because a work waiting its turn could not be seen, and red mixed works that waited with works that needed him.
-- rejected: an agent proposed a yellow fill for a work waiting its turn; the owner rejected it, because it looked bad.
+- replaced: A yellow edge alone, with no fill, for a work waiting its turn was on main; the owner changed it, because with the cards' edges lit, the yellow ones read unlike the red and the blue.
 - rejected: an agent proposed an edge saying red first where something under the item waited for the owner; the owner rejected it, because while anything under an item goes on, the item is in progress, so blue comes first.
 - replaced: An edge saying what pressed under an item, the item itself grey, was on main; the owner changed it, because what moves under an item moves the item, and where all under it wait or need him, so does it.
 
