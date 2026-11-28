@@ -1,15 +1,18 @@
 // @vitest-environment happy-dom
-// What the canvas draws of a work on its card, apart from drawing it: the colour of its age, how its rings move and the
-// mood its card takes; and what a fold hides, which counts at the item folded.
+// What the canvas draws of a work on its card, apart from drawing it: the colour of its age, how its rings move, the
+// mood its card takes and who moves it next; what a fold hides, which counts at the item folded; where each item of
+// the tree stands; how large the items near the pointer are drawn; and how an item's brightness goes up and down.
 
 import { describe, expect, it } from 'vitest';
 
 import type { CellNow, Now } from '../works-api';
 import { stateOf } from '../works/words';
 import { age, type Shown } from './items';
+import { indexTree } from './tree';
 import {
   beatOf,
   beneath,
+  dimmed,
   DOT_AT,
   DOT_R,
   FOLD_MS,
@@ -28,6 +31,8 @@ import {
   grounded,
   headAt,
   type Light,
+  layOut,
+  lensSize,
   lightOn,
   linksStrength,
   moodOf,
@@ -36,6 +41,7 @@ import {
   ROW,
   sparkAt,
   strandOf,
+  tonesOf,
   wayAims,
   waysUp,
 } from './snap';
@@ -310,6 +316,186 @@ describe('the ground of the page under the soft lights', () => {
 
   it('lies nowhere while nothing is lit', () => {
     expect(grounded(0, 0, ROW, ROW / 2, true, [])).toBe(false);
+  });
+});
+
+describe('who moves an item next, as its card says', () => {
+  const shown = (id: number, now: Now | null, children: Shown[] = [], more: Partial<Shown> = {}): Shown => ({
+    id,
+    title: `Item ${id}`,
+    standing: 'open',
+    asks: 0,
+    ahead: 0,
+    deliver: false,
+    fresh: 'none',
+    repliesUnread: 0,
+    begun: now !== null,
+    underWay: false,
+    shadow: false,
+    stands: now === null ? null : { now, cells: [], waits: [] },
+    work: null,
+    children,
+    ...more,
+  });
+  const round: Now = { kind: 'round', cell: 'implement', run: 1, round: 1, since: 0 };
+  const call: Now = {
+    kind: 'waits',
+    at: 'implement',
+    on: [{ kind: 'call', call: 1, who: null, what: { kind: 'tool', name: 'ci', input: 'the tests' } }],
+  };
+  const turn: Now = { kind: 'waits', at: 'merge', on: [{ kind: 'turn', holder: 3, since: 0 }] };
+  const items: Now = { kind: 'waits', at: 'deliver', on: [{ kind: 'items', items: [9] }] };
+  const paused: Now = { kind: 'paused', ran: true, at: 'implement', by: 'owner', why: null };
+  const fault: Now = { kind: 'fault', words: 'No session' };
+  const broken: Now = { kind: 'broken', words: 'the driver names no turn' };
+  const asks = { key: 'answer-which', why: 'Which?', ends: { kind: 'resume' as const } };
+
+  it('is the owner where its work waits for the owner or was stopped, the system where a round or a call runs, its turn where it waits for one, and no one where it does not move by itself', () => {
+    const owner = { ...shown(1, round), stands: { now: round, cells: [], waits: [asks] } };
+    const roots = [
+      owner,
+      shown(2, fault),
+      shown(3, broken),
+      shown(4, round),
+      shown(5, call),
+      shown(6, turn),
+      shown(7, paused),
+      shown(8, items),
+      shown(9, null),
+      shown(10, null, [], { standing: 'done' }),
+      shown(11, round, [], { standing: 'cancelled' }),
+      shown(12, round, [], { shadow: true }),
+    ];
+    const { own } = tonesOf(roots);
+    expect(roots.map((r) => own.get(r))).toEqual([
+      'red',
+      'red',
+      'red',
+      'blue',
+      'blue',
+      'yellow',
+      'grey',
+      'grey',
+      'grey',
+      'green',
+      'grey',
+      'grey',
+    ]);
+  });
+
+  it('says of every item the most pressing tone at any depth under it, blue before red before yellow, and none where nothing under it moves or only a shadow does', () => {
+    const red = shown(2, fault);
+    const blue = shown(3, round);
+    const yellow = shown(4, turn);
+    // Under 1, at two depths, a red and a yellow; under 5, a blue as well; under 6 a grey; under 7 a shadow of a running
+    // item, which is drawn elsewhere.
+    const one = shown(1, items, [shown(20, paused, [red]), yellow]);
+    const five = shown(5, null, [shown(21, null, [red, yellow]), blue]);
+    const six = shown(6, null, [shown(22, paused)]);
+    const seven = shown(7, null, [shown(23, round, [], { shadow: true })]);
+    const { under } = tonesOf([one, five, six, seven]);
+    expect([one, five, six, seven, yellow].map((s) => under.get(s))).toEqual(['red', 'blue', null, null, null]);
+  });
+});
+
+describe('where each item of the tree stands', () => {
+  type Node = { id: number; under: Node[] };
+  const node = (id: number, under: Node[] = []): Node => ({ id, under });
+  /// The tree of `roots` laid out, each item as many rows high as `rowsOf` says, and the items under an item drawn at
+  /// the part of their size `sizeOf` says of it, as a fold turning draws them: where each item starts and how many rows
+  /// it takes, by its number, and the tree.
+  function laid(roots: Node[], rowsOf: (id: number) => number = () => 1, sizeOf: (id: number) => number = () => 1) {
+    const { tree, items } = indexTree(roots, (n) => n.under);
+    const scale = new Float64Array(items.length);
+    items.forEach((_, k) => {
+      const p = tree.parent[k];
+      scale[k] = p < 0 ? 1 : scale[p] * sizeOf(items[p].id);
+    });
+    const rows = Float64Array.from(items, (n, k) => rowsOf(n.id) * scale[k]);
+    const top = layOut(tree, rows, scale);
+    const by = new Map(items.map((n, k) => [n.id, { top: top[k], rows: rows[k], end: top[k] + rows[k] }]));
+    return { tree, top, rows, at: (id: number) => by.get(id) as { top: number; rows: number; end: number } };
+  }
+
+  it('stands each item in the middle of the items under it, and no item of a column over another, in any tree', () => {
+    // Thirty trees drawn at random, the same each run: up to five roots, up to three items under an item at four
+    // levels, a third of the items with a second row for their work.
+    let seed = 7;
+    const random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    let id = 0;
+    const grow = (depth: number): Node =>
+      node((id += 1), depth < 4 ? Array.from({ length: Math.floor(random() * 4) }, () => grow(depth + 1)) : []);
+    let parents = 0;
+    for (let n = 0; n < 30; n += 1) {
+      const roots = Array.from({ length: 1 + Math.floor(random() * 5) }, () => grow(0));
+      const worked = new Set(Array.from({ length: id }, (_, i) => i + 1).filter(() => random() < 0.3));
+      const { tree, top, rows } = laid(roots, (i) => (worked.has(i) ? 1.55 : 1));
+      for (let k = 0; k < top.length; k += 1) {
+        expect(top[k]).toBeGreaterThanOrEqual(0);
+        const kids = tree.children[k];
+        if (kids.length === 0) continue;
+        parents += 1;
+        const [first, last] = [kids[0], kids[kids.length - 1]];
+        expect(top[k] + rows[k] / 2).toBeCloseTo((top[first] + top[last] + rows[last]) / 2, 9);
+      }
+      for (const column of tree.columns)
+        for (let r = 1; r < column.length; r += 1)
+          expect(top[column[r]]).toBeGreaterThanOrEqual(top[column[r - 1]] + rows[column[r - 1]] - 1e-9);
+    }
+    expect(parents).toBeGreaterThan(100);
+  });
+
+  it('sets two groups of a column apart only where either holds more than one item, and stands a lone item level with the item it hangs from', () => {
+    // Three roots, one item under each: every item level with its root, the column as close as the roots.
+    const lone = laid([node(1, [node(11)]), node(2, [node(21)]), node(3, [node(31)])]);
+    expect([1, 2, 3, 11, 21, 31].map((i) => lone.at(i).top)).toEqual([0, 1, 2, 0, 1, 2]);
+    // Two items under the middle root: room above them and below them.
+    const pair = laid([node(1, [node(11)]), node(2, [node(21), node(22)]), node(3, [node(31)])]);
+    expect(pair.at(21).top).toBeGreaterThan(pair.at(11).end);
+    expect(pair.at(31).top).toBeGreaterThan(pair.at(22).end);
+    // No room between two items of one group.
+    expect(pair.at(22).top).toBe(pair.at(21).end);
+  });
+
+  it('draws a group a fold turns, and the room that sets it apart, at the size the fold draws it', () => {
+    // Under 1, three items; under 2, two, which a fold turns to `size` of their whole size.
+    const turning = (size: number) =>
+      laid([node(1, [node(11), node(12), node(13)]), node(2, [node(21), node(22)])], () => 1, (i) => (i === 2 ? size : 1));
+    const whole = turning(1);
+    const room = (l: ReturnType<typeof turning>) => l.at(21).top - l.at(13).end;
+    const span = (l: ReturnType<typeof turning>) => l.at(22).end - l.at(21).top;
+    for (const size of [0.5, 0.25, 0.05]) {
+      const part = turning(size);
+      expect(room(part)).toBeCloseTo(room(whole) * size, 9);
+      expect(span(part)).toBeCloseTo(span(whole) * size, 9);
+    }
+  });
+});
+
+describe('the items near the pointer', () => {
+  it('are drawn at their full size at the pointer, smaller further from it, and at the size of the tree from a few rows or a column away', () => {
+    for (const zoom of [0.2, 0.5, 0.9]) {
+      expect(lensSize(0, 0, zoom)).toBe(1);
+      expect(lensSize(50, 0, zoom)).toBe(zoom);
+      expect(lensSize(0, 3, zoom)).toBe(zoom);
+      for (let rows = 0; rows < 10; rows += 0.5) {
+        expect(lensSize(rows + 0.5, 0, zoom)).toBeLessThanOrEqual(lensSize(rows, 0, zoom));
+        expect(lensSize(rows, 0.5, zoom)).toBeLessThanOrEqual(lensSize(rows, 0, zoom));
+        expect(lensSize(rows, 0, zoom)).toBeGreaterThanOrEqual(zoom);
+      }
+    }
+    // At its full size, the tree draws nothing larger.
+    expect(lensSize(1, 0.2, 1)).toBe(1);
+  });
+});
+
+describe("an item's brightness", () => {
+  it('goes up at once to full where the pointer comes onto it, and down over frames where the light leaves it', () => {
+    expect(dimmed(DIM, 1, 16)).toBe(1);
+    const down = dimmed(1, DIM, 16);
+    expect(down).toBe(eased(1, DIM, 16));
+    expect(down).toBeLessThan(1);
+    expect(down).toBeGreaterThan(DIM);
   });
 });
 

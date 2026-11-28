@@ -1,20 +1,22 @@
 // The console in a real browser (Chromium, through Vitest's browser mode): the tree is drawn by WebGL, which happy-dom
-// does not have, and its motion is the frames the browser draws. These pin what the console does: a scroll over a column moves that column and rests where the scroll stops, as far as
-// leaves three rows on the screen; a sideways scroll or a drag moves the columns sideways, no further than leaves half
-// of the first or the last column on the screen; a click selects the item under the pointer, and a click on a shadow
-// the item it points to, brought to the middle; the tree drawn again stands where it stood, the item selected kept; an
-// item revealed comes into the room the panel leaves, or to the middle when it is above or below what is seen; the
-// columns beside the one scrolled follow it, each where what joins it to the next near the middle of the screen is
-// level, only the way the one it follows moves and never faster than half again; asked, as `o` and `O` ask, every
-// column glides to where a new column is placed, after the column of the roots, which keeps its place; the view stands
-// through a change of height or theme; and
-// once destroyed, the scene listens to nothing. The pointer and the wheel are events sent to the canvas at the points
-// the test works out from where the columns stand (`place`), so that each lands where the test means; the keys are the
-// browser's own. They pin as well: a click on an item's funnel folds what is under it
-// into a dot and a click on the dot shows it again, both selecting nothing, the fold turning over its time; the
-// console keeps that choice over its own rule; a lit way turns into the cards it joins along its own curve; the way to
-// a work the engine runs a call for is lit, as to one whose round runs; and the item selected flashes once when asked,
-// as a click on its title in the panel asks, and then draws nothing that stands again while only the lights move.
+// does not have, and its motion is the frames the browser draws. These pin what the console does: a scroll moves the
+// whole tree up or down and rests where the scroll stops, as far as leaves three rows on the screen; a sideways scroll
+// or a drag moves it sideways, no further than leaves half of the first or the last column on the screen; the wheel
+// with Shift held, or `zoomAt`, makes it larger or smaller round a point of the canvas, which stays on the same point of
+// the tree; Space fits the whole tree to the room it is given and goes back, and the grid of every project's trees shows
+// each whole at once and gives back the view it had; a click selects the item under the pointer, and a click on a
+// shadow the item it points to, brought to the middle; the tree drawn again stands where it stood, the item selected
+// kept, and while folds turn the item in view stays where it stands on the screen; an item revealed comes into the room
+// the panel leaves, or to the middle when it is above or below what is seen; the item the pointer comes onto lights at
+// once; the map is one size for every tree and frames the part the screen shows; the view stands through a change of
+// height or theme; and once destroyed, a scene listens to nothing and leaves the others drawing. The pointer and the
+// wheel are events sent to the canvas at the points the test works out from where the cards stand (`cardAt`, `place`),
+// so that each lands where the test means; the keys are the browser's own. They pin as well: a click on an item's
+// funnel folds what is under it into a dot and a click on the dot shows it again, both selecting nothing, the fold
+// turning over its time; the console keeps that choice over its own rule; a lit way turns into the cards it joins along
+// its own curve; the way to a work the engine runs a call for is lit, as to one whose round runs; and the item selected
+// flashes once when asked, as a click on its title in the panel asks, and then draws nothing that stands again while
+// only the lights move.
 
 import '../styles/tokens.css';
 import '../styles/parts.css';
@@ -50,7 +52,6 @@ import {
   FOLD_MS,
   KEEP,
   NODE_W,
-  PACE,
   PITCH,
   ROW,
   RUN,
@@ -81,6 +82,13 @@ const card = (id: number, children: Shown[] = []): Shown => ({
   children,
 });
 const shadow = (id: number): Shown => ({ ...card(id), shadow: true });
+/// An item whose work is `work`, standing as that work does, as the console makes it from the engine's items.
+const worked = (id: number, work: ShownWork): Shown => ({
+  ...card(id),
+  begun: true,
+  stands: { now: work.now, cells: work.cells, waits: work.waits },
+  work,
+});
 /// The work numbered `number`, running its implement cell since now.
 const running = (number: number): ShownWork => {
   const now = Date.now();
@@ -110,9 +118,9 @@ const drew = async () => {
   await frame();
 };
 
-/// Waits until the columns stand still: three frames in a row in which nothing moved and no fold turned, which they
-/// reach within a second of frames of what moved them. The bound is in frames, which the scene moves by, not in time,
-/// which a busy machine stretches.
+/// Waits until the tree stands still: three frames in a row in which nothing moved and no fold turned, which it reaches
+/// within a second of frames of what moved it. The bound is in frames, which the scene moves by, not in time, which a
+/// busy machine stretches.
 function settle(scene: SnapScene) {
   let was = JSON.stringify(scene.place());
   let still = 0;
@@ -122,10 +130,18 @@ function settle(scene: SnapScene) {
     still = now === was && scene.place().turns === 0 ? still + 1 : 0;
     was = now;
   }
-  expect(still, 'the columns still moved 60 frames on').toBe(3);
+  expect(still, 'the tree still moved 60 frames on').toBe(3);
 }
 
-describe('the tree in columns', () => {
+/// Where the card of item `id` stands on the canvas, its left side and its middle, drawn as large as `size` of its full
+/// size; it fails where the tree does not draw it.
+function where(scene: SnapScene, id: number): { x: number; y: number; size: number } {
+  const at = scene.cardAt(id);
+  if (at === null) throw new Error(`item ${id} is not drawn`);
+  return at;
+}
+
+describe('the tree', () => {
   let host: HTMLDivElement;
   let scene: SnapScene;
   beforeEach(async () => {
@@ -160,24 +176,30 @@ describe('the tree in columns', () => {
   /// The middle of the screen, where each column's place is.
   const line = HEIGHT / 2;
 
-  it('moves the column scrolled over with the scroll, and no further than leaves three of its rows on the screen', async () => {
-    scene.show(Array.from({ length: 30 }, (_, k) => card(k + 1)));
-    // At first the middle item of the roots stands in the middle: rank 14, its middle 14.5 rows from the column's top.
-    expect(scene.place().columns[0].at).toBe(14.5);
-    move(50, line);
+  it('moves the whole tree up and down with the scroll, over any column, and no further than leaves three of its rows on the screen', async () => {
+    // Thirty roots, the first with an item under it: two columns.
+    scene.show(Array.from({ length: 30 }, (_, k) => card(k + 1, k === 0 ? [card(100)] : [])));
+    // At first the middle root stands in the middle: rank 14, its middle 14.5 rows from the tree's top.
+    expect(scene.place().at).toBe(14.5);
+    const [root, under] = [where(scene, 1).y, where(scene, 100).y];
+    // A scroll over the second column moves both columns as one.
+    move(scene.place().left + PITCH + 50, line);
     wheel(0, 3 * ROW);
     settle(scene);
-    expect(scene.place().columns[0].at).toBeCloseTo(17.5, 3);
-    const room = HEIGHT / 2 / ROW - KEEP;
+    expect(scene.place().at).toBeCloseTo(17.5, 6);
+    expect(where(scene, 1).y).toBeCloseTo(root - 3 * ROW, 6);
+    expect(where(scene, 100).y).toBeCloseTo(under - 3 * ROW, 6);
+    // As far down as it goes, the last row of the tree ends three rows from the top of the screen; as far up, the first
+    // begins three rows from its bottom.
     wheel(0, 100_000);
     settle(scene);
-    expect(scene.place().columns[0].at).toBeCloseTo(29.5 + room, 3);
+    expect(where(scene, 30).y + ROW / 2).toBeCloseTo(KEEP * ROW, 6);
     wheel(0, -100_000);
     settle(scene);
-    expect(scene.place().columns[0].at).toBeCloseTo(0.5 - room, 3);
+    expect(where(scene, 1).y - ROW / 2).toBeCloseTo(HEIGHT - KEEP * ROW, 6);
   });
 
-  it('moves the columns sideways by a sideways scroll or a drag, as far as leaves half of the first or the last on the screen', async () => {
+  it('moves the tree sideways by a sideways scroll, and every way by a drag, as far as leaves half of the first or the last column on the screen', async () => {
     scene.show([card(1, [card(2, [card(3)])])]);
     expect(scene.place().left).toBe(40);
     move(50, line);
@@ -187,12 +209,15 @@ describe('the tree in columns', () => {
     wheel(100_000, 0);
     await drew();
     expect(scene.place().left).toBe(-2 * PITCH - NODE_W / 2);
-    // A drag: the press on the canvas, the moves anywhere in the window.
+    // A drag: the press on the canvas, the moves anywhere in the window; the tree goes with the pointer, across and
+    // down.
+    const down = where(scene, 3).y;
     canvas().dispatchEvent(new PointerEvent('pointerdown', at(500, line)));
-    window.dispatchEvent(new PointerEvent('pointermove', at(700, line)));
-    canvas().dispatchEvent(new PointerEvent('pointerup', at(700, line)));
+    window.dispatchEvent(new PointerEvent('pointermove', at(700, line + 2 * ROW)));
+    canvas().dispatchEvent(new PointerEvent('pointerup', at(700, line + 2 * ROW)));
     await drew();
     expect(scene.place().left).toBe(-2 * PITCH - NODE_W / 2 + 200);
+    expect(where(scene, 3).y).toBeCloseTo(down + 2 * ROW, 6);
     wheel(-100_000, 0);
     await drew();
     expect(scene.place().left).toBe(WIDTH - NODE_W / 2);
@@ -667,74 +692,103 @@ describe('the tree in columns', () => {
     expect([scene.drawnTags(7), scene.drawnMap().unread]).toEqual([[], []]);
   });
 
-  it("frames on the map the part of the tree the screen shows, round the middle where each column's place is, after a scroll and a pan", () => {
-    // Thirty roots in the first column, the first with an item under it and one under that: three columns.
-    const roots = Array.from({ length: 30 }, (_, k) => card(k + 1, k === 0 ? [card(100, [card(101)])] : []));
+  it('frames on the map the part of the tree the screen shows, the shape of the screen, after a scroll, a pan and a zoom', () => {
+    // Sixty roots in the first column, the first with an item under it and one under that: three columns.
+    const roots = Array.from({ length: 60 }, (_, k) => card(k + 1, k === 0 ? [card(100, [card(101)])] : []));
     scene.show(roots);
     settle(scene);
-    const barAt = (d: number) => 8 + d * (12 + 5);
-    /// The frame drawn holds, round the map's middle, the pieces of the first column's items whose cards are on the
-    /// screen, and stands over the columns from `first` to `last`.
-    const holds = (first: number, last: number) => {
-      const { frame, pieces } = scene.drawnMap();
+    const framed = () => {
+      const { frame } = scene.drawnMap();
       if (frame === null) throw new Error('no frame on the map');
-      expect(frame.x).toBeCloseTo(barAt(first) - 2, 6);
-      expect(frame.x + frame.width).toBeCloseTo(barAt(last) + 12 + 2, 6);
-      expect(frame.y + frame.height / 2).toBeCloseTo(72 / 2, 6);
-      for (const piece of pieces.filter((q) => q.column === 0)) {
-        const stands = scene.cardAt(piece.id) as { y: number };
+      return frame;
+    };
+    /// The frame drawn is as wide for its height as the screen, and holds the pieces of the first column's items whose
+    /// cards are on the screen, and none of those far off it.
+    const holds = () => {
+      const frame = framed();
+      expect(frame.width / frame.height).toBeCloseTo(WIDTH / HEIGHT, 6);
+      for (const piece of scene.drawnMap().pieces.filter((q) => q.column === 0)) {
+        const y = where(scene, piece.id).y;
         const middle = piece.y + piece.height / 2;
         const inside = middle > frame.y && middle < frame.y + frame.height;
-        if (stands.y > ROW && stands.y < HEIGHT - ROW) expect(inside).toBe(true);
-        if (stands.y < -ROW || stands.y > HEIGHT + ROW) expect(inside).toBe(false);
+        if (y > ROW && y < HEIGHT - ROW) expect(inside, `item ${piece.id}`).toBe(true);
+        if (y < -ROW || y > HEIGHT + ROW) expect(inside, `item ${piece.id}`).toBe(false);
       }
     };
-    holds(0, 2);
-    // A scroll over the first column moves its pieces under the frame, which stays round the middle.
+    holds();
+    // A scroll moves the pieces under the frame.
     move(50, line);
     wheel(0, 8 * ROW);
     settle(scene);
-    holds(0, 2);
-    // A pan that takes the first column off the screen takes the frame off its bar.
+    holds();
+    // A pan moves the frame across the map as far as the screen moved across the tree, at the map's scale.
+    const before = framed();
     wheel(PITCH + 100, 0);
     settle(scene);
-    holds(1, 2);
+    holds();
+    expect(framed().x - before.x).toBeCloseTo(((PITCH + 100) * before.width) / WIDTH, 6);
+    // Drawn half as large round the middle of the screen, the frame is twice as wide and as tall round the same middle.
+    const whole = framed();
+    scene.zoomAt(0.5, WIDTH / 2, HEIGHT / 2);
+    settle(scene);
+    holds();
+    const half = framed();
+    expect(half.width).toBeCloseTo(2 * whole.width, 6);
+    expect(half.height).toBeCloseTo(2 * whole.height, 6);
+    expect(half.x + half.width / 2).toBeCloseTo(whole.x + whole.width / 2, 6);
+    expect(half.y + half.height / 2).toBeCloseTo(whole.y + whole.height / 2, 6);
   });
 
-  it("makes the map as high as the page's `--map-high` says, and 72 pixels where the token is not in pixels", () => {
-    const root = document.documentElement;
-    let draws = 0;
-    /// The middle of the frame on the map, and how tall the first item's piece is, as drawn once the map is made again:
-    /// the same thirty roots under new numbers each time, as a tree the scene shows again to the same items makes
-    /// nothing again, and the map is made as the tree is.
-    const drawn = (value: string) => {
-      root.style.setProperty('--map-high', value);
-      draws += 100;
-      scene.show(Array.from({ length: 30 }, (_, k) => card(draws + k + 1)));
-      settle(scene);
-      const { frame, pieces } = scene.drawnMap();
-      if (frame === null) throw new Error('no frame on the map');
-      return { middle: frame.y + frame.height / 2, tall: pieces[0].height };
-    };
+  it('draws the whole of every tree on a map of one size, a tall tree and a wide one alike, and tells its size', async () => {
+    const other = document.createElement('div');
+    other.style.cssText = host.style.cssText;
+    document.body.append(other);
+    const wide = new SnapScene();
+    await wide.mount(other);
     try {
-      const page = drawn('72px');
-      const high = drawn('90px');
-      expect(high.middle).toBeCloseTo(90 / 2, 6);
-      // A piece is as tall as its rows of the map's height less the 8 pixels of room on each side.
-      expect(high.tall / page.tall).toBeCloseTo((90 - 2 * 8) / (72 - 2 * 8), 6);
-      for (const value of ['3em', 'tall']) {
-        const fallen = drawn(value);
-        expect(fallen.middle, value).toBeCloseTo(72 / 2, 6);
-        expect(fallen.tall, value).toBeCloseTo(page.tall, 6);
-      }
+      const told: [number, number][] = [];
+      scene.onMapSize = (w, h) => told.push([w, h]);
+      wide.onMapSize = (w, h) => told.push([w, h]);
+      // Sixty roots, one column; and a line of six items, each under the one before: six columns, one row.
+      scene.show(Array.from({ length: 60 }, (_, k) => card(k + 1)));
+      const chain = (k: number): Shown => card(k, k < 6 ? [chain(k + 1)] : []);
+      wide.show([chain(1)]);
+      settle(scene);
+      settle(wide);
+      const size = scene.mapSize();
+      expect(wide.mapSize()).toEqual(size);
+      expect(told).toEqual([
+        [size.width, size.height],
+        [size.width, size.height],
+      ]);
+      // Every piece stands inside the map; the tall tree takes most of its height.
+      for (const s of [scene, wide])
+        for (const piece of s.drawnMap().pieces) {
+          expect(piece.y).toBeGreaterThanOrEqual(0);
+          expect(piece.y + piece.height).toBeLessThanOrEqual(size.height);
+        }
+      const pieces = scene.drawnMap().pieces;
+      const tall = (pieces.at(-1)?.y ?? 0) + (pieces.at(-1)?.height ?? 0) - (pieces[0]?.y ?? 0);
+      expect(tall).toBeGreaterThan(size.height / 2);
+      // The wide tree, where the frame of the screen says the map's scale and where the tree's left side stands on it:
+      // from its first column to its last, inside the map, across most of its width.
+      const frame = wide.drawnMap().frame;
+      if (frame === null) throw new Error('no frame on the map');
+      const scale = frame.width / WIDTH;
+      const left = frame.x + wide.place().left * scale;
+      const right = left + (5 * PITCH + NODE_W) * scale;
+      expect(left).toBeGreaterThanOrEqual(0);
+      expect(right).toBeLessThanOrEqual(size.width);
+      expect(right - left).toBeGreaterThan(size.width / 2);
     } finally {
-      root.style.removeProperty('--map-high');
+      wide.destroy();
+      other.remove();
     }
   });
 
   it('draws a card whose work halted before its first round in red, as one that halted after it, with no second row', () => {
     const fault: Now = { kind: 'fault', words: 'No session' };
-    const halted = (k: number, from: number | null): Shown => ({ ...card(k), work: { ...running(k), now: fault, from } });
+    const halted = (k: number, from: number | null): Shown => worked(k, { ...running(k), now: fault, from });
     scene.show([halted(1, null), halted(2, Date.now()), card(3)]);
     const [before, after, plain] = [1, 2, 3].map((id) => scene.cardLook(id));
     expect(before?.rows).toBe(1);
@@ -749,7 +803,7 @@ describe('the tree in columns', () => {
   it('draws a card whose state the engine could not work out in the red of a halt, among plain cards', () => {
     const fault: Now = { kind: 'fault', words: 'No session' };
     const broken: Now = { kind: 'broken', words: 'the driver names no turn' };
-    const stopped = (k: number, now: Now): Shown => ({ ...card(k), work: { ...running(k), now, from: null } });
+    const stopped = (k: number, now: Now): Shown => worked(k, { ...running(k), now, from: null });
     scene.show([stopped(1, fault), stopped(2, broken), card(3)]);
     const [halted, unworked, plain] = [1, 2, 3].map((id) => scene.cardLook(id));
     expect([unworked?.fill, unworked?.edge]).toEqual([halted?.fill, halted?.edge]);
@@ -855,16 +909,16 @@ describe('the tree in columns', () => {
     scene.show(tree(true));
     settle(scene);
     scene.onSelect = told;
-    // The shadow is the only item of the second column, its middle half a row from the column's top.
-    const p = scene.place();
-    click(p.left + PITCH + 100, line + (0.5 - p.columns[1].at) * ROW);
+    // The shadow, the only item under 3, stands level with it in the next column.
+    const three = where(scene, 3);
+    click(three.x + PITCH + 100, three.y);
     expect(turned).toHaveBeenLastCalledWith(1, false);
     expect(told).not.toHaveBeenCalled();
     scene.show(tree(false));
     expect(told).toHaveBeenLastCalledWith(expect.objectContaining({ id: 2, shadow: false }));
-    // Once it has grown out of the dot, it comes to the middle.
+    // Once it has grown out of the dot, it comes to the middle of the screen.
     settle(scene);
-    expect(scene.place().driver).toBe(1);
+    expect(where(scene, 2).y).toBeCloseTo(line, 6);
     // An item selected by its number while it is folded away, the same way.
     scene.show(tree(true));
     settle(scene);
@@ -883,14 +937,12 @@ describe('the tree in columns', () => {
     // Under 1: item 2 and a shadow of 3; under 4: item 3.
     scene.show([card(1, [card(2), shadow(3)]), card(4, [card(3)])]);
     settle(scene);
-    const p = scene.place();
-    // The shadow is the second of its column, its middle 1.5 rows from the column's top.
-    click(p.left + PITCH + 100, line + (1.5 - p.columns[1].at) * ROW);
+    // The shadow stands just under item 2.
+    const two = where(scene, 2);
+    click(two.x + 100, two.y + ROW);
     expect(told).toHaveBeenLastCalledWith(expect.objectContaining({ id: 3, shadow: false }));
-    expect(scene.place().driver).toBe(1);
     settle(scene);
-    // Item 3 is the third of its column, after the room between the items of 1 and those of 4: 2 + 0.7 + 0.5 rows.
-    expect(scene.place().columns[1].at).toBeCloseTo(3.2, 3);
+    expect(where(scene, 3).y).toBeCloseTo(line, 6);
   });
 
   it("tells of a click on a shadow of an item this tree does not hold, which another project's tree holds, and selects nothing", async () => {
@@ -901,26 +953,213 @@ describe('the tree in columns', () => {
     settle(scene);
     scene.onSelect = told;
     scene.onAway = away;
-    const p = scene.place();
-    // The shadow is the only item of the second column, its middle half a row from the column's top.
-    click(p.left + PITCH + 100, line + (0.5 - p.columns[1].at) * ROW);
+    // The shadow, the only item under 1, stands level with it in the next column.
+    const one = where(scene, 1);
+    click(one.x + PITCH + 100, one.y);
     expect(away).toHaveBeenLastCalledWith(9);
     expect(told).not.toHaveBeenCalled();
   });
 
-  it('draws new items where the tree stood, by the item nearest the middle, and keeps the item selected', async () => {
+  it('draws new items where the tree stood, by the item selected, else by the item nearest the middle, and keeps the item selected', async () => {
     const told = vi.fn<(item: Shown | null) => void>();
     scene.onSelect = told;
     scene.show([card(1), card(2), card(3)]);
-    scene.select(2);
+    scene.select(3);
     settle(scene);
     told.mockClear();
-    expect(scene.place().columns[0].at).toBe(1.5);
-    scene.show([card(0), card(1), card(2), card(3)]);
-    // Item 2 is a row further down its column, and the column a row further, so that it stands where it stood.
-    expect(scene.place().columns[0].at).toBe(2.5);
-    expect(told).toHaveBeenLastCalledWith(expect.objectContaining({ id: 2 }));
+    // Item 9 comes in between 2 and 3: item 3, selected, stays where it stood, not item 2 in the middle.
+    const three = where(scene, 3).y;
+    scene.show([card(1), card(2), card(9), card(3)]);
+    expect(where(scene, 3).y).toBeCloseTo(three, 9);
+    expect(told).toHaveBeenLastCalledWith(expect.objectContaining({ id: 3 }));
     expect(told).not.toHaveBeenCalledWith(null);
+    // With nothing selected, item 9, now in the middle, stays where it stood as item 8 comes in at the top.
+    scene.select(null);
+    settle(scene);
+    const nine = where(scene, 9).y;
+    expect(nine).toBeCloseTo(line, 9);
+    scene.show([card(8), card(1), card(2), card(9), card(3)]);
+    expect(where(scene, 9).y).toBeCloseTo(nine, 9);
+  });
+
+  it('keeps the item selected where it stands on the screen at every frame while a fold above it turns, and else the item under the pointer', () => {
+    const under = { open: 4, done: 0, cancelled: 0, elsewhere: 0 };
+    // Root 1 with four items under it, folded or not, and roots 2 and 3 after it, which the fold moves up or down the
+    // tree.
+    const tree = (folded: boolean) => [
+      { ...card(1, [10, 11, 12, 13].map((id) => card(id))), fold: { folded, under } },
+      card(2),
+      card(3),
+    ];
+    scene.show(tree(false));
+    scene.select(3);
+    settle(scene);
+    /// Folds or unfolds the items under 1, and holds that item `id` stands where it stood at every frame of the turn
+    /// and once it is over.
+    const stays = (folded: boolean, id: number) => {
+      const was = where(scene, id).y;
+      scene.show(tree(folded));
+      expect(scene.place().turns).toBe(1);
+      for (let k = 0; k < 40; k += 1) {
+        scene.step();
+        expect(where(scene, id).y).toBeCloseTo(was, 6);
+      }
+      expect(scene.place().turns).toBe(0);
+    };
+    stays(true, 3);
+    stays(false, 3);
+    // With nothing selected, the item under the pointer.
+    scene.select(null);
+    settle(scene);
+    const two = where(scene, 2);
+    move(two.x + 100, two.y);
+    scene.step();
+    stays(true, 2);
+    stays(false, 2);
+  });
+
+  it('lights the item the pointer comes onto at once, and fades the others', () => {
+    scene.show([card(1), card(2), card(3)]);
+    settle(scene);
+    const [one, two] = [where(scene, 1), where(scene, 2)];
+    move(one.x + 100, one.y);
+    scene.step();
+    expect(scene.brightness(1)).toBe(1);
+    // The others begin to fade at once, and are dimmed once they have.
+    const fading = scene.brightness(2) as number;
+    expect(fading).toBeLessThan(1);
+    expect(fading).toBeGreaterThan(DIM);
+    for (let k = 0; k < 3; k += 1) scene.step(1000);
+    expect(scene.brightness(2)).toBe(DIM);
+    // From item 1 onto item 2: item 2 lights in the first frame, and item 1 begins to fade.
+    move(two.x + 100, two.y);
+    scene.step();
+    expect(scene.brightness(2)).toBe(1);
+    const leaving = scene.brightness(1) as number;
+    expect(leaving).toBeLessThan(1);
+    expect(leaving).toBeGreaterThan(DIM);
+  });
+
+  /// Sixty roots, each fifth with two items under it: three times as tall as the screen.
+  const tall = () =>
+    Array.from({ length: 60 }, (_, k) => card(k + 1, k % 5 === 0 ? [card(100 + 2 * k), card(101 + 2 * k)] : []));
+  const tallIds = [1, 30, 60, 100, 150];
+
+  it('draws the tree larger or smaller round a point of the canvas, which stays on the same point of the tree, as the wheel does with Shift held, never larger than its full size', () => {
+    scene.show(tall());
+    settle(scene);
+    const drawnAt = () => tallIds.map((id) => where(scene, id));
+    /// Each card stands `by` times as far from the point (`sx`, `sy`) of the canvas as it stood in `was`, and is drawn
+    /// `by` times as large.
+    const round = (was: ReturnType<typeof drawnAt>, sx: number, sy: number, by: number) =>
+      drawnAt().forEach((c, k) => {
+        expect(c.x - sx).toBeCloseTo((was[k].x - sx) * by, 6);
+        expect(c.y - sy).toBeCloseTo((was[k].y - sy) * by, 6);
+        expect(c.size).toBeCloseTo(was[k].size * by, 9);
+      });
+    const [sx, sy] = [600, 200];
+    let was = drawnAt();
+    scene.zoomAt(0.5, sx, sy);
+    expect(scene.place().zoom).toBe(0.5);
+    round(was, sx, sy, 0.5);
+    // Nothing glides after it: the frames after leave it where it is.
+    settle(scene);
+    round(was, sx, sy, 0.5);
+    // The wheel with Shift held, round the pointer: a turn down makes it smaller, a turn up larger.
+    const shifted = (x: number, y: number, deltaY: number) => {
+      const r = canvas().getBoundingClientRect();
+      canvas().dispatchEvent(
+        new WheelEvent('wheel', { clientX: r.left + x, clientY: r.top + y, deltaY, shiftKey: true, bubbles: true, cancelable: true }),
+      );
+    };
+    was = drawnAt();
+    shifted(300, 400, 100);
+    const smaller = scene.place().zoom;
+    expect(smaller).toBeLessThan(0.5);
+    round(was, 300, 400, smaller / 0.5);
+    was = drawnAt();
+    shifted(300, 400, -300);
+    const larger = scene.place().zoom;
+    expect(larger).toBeGreaterThan(smaller);
+    round(was, 300, 400, larger / smaller);
+    // Never larger than its full size, and never so small that it is gone.
+    scene.zoomAt(10, sx, sy);
+    expect(scene.place().zoom).toBe(1);
+    scene.zoomAt(1e-6, sx, sy);
+    expect(scene.place().zoom).toBeGreaterThan(0.01);
+  });
+
+  it('fits the whole tree into the room it is given, gliding there, and goes back to where it was, or to the size it was round the pointer', () => {
+    scene.show(tall());
+    wheel(0, 5 * ROW);
+    wheel(60, 0);
+    settle(scene);
+    const view = (p: ReturnType<SnapScene['place']>) => ({ zoom: p.zoom, at: p.at, aim: p.aim, left: p.left });
+    const before = view(scene.place());
+    // Into the room right of 200 pixels and left of 800, part of the way in the first frame.
+    scene.overview(200, 800);
+    expect(scene.wholeShown()).toBe(true);
+    scene.step();
+    const first = scene.place().zoom;
+    settle(scene);
+    const fit = scene.place().zoom;
+    expect(fit).toBeLessThan(first);
+    expect(first).toBeLessThan(before.zoom);
+    for (const id of tallIds) {
+      const c = where(scene, id);
+      expect(c.x).toBeGreaterThanOrEqual(200);
+      expect(c.x + NODE_W * fit).toBeLessThanOrEqual(800);
+      expect(c.y - (ROW * fit) / 2).toBeGreaterThanOrEqual(0);
+      expect(c.y + (ROW * fit) / 2).toBeLessThanOrEqual(HEIGHT);
+    }
+    // Asked again, with the pointer off the canvas: back where it was.
+    scene.overview(200, 800);
+    expect(scene.wholeShown()).toBe(false);
+    settle(scene);
+    expect(view(scene.place())).toEqual(before);
+    // Fitted again, and asked again with the pointer on the tree: back to the size it was, the point of the tree under
+    // the pointer staying under it.
+    scene.overview(200, 800);
+    settle(scene);
+    const [px, py] = [500, 300];
+    move(px, py);
+    scene.step();
+    const pinned = () => {
+      const p = scene.place();
+      return { row: p.at + (py - HEIGHT / 2) / (p.zoom * ROW), along: px / p.zoom - p.left };
+    };
+    const held = pinned();
+    scene.overview(200, 800);
+    settle(scene);
+    expect(scene.place().zoom).toBeCloseTo(before.zoom, 9);
+    expect(pinned().row).toBeCloseTo(held.row, 6);
+    expect(pinned().along).toBeCloseTo(held.along, 6);
+  });
+
+  it("shows the whole tree at once while every project's tree is shown, and gives back the very view it had", () => {
+    scene.show(tall());
+    wheel(0, 5 * ROW);
+    wheel(60, 0);
+    scene.zoomAt(0.7, 300, 300);
+    settle(scene);
+    const before = scene.place();
+    scene.showWhole(true);
+    const whole = scene.place();
+    expect(whole.zoom).toBeLessThan(before.zoom);
+    for (const id of tallIds) {
+      const c = where(scene, id);
+      expect(c.x).toBeGreaterThanOrEqual(0);
+      expect(c.x + NODE_W * whole.zoom).toBeLessThanOrEqual(WIDTH);
+      expect(c.y).toBeGreaterThan(0);
+      expect(c.y).toBeLessThan(HEIGHT);
+    }
+    // At once, with no glide: the frames after leave it where it is.
+    settle(scene);
+    expect(scene.place()).toEqual(whole);
+    scene.showWhole(false);
+    expect(scene.place()).toEqual(before);
+    settle(scene);
+    expect(scene.place()).toEqual(before);
   });
 
   it('brings an item revealed into the room the panel leaves, a little in from its side', async () => {
@@ -929,197 +1168,6 @@ describe('the tree in columns', () => {
     scene.reveal(4, 600);
     settle(scene);
     expect(Math.abs(scene.place().left - (600 - 24 - NODE_W - 3 * PITCH))).toBeLessThan(0.5);
-  });
-
-  /// Ten items, each with two under it: the second column's items stand in pairs, 0.7 rows apart.
-  const pairs = () => Array.from({ length: 10 }, (_, k) => card(k + 1, [card(100 + 2 * k), card(101 + 2 * k)]));
-  /// Where an item of the second column starts, in rows from the column's top.
-  const slot1 = (rank: number) => rank + 0.7 * Math.floor(rank / 2);
-
-  it('places a column where its links put it, level with the item in the middle, when it is first drawn', async () => {
-    scene.show(pairs());
-    const p = scene.place();
-    // Item 5 stands in the middle; the two under it are ranks 8 and 9 of the second column.
-    expect(p.columns[0].at).toBe(4.5);
-    expect(p.columns[1].at).toBeGreaterThanOrEqual(slot1(8) - 1e-9);
-    expect(p.columns[1].at).toBeLessThanOrEqual(slot1(9) + 1 + 1e-9);
-  });
-
-  it('brings every column back to where its links put it when asked, as a new column is placed, after the column of the roots, which keeps its place', async () => {
-    // Ten roots, each with two items under it and two under each of those; all but the first folded, or none.
-    const under = { open: 6, done: 0, cancelled: 0, elsewhere: 0 };
-    const tree = (folded: boolean) =>
-      Array.from({ length: 10 }, (_, k) => ({
-        ...card(
-          k + 1,
-          [0, 1].map((j) => card(100 + 2 * k + j, [0, 1].map((i) => card(1000 + 4 * k + 2 * j + i)))),
-        ),
-        fold: { folded: folded && k > 0, under },
-      }));
-    /// The columns of a scene of its own, made for the tree `roots` and drawn once: each placed as a column new to
-    /// the tree is.
-    const placedNew = async (roots: Shown[]) => {
-      const other = document.createElement('div');
-      other.style.cssText = host.style.cssText;
-      document.body.append(other);
-      const fresh = new SnapScene();
-      await fresh.mount(other);
-      fresh.show(roots);
-      const columns = fresh.place().columns.map((c) => c.at);
-      fresh.destroy();
-      other.remove();
-      return columns;
-    };
-    const ats = () => scene.place().columns.map((c) => c.at);
-    const onScreen = (id: number) => {
-      const y = scene.cardAt(id)?.y;
-      return y !== undefined && y > 0 && y < HEIGHT;
-    };
-    scene.show(tree(false));
-    settle(scene);
-    const start = ats();
-    // Root 5 stands in the middle. Folded, the items under it are gone, and the columns beside it stand where they
-    // stood, past the ends of what they now hold: none of what stands under root 1 is on the screen.
-    expect(start[0]).toBe(4.5);
-    scene.show(tree(true));
-    settle(scene);
-    expect([100, 101, 1000, 1001, 1002, 1003].some(onScreen)).toBe(false);
-    // Asked, they glide over frames to where a new column is placed, the column of the roots staying where it is.
-    const was = ats();
-    scene.realign();
-    scene.step();
-    const first = ats();
-    settle(scene);
-    const folded = ats();
-    expect(folded).toEqual((await placedNew(tree(true))).map((at) => expect.closeTo(at, 9)));
-    expect(folded[0]).toBe(4.5);
-    for (const d of [1, 2]) {
-      expect(Math.sign(first[d] - was[d])).toBe(Math.sign(folded[d] - was[d]));
-      expect(Math.abs(first[d] - was[d])).toBeLessThan(Math.abs(folded[d] - was[d]));
-    }
-    expect([100, 101, 1000, 1001, 1002, 1003].every(onScreen)).toBe(true);
-    // Unfolded and asked at once, as the console asks, they follow the folds as they turn, and come back to where the
-    // tree first placed them, the column of the roots never moving.
-    scene.show(tree(false));
-    scene.realign();
-    for (let k = 0; k < 90; k += 1) {
-      scene.step();
-      expect(scene.place().columns[0].at).toBe(4.5);
-    }
-    expect(scene.place().turns).toBe(0);
-    expect(ats()).toEqual(start.map((at) => expect.closeTo(at, 9)));
-    // A scroll ends it where the columns then stand, the column scrolled the one the others follow.
-    scene.scroll(2, 5 * ROW);
-    settle(scene);
-    const scrolled = ats();
-    scene.realign();
-    scene.step();
-    const stopped = ats();
-    expect(stopped).not.toEqual(scrolled);
-    scene.scroll(2, 0);
-    for (let k = 0; k < 20; k += 1) scene.step();
-    expect(scene.place().driver).toBe(2);
-    expect(ats()).toEqual(stopped);
-  });
-
-  it('leaves the column beside the one scrolled where it is while every want is met, and an item far out wants little', async () => {
-    // One item with ten under it: it wants the column beside it anywhere along the ten, and the further it is from the
-    // middle, the more room it gives.
-    scene.show([card(1, Array.from({ length: 10 }, (_, k) => card(100 + k)))]);
-    settle(scene);
-    const before = scene.place();
-    expect(before.columns[0].at).toBe(0.5);
-    expect(before.columns[1].at).toBe(5);
-    move(50, line);
-    wheel(0, 0.2 * ROW);
-    settle(scene);
-    expect(scene.place().columns[0].at).toBeCloseTo(0.7, 6);
-    expect(scene.place().columns[1].at).toBe(5);
-    // Six rows off the middle, the item's want is loosened by six rows and more: still met.
-    wheel(0, 5.8 * ROW);
-    settle(scene);
-    expect(scene.place().columns[0].at).toBeCloseTo(6.5, 6);
-    expect(scene.place().columns[1].at).toBe(5);
-  });
-
-  it('brings the column beside the one scrolled after it, the same way, never faster than half again its pace, and stops it when the scroll stops', async () => {
-    scene.show(pairs());
-    settle(scene);
-    const start = scene.place().columns.map((c) => c.at);
-    move(50, line);
-    wheel(0, 3 * ROW);
-    let was = start;
-    let still = 0;
-    for (let k = 0; k < 400 && still < 3; k += 1) {
-      await frame();
-      const now = scene.place().columns.map((c) => c.at);
-      const moved = [now[0] - was[0], now[1] - was[1]];
-      // Each frame, the second column moves the way the first does, no further than half again as far.
-      expect(moved[1]).toBeGreaterThanOrEqual(-1e-9);
-      expect(Math.abs(moved[1])).toBeLessThanOrEqual(PACE * Math.abs(moved[0]) + 1e-9);
-      still = moved[0] === 0 && moved[1] === 0 ? still + 1 : 0;
-      was = now;
-    }
-    expect(was[0]).toBeCloseTo(7.5, 3);
-    expect(was[1] - start[1]).toBeGreaterThan(0.5);
-    expect(was[1] - start[1]).toBeLessThanOrEqual(PACE * 3 + 1e-6);
-  });
-
-  it('never moves the column beside the one scrolled against it where the items have none to three under them', () => {
-    // As the items near the middle change, the wants on the second column pull it now one way, now the other.
-    const under = [3, 2, 2, 3, 1, 0, 0, 2, 3, 1, 0, 2];
-    scene.show(under.map((n, k) => card(k + 1, Array.from({ length: n }, (_, j) => card(100 + 4 * k + j)))));
-    settle(scene);
-    move(50, line);
-    for (const way of [1, -1, 1, -1]) {
-      for (let k = 0; k < 200; k += 1) {
-        const was = scene.place().columns.map((c) => c.at);
-        wheel(0, way * 0.1 * ROW);
-        scene.step();
-        const now = scene.place().columns.map((c) => c.at);
-        const moved = [now[0] - was[0], now[1] - was[1]];
-        expect(moved[1] * Math.sign(moved[0])).toBeGreaterThanOrEqual(-1e-9);
-        if (moved[0] === 0) expect(moved[1]).toBe(0);
-      }
-    }
-  });
-
-  it('makes the column scrolled the one the others follow, and brings the first column after it', async () => {
-    scene.show(pairs());
-    settle(scene);
-    const start = scene.place().columns.map((c) => c.at);
-    expect(scene.place().driver).toBe(0);
-    move(scene.place().left + PITCH + 50, line);
-    wheel(0, 6 * ROW);
-    await drew();
-    expect(scene.place().driver).toBe(1);
-    settle(scene);
-    const p = scene.place();
-    // The column scrolled goes where the scroll took it; the first follows it down, no further than half again.
-    expect(p.columns[1].at).toBeCloseTo(start[1] + 6, 3);
-    expect(p.columns[0].at - start[0]).toBeGreaterThan(0.5);
-    expect(p.columns[0].at - start[0]).toBeLessThanOrEqual(PACE * 6 + 1e-6);
-    // A scroll over the first column makes it the one followed again.
-    move(50, line);
-    wheel(0, ROW);
-    await drew();
-    expect(scene.place().driver).toBe(0);
-  });
-
-  it('moves nothing on a wheel over no column, or once the pointer has left', async () => {
-    scene.show([card(1), card(2)]);
-    settle(scene);
-    const before = scene.place();
-    // Right of the only column.
-    move(before.left + PITCH + 100, line);
-    wheel(0, 500);
-    await drew();
-    expect(scene.place()).toEqual(before);
-    move(50, line);
-    canvas().dispatchEvent(new PointerEvent('pointerleave', at(50, line)));
-    wheel(0, 500);
-    await drew();
-    expect(scene.place()).toEqual(before);
   });
 
   it('takes a press let go within four pixels of where it began for a click, and one further for a drag', async () => {
@@ -1146,15 +1194,14 @@ describe('the tree in columns', () => {
     settle(scene);
     scene.reveal(15, WIDTH);
     settle(scene);
-    expect(scene.place().columns[0].at).toBe(14.5);
+    expect(scene.place().at).toBe(14.5);
     scene.reveal(30, WIDTH);
     settle(scene);
-    expect(scene.place().columns[0].at).toBeCloseTo(29.5, 3);
+    expect(scene.place().at).toBeCloseTo(29.5, 3);
   });
 
   it('keeps the view where it stands when the height changes, and when the theme does', async () => {
-    const roots = pairs();
-    scene.show(roots);
+    scene.show(Array.from({ length: 10 }, (_, k) => card(k + 1, [card(100 + 2 * k), card(101 + 2 * k)])));
     move(50, line);
     wheel(0, 2 * ROW);
     wheel(80, 0);
@@ -1164,14 +1211,14 @@ describe('the tree in columns', () => {
     await expect.poll(() => scene.place().height).toBe(HEIGHT - 140);
     settle(scene);
     const shorter = scene.place();
-    expect(shorter.left).toBe(before.left);
-    shorter.columns.forEach((c, d) => expect(Math.abs(c.at - before.columns[d].at)).toBeLessThan(1e-9));
+    expect([shorter.zoom, shorter.left]).toEqual([before.zoom, before.left]);
+    expect(shorter.at).toBeCloseTo(before.at, 9);
     document.documentElement.setAttribute('data-theme', 'dark');
     await drew();
     settle(scene);
     const dark = scene.place();
-    expect(dark.left).toBe(before.left);
-    dark.columns.forEach((c, d) => expect(Math.abs(c.at - before.columns[d].at)).toBeLessThan(1e-9));
+    expect([dark.zoom, dark.left]).toEqual([before.zoom, before.left]);
+    expect(dark.at).toBeCloseTo(before.at, 9);
   });
 
   it('takes the width of what holds it when that changes, as when the panel beside it folds', async () => {
@@ -1259,6 +1306,45 @@ describe('a scene destroyed', () => {
     document.documentElement.removeAttribute('data-theme');
     host.remove();
     vi.restoreAllMocks();
+  });
+
+  it('leaves every other scene drawing, what the scenes share kept', async () => {
+    const hosts = [0, 1].map(() => {
+      const h = document.createElement('div');
+      h.style.cssText = `position: fixed; left: 0; top: 0; width: ${WIDTH}px; height: ${HEIGHT}px`;
+      document.body.append(h);
+      return h;
+    });
+    const [gone, kept] = [new SnapScene(), new SnapScene()];
+    await gone.mount(hosts[0]);
+    await kept.mount(hosts[1]);
+    try {
+      gone.show([card(1)]);
+      kept.show([card(2)]);
+      await drew();
+      /// The colour the kept scene draws, as it stands now, at the point (`x`, `y`) of its canvas.
+      const pixel = (x: number, y: number) => {
+        const picture = kept.picture() as HTMLCanvasElement;
+        const r = picture.width / WIDTH;
+        return [...(picture.getContext('2d')?.getImageData(Math.round(x * r), Math.round(y * r), 1, 1).data ?? [])];
+      };
+      // On item 2's card, right of its title, and on the page's ground right of the tree.
+      const two = where(kept, 2);
+      const card2 = () => pixel(two.x + 200, two.y);
+      const ground = pixel(WIDTH - 10, HEIGHT / 2);
+      const drawn = card2();
+      expect(drawn).toHaveLength(4);
+      expect(drawn).not.toEqual(ground);
+      gone.destroy();
+      // The kept scene goes on drawing its frames, and draws its card as before.
+      const frames = kept.stats.frames;
+      await expect.poll(() => kept.stats.frames).toBeGreaterThan(frames + 2);
+      kept.drawNow();
+      expect(card2()).toEqual(drawn);
+    } finally {
+      kept.destroy();
+      for (const h of hosts) h.remove();
+    }
   });
 });
 
@@ -1421,7 +1507,7 @@ describe('the console page', () => {
     expect(JSON.parse(kept() ?? '')).toEqual({ 27: 'folded' });
   });
 
-  it('unfolds every item of the tree at `O`, folds at `o` those under which no work is under way, keeps both, brings the columns back after the column of the roots once the folds are drawn, and does neither while the owner types in a field or with Ctrl held', async () => {
+  it('unfolds every item of the tree at `O`, folds at `o` those under which no work is under way, keeps both, and does neither while the owner types in a field or with Ctrl held', async () => {
     const scene = await drawn();
     const done = [...container.querySelectorAll<HTMLLabelElement>('.console-shows label')]
       .find((l) => l.textContent === 'Done')
@@ -1446,29 +1532,10 @@ describe('the console page', () => {
     await expect.poll(() => kept()).toEqual(Object.fromEntries(all.map((id) => [id, 'unfolded'])));
     await expect.poll(turnedItems).toBeGreaterThan(30);
     const unfolded = turnedItems();
-    // The deepest column scrolled away, it is the one the others follow; once `o` has drawn its folds, every column
-    // comes back after the column of the roots, which stays where it stood.
-    const deepest = scene.place().columns.length - 1;
-    expect(deepest).toBeGreaterThan(0);
-    scene.scroll(deepest, 40 * ROW);
-    settle(scene);
-    expect(scene.place().driver).toBe(deepest);
-    const roots = scene.place().columns[0].at;
-    const realigned: number[] = [];
-    const realign = scene.realign.bind(scene);
-    vi.spyOn(scene, 'realign').mockImplementation(() => {
-      realigned.push(scene.place().turns);
-      realign();
-    });
     press('o');
     const after = Object.fromEntries(all.map((id) => [id, quiet.has(id) ? 'folded' : 'unfolded']));
     await expect.poll(() => kept()).toEqual(after);
     await expect.poll(turnedItems).toBeLessThan(unfolded);
-    // Asked once, as the folds began to turn.
-    expect(realigned).toHaveLength(1);
-    expect(realigned[0]).toBeGreaterThan(0);
-    expect(scene.place().driver).toBe(0);
-    expect(scene.place().columns[0].at).toBeCloseTo(roots, 9);
     // With Ctrl held, or while the owner types in a field, neither key changes a fold.
     press('O', document.body, { shiftKey: true, ctrlKey: true });
     const field = container.appendChild(document.createElement('input'));
@@ -1612,7 +1679,9 @@ describe('the console page', () => {
       'n / N next / previous question',
       'm / M next / previous reply you have not read',
       '1 – 9 the tree of the project of that place in the list',
-      "Space every project's tree at once",
+      'Space the whole tree on the screen, and back',
+      'Shift + scroll larger or smaller, as a pinch does',
+      "v every project's tree at once",
       'Esc close',
     ]);
     const marks = listed("The console's marks");
@@ -1847,7 +1916,8 @@ describe('the console page', () => {
     expect(folded()).toBe(false);
     const after = scene.place();
     expect(after.left).toBe(before.left);
-    after.columns.forEach((c, d) => expect(Math.abs(c.at - before.columns[d].at)).toBeLessThan(1e-9));
+    expect(after.zoom).toBe(before.zoom);
+    expect(after.at).toBeCloseTo(before.at, 9);
   });
 });
 
@@ -1978,12 +2048,12 @@ describe('the console page, with several projects', () => {
     await expect.poll(current).toBe('Whitefoot');
   });
 
-  it("shows every project's tree at once on Space, each in its place of a grid with its key and its name, the one shown framed apart, its list and boxes gone; Escape or Space goes back, and a key or a click shows that tree", async () => {
+  it("shows every project's tree at once at `v`, each in its place of a grid with its key and its name, the one shown framed apart, its list and boxes gone; Escape or `v` goes back, and a key or a click shows that tree", async () => {
     await drawn();
     const overview = () => container.querySelector('.console-overview:not(.closing)');
     const tiles = () => [...container.querySelectorAll<HTMLButtonElement>('.console-overview-tree')];
     const away = () => container.querySelector('.console-chrome')?.classList.contains('away');
-    key(' ');
+    key('v');
     await expect.poll(overview).not.toBeNull();
     expect(tiles().map((t) => t.textContent)).toEqual(['1Alder', '2Birch', '3wf-agents', '4Whitefoot']);
     expect(container.querySelector('.console-overview-tree.shown')?.textContent).toBe('1Alder');
@@ -1998,20 +2068,48 @@ describe('the console page, with several projects', () => {
     key('Escape');
     await expect.poll(overview).toBeNull();
     expect(away()).toBe(false);
-    key(' ');
+    key('v');
     await expect.poll(overview).not.toBeNull();
-    key(' ');
+    key('v');
     await expect.poll(overview).toBeNull();
-    key(' ');
+    key('v');
     await expect.poll(overview).not.toBeNull();
     key('3');
     await expect.poll(overview).toBeNull();
     await expect.poll(current).toBe('wf-agents');
-    key(' ');
+    key('v');
     await expect.poll(overview).not.toBeNull();
     tiles()[3].click();
     await expect.poll(overview).toBeNull();
     await expect.poll(current).toBe('Whitefoot');
+  });
+
+  it('fits the whole tree shown between the list of projects and the window at Space, and brings it back at Space again, opening no grid', async () => {
+    const scene = await drawn();
+    const overview = () => container.querySelector('.console-overview:not(.closing)');
+    const tree = (container.querySelector('.console-canvas') as HTMLElement).getBoundingClientRect();
+    const list = (container.querySelector('.console-projects') as HTMLElement).getBoundingClientRect();
+    settle(scene);
+    const before = scene.place();
+    key(' ');
+    expect(scene.wholeShown()).toBe(true);
+    settle(scene);
+    expect(overview()).toBeNull();
+    const { zoom } = scene.place();
+    const ids = scene.drawnMap().pieces.flatMap((p) => (scene.cardAt(p.id) === null ? [] : [p.id]));
+    expect(ids.length).toBeGreaterThan(0);
+    for (const id of ids) {
+      const c = where(scene, id);
+      expect(c.x, `item ${id}`).toBeGreaterThanOrEqual(list.right - tree.left);
+      expect(c.x + NODE_W * zoom, `item ${id}`).toBeLessThanOrEqual(tree.width);
+      expect(c.y, `item ${id}`).toBeGreaterThan(0);
+      expect(c.y, `item ${id}`).toBeLessThan(tree.height);
+    }
+    key(' ');
+    expect(scene.wholeShown()).toBe(false);
+    settle(scene);
+    expect(scene.place().zoom).toBe(before.zoom);
+    expect(overview()).toBeNull();
   });
 
   it("shows the tree of another project at a click on a shadow of an item of it, and selects the item there", async () => {
