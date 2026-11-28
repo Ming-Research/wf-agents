@@ -385,13 +385,13 @@ type Strokes = Pick<Lit, 'line' | 'near' | 'far'>;
 
 /// The light at rest where a way meets a card, at one end of the way, or at the dot of a fold ([`draw`]): its line and
 /// its glow, kept while the ways stand, drawn as strong as the way or the dot is by the alpha of its strokes, and
-/// hidden while the light burns at its `place` across the page.
-type EndLights = { rest: Strokes; place: number };
+/// hidden while the light down its own way burns there.
+type EndLights = { rest: Strokes };
 
 /// A lit way's own lights ([`draw`]): what stands of it, its line, glow and strands, kept while the way stands and
 /// drawn as strong as the way is by the alpha of its strokes; and over that the light running down it, drawn anew at
 /// each frame, and only while the light is on it (`lit`).
-type WayLights = { rest: Strokes; light: Strokes; lit: boolean; place: number };
+type WayLights = { rest: Strokes; light: Strokes; lit: boolean };
 
 /// Lights in parts, each kept by its key: the lit ways, each way's own lights by the item it goes into
 /// ([`WayLights`]), or the lights at rest where they meet the cards ([`EndLights`]). Their lines are among `lines`, and
@@ -3938,13 +3938,12 @@ export class SnapScene {
     const sparked = new Set<number>();
     this.waysDrawn = [];
     // The ways drawn, in the order they are drawn in; and the lights where the ways meet the cards and at the dots of
-    // folds, each with the place across the page the light comes to it at, how it burns now, the part it stands in
-    // at rest and how strong that is, and how it is laid on what it is drawn on as it burns, `k` as strong as it is
-    // ([`sparkAt`]). They are drawn once the ways are. The part of a way's end at its parent is the way's number
-    // twice, at its item one more; a fold's dot's is under nought.
+    // folds, each with how it burns now as the light comes to it ([`sparkAt`]), the part it stands in at rest and how
+    // strong that is, and how it is laid on what it is drawn on as it burns, `k` as strong as it is. They are drawn
+    // once the ways are. The part of a way's end at its parent is the way's number twice, at its item one more; a
+    // fold's dot's is under nought.
     const wayOrder: number[] = [];
     const meets: {
-      place: number;
       burn: number;
       key: number;
       strength: number;
@@ -3980,7 +3979,6 @@ export class SnapScene {
       };
       const lights = this.wayLights(i);
       wayOrder.push(i);
-      lights.place = Math.round(dist);
       const [still, shine] = [lights.rest, lights.light];
       for (const g of stroked(still)) g.alpha = strength;
       // The way itself, as a wire of light: its glow further out and close in, then the line, drawn in lengths each
@@ -4039,14 +4037,12 @@ export class SnapScene {
       const [outKey, inKey] = [2 * i, 2 * i + 1];
       meets.push(
         {
-          place: dist,
           burn: out,
           key: outKey,
           strength,
           lay: (to, burn, k) => this.turnIn(to, px, py, turns[0], tint, lineColour, k, burn),
         },
         {
-          place: dist + len,
           burn: into,
           key: inKey,
           strength,
@@ -4057,7 +4053,6 @@ export class SnapScene {
         sparked.add(p * 2);
         const ph = (high(this.base[p]) / 2) * size(p);
         meets.push({
-          place: dist,
           burn: out,
           key: outKey,
           strength,
@@ -4068,7 +4063,6 @@ export class SnapScene {
         sparked.add(i * 2 + 1);
         const ih = (high(this.base[i]) / 2) * size(i);
         meets.push({
-          place: dist + len,
           burn: into,
           key: inKey,
           strength,
@@ -4124,23 +4118,22 @@ export class SnapScene {
         to.line.circle(ox, oy, r).fill({ color: lineColour, alpha: n * lineAlpha });
       };
       const place = dotFrom(k);
-      meets.push({ place, burn: paint.runs ? sparkAt(place, head) : 0, key: -1 - k, strength, lay });
+      meets.push({ burn: paint.runs ? sparkAt(place, head) : 0, key: -1 - k, strength, lay });
     }
-    // Each place the light comes to stands at rest until the light is near it, and burns while it is: at rest its
-    // lights are those kept, laid once as they rest; burning, all of them there are drawn as they burn at this frame,
-    // and what is kept of them there is hidden until they rest again. The places are told apart to the pixel.
-    const burning = new Set(meets.filter((m) => m.burn > RUN.portRest).map((m) => Math.round(m.place)));
+    // Each end of a way, and each dot, stands at rest until the light down its own way is near it, and burns while it
+    // is: at rest its lights are those kept, laid once as they rest; burning, they are drawn as they burn at this
+    // frame, and what is kept of them is hidden until they rest again. An end of a way the light does not run down
+    // never burns, wherever the light is across the page.
+    const burning = new Set(meets.filter((m) => m.burn > RUN.portRest).map((m) => m.key));
     const built = new Set<number>();
-    for (const { place, burn, key, strength, lay } of meets) {
-      const where = Math.round(place);
+    for (const { burn, key, strength, lay } of meets) {
       const part = this.endLights(key);
       if (restAgain) {
         lay(part.rest, RUN.portRest, 1);
-        part.place = where;
         built.add(key);
       }
       for (const g of stroked(part.rest)) g.alpha = strength;
-      if (burning.has(where)) lay(this.runEdges, burn, strength);
+      if (burning.has(key)) lay(this.runEdges, burn, strength);
     }
     let endsShown = false;
     for (const [key, part] of this.ends.parts) {
@@ -4149,7 +4142,7 @@ export class SnapScene {
         this.ends.parts.delete(key);
         continue;
       }
-      const shows = !burning.has(part.place);
+      const shows = !burning.has(key);
       for (const g of stroked(part.rest)) g.visible = shows;
       endsShown ||= shows;
     }
@@ -4324,7 +4317,7 @@ export class SnapScene {
     const had = this.ways.parts.get(i);
     if (had !== undefined) return had;
     const strokes = (): Strokes => ({ line: new Graphics(), near: new Graphics(), far: new Graphics() });
-    const part: WayLights = { rest: strokes(), light: strokes(), lit: false, place: 0 };
+    const part: WayLights = { rest: strokes(), light: strokes(), lit: false };
     for (const to of [part.rest, part.light]) {
       this.ways.far.addChild(to.far);
       this.ways.near.addChild(to.near);
@@ -4338,7 +4331,7 @@ export class SnapScene {
   private endLights(key: number): EndLights {
     const had = this.ends.parts.get(key);
     if (had !== undefined) return had;
-    const part: EndLights = { rest: { line: new Graphics(), near: new Graphics(), far: new Graphics() }, place: 0 };
+    const part: EndLights = { rest: { line: new Graphics(), near: new Graphics(), far: new Graphics() } };
     this.ends.far.addChild(part.rest.far);
     this.ends.near.addChild(part.rest.near);
     this.ends.lines.addChild(part.rest.line);
