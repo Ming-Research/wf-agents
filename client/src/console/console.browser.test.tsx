@@ -1320,7 +1320,11 @@ describe('a scene destroyed', () => {
     await kept.mount(hosts[1]);
     try {
       gone.show([card(1)]);
-      kept.show([card(2)]);
+      kept.show([card(3)]);
+      await drew();
+      // Drawn again with a card more, the kept scene draws with what PixiJS keeps for every renderer on the page: the
+      // batches its first drawing let go, which it takes back from them.
+      kept.show([card(2), card(3)]);
       await drew();
       /// The colour the kept scene draws, as it stands now, at the point (`x`, `y`) of its canvas.
       const pixel = (x: number, y: number) => {
