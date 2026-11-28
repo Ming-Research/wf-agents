@@ -2276,7 +2276,7 @@ export class SnapScene {
     const tags: DrawnTag[] = [];
     const tag = (text: string, fill: string) => {
       tags.push({ text, fill });
-      const t = new BitmapText({ text, style: s.mono(PALETTE.onTag) });
+      const t = new BitmapText({ text, style: s.mono(PALETTE.onTag, true) });
       const pad = 4;
       const w = t.width + 2 * pad;
       right -= w;
@@ -3216,7 +3216,7 @@ export class SnapScene {
       const sp = this.screenPointer;
       this.back = null;
       if (sp === null) {
-        this.goal = back;
+        this.glide(back);
         return;
       }
       const mid = this.app.screen.height / 2;
@@ -3232,7 +3232,23 @@ export class SnapScene {
     this.back = { zoom: this.zoom, at: this.aim, left: this.left };
     const wide = Math.max(2 * FIT_ROOM + 1, to - from);
     const zoom = this.fitZoom(wide);
-    this.goal = { zoom, at: this.tall / 2, left: (from + wide / 2) / zoom - this.extent().width / 2 };
+    this.glide({ zoom, at: this.tall / 2, left: (from + wide / 2) / zoom - this.extent().width / 2 });
+  }
+
+  /// Glides from where the tree stands to `to`, round the one point of the screen that stands on the same point of the
+  /// tree in both, so that the tree grows or shrinks straight to where it goes rather than going wide of it on the way;
+  /// with no such point, where it is drawn as large in both, it glides across.
+  private glide(to: View): void {
+    const [z0, z1] = [this.zoom, to.zoom];
+    if (Math.abs(z0 - z1) < 1e-6) {
+      this.goal = to;
+      return;
+    }
+    const mid = this.app.screen.height / 2;
+    const along = (to.left * z1 - this.left * z0) / (z0 - z1);
+    const row = (this.at * z0 - to.at * z1) / (z0 - z1);
+    const pivot = { sx: (this.left + along) * z0, sy: mid + (row - this.at) * ROW * z0, row, along };
+    this.goal = { ...to, pivot };
   }
 
   /// Brings the item at `k` to the middle of the screen at the tree's full size, gliding there.
@@ -3245,7 +3261,7 @@ export class SnapScene {
     this.leftGoal = null;
     const d = t.depth[k];
     const width = this.app.screen.width / ZOOM_MOST;
-    this.goal = { zoom: ZOOM_MOST, at: this.middle(d, t.rank[k]), left: width / 2 - d * PITCH - NODE_W / 2 };
+    this.glide({ zoom: ZOOM_MOST, at: this.middle(d, t.rank[k]), left: width / 2 - d * PITCH - NODE_W / 2 });
   }
 
   private wheel = (e: WheelEvent) => {
@@ -3405,6 +3421,8 @@ export class SnapScene {
     if (g !== null) {
       if (toAt !== null) g.at = toAt;
       if (toLeft !== null) g.left = toLeft;
+      // Where the tree now goes is not where the point it glided round led to: it glides there across.
+      if (toAt !== null || toLeft !== null) g.pivot = undefined;
       return;
     }
     if (toAt !== null) this.focus(d, rank);
