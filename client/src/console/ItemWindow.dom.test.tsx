@@ -701,9 +701,9 @@ describe("the work's state line, one part for every state", () => {
     expect(el.querySelector('.cw-item > .status-line:nth-of-type(2) .status-word a')?.getAttribute('href')).toBe(link);
     expect(noKeys(el)).toBe(true);
     expect(el.querySelector('.cw-item')?.textContent).not.toContain('{"tests"');
-    // The cell's mark in the strip pulses in the yellow of a call.
+    // The cell's mark in the strip pulses in the blue of what the system does, the engine carrying the call out.
     const marks = [...el.querySelectorAll<HTMLElement>('.cw-item > .status-line .strip .state-mark.pulses')];
-    expect(marks.map((m) => m.style.background)).toEqual(['var(--yellow)']);
+    expect(marks.map((m) => m.style.background)).toEqual(['var(--mark-running)']);
   });
 
   it("says an engine cell's act under way as waiting for it where it runs, as a call", () => {

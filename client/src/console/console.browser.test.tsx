@@ -241,7 +241,7 @@ describe('the tree', () => {
   });
 
   it('says on pointing at the level on a card what the item window says of it, in every case, and turns the pointer to no hand over it', async () => {
-    const worked = (id: number, work: Partial<ShownWork>): Shown => ({ ...card(id), work: { ...running(id), ...work } });
+    const change = (id: number, work: Partial<ShownWork>): Shown => worked(id, { ...running(id), ...work });
     // The card's own middle stands at the screen's, with the level in its second row, under the number.
     const said = (item: Shown) => {
       scene.show([item]);
@@ -261,18 +261,18 @@ describe('the tree', () => {
       return { title: '', cursor: canvas().style.cursor };
     };
     // Held by the highest level a round may run at: written at the level it runs at, and what held it said.
-    expect(said(worked(1, { level: '3', raise: 0, cellLevel: '3', held: { asks: 1, by: 'agents.highest_level' } }))).toEqual({
+    expect(said(change(1, { level: '3', raise: 0, cellLevel: '3', held: { asks: 1, by: 'agents.highest_level' } }))).toEqual({
       title: 'level 3, levels_above 1, agents.highest_level 3',
       cursor: '',
     });
     // Raised, and held by nothing: its keys alone.
-    expect(said(worked(2, { level: '3', raise: 1, cellLevel: '4', held: null }))).toEqual({
+    expect(said(change(2, { level: '3', raise: 1, cellLevel: '4', held: null }))).toEqual({
       title: 'level 3, levels_above 1',
       cursor: '',
     });
-    expect(said(worked(3, { level: '2', raise: 0, cellLevel: '2', held: null })).title).toBe('level 2');
+    expect(said(change(3, { level: '2', raise: 0, cellLevel: '2', held: null })).title).toBe('level 2');
     // A work whose engine gives no level: a dash, and why there is none.
-    expect(said(worked(4, { level: null, raise: 0, cellLevel: null, held: null })).title).toBe(NO_LEVEL.level);
+    expect(said(change(4, { level: null, raise: 0, cellLevel: null, held: null })).title).toBe(NO_LEVEL.level);
   });
 
   // A pause and a wait stand in one grey, neither needing the owner, so the card says which on pointing at it, in the
@@ -444,7 +444,7 @@ describe('the tree', () => {
     const under = { open: 1, done: 0, cancelled: 0, elsewhere: 0 };
     // Under 1, item 2, whose work runs.
     const tree = (folded: boolean) => [
-      { ...card(1, [{ ...card(2), begun: true, work: running(2) }]), fold: { folded, under } },
+      { ...card(1, [worked(2, running(2))]), fold: { folded, under } },
     ];
     /// The way into item 2 is lit, and ends where item 2 is drawn, smaller than whole.
     const endsAtCard = () => {
@@ -487,7 +487,7 @@ describe('the tree', () => {
   });
 
   it('draws a frame in which only the lights move without drawing the cards, the funnels or the map again', () => {
-    scene.show([card(1, [{ ...card(2), begun: true, work: running(2) }])]);
+    scene.show([card(1, [worked(2, running(2))])]);
     settle(scene);
     scene.step();
     const redraws = scene.stats.redraws;
@@ -504,7 +504,7 @@ describe('the tree', () => {
   });
 
   it('flashes the light along the edges of the item selected once, in view, without moving the tree, and once it has come to rest draws nothing that stands again while only the lights move', () => {
-    scene.show([card(1, [{ ...card(2), begun: true, work: running(2) }])]);
+    scene.show([card(1, [worked(2, running(2))])]);
     scene.select(2);
     settle(scene);
     // Frames a second long bring the dimming of the items not selected, and all else that eases, to rest.
@@ -543,7 +543,7 @@ describe('the tree', () => {
   });
 
   it('moves only the light down a way from frame to frame, what stands of the way built once where it stands, and again only where the screen moves past the room it was built for', () => {
-    scene.show([card(1, [{ ...card(2), begun: true, work: running(2) }])]);
+    scene.show([card(1, [worked(2, running(2))])]);
     settle(scene);
     scene.step();
     const builds = scene.stats.wayBuilds;
@@ -574,7 +574,7 @@ describe('the tree', () => {
   });
 
   it('blurs a layer of glow only while it draws something', () => {
-    scene.show([card(1, [{ ...card(2), begun: true, work: running(2) }])]);
+    scene.show([card(1, [worked(2, running(2))])]);
     settle(scene);
     /// How many layers each frame blurs over a whole run of the light and the dark after it.
     const run = () =>
@@ -597,7 +597,7 @@ describe('the tree', () => {
   });
 
   it('draws no frame while the page is hidden, nor while its view is, and draws again once both show', async () => {
-    scene.show([card(1, [{ ...card(2), begun: true, work: running(2) }])]);
+    scene.show([card(1, [worked(2, running(2))])]);
     await drew();
     const page = (state: DocumentVisibilityState) => {
       Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
@@ -633,11 +633,11 @@ describe('the tree', () => {
     const asks = [{ key: 'answer-which', why: 'Which?', ends: { kind: 'resume' as const } }];
     const paused: Now = { kind: 'paused', ran: true, at: 'implement', by: 'owner', why: null };
     const items: Shown[] = [
-      { ...card(1), begun: true, work: running(1) },
-      { ...card(2), begun: true, work: { ...running(2), now: call } },
-      { ...card(3), begun: true, work: { ...running(3), waits: asks } },
-      { ...card(4), begun: true, work: { ...running(4), now: { kind: 'fault', words: 'No session' } } },
-      { ...card(5), begun: true, work: { ...running(5), now: paused, paused: 'owner', from: now } },
+      worked(1, running(1)),
+      worked(2, { ...running(2), now: call }),
+      worked(3, { ...running(3), waits: asks }),
+      worked(4, { ...running(4), now: { kind: 'fault', words: 'No session' } }),
+      worked(5, { ...running(5), now: paused, paused: 'owner', from: now }),
       card(6),
       { ...card(7), standing: 'done' },
       { ...card(8), standing: 'cancelled' },
@@ -829,7 +829,7 @@ describe('the tree', () => {
     };
     const paused: Now = { kind: 'paused', ran: true, at: 'implement', by: 'owner', why: null };
     const asks = [{ key: 'answer-which', why: 'Which?', ends: { kind: 'resume' as const } }];
-    const under = (k: number, work: ShownWork) => ({ ...card(k), begun: true, work });
+    const under = (k: number, work: ShownWork) => worked(k, work);
     // Under 1: 2 runs a round, 3 waits for the engine's call, 4 waits for the owner, and 5 is paused after it began.
     const kids = [
       under(2, running(2)),
@@ -852,7 +852,7 @@ describe('the tree', () => {
     // steeply out of 1's edge.
     const rest = Array.from({ length: 11 }, (_, k) => card(3 + k));
     const under = { open: 12, done: 0, cancelled: 0, elsewhere: 0 };
-    const two = { ...card(2), begun: true, work: running(2) };
+    const two = worked(2, running(2));
     scene.show([{ ...card(1, [two, ...rest]), fold: { folded: false, under } }]);
     settle(scene);
     const way = scene.litWays().find((w) => w.id === 2);
@@ -1711,8 +1711,9 @@ describe('the console page', () => {
     expect(swatch('turn')?.getAttribute('title')).toBe('Waiting for its turn to check and merge');
     const colour = (kind: string) => getComputedStyle(swatch(kind) as Element).backgroundColor;
     for (const other of TRACK_KINDS.filter((kind) => kind !== 'turn')) expect(colour('turn')).not.toBe(colour(other));
-    // Once the pointer leaves, it takes the pointer no more at once, and is hidden once it has faded.
-    await userEvent.unhover(mark);
+    // Once the pointer leaves for the tree, above where the panel reaches, it takes the pointer no more at once, and is
+    // hidden once it has faded.
+    await userEvent.hover(container.querySelector('canvas') as HTMLElement, { position: { x: 4, y: 4 } });
     await expect.poll(() => panel().classList.contains('shown')).toBe(false);
     expect(look().pointerEvents).toBe('none');
     await expect.poll(() => look().visibility).toBe('hidden');

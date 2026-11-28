@@ -269,7 +269,7 @@ describe('the rows of a history', () => {
       steps,
       outline: OUTLINE,
       blocks,
-      summary: summary({ kind: 'waits', at: 'implement', on: [] }),
+      summary: summary({ kind: 'waits', at: 'implement', on: [{ kind: 'items', items: [4] }] }),
       questions: [scope],
     });
     expect(rows).toHaveLength(8);

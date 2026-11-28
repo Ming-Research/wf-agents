@@ -48,7 +48,7 @@ Red is what needs the owner, blue what the system does, yellow what waits its tu
 - replaced: Yellow for a call under way and the tools' time, teal for the turn, a light blue for a cell handed in, and only the cards coloured by who moves them, was on main; the owner changed it, because he wants to see at a glance what moves, what waits and what needs him.
 
 ### decision a-call-waited-for-is-no-run
-Wherever the page shows a work waiting for tools' results, it says it waits for each tool, where and how long, never that it runs: in blue while carried out, in yellow while it waits its turn.
+Wherever the page shows a work waiting for tools' results, it says it waits for each tool, where and how long, never that it runs; its cell's mark is blue while carried out, yellow while queued.
 - rejected: an agent proposed a separate mark for the tool, after the cell that asked for it; the owner rejected it, because every call that takes time should keep the motion on the card: its cell's mark turned yellow and still blinking.
 - rejected: an agent proposed a cell in the flow for each tool, as the old system had; the owner rejected it, because cells for tools do not fit the flow's new model.
 - replaced: Different words for such a work in each place, finished in one, a call under way in another and running in a third, was on main; the owner changed it, because every place should show the same thing.
