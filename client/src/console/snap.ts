@@ -174,6 +174,10 @@ export const RUN = {
   far: 10,
   farAlpha: 0.3,
   farBlur: 14,
+  /// A way at rest, the light elsewhere, glows less than the edges of the cards lit the same way: its glow this strong,
+  /// as a part of theirs, and the glow further out this wide.
+  restGlow: 0.6,
+  restFar: 6,
   /// Where the page is light the way cannot be lit, a light added to a light ground telling nothing. There the way is
   /// drawn as a line of the running colour, darker than the page, and the light running down it as a near white glint
   /// within that line and narrower than it, which is how a light reads on a dark thing; the glow round the line, which
@@ -3984,8 +3988,8 @@ export class SnapScene {
       // page is light ([`RUN.inkRest`]). Built only where the ways stand anew, and kept.
       if (restAgain) {
         if (paint.glows) {
-          lit(still.far, 0, curve, RUN.far, RUN.farAlpha * rest, tint(0), true);
-          lit(still.near, 0, curve, RUN.near, RUN.nearAlpha * rest, tint(0), true);
+          lit(still.far, 0, curve, RUN.restFar, RUN.farAlpha * RUN.restGlow * rest, tint(0), true);
+          lit(still.near, 0, curve, RUN.near, RUN.nearAlpha * RUN.restGlow * rest, tint(0), true);
         }
         for (let n = 0; n < RUN.wide; n += 1) {
           const thick = lineWide * thickAt((n + 0.5) / RUN.wide);
