@@ -20,7 +20,7 @@ import type { LoadVersion } from './real';
 import { tonesOf } from './snap';
 
 /// The colour a card takes for a work that stands as `stands`, by who moves it next ([`tonesOf`]).
-function toneOf(stands: Pick<Summary, 'now' | 'cells' | 'waits'>) {
+function toneOf(stands: NonNullable<Shown['stands']>) {
   const item: Shown = {
     id: 1,
     title: 'Item 1',

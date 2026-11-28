@@ -59,7 +59,6 @@ import {
   Container,
   FillGradient,
   Graphics,
-  Matrix,
   TextStyle,
 } from 'pixi.js';
 
@@ -77,7 +76,7 @@ import {
   stoppedAt,
   waitsItsTurn,
 } from '../works/words';
-import { type Fold, STANDINGS, type Shown, type ShownWork, age, somethingUnread } from './items';
+import { type Fold, STANDINGS, type Shown, age, somethingUnread } from './items';
 import { indexTree, type Tree } from './tree';
 
 // A font the canvas builds as it meets each new character measures, unless told not to, the kerning of that character
@@ -1402,8 +1401,8 @@ export class SnapScene {
   private movesAt: Uint8Array = new Uint8Array(0);
   /// For each item, whether a work has begun on it or under it: the title of one with none is greyer.
   private begun: Uint8Array = new Uint8Array(0);
-  /// Each item's tone and the most pressing tone under it ([`tonesOf`]), as the cards draw them.
-  private tones: ReturnType<typeof tonesOf> = { own: new Map(), under: new Map() };
+  /// Each item's tone, as its card draws it, and the items whose own work moves ([`tonesOf`]).
+  private tones: ReturnType<typeof tonesOf> = { tone: new Map(), moves: new Set() };
   /// The parts of a node that change while it is shown: the marks of the cells running, which pulse, and the label of
   /// how long its work has gone on, with when the work started.
   private pulses = new Map<number, Graphics>();
