@@ -1319,12 +1319,15 @@ describe('a scene destroyed', () => {
     await gone.mount(hosts[0]);
     await kept.mount(hosts[1]);
     try {
-      gone.show([card(1)]);
-      kept.show([card(3)]);
+      // The scene to be destroyed draws nothing of its own, as a project with almost no item; the kept one draws a
+      // tree with a work running under it and an item selected, and draws it again with an item more. What it draws
+      // with the second time it takes back from what PixiJS keeps for every renderer on the page, which a release of
+      // what they share would free under it.
+      const tree = (more: Shown[]) => [card(2), card(3, [worked(4, running(4))]), ...more];
+      kept.show(tree([]));
+      kept.select(2);
       await drew();
-      // Drawn again with a card more, the kept scene draws with what PixiJS keeps for every renderer on the page: the
-      // batches its first drawing let go, which it takes back from them.
-      kept.show([card(2), card(3)]);
+      kept.show(tree([card(5)]));
       await drew();
       /// The colour the kept scene draws, as it stands now, at the point (`x`, `y`) of its canvas.
       const pixel = (x: number, y: number) => {
