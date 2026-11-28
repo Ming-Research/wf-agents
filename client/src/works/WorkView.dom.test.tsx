@@ -586,6 +586,17 @@ describe('the history of a work', () => {
     expect(rows[7].querySelectorAll('td')[3].getAttribute('title')).toBe('review: outputs opinions_implement v1');
   });
 
+  it('marks on the mark of a run how many times what it handed in was sent back, saying it on pointing, and on no other run', async () => {
+    // In the long history the deep research, the second run, was sent back once.
+    const long = runRows((await drawWork(41)).page).map((r) => r.querySelector('.sent-back'));
+    expect(long.map((m) => m?.textContent ?? null)).toEqual(long.map((_, i) => (i === 1 ? '1' : null)));
+    expect(long[1]?.getAttribute('title')).toBe('sent back 1 time');
+    // In work 44 the implementation, after the plan, was sent back twice.
+    const twice = runRows((await drawWork(44)).page).map((r) => r.querySelector('.sent-back'));
+    expect(twice.map((m) => m?.textContent ?? null)).toEqual([null, '2']);
+    expect(twice[1]?.getAttribute('title')).toBe('sent back 2 times');
+  });
+
   it('says at the right how long each run took, coloured as a card colours its age, and its level, effort and model', async () => {
     const work = structuredClone(fixtureWork(41));
     // The plan's first run made to take two hours, past the hour after which a run is red.

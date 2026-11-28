@@ -345,6 +345,26 @@
   box-shadow: inset 0 0 0 var(--hairline) var(--ran);
 }
 
+/* How many times what a run handed in was sent back: an arrow turning back and the count, in red and strong, so that
+   the runs sent back stand out down the history; the legend's sample looks the same. */
+.sent-back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--red);
+  font-family: var(--mono);
+  font-size: var(--size-label);
+  font-weight: var(--weight-strong);
+}
+
+/* On the history it stands at the top right of the run's cell, over nothing the pointer needs. */
+.history .spot .sent-back {
+  position: absolute;
+  top: 0;
+  right: var(--space-2);
+  pointer-events: none;
+}
+
 /* The cells' heads and the flow's lines under them, the matrix's own rows, stay at the top together while the runs
    scroll under them; a line's name stays at the left as the heads' corner does. */
 .history thead {
