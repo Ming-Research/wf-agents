@@ -69,12 +69,10 @@ export type ConsoleMark =
   | 'cardRunning'
   | 'cardWaiting'
   | 'cardPaused'
-  | 'cardNotStarted'
   | 'cardAbove'
   | 'cardMerged'
   | 'cardCancelled'
   | 'cardElsewhere'
-  | 'cardDelivers'
   | 'forYou'
   | 'answerAhead'
   | 'unreadReplies'
@@ -117,12 +115,12 @@ function NodeSample({ lit = false }: { lit?: boolean }) {
   return <span className={`legend-node${lit ? ' lit' : ''}`} aria-hidden="true" />;
 }
 
-type CardLook = 'stopped' | 'running' | 'waiting' | 'paused' | 'notStarted' | 'above' | 'elsewhere' | 'delivers';
+type CardLook = 'stopped' | 'running' | 'waiting' | 'paused' | 'above' | 'elsewhere';
 
-/// A card of the console's tree, as a sample: filled and edged by how its work stands, as the canvas draws it,
-/// stopped in red, running in the accent; waiting for a call edged in its yellow, paused edged in grey; an open item
-/// whose work has not run a round plain, of one row, with no work drawn; above a work edged in the accent's light step;
-/// a shadow of an item shown elsewhere edged in dashes; an item that delivers no card, only a line under it.
+/// A card of the console's tree, as a sample, by who moves it next, as the canvas draws it (`Tone`): filled red for
+/// the owner, filled blue for the system; edged in yellow while it waits its turn; grey, plain, where it does not move
+/// by itself, its edge in a light step of the most pressing tone under it; a shadow of an item shown elsewhere edged in
+/// dashes.
 function CardSample({ look }: { look: CardLook }) {
   return <span className={`legend-card ${look}`} aria-hidden="true" />;
 }
@@ -138,12 +136,13 @@ function NumberSample({ look }: { look: 'merged' | 'cancelled' }) {
   );
 }
 
-/// A tag at a card's right framed in grey, as a sample: the arrow turning back with how many of its work's returns
-/// were sent back, drawn as the canvas draws it.
-function FramedTag({ count }: { count: number }) {
+/// How many times what a run handed in was sent back, as a work's history marks it on the run's cell: an arrow turning
+/// back and the count, in red and strong, so that the runs sent back stand out; `says` is what it says on pointing at
+/// it, none in a legend.
+export function SentBackMark({ count, says }: { count: number; says?: string }) {
   return (
-    <span className="legend-tag" aria-hidden="true">
-      <svg viewBox="0 0 10 10" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="1.2">
+    <span className="sent-back" title={says} aria-label={says} aria-hidden={says === undefined}>
+      <svg viewBox="0 0 10 10" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
         <path d="M8 1.5v5H2M4 4.5 2 6.5l2 2" />
       </svg>
       {count}
@@ -250,16 +249,14 @@ export const MARKS: Record<MarkKey, Entry> = {
   trackTurn: ofTrack('turn', 'waits for turn'),
   trackGap: ofTrack('gap', 'nothing ran'),
   trackUnknown: ofTrack('unknown', 'not known'),
-  cardStopped: { name: 'stopped', draw: () => <CardSample look="stopped" /> },
-  cardRunning: { name: 'running', draw: () => <CardSample look="running" /> },
-  cardWaiting: { name: 'waiting', draw: () => <CardSample look="waiting" /> },
-  cardPaused: { name: 'paused', draw: () => <CardSample look="paused" /> },
-  cardNotStarted: { name: 'not started', draw: () => <CardSample look="notStarted" /> },
-  cardAbove: { name: 'a work under it', draw: () => <CardSample look="above" /> },
+  cardStopped: { name: 'you move it next', draw: () => <CardSample look="stopped" /> },
+  cardRunning: { name: 'the system moves it', draw: () => <CardSample look="running" /> },
+  cardWaiting: { name: 'waits its turn', draw: () => <CardSample look="waiting" /> },
+  cardPaused: { name: 'does not move by itself', draw: () => <CardSample look="paused" /> },
+  cardAbove: { name: 'edge: the most pressing under it', draw: () => <CardSample look="above" /> },
   cardMerged: { name: 'merged', draw: () => <NumberSample look="merged" /> },
   cardCancelled: { name: 'cancelled', draw: () => <NumberSample look="cancelled" /> },
   cardElsewhere: { name: 'shown elsewhere', draw: () => <CardSample look="elsewhere" /> },
-  cardDelivers: { name: 'delivers', draw: () => <CardSample look="delivers" /> },
   forYou: {
     name: 'for you',
     draw: () => (
@@ -286,7 +283,7 @@ export const MARKS: Record<MarkKey, Entry> = {
   },
   notTakenIn: { name: 'not read or taken yet', draw: () => <ReceiptMark taken={false} words={REPLY_READ.unread} /> },
   takenIn: { name: 'read or taken', draw: () => <ReceiptMark taken words={REPLY_READ.read} /> },
-  sentBack: { name: 'sent back', draw: () => <FramedTag count={2} /> },
+  sentBack: { name: 'sent back', draw: () => <SentBackMark count={2} /> },
   level: { name: 'level', draw: () => <LevelMark level="2" raise={0} /> },
   cells: {
     name: 'cells',

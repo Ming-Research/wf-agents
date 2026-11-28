@@ -490,8 +490,8 @@ tr.row.chosen > .block-head {
 
 /* The console's marks, as samples (marks.tsx), as its canvas draws them (console/snap.ts). A card, filled and edged by
    how its work stands: stopped in red, running in the accent; waiting for a call edged in its yellow, paused in grey;
-   an open item whose work has not run a round plain, as the card itself is; above a work in the accent's light step;
-   a shadow edged in dashes; an item that delivers, only a line under it. */
+   an open item whose work has not run a round, or an item that delivers, plain, as the card itself is; above a work
+   in the accent's light step; a shadow edged in dashes. */
 .legend-card {
   display: inline-block;
   width: var(--space-16);
@@ -520,19 +520,12 @@ tr.row.chosen > .block-head {
 }
 
 .legend-card.above {
-  border-color: var(--mark-done);
+  border-color: var(--red-under);
 }
 
 .legend-card.elsewhere {
   border-style: dashed;
   border-color: var(--option-edge);
-}
-
-.legend-card.delivers {
-  border-width: 0 0 var(--hairline);
-  border-color: var(--option-edge);
-  border-radius: 0;
-  background: none;
 }
 
 /* The number of an item whose work ended: green where it merged, pale where it was cancelled, the title of a cancelled

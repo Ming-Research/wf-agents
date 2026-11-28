@@ -12,16 +12,41 @@ PixiJS draws the console's tree in WebGL on a canvas, only what is on the screen
 - rejected: an agent proposed three.js; the owner rejected it, because it needs glyph atlases for thousands of characters and its own picking and layout, and no test can see into it.
 
 ### decision the-tree-stands-in-columns
-Items stand in columns, one for each level from the roots at the left; each scrolls by itself, and the one beside it glides only its way, enough to keep what joins the two level near the middle.
+Items stand in columns, one for each level from the roots at the left, each in a fixed place: in the middle of the items under it, and as high as its column leaves room for.
 - rejected: an agent proposed nested strips, a flame graph; the owner rejected it, because its leaves cannot be seen without zooming.
 - rejected: an agent proposed a magnifier over the room each branch gets; the owner rejected it, because a big screen would show little.
 - rejected: an agent proposed rectangles packed to the screen's shape; the owner rejected it, because the boxes carry no information.
 - replaced: A line across the middle, onto which an item of each column snapped, was on main; the owner changed it, because the snap still jumped, and nothing pulls a block of items away from its parent.
 - replaced: A column next to it that could glide against the column it follows, as the wants near the middle changed, was on main; the owner changed it, because the third column ran up off the screen as he dragged the second.
+- replaced: Each column scrolled by itself, the one beside it gliding only enough to keep what joins the two level near the middle, was on main; the owner changed it, because he could not move quickly to an item nor make the whole tree smaller.
+- rejected: an agent proposed each item level with the first item under it; the owner rejected it, because an item should stand in the middle of its funnel's mouth.
 
-### decision the-fold-keys-bring-the-columns-back
-Once `o` or `O` has drawn its folds, every column glides to where its links put it, as a new column is placed, after the column of the roots, which keeps its place.
-- replaced: Every column staying where it stood as `o` and `O` turned the folds was on main; the owner changed it, because cards scrolled off the screen stayed off it, and the owner had to drag each column back.
+### decision a-lone-item-is-not-set-apart
+Room stands between the items under one item and those under the next only where either holds more than one item.
+- replaced: Room between every two such groups was on main; the owner changed it, because with each item in the middle of what hangs from it, that room spread out for nothing a column of items with one item under each.
+
+### decision the-tree-is-moved-and-zoomed-as-one-canvas
+The wheel and a drag move the whole tree every way; the wheel with Shift held, or a pinch, makes it larger or smaller round the pointer, at most its full size, which the map says.
+- rejected: an agent proposed the wheel with Command held to make it larger or smaller; the owner rejected it, because he is used to Shift.
+
+### decision space-fits-the-whole-tree
+Space makes the whole tree fit the room the list of projects and the window leave, and pressed again gives it back its size round the pointer; a click on an item while it fits shows it at full size.
+- rejected: an agent proposed Space going back to where the tree stood before it was made to fit; the owner rejected it, because he wanted the size back round the pointer, where he is looking.
+
+### decision a-fold-leaves-the-item-in-view-where-it-stands
+When the folds change, the item selected, or else the one under the pointer, or else the one nearest the middle of the screen, stays where it stands on the screen, and the tree changes round it.
+- replaced: Every column gliding to where its links put it once `o` or `O` had drawn its folds was on main; the owner changed it, because with the columns no longer scrolled apart, no column is left off the screen to bring back.
+
+### decision the-cards-near-the-pointer-grow-where-they-stand
+While the tree is drawn smaller than its full size, the cards near the pointer grow where they stand, the one under it to full size, the nearer the larger and over the others; the links stay.
+- rejected: an agent proposed a round magnifier showing the tree round the pointer at its full size and bending the rest into its rim; the owner rejected it, because he wanted each item drawn larger by its own distance from the pointer.
+- rejected: an agent proposed the cards near the pointer pushing the others aside, as a dock does; the owner rejected it, because the tree moving with the pointer made him dizzy.
+- rejected: an agent proposed the funnels, the ways and the dots moving and growing with the cards; the owner rejected it, because they moved strangely.
+
+### decision what-the-pointer-comes-onto-lights-at-once
+The item the pointer comes onto, and what joins it, light at once; the others dim over a moment, and once the pointer leaves every item they light again over a moment.
+- replaced: The focus moving only once the pointer had rested on an item a moment, and let go only once it had been off every item a moment, was on main; the owner changed it, because what he pointed at lit late.
+- rejected: an agent proposed every item lighting at once, the whole tree too as the pointer left the items; the owner rejected it, because the tree then waited and jumped bright instead of fading.
 
 ### decision the-tree-follows-what-depends-on-what
 The items form one tree by what depends on what: where one item depends on another, the other stands under it, directly or further down; nothing else shapes the tree.
@@ -69,13 +94,17 @@ A card writes the lines its work added and removed, `+210 −40`, on its second 
 - replaced: The line showing where the work's time went, on the card's second row, was on main; the owner changed it, because the row had room for only one of the two, and the time's line is already in the window.
 - rejected: an agent proposed a taller card with the count under its second row; the owner rejected it, because the second row itself had room.
 
-### decision a-delivery-item-is-a-heading
-An item that delivers is not a card: it has no box and no fill, only its number and its title over a line, like a heading.
+### decision a-delivery-item-is-a-card-like-any-other
+An item that delivers is a card like any other, with no row for a work of its own; its edge says how the items under it stand, as any card's does.
 - rejected: an agent proposed the card as it was, with a small diamond before the title; the owner rejected it, because the diamond changes the least and so stands out the least, while a heading with no frame reads plainly in light and in dark.
+- replaced: A heading with no box and no fill, its number and its title over a line, was on main; the owner changed it, because the edge that says work goes on under an item should show on a deliverable too, and he wanted every item drawn one way.
 
-### decision a-pause-and-a-wait-are-one-grey-and-the-card-says-which
-A card of a paused work and a card of a waiting work are the same grey, neither needing the owner; pointing at a card says the engine's state word and its cell, so that the two are told apart there.
+### decision a-cards-colour-says-who-moves-it-next
+A card is filled red where the owner moves it next, blue where the system does, edged yellow where it waits its turn, grey where nothing moves it, green when done; its edge says what presses under it.
 - rejected: an agent proposed a colour of its own for a waiting work; the owner rejected it, because a stopped work that needs no one is one meaning and so one colour (principle colour-only-for-state), and the legend, map, cards and System view would all carry it.
+- replaced: A paused work and a waiting work in one grey, the card saying which on pointing, was on main; the owner changed it, because a work waiting its turn could not be seen, and red mixed works that waited with works that needed him.
+- rejected: an agent proposed a yellow fill for a work waiting its turn; the owner rejected it, because it looked bad.
+- rejected: an agent proposed an edge saying red first where something under the item waited for the owner; the owner rejected it, because while anything under an item goes on, the item is in progress, so blue comes first.
 
 ### decision a-card-stands-still
 No card gets a ring or moves because of its work's state: a work under way, in a round or in a call the engine runs, shows by its cell's pulse and by the lit way to its root.
@@ -128,8 +157,10 @@ n and N go to the next and previous stop, m and M to the next and previous reply
 - replaced: Walking by n and N alone, with no key for the replies the owner had not read, was on main; the owner changed it, because the owner could not find a reply an agent had written to the owner's words after leaving the page, and wanted to go from one unread reply to the next by keys.
 
 ### decision the-map-draws-each-item-and-the-screen
-The map draws each item as a piece of its column's bar in the colour of its card's state, and frames in a thin light line the part of the tree the screen shows.
+The map, one size for every project, draws the whole tree in its cards' colours, frames what the screen shows, says how large the tree is drawn, and a press on it moves the screen there.
 - replaced: Each column as one light bar, with red marks where works waited for the owner, was on main; the owner changed it, because the map should show how each item stands and where the screen is in the tree.
+- replaced: A map as wide as its columns and of one height was on main; the owner changed it, because the map of a project with many columns was flat and larger than the others.
+- rejected: an agent proposed the map as tall for its width as the tree, within bounds; the owner rejected it, because Whitefoot's map was then too large, and he wanted every project's map the same size.
 
 ### decision each-project-has-a-tree-of-its-own
 The console shows the tree of one project at a time, of the items of that project, and the owner goes from one project's tree to another by the list of the projects under the map.
@@ -143,18 +174,20 @@ Under the map, the projects stand in a list the owner orders by dragging, each n
 The projects' trees stand one behind another in the list's order: going on, the next grows out from behind as the one left grows past and fades, and back the other way; each keeps its scroll.
 - rejected: the owner proposed the trees side by side, the next one sliding in from above or below; the owner rejected it, because he wanted the next tree to grow out from behind and the one in front to grow past it and fade.
 
-### decision space-shows-every-projects-tree
-Space shows every project's tree at once, small in a grid as near square as fits, with its key and name, the one shown framed in the accent; a key or a click shows a tree, Space or Escape goes back.
+### decision v-shows-every-projects-whole-tree
+`v` shows every project's whole tree at once, small in a grid as near square as fits, with its key and name, the one shown framed in the accent; a key or a click shows one, `v` or Escape goes back.
 - rejected: the owner proposed the trees one behind another on a line from the top right to the bottom left, as Vista's switcher, scrolled through; the owner rejected it, because it looked bad and was slow to use.
 - rejected: an agent proposed the tree shown shrinking into its place in the grid as the overview opens; the owner rejected it, because the motion looked strange, and wanted the trees to fade where they stand.
+- replaced: Space for it was on main; the owner changed it, because Space now makes the tree shown fit the screen.
+- replaced: Each tree in the grid as it stood on the screen was on main; the owner changed it, because the grid showed only the part of each tree its screen had, not how the whole project stands.
 
 ### decision the-overview-draws-every-tree-as-it-stands
-While Space shows every tree, the page draws each in turn, a few milliseconds a frame, as finely as it stands small, so that each shows how its project stands within a moment.
+While `v` shows every tree, the page draws each in turn, a few milliseconds a frame, as finely as it stands small, so that each shows how its project stands within a moment.
 - rejected: an agent proposed drawing every tree as finely as the screen, so that going to another tree draws it at once; the owner rejected it, because he chose the trees in the overview drawn more often over a quicker going to another tree.
 - rejected: an agent proposed a picture of each tree, drawn once and shown in the overview until its items changed; the owner rejected it, because the overview must show each project's real state with little delay.
 
 ### decision what-stands-over-the-tree-stands-still
-The map, the list of the projects and the boxes stand still while the trees move, go at once as Space shows every tree, and come back at once as it closes.
+The map, the list of the projects and the boxes stand still while the trees move, go at once as `v` shows every tree, and come back at once as it closes.
 - rejected: an agent proposed the map moving with its tree, and then fading back in once the tree stood; the owner rejected it, because the map moved or faded while the list and the boxes did not, which looked strange.
 
 ### decision a-works-age-is-coloured-at-the-owners-fixed-times

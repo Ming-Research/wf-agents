@@ -1,16 +1,15 @@
 // The console's tree in columns, drawn in WebGL by PixiJS. One column for each level, from the roots at the left; in
-// each, the level's items one under another, those under one item standing apart from those under the next. Scrolling
-// over a column moves it with the scroll, as far as leaves a few of its rows on the screen, and it rests where the
-// scroll stops. Each column beside it stands where the most of what joins the two near the middle of the screen is
-// level: each item of the one beside it, weighed the more the nearer the middle it is, wants the block of items under
-// it, or the item above it, level with it, any part of either doing; the column stays where it is while every want is
-// met, and else glides only as far as the weighed wants call for, so that no column leaps, and only the way the column
-// it follows moves, so that none goes against it. Each column further out follows the one beside it the same way.
-// Asked to, as the console asks once the keys that fold the quiet trees and unfold every item have drawn their folds,
-// every column comes to where its links put it, out from the column of the roots, as a column new to the tree is placed,
-// so that what is drawn stands beside what it hangs from and no column is left off the screen where it had been
-// scrolled; the column of the roots keeps its place, and the others glide there as the columns do to bring an item into
-// view, following the folds as they turn.
+// each, the level's items one under another, those under one item standing apart from those under the next. Every item
+// has a fixed place, which the tree alone decides ([`layOut`]): an item stands in the middle of the items under it,
+// where its funnel opens onto them, and each item as high as its column leaves room for. The tree is one canvas: the
+// wheel moves it up and down and sideways, a drag on it moves it too, and the wheel with Shift held, or a pinch, makes
+// it larger or smaller round the pointer. Asked to, the whole tree is made small enough to fit the screen, and asked
+// again, it goes back to the size it was, round the pointer; a click on an item while the whole tree is shown brings
+// that item to the middle at its full size. While the tree is drawn smaller than its full size, the cards near the
+// pointer grow where they stand, the one under it to its full size, the nearer the larger and over the others; the
+// funnels, the ways and the dots stay as they are. When the folds change, the item selected, or else the item under
+// the pointer, or else the item nearest the middle of the screen, stays where it is on the screen, and the tree moves
+// round it.
 //
 // Each item is a card; one a work goes on on is a faint tint of the colour of what the work does, and one above such
 // an item has an edge of the light accent. Under each item that depends on an item besides its main dependent, a
@@ -80,6 +79,11 @@ import { indexTree, type Tree } from './tree';
 // text has no kerning, and the page's Latin text is names and numbers, so no font of the canvas measures it.
 BitmapFontManager.defaultOptions.skipKerning = true;
 
+/// How a scene lets its renderer go: its canvas taken off the page, and nothing more. `true` would also free what
+/// PixiJS keeps once for every renderer on the page, and every other project's scene, which shares it, would then
+/// throw at each frame and draw nothing.
+const KEEP_SHARED = { removeView: true, releaseGlobalResources: false };
+
 export const NODE_W = 300;
 /// A row's height, and the height of a node of one row: an item with a work going on has a second row, the work's, this
 /// part of a row high, so that the work sits close under the title.
@@ -89,34 +93,58 @@ const WORK_ROW = 0.55;
 export const PITCH = 370;
 /// The room between the items of one item and those of the next in a column, in rows.
 const APART = 0.7;
-/// The map at the top left: each column a bar of this width, this far apart, the map this high, set this far in from
-/// the corner and padded this much inside. The height is the page's token `--map-high`, which the styles lay the list
-/// of projects under the map by; this is what it is where the page's tokens give none.
-const MAP_STRIP = 12;
-const MAP_APART = 5;
-const MAP_HIGH = 72;
+/// The map at the top left: as wide and as tall as this for every project, set this far in from the corner and padded
+/// this much inside; the whole tree is drawn in it as small as it must be to fit, as tall for its width as it is, in
+/// the middle. The console lays the list of projects under it by the page's token `--map-high`, which it sets to its
+/// height.
+const MAP_WIDE = 140;
+const MAP_HIGH = 100;
 const MAP_INSET = 12;
 const MAP_PAD = 8;
 /// The radius of the map's corners.
 const MAP_CORNER = 6;
-/// On the map: the gap between two items' pieces of a column, where each is tall enough to keep one; how far the frame
-/// of what the screen shows stands out past the bars it holds; and how strong the ground in it is.
+/// On the map: the gap between two items' pieces of a column, where each is tall enough to keep one; and how strong the
+/// ground is in the frame of what the screen shows.
 const MAP_GAP = 0.5;
-const MAP_FRAME_OUT = 2;
 const MAP_FRAME_FILL = 0.06;
-/// How quickly the blue lines at a column's edges come and go as the pointer comes over it and leaves: the
-/// milliseconds in which it goes about two thirds of the way.
-const TURN = 140;
-/// How far in from the top and the bottom of the screen the columns fade out into the page, in pixels; and how thick the
-/// blue line is at each edge of the column under the pointer.
+/// How far in from the top and the bottom of the screen the tree fades out into the page, in pixels.
 const EDGE = 48;
-const EDGE_LINE = 6;
+/// How large the tree is drawn at most, its full size; and at least, as a part of the size at which the whole tree fits
+/// the screen, and never smaller than `ZOOM_LEAST`. How much one pixel of the wheel's turn, Shift held, makes it larger
+/// or smaller, and one of a pinch's, which comes as the wheel with Ctrl held, in smaller steps.
+const ZOOM_MOST = 1;
+const ZOOM_UNDER_FIT = 0.8;
+const ZOOM_LEAST = 0.05;
+const ZOOM_WHEEL = 0.002;
+const ZOOM_PINCH = 0.01;
+/// While the tree is drawn smaller than its full size, the items near the pointer are drawn larger where they stand,
+/// the nearer the larger, the nearest over the others: how many rows up or down, and how many columns across, an item
+/// is drawn larger; how much smaller than its full size the tree must be drawn for it; and how quickly it comes in as
+/// the pointer comes onto the tree and goes as it leaves, in milliseconds for about two thirds of the way.
+const LENS_ROWS = 5;
+const LENS_COLUMNS = 1.2;
+const LENS_UNDER = 0.95;
+const LENS_EASE = 90;
+
+/// How large an item is drawn, as a part of its full size, with the tree drawn `zoom` of its full size and the item
+/// `rows` rows up or down from the pointer, its middle from the pointer's, and `columns` columns across, its nearest
+/// side from the pointer: its full size at the pointer, falling as the square of how far it is towards the tree's size,
+/// which it is from [`LENS_ROWS`] rows or [`LENS_COLUMNS`] columns away on.
+export function lensSize(rows: number, columns: number, zoom: number): number {
+  const u = Math.min(1, Math.hypot(rows / LENS_ROWS, columns / LENS_COLUMNS));
+  return zoom + (1 - zoom) * (1 - u) * (1 - u);
+}
+
+/// The room left at the sides of the whole tree when it is made to fit the screen, in pixels; at its top and bottom,
+/// the room the fade into the page takes ([`EDGE`]).
+const FIT_ROOM = 24;
 /// How quickly the blue rings and ribbons of the item under the pointer come in, and fade out once it leaves: the
 /// milliseconds in which each goes about two thirds of the way.
 const GLOW_IN = 30;
 /// How bright the items not in focus are drawn while an item is in focus or selected; the least of the links' own
 /// strength they could be drawn at, were the items drawn at no brightness ([`linksStrength`]); and how long an item
-/// takes to fade, down and back up alike, in milliseconds.
+/// takes to fade, down and back up alike, in milliseconds; only what the pointer comes onto lights at once
+/// ([`dimmed`]).
 export const DIM = 0.35;
 const DIM_LINKS = 0.4;
 const FADE_MS = 220;
@@ -247,10 +275,6 @@ export const RUN = {
   pieces: 32,
 };
 const NEAR = 0.5;
-/// How long the pointer rests on an item before it is the one in focus, and how long it is off every item before the
-/// focus is let go, in milliseconds.
-const DWELL_ON = 100;
-const DWELL_OFF = 180;
 const GLOW_OUT = 160;
 /// The ring round an item lit, the one selected or under the pointer or one above them: its edge's width; the item
 /// selected's own a little wider, so that it stands out from the item under the pointer, lit the same way.
@@ -440,13 +464,6 @@ export function beatOf(): { ms: number; faint: number } {
   return { ms: ms > 0 ? ms : PULSE_MS, faint: Number.isFinite(faint) ? faint : DARK };
 }
 
-/// A length the page's tokens give, in pixels; `fallback` where the token is none or is not in pixels.
-function pixelsOf(name: string, fallback: number): number {
-  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  const m = /^([+-]?(?:\d+\.?\d*|\.\d+))px$/.exec(v);
-  return m === null ? fallback : Number.parseFloat(m[1]);
-}
-
 /// A time the page's tokens give, in milliseconds, in whichever unit the styles write it: the page's build writes
 /// `750ms` as `.75s`. None, as 0, where the token is no time.
 function millisecondsOf(name: string): number {
@@ -454,30 +471,16 @@ function millisecondsOf(name: string): number {
   const m = /^([+-]?(?:\d+\.?\d*|\.\d+))(ms|s)$/.exec(v);
   return m === null ? 0 : Number.parseFloat(m[1]) * (m[2] === 's' ? 1000 : 1);
 }
-/// The part of the way to where they are going that the columns move sideways each frame, when the scene brings an
-/// item into view.
+/// The part of the way to where it is going that the tree moves each frame, when the scene brings an item into view or
+/// makes the whole tree fit the screen.
 const SNAP = 0.32;
-/// How much of the way to where the scroll has taken it the column scrolled goes each frame; and how many pixels of the
-/// way, which no screen shows, may be left when it goes the rest at once, so that it comes to rest where the scroll took
-/// it within some thirty frames, and does not creep on unseen until what is left is too small for a number to hold.
+/// How much of the way to where the wheel has taken it the tree goes each frame; and how many pixels of the way, which
+/// no screen shows, may be left when it goes the rest at once, so that it comes to rest where the wheel took it within
+/// some thirty frames, and does not creep on unseen until what is left is too small for a number to hold.
 const GLIDE = 0.35;
 const REST = 0.01;
-/// How far from the middle of the screen, in rows, an item's want of the column beside it still weighs: its weight
-/// falls off as a bell of this width. A want is met within `SLACK` rows times the inverse of its weight less one, none
-/// for an item in the middle and the more the further out it is, so that items far out, weighing little, ask for little
-/// and do not swing the column between them, and an item coming in towards the middle asks for a little more at a time.
-const REACH = 3;
-const SLACK = 1;
-/// How many rows of the column scrolled stay on the screen at least, at its top or its bottom.
+/// How many rows of the tree stay on the screen at least, at its top or its bottom.
 export const KEEP = 3;
-/// How much of the way to where it stands a column beside the one scrolled goes each frame: one that was the one
-/// scrolled rests where its own scroll left it, not where its links would put it, and glides there once another is.
-/// It goes only the way the column it follows moved in that frame, and no further than `PACE` times as far, so that a
-/// small scroll never moves another column far, however far its links would put it, no column goes against the one it
-/// follows as the wants near the middle change, and every column stops when the scroll does; what is left it makes up
-/// as the scroll goes on.
-const LINK_EASE = 0.2;
-export const PACE = 1.5;
 
 /// The console's colours: words, marks and lines in greys; one accent for what runs; red for a stop, what waits for the
 /// owner or what the engine halted; and for a work's age amber, then red past an hour. These are the
@@ -594,6 +597,12 @@ export function wayAims(
 export function eased(was: number, to: number, step: number): number {
   const next = was + (to - was) * (1 - Math.exp(-step / FADE_MS));
   return Math.abs(to - next) < SETTLED ? to : next;
+}
+
+/// One frame's step of a brightness from `was` towards `to`, going up at once and down as [`eased`] goes: what the
+/// pointer comes onto lights without waiting.
+export function dimmed(was: number, to: number, step: number): number {
+  return to >= was ? to : eased(was, to, step);
 }
 
 /// How near its aim an eased value is taken to be there: nearer than this, it is set to its aim, so that what eases
@@ -766,7 +775,8 @@ export function adding(): boolean {
 export function themed(): typeof LIGHT {
   const turn = turning(accentNow());
   const own = {
-    unseen: turn(LIGHT.unseen, 'read'),
+    // What is not read is marked in the page's accent, as the bar's count of it is, in either theme.
+    unseen: token('--accent', turn(LIGHT.unseen, 'read')),
     accent: turn(LIGHT.accent, 'read'),
     over: turn(LIGHT.over, 'read'),
     branch: turn(LIGHT.branch, 'read'),
@@ -941,6 +951,58 @@ export function sizeOf(turn: Turn, clock: number): number {
   return turn.from + (turn.to - turn.from) * turnEase(t, turn.to >= turn.from ? UNFOLD_EASE : FOLD_EASE);
 }
 
+/// Where each item of tree `t` starts, in rows from the top of the tree, each item `rows[k]` rows high: the fixed place
+/// it is drawn at. Going down the tree, the items under an item are placed first, each as high as its column leaves
+/// room for; the item then stands in the middle of them, where its funnel opens onto them. Where its own column leaves
+/// no room there, it stands as high as its column lets it, and the items under it, with everything under them, move
+/// down until it is in their middle again. Between the items under one item and those under the next stands `APART`
+/// rows times `scale` of the first item of the second group, as large as a fold turning draws that group, where either
+/// group holds more than one item: a lone item stands level with the item it hangs from, so nothing need set it apart.
+export function layOut(t: Tree, rows: ArrayLike<number>, scale: ArrayLike<number>): Float64Array {
+  const top = new Float64Array(t.parent.length);
+  const free: number[] = [];
+  const lastParent: number[] = [];
+  // How many items the group of an item holds: those under the same item, or the roots.
+  const groupOf = (k: number) => (t.parent[k] < 0 ? (t.columns[0]?.length ?? 0) : t.children[t.parent[k]].length);
+  const lastGroup: number[] = [];
+  // Moves everything under item `k` down by `by` rows, with the room it takes in each column: what is under `k` was
+  // placed last in every column it stands in.
+  const lower = (k: number, by: number) => {
+    const columns = new Set<number>();
+    const walk = (j: number) => {
+      for (const c of t.children[j]) {
+        top[c] += by;
+        columns.add(t.depth[c]);
+        walk(c);
+      }
+    };
+    walk(k);
+    for (const d of columns) free[d] += by;
+  };
+  const place = (k: number) => {
+    const d = t.depth[k];
+    const group = groupOf(k);
+    const another = free[d] !== undefined && lastParent[d] !== t.parent[k];
+    const apart = another && (group > 1 || lastGroup[d] > 1) ? APART * scale[k] : 0;
+    const earliest = (free[d] ?? 0) + apart;
+    let at = earliest;
+    const kids = t.children[k];
+    if (kids.length > 0) {
+      for (const c of kids) place(c);
+      const end = kids[kids.length - 1];
+      const middle = (top[kids[0]] + top[end] + rows[end]) / 2 - rows[k] / 2;
+      if (middle >= earliest) at = middle;
+      else lower(k, earliest - middle);
+    }
+    top[k] = at;
+    free[d] = at + rows[k];
+    lastParent[d] = t.parent[k];
+    lastGroup[d] = group;
+  };
+  for (const k of t.columns[0] ?? []) place(k);
+  return top;
+}
+
 /// The colour of a work's age, three and no more: grey under half an hour, amber from half an hour to an hour, and red
 /// past an hour, however long.
 const TONE = () => ({
@@ -1067,6 +1129,70 @@ export type DrawnStrip = {
   level: { text: string; colour: string; strong: boolean } | null;
 };
 
+/// Who moves an item next, as its card's colour says it, alike for every item, from where its own flow stands: red where the
+/// owner does (its work waits for the owner, or the engine stopped it); blue where the system does (a round, or a call
+/// its work made, is under way); yellow where it waits its turn and will go on (for a slot, a machine, the project's
+/// turn); grey where it does not move by itself (paused, not let on, or waiting for the items under it, whose state
+/// its edge says); green where it is done.
+export type Tone = 'red' | 'blue' | 'yellow' | 'grey' | 'green';
+
+/// The tones that move, in the order an item's edge says them of the items under it: blue first, since while anything
+/// under it goes on the item is in progress; then red, where nothing goes on and something waits for the owner; then
+/// yellow, where something only waits its turn.
+const PRESSING: Tone[] = ['blue', 'red', 'yellow'];
+
+/// The tone of every item of the tree `roots`, and of each the most pressing tone of the items under it, none where
+/// nothing under it moves. A shadow stands for an item drawn elsewhere and counts for nothing.
+export function tonesOf(roots: Shown[]): { own: Map<Shown, Tone>; under: Map<Shown, Tone | null> } {
+  const own = new Map<Shown, Tone>();
+  const under = new Map<Shown, Tone | null>();
+  const walk = (s: Shown): Tone[] => {
+    const below = s.children.filter((c) => !c.shadow).flatMap((c) => [...walk(c), own.get(c) as Tone]);
+    const most = PRESSING.find((t) => below.includes(t)) ?? null;
+    under.set(s, most);
+    own.set(s, toneOf(s));
+    return below;
+  };
+  roots.forEach(walk);
+  return { own, under };
+}
+
+/// The tone of item `s` itself, from where its own flow stands, whatever flow it runs on. An item whose flow waits for
+/// the items it depends on is no tone of its own: its edge says how they stand.
+function toneOf(s: Shown): Tone {
+  if (s.shadow || s.standing === 'cancelled') return 'grey';
+  if (s.standing === 'done') return 'green';
+  if (s.stands === null) return 'grey';
+  switch (stateOf(s.stands).which) {
+    case 'owner':
+    case 'halted':
+    case 'broken':
+      return 'red';
+    case 'running':
+    case 'calling':
+      return 'blue';
+    case 'waiting':
+      return 'yellow';
+    case 'merged':
+      return 'green';
+    default:
+      return 'grey';
+  }
+}
+
+/// The colour of each tone.
+const TONE_COLOUR = (): Record<Tone, string> => ({
+  red: PALETTE.halted,
+  blue: PALETTE.running,
+  yellow: PALETTE.calling,
+  grey: PALETTE.paused,
+  green: PALETTE.green,
+});
+
+/// How much of the colour of the most pressing tone under an item its edge takes, where its own tone does not fill it:
+/// a light step of it, so that what the item is itself, filled, stands apart from what goes on under it.
+const UNDER_EDGE = 0.5;
+
 /// How much of its work's colour a card in work takes, the rest white, and its edge, a deeper shade of it.
 /// How much of its state's colour fills a card whose work is running or that needs the owner.
 const FILL = 0.18;
@@ -1082,8 +1208,6 @@ const TITLE_AT = 26;
 const TITLE_GAP = 8;
 /// A card's corners: the page's corner (`--corner`), as its buttons and tags have.
 const CARD_CORNER = 3;
-/// The height of the line under a deliverable, which has no card.
-const DELIVER_LINE = 1.5;
 /// The width of every card's edge.
 const EDGE_WIDTH = 1.5;
 
@@ -1134,15 +1258,14 @@ function makeStyles(): Styles {
   };
 }
 
-/// One column: where it is shown, in rows from its first item to the middle of the screen.
-type Column = {
-  at: number;
-  /// Where the scroll, or an item brought to the middle, takes the column, which it moves towards while it is the one
-  /// the others follow.
-  aim: number;
-  /// How far the blue lines at its edges have come, moving to 1 while the pointer is over the column.
-  warm: number;
-};
+/// Where the tree is shown: how large (`zoom`, 1 at its full size), the row of the tree at the middle of the screen
+/// (`at`), and how far right of the screen's left the tree's left side stands, in pixels at the tree's full size
+/// (`left`).
+export type View = { zoom: number; at: number; left: number };
+
+/// A point of the canvas, `(sx, sy)` in its pixels, that stays on the same point of the tree while the tree grows or
+/// shrinks: the tree's `row` there, and how far right of the tree's left side it is (`along`), at the tree's full size.
+type Pivot = { sx: number; sy: number; row: number; along: number };
 
 export class SnapScene {
   stats: Stats = {
@@ -1202,8 +1325,8 @@ export class SnapScene {
   private runStrength = new Map<number, number>();
   private marks = new Graphics();
   private layer = new Container();
-  /// The fade of every column into the page at the top and the bottom of the screen, each a gradient in the shape's own
-  /// measure, from its top (0) to its bottom (1); and the blue lines there of the column under the pointer.
+  /// The fade of the tree into the page at the top and the bottom of the screen, each a gradient in the shape's own
+  /// measure, from its top (0) to its bottom (1).
   private edges = new Graphics();
   private fades = { top: vertical(PALETTE.page, 1, 0), bottom: vertical(PALETTE.page, 0, 1) };
   /// The map at the top left: its frame, and a bar for each column, drawn each frame, cut to the room inside the frame.
@@ -1211,8 +1334,24 @@ export class SnapScene {
   private mapFrame = new Graphics();
   private mapBars = new Graphics();
   private mapMask = new Graphics();
-  /// The map's height of a row: the longest column fits it twice, as a column may stand with either end in the middle.
-  private mapRow = 1;
+  /// How large the tree is drawn, as a part of its full size in hundredths, at the map's bottom right, on a patch of the
+  /// page's ground so that the pieces under it do not cross it.
+  private mapZoom: BitmapText | null = null;
+  private mapZoomGround = new Graphics();
+  /// How far the items near the pointer are drawn larger, from 0 to 1, eased as it comes and goes; and the point of
+  /// the tree they are drawn larger round, the pointer's, kept while it goes after the pointer has left.
+  private lens = 0;
+  private lensAt = { x: 0, y: 0 };
+  /// Under each card drawn larger, the page's ground, just under it among the cards, so that a card it stands over
+  /// does not show through it while the cards are dimmed; by the item's index in the tree, kept while they are drawn.
+  private lensGrounds = new Map<number, Graphics>();
+  /// The rings of the cards, each among the cards just over its own, while the items near the pointer are drawn larger;
+  /// by the item's index in the tree, kept while they are drawn.
+  private lensRings = new Map<number, Graphics>();
+  private lensDrawn = { lens: 0, x: 0, y: 0 };
+  /// How large the map draws the tree, a part of its full size, and where the tree's top left corner stands on the map.
+  private mapScale = 1;
+  private mapOrigin = { x: 0, y: 0 };
   /// What the map drew at the last frame ([`drawnMap`]).
   private mapDrawn: MapDrawn = { frame: null, pieces: [], unread: [] };
   private tree: Tree | null = null;
@@ -1220,13 +1359,13 @@ export class SnapScene {
   private ids: number[] = [];
   private views: Container[] = [];
   /// Each item's height in rows when drawn whole, and as drawn now; how much of its whole size it is drawn at, less
-  /// than whole only while a fold over it turns; and for each column, where each of its items starts, its rows counted
-  /// from the top, and the room between its groups above each.
+  /// than whole only while a fold over it turns; where it starts, in rows from the top of the tree ([`layOut`]); and
+  /// how many rows the tree takes, its tallest column's.
   private base: Float64Array = new Float64Array(0);
   private rows: Float64Array = new Float64Array(0);
   private scaleOf: Float64Array = new Float64Array(0);
-  private pre: Float64Array[] = [];
-  private gaps: Float64Array[] = [];
+  private tops: Float64Array = new Float64Array(0);
+  private tall = 0;
   /// The folds turning, by the number of their item; the scene's own time, in milliseconds drawn, which they run on;
   /// and whether each item with items under it was folded as last shown, by its number, from which a turn begins.
   private turns = new Map<number, Turn>();
@@ -1267,8 +1406,7 @@ export class SnapScene {
   private drawnList: number[] = [];
   private nowShown = new Set<Container>();
   private drawnSize: [number, number] = [0, 0];
-  private drawnLeft = Number.NaN;
-  private drawnCols: number[] = [];
+  private drawnView: View = { zoom: Number.NaN, at: Number.NaN, left: Number.NaN };
   private wayCache = new Map<number, { way: Way; len: number; dist: number }>();
   private waysDrawn: LitWay[] = [];
   /// For each item, whether a work goes on on it or under it: the edges of the cards above a work are lit.
@@ -1279,6 +1417,8 @@ export class SnapScene {
   /// shows it: its work's state's (red, the running colour, or grey); for an item with no work of its own above a work,
   /// whose edge is a light blue, the pointer's blue; else grey.
   private own: string[] = [];
+  /// Each item's tone and the most pressing tone under it ([`tonesOf`]), as the cards draw them.
+  private tones: ReturnType<typeof tonesOf> = { own: new Map(), under: new Map() };
   /// The parts of a node that change while it is shown: the marks of the cells running, which pulse, and the label of
   /// how long its work has gone on, with when the work started.
   private pulses = new Map<number, Graphics>();
@@ -1293,11 +1433,12 @@ export class SnapScene {
   private drawnStrips = new Map<number, DrawnStrip>();
   /// For each column, the ranks of its items new to the owner, or with one under them folded away, which the map marks.
   private fresh: number[][] = [];
-  private columns: Column[] = [];
   private shown = new Set<Container>();
-  /// The column under the pointer, or none; and how far the columns are moved right.
+  /// The column under the pointer, or none, found each frame.
   private hovered = -1;
-  /// Where the pointer is over the canvas, or none; the item under it is found each frame, as the columns move.
+  /// Where the pointer is over the canvas, in the canvas's pixels, or none; and where that is on the tree, in pixels at
+  /// its full size, worked out each frame as the tree moves; the item under it is found each frame too.
+  private screenPointer: { x: number; y: number } | null = null;
   private pointer: { x: number; y: number } | null = null;
   /// How far each item ringed in blue, the one under the pointer and those above it, has come in, from 0 to 1; one
   /// the pointer has left stays until it has faded out.
@@ -1305,31 +1446,40 @@ export class SnapScene {
   /// How bright the items that the pointer and the selection do not light are drawn: all of them fully while nothing
   /// is lit, dimmed while something is, so that what is lit and what joins it stand alone; eased from frame to frame.
   private dim = 1;
-  /// The items in focus: the one the pointer last rested on with what joins it, kept while the pointer moves on.
+  /// The items in focus: the one under the pointer with what joins it.
   private inFocus = new Set<number>();
   /// While the console's search is open, the items it finds, by number: lit as the items in focus are, every other
   /// item dimmed, all of them while it finds nothing; none while it is closed.
   private found: number[] | null = null;
-  /// The item the pointer was over at the last frame, and since when it has been over it (or over none).
-  private hoverWas = -1;
-  private hoverAt = 0;
   /// How far the soft light round the item under the pointer itself has come in, as `glowing` says of its rings; those
   /// lit with it have none.
   private softLit = new Map<number, number>();
-  /// The column last scrolled, or whose item was last brought to the middle, which the others follow.
-  private driver = 0;
-  /// Whether every column but the one followed is coming to where its links put it, as [`realign`] asked; and where
-  /// each column is going, worked out again while folds turn and once a tree is drawn, or none yet.
-  private realigning = false;
-  private realignTo: number[] | null = null;
+  /// Where the tree is shown ([`View`]); and the row at the middle of the screen the wheel has taken it to, which `at`
+  /// glides towards.
+  private zoom = 1;
+  private at = 0;
+  private aim = 0;
   private left = 40;
-  /// Where the columns are moving sideways to, when the scene brings an item into view, until they are there or the
-  /// owner moves them.
+  /// Where the tree is moving sideways to, when the scene brings an item into view, until it is there or the owner moves
+  /// it.
   private leftGoal: number | null = null;
+  /// Where the tree is going as a whole, while it comes to fit the screen, goes back from that, or brings an item to
+  /// its full size; and where it was before it was made to fit the screen, while it is so, to go back to.
+  private goal: (View & { pivot?: Pivot }) | null = null;
+  private back: View | null = null;
+  /// Where the tree was shown before the console's overview showed every project's tree whole, while it does
+  /// ([`showWhole`]); none else.
+  private gridBack: View | null = null;
+  /// The item that stays where it is on the screen while the folds change the tree round it, by its number, and how
+  /// many rows from the middle of the screen its middle stands; none once the owner moves the tree.
+  private anchor: { id: number; off: number } | null = null;
   private frames: number[] = [];
   private lastDraw = 0;
   private last = 0;
-  private dragging: { x: number } | null = null;
+  /// Where the pointer last was while a press on the tree moves it, or a press on the map moves the screen over the
+  /// tree; none else.
+  private dragging: { x: number; y: number } | null = null;
+  private mapDragging = false;
   /// Where the pointer went down, so that a press let go where it began is a click, not a drag.
   private down: { x: number; y: number } | null = null;
   /// The item under the pointer at the last frame, by its index in the tree, or none.
@@ -1354,10 +1504,12 @@ export class SnapScene {
   /// Told, at a click on a shadow whose item this tree does not hold, as one of another project's, the item's number:
   /// the console shows that project's tree and selects it there.
   onAway: ((id: number) => void) | null = null;
-  /// Told how wide the map is each time that changes, in pixels: what stands beside the map stands past it.
-  onMapWidth: ((width: number) => void) | null = null;
-  private mapWide = 0;
+  /// Told how wide and how tall the map is each time that changes, in pixels: what stands beside the map stands past it,
+  /// and what stands under it below it.
+  onMapSize: ((width: number, height: number) => void) | null = null;
+  private mapWide = MAP_WIDE;
   private mapHigh = MAP_HIGH;
+  private mapTold = false;
   /// The items as last shown, by their place in the tree.
   private shownItems: Shown[] = [];
   private shadowsOf = new Map<number, number[]>();
@@ -1386,7 +1538,7 @@ export class SnapScene {
       autoDensity: true,
     });
     if (this.gone) {
-      this.app.destroy(true, { children: true, texture: true });
+      this.app.destroy(KEEP_SHARED, { children: true, texture: true });
       return;
     }
     host.appendChild(this.app.canvas);
@@ -1427,6 +1579,7 @@ export class SnapScene {
     // The cards stand in a group of their own, which is drawn as it was while none of them changes, whatever the lights
     // over and under them do.
     this.layer.enableRenderGroup();
+    this.layer.sortableChildren = true;
     this.map.position.set(MAP_INSET, MAP_INSET);
     this.map.addChild(this.mapFrame);
     const canvas = this.app.canvas;
@@ -1434,11 +1587,18 @@ export class SnapScene {
     canvas.addEventListener('pointermove', this.hover);
     canvas.addEventListener('pointerleave', () => {
       this.mark('pointer');
-      this.hovered = -1;
-      this.pointer = null;
+      this.screenPointer = null;
     });
     canvas.addEventListener('pointerdown', (e) => {
-      this.dragging = { x: e.clientX };
+      const r = canvas.getBoundingClientRect();
+      const [px, py] = [e.clientX - r.left, e.clientY - r.top];
+      // A press on the map moves the screen to where it was pressed, and on as the pointer moves while it is held.
+      if (this.map.visible && this.onMap(px, py)) {
+        this.mapDragging = true;
+        this.mapTo(px, py);
+        return;
+      }
+      this.dragging = { x: e.clientX, y: e.clientY };
       this.down = { x: e.clientX, y: e.clientY };
     });
     window.addEventListener('pointermove', this.drag);
@@ -1457,9 +1617,9 @@ export class SnapScene {
     this.app.renderer.render(this.app.stage);
   }
 
-  /// How wide the map at the top left is, in pixels, as it was last drawn.
-  mapWidth(): number {
-    return this.mapWide;
+  /// How wide and how tall the map at the top left is, in pixels, as it was last drawn.
+  mapSize(): { width: number; height: number } {
+    return { width: this.mapWide, height: this.mapHigh };
   }
 
   /// Shows the map at the top left, or hides it, at once: while the trees move, the console holds a picture of the map
@@ -1528,6 +1688,33 @@ export class SnapScene {
     return true;
   }
 
+  /// Draws the whole tree on the screen at once, with no glide, while the console's overview shows every project's tree,
+  /// so that each shows how its whole project stands; and once the overview closes, the view it had before.
+  showWhole(on: boolean): void {
+    if (on) {
+      this.gridBack ??= { zoom: this.zoom, at: this.aim, left: this.left };
+      this.fitNow();
+    } else if (this.gridBack !== null) {
+      [this.zoom, this.at, this.left] = [this.gridBack.zoom, this.gridBack.at, this.gridBack.left];
+      this.aim = this.at;
+      this.gridBack = null;
+    }
+    this.goal = null;
+    this.anchor = null;
+    this.leftGoal = null;
+    this.mark('view');
+  }
+
+  /// Makes the whole tree fit the screen at once, in its middle.
+  private fitNow(): void {
+    if (this.tree === null) return;
+    const zoom = this.fitZoom();
+    this.zoom = zoom;
+    this.at = this.tall / 2;
+    this.aim = this.at;
+    this.left = (this.app.screen.width / zoom - this.extent().width) / 2;
+  }
+
   /// Draws the frame of this moment, however long it is since the one before, without waiting for the browser to give
   /// one: the console draws its trees so, in turn, while its overview shows them all.
   drawNow(): void {
@@ -1574,7 +1761,7 @@ export class SnapScene {
         for (const key of [...kept.parts.keys()]) this.dropPart(kept, key);
       }
       this.waysAtRest.lines.destroy();
-      this.app.destroy(true, { children: true, texture: true });
+      this.app.destroy(KEEP_SHARED, { children: true, texture: true });
     }
   }
 
@@ -1589,30 +1776,67 @@ export class SnapScene {
     if (this.roots !== null) this.show(this.roots);
   };
 
-  /// Where the columns stand, for the tests: how far they are moved right, the column the others follow, and each
-  /// column's place, in rows from its first item to the middle of the screen, and where it is going; and how many folds
-  /// are turning.
+  /// Where the tree stands, for the tests: how large it is drawn, the row at the middle of the screen and where the wheel
+  /// has taken it, how far right it is moved, the size of the screen, and how many folds are turning.
   place(): {
+    zoom: number;
+    at: number;
+    aim: number;
     left: number;
-    driver: number;
-    columns: { at: number; aim: number }[];
     height: number;
     width: number;
     turns: number;
   } {
     return {
+      zoom: this.zoom,
+      at: this.at,
+      aim: this.aim,
       left: this.left,
-      driver: this.driver,
-      columns: this.columns.map((c) => ({ at: c.at, aim: c.aim })),
       height: this.app.screen.height,
       width: this.app.screen.width,
       turns: this.turns.size,
     };
   }
 
-  /// Draws the tree of `roots` in place of the one before. Each column stands as it stood by the item that was nearest
-  /// the middle of the screen, where that item is still in it, and else where it was; a column new to the tree stands
-  /// where its links put it, and at first the middle root stands in the middle.
+  /// How much of the tree the screen shows, in pixels at the tree's full size.
+  private seen(): { width: number; height: number } {
+    const { width, height } = this.app.screen;
+    return { width: width / this.zoom, height: height / this.zoom };
+  }
+
+  /// The item that is to stay where it is on the screen while the tree changes round it, by its index in the tree: the
+  /// item selected, where it is on the screen; else the item under the pointer; else the item whose middle is nearest
+  /// the middle of the screen, of the columns the screen shows. None while the tree has no item on the screen.
+  private anchorItem(t: Tree): number {
+    const { width, height } = this.seen();
+    const on = (k: number) => {
+      const d = t.depth[k];
+      const x = this.left + d * PITCH;
+      const y = height / 2 + (this.middle(d, t.rank[k]) - this.at) * ROW;
+      return x + NODE_W > 0 && x < width && y > 0 && y < height;
+    };
+    const chosen = this.selected === null ? undefined : this.real.get(this.selected);
+    if (chosen !== undefined && on(chosen)) return chosen;
+    if (this.under >= 0 && this.under < t.parent.length && this.shadows[this.under] === 0) return this.under;
+    let best = -1;
+    let gap = Number.POSITIVE_INFINITY;
+    for (let d = 0; d < t.columns.length; d += 1) {
+      const x = this.left + d * PITCH;
+      if (x + NODE_W <= 0 || x >= width) continue;
+      const r = Math.min(t.columns[d].length - 1, this.rankAt(d, this.at));
+      for (const q of [r - 1, r]) {
+        if (q < 0) continue;
+        const k = t.columns[d][q];
+        const g = Math.abs(this.middle(d, q) - this.at);
+        if (this.shadows[k] === 0 && g < gap) [best, gap] = [k, g];
+      }
+    }
+    return best;
+  }
+
+  /// Draws the tree of `roots` in place of the one before. The item [`anchorItem`] picks of the tree before stays where
+  /// it was on the screen, where the new tree still holds it, and else the tree stays where it was; at first the middle
+  /// root stands in the middle.
   show(roots: Shown[]): void {
     // What it would draw is what is drawn: nothing is made again. A read of the items that changes nothing the cards
     // draw, as the engine tells of every round, costs only this.
@@ -1625,21 +1849,20 @@ export class SnapScene {
     this.drawnKey = key;
     this.mark('tree');
     const old = this.tree;
-    const before = this.columns.map((c, d) => {
-      if (old === null || old.columns[d].length === 0) return null;
-      const r = Math.min(old.columns[d].length - 1, this.rankAt(d, c.at));
-      return { id: this.ids[old.columns[d][r]], off: c.at - this.middle(d, r) };
-    });
-    const was = this.columns.map((c) => c.at);
+    // The item that stays where it was on the screen: the one already held while the folds turn, else the one picked
+    // now, with how far from the middle of the screen it stands.
+    if (this.anchor === null && old !== null && old.parent.length > 0) {
+      const k = this.anchorItem(old);
+      if (k >= 0) this.anchor = { id: this.ids[k], off: this.middle(old.depth[k], old.rank[k]) - this.at };
+    }
     this.roots = roots;
+    this.tones = tonesOf(roots);
     // What eases by item, kept by the item into the new tree: the lights round it, the strength of the way into it,
-    // what is in focus and what the pointer was last on; and how far the blue lines of each column had come.
+    // and what is in focus.
     const byId = (m: Map<number, number>) =>
       new Map([...m].flatMap(([k, a]) => (this.shadows[k] === 1 ? [] : [[this.ids[k], a] as const])));
     const easedBy = { glowing: byId(this.glowing), softLit: byId(this.softLit), runStrength: byId(this.runStrength) };
     const focusIds = [...this.inFocus].flatMap((k) => (this.shadows[k] === 1 ? [] : [this.ids[k]]));
-    const hoverId = this.hoverWas >= 0 && this.shadows[this.hoverWas] === 0 ? this.ids[this.hoverWas] : null;
-    const warmth = this.columns.map((c) => c.warm);
     // One set of text styles for every tree, each made as it is first asked for.
     this.styles ??= makeStyles();
     this.titleOffset = this.titleOffsetFor(roots);
@@ -1651,6 +1874,11 @@ export class SnapScene {
     const hides = (k: number, is: (s: Shown) => boolean) => items[k].fold?.folded === true && beneath(items[k], is);
     this.tree = tree;
     this.ids = items.map((i) => i.id);
+    // The grounds under the cards drawn larger are kept by the items' places in the tree before.
+    for (const ground of this.lensGrounds.values()) ground.destroy();
+    this.lensGrounds.clear();
+    for (const ring of this.lensRings.values()) ring.destroy();
+    this.lensRings.clear();
     this.shownItems = items;
     this.shadows = Uint8Array.from(items, (i) => (i.shadow ? 1 : 0));
     this.real = new Map();
@@ -1667,7 +1895,6 @@ export class SnapScene {
         }),
       );
     this.inFocus = new Set(focusIds.flatMap((id) => (this.real.has(id) ? [this.real.get(id) as number] : [])));
-    this.hoverWas = hoverId === null ? -1 : (this.real.get(hoverId) ?? -1);
     this.under = -1;
     this.underFold = -1;
     this.drawnMoved = null;
@@ -1809,33 +2036,21 @@ export class SnapScene {
     });
     this.stats.made = kept.filter((c) => c === undefined).length;
     this.shown = new Set([...this.shown].filter((v) => !v.destroyed));
-    this.columns = tree.columns.map((_, d) => ({ at: 0, aim: 0, warm: warmth[d] ?? 0 }));
     // The pointer over a column this tree has no more is over none, until it moves.
-    if (this.hovered >= this.columns.length) this.hovered = -1;
+    if (this.hovered >= tree.columns.length) this.hovered = -1;
     if (tree.columns.length === 0) {
       this.buildMap(tree);
       this.stats.items = 0;
       return;
     }
-    const index = new Map(items.flatMap((it, i) => (it.shadow ? [] : [[it.id, i] as const])));
-    const placeless = new Set<number>();
-    this.columns.forEach((c, d) => {
-      const b = before[d];
-      const i = b === null || b === undefined ? undefined : index.get(b.id);
-      if (b !== null && b !== undefined && i !== undefined && tree.depth[i] === d)
-        c.at = this.middle(d, tree.rank[i]) + b.off;
-      else if (was[d] !== undefined) c.at = was[d];
-      else placeless.add(d);
-    });
-    if (old === null) {
-      this.driver = 0;
-      this.columns[0].at = this.middle(0, Math.floor((tree.columns[0].length - 1) / 2));
-      placeless.delete(0);
-    }
-    this.driver = Math.min(this.driver, tree.columns.length - 1);
-    this.columns[this.driver].aim = this.columns[this.driver].at;
-    this.placeOut(placeless);
-    this.realignTo = null;
+    if (old === null || old.parent.length === 0) {
+      this.at = this.middle(0, Math.floor((tree.columns[0].length - 1) / 2));
+      this.aim = this.at;
+    } else this.hold();
+    // Once no fold turns, the item held stays no longer: the next change picks again.
+    if (this.turns.size === 0) this.anchor = null;
+    // While every project's tree is shown at once, this one stays whole as it changes.
+    if (this.gridBack !== null) this.fitNow();
     this.buildMap(tree);
     this.stats.items = items.length;
     if (this.selected !== null && !this.real.has(this.selected)) this.selected = null;
@@ -1850,60 +2065,15 @@ export class SnapScene {
     this.announce();
   }
 
-  /// Places each column of `placeless` as a column new to the tree is placed, out from the one followed: with what
-  /// joins it to the item nearest the middle of the column beside it level with that item, then where its links put it,
-  /// at once.
-  private placeOut(placeless: Set<number>): void {
-    for (let d = this.driver + 1; d < this.columns.length; d += 1) if (placeless.has(d)) this.level(d, d - 1);
-    for (let d = this.driver - 1; d >= 0; d -= 1) if (placeless.has(d)) this.level(d, d + 1);
-    for (let k = 0; k < 100 && placeless.size > 0; k += 1) {
-      for (let d = this.driver + 1; d < this.columns.length; d += 1) if (placeless.has(d)) this.link(d, d - 1);
-      for (let d = this.driver - 1; d >= 0; d -= 1) if (placeless.has(d)) this.link(d, d + 1);
-    }
-  }
-
-  /// Where each column would stand were every column but the one followed new to the tree ([`placeOut`]); the columns
-  /// themselves are left where they stand.
-  private placedOut(): number[] {
-    const was = this.columns.map((c) => c.at);
-    this.placeOut(new Set(this.columns.flatMap((_, d) => (d === this.driver ? [] : [d]))));
-    const placed = this.columns.map((c) => c.at);
-    this.columns.forEach((c, d) => {
-      c.at = was[d];
-    });
-    return placed;
-  }
-
-  /// Brings every column to where its links put it, out from the column of the roots, as a column new to the tree is
-  /// placed ([`placeOut`]): the column of the roots keeps its place, and each other glides there as the columns do to
-  /// bring an item into view ([`SNAP`]), towards where the folds turning put it at each frame. It ends once every
-  /// column is there and no fold turns, or where the columns then stand once the owner scrolls a column, an item is
-  /// brought to the middle or a fold is turned by its funnel or its dot.
-  realign(): void {
-    if (this.tree === null || this.columns.length === 0) return;
-    this.mark('view');
-    this.driver = 0;
-    this.columns[0].aim = this.columns[0].at;
-    this.realigning = true;
-    this.realignTo = null;
-  }
-
-  /// One frame of [`realign`]: each column but the one followed goes a part of the way to where it is placed, worked
-  /// out where it was not, or while folds turn; once every column is there and no fold turns, it ends.
-  private realignStep(): void {
-    const to = this.realignTo === null || this.turns.size > 0 ? this.placedOut() : this.realignTo;
-    this.realignTo = to;
-    let there = this.turns.size === 0;
-    this.columns.forEach((c, d) => {
-      if (d === this.driver) return;
-      c.at += (to[d] - c.at) * SNAP;
-      if (Math.abs(to[d] - c.at) * ROW < REST) c.at = to[d];
-      else there = false;
-    });
-    if (there) {
-      this.realigning = false;
-      this.realignTo = null;
-    }
+  /// Keeps the item held ([`anchor`]) where it stands on the screen: the tree moves so that it does. Nothing while no
+  /// item is held, or where the tree no longer holds it.
+  private hold(): void {
+    const t = this.tree;
+    const a = this.anchor;
+    const k = a === null ? undefined : this.real.get(a.id);
+    if (t === null || a === null || k === undefined) return;
+    this.at = this.middle(t.depth[k], t.rank[k]) - a.off;
+    this.aim = this.at;
   }
 
   /// Begins the turn of each fold that `roots` shows folded the other way than the tree before did: from where it
@@ -1955,8 +2125,9 @@ export class SnapScene {
     return this.shownItems[k].fold?.folded === true ? 1 : 0;
   }
 
-  /// Sizes every item and its column as the folds turning stand now: an item under a turning fold at that fold's size,
-  /// times the size of any fold turning over that, its rows and the room above its group with it.
+  /// Sizes and places every item as the folds turning stand now: an item under a turning fold at that fold's size,
+  /// times the size of any fold turning over that, its rows and the room above its group with it; each item where
+  /// [`layOut`] puts it at those sizes.
   private shape() {
     const t = this.tree;
     if (t === null) return;
@@ -1967,22 +2138,10 @@ export class SnapScene {
     }
     this.scaleOf = scale;
     this.rows = Float64Array.from(this.base, (r, k) => r * scale[k]);
-    this.pre = t.columns.map((col) => {
-      const p = new Float64Array(col.length + 1);
-      for (let r = 0; r < col.length; r += 1) p[r + 1] = p[r] + this.rows[col[r]];
-      return p;
-    });
-    // The room above each group of items under one item, the first of a column's groups having none: as large as the
-    // group is drawn, so that a group drawn whole has the whole of it.
-    this.gaps = t.columns.map((col) => {
-      const g = new Float64Array(col.length);
-      let groups = 0;
-      for (let r = 1; r < col.length; r += 1) {
-        if (t.parent[col[r]] !== t.parent[col[r - 1]]) groups += scale[col[r]];
-        g[r] = APART * groups;
-      }
-      return g;
-    });
+    this.tops = layOut(t, this.rows, scale);
+    let tall = 0;
+    for (let k = 0; k < this.tops.length; k += 1) tall = Math.max(tall, this.tops[k] + this.rows[k]);
+    this.tall = tall;
   }
 
   /// How each item is moved while folds turn: under a turning fold, drawn in towards its dot by as much as that fold
@@ -2002,6 +2161,38 @@ export class SnapScene {
       a[k] = a[p] * f;
       bx[k] = a[p] * (1 - f) * qx + bx[p];
       by[k] = a[p] * (1 - f) * qy + by[p];
+    }
+    return { a, bx, by };
+  }
+
+  /// How each item is moved and sized with the items near the pointer drawn larger where they stand ([`lensSize`]),
+  /// `lens` of the way there, after what `fold` moves it by while folds turn: each card grows round its own middle, as
+  /// `fold` draws it. Each item `k` is drawn at its place times `a[k]`, then moved by (`bx[k]`, `by[k]`), and its size
+  /// times `a[k]`, as [`movedNow`] gives it.
+  private magnified(
+    t: Tree,
+    x: (d: number) => number,
+    y: (d: number, rank: number) => number,
+    fold: { a: Float64Array; bx: Float64Array; by: Float64Array } | null,
+    lens: number,
+  ) {
+    const n = this.ids.length;
+    const [a, bx, by] = [new Float64Array(n), new Float64Array(n), new Float64Array(n)];
+    const p = this.lensAt;
+    const z = this.zoom;
+    for (let k = 0; k < n; k += 1) {
+      const d = t.depth[k];
+      const [fa, fx, fy] = fold === null ? [1, 0, 0] : [fold.a[k], fold.bx[k], fold.by[k]];
+      const wide = NODE_W * fa;
+      const left = fa * x(d) + fx;
+      const mid = fa * y(d, t.rank[k]) + fy;
+      const centre = left + wide / 2;
+      const rows = Math.abs(mid - p.y) / ROW;
+      const columns = Math.max(0, Math.abs(centre - p.x) - wide / 2) / PITCH;
+      const s = 1 + (lensSize(rows, columns, z) / z - 1) * lens;
+      a[k] = s * fa;
+      bx[k] = centre + s * (fx - centre);
+      by[k] = mid + s * (fy - mid);
     }
     return { a, bx, by };
   }
@@ -2074,25 +2265,24 @@ export class SnapScene {
     if (item.shadow) return this.shadow(item, k, view, top, h, row1);
     const mood = item.work !== null ? moodOf(item.work) : null;
     const card = new Graphics().roundRect(0, top, NODE_W, h, CARD_CORNER);
-    // A card whose work is running, or that needs the owner (it waits for the owner, or the engine stopped it), is
-    // filled with its state's colour, and its edge is a deeper shade of it. A card stopped for anything else has an
-    // edge of its grey and no fill, so that the filled ones stand out among them.
-    const state = mood !== null ? WORK()[mood] : null;
-    const filled = state !== null && (mood === 'owner' || mood === 'halted' || mood === 'running');
-    // A deliverable is no card of work: it has no box and no fill, only its number and title over a line, as a heading
-    // of the items under it, so that the cards of the items that are worked on stand out from it.
-    if (item.deliver) view.addChild(new Graphics().rect(0, top + h - DELIVER_LINE, NODE_W, DELIVER_LINE).fill(PALETTE.faint));
-    else {
-      const fill = filled ? mix(PALETTE.card, state, FILL) : PALETTE.card;
-      const edge =
-        state !== null
-          ? mix(PALETTE.card, state, mood === 'running' ? EDGE_RUNNING : EDGE_TINT)
-          : this.lit[k] === 1
-            ? PALETTE.branch
+    // Every card, a deliverable's as a work's, says who moves it next in the same colours (`Tone`): red and blue fill
+    // it, edged in a deeper shade; yellow, a work waiting its turn, edges it in its yellow with no fill, as a call waited
+    // for was. A card that moves no tone of its own edges it in a light step of the most pressing tone under it, so that
+    // what goes on under it shows on it, folded or not; with nothing moving under it, the plain edge.
+    const tone = this.tones.own.get(item) ?? 'grey';
+    const under = this.tones.under.get(item) ?? null;
+    const toned = TONE_COLOUR()[tone];
+    const fill = tone === 'red' || tone === 'blue' ? mix(PALETTE.card, toned, FILL) : PALETTE.card;
+    const edge =
+      tone === 'red' || tone === 'blue'
+        ? mix(PALETTE.card, toned, tone === 'blue' ? EDGE_RUNNING : EDGE_TINT)
+        : tone === 'yellow'
+          ? mix(PALETTE.card, toned, EDGE_TINT)
+          : under !== null
+            ? mix(PALETTE.card, TONE_COLOUR()[under], UNDER_EDGE)
             : PALETTE.edge;
-      view.addChild(card.fill(fill).stroke({ color: edge, width: EDGE_WIDTH }));
-      this.cardsDrawn.set(item.id, { rows: this.base[k], fill, edge });
-    }
+    view.addChild(card.fill(fill).stroke({ color: edge, width: EDGE_WIDTH }));
+    this.cardsDrawn.set(item.id, { rows: this.base[k], fill, edge });
     // What is new to the owner is said once, by the number at the card's right; no line at its left.
     const x = CARD_INSET;
     const number = new BitmapText({
@@ -2113,41 +2303,28 @@ export class SnapScene {
     view.addChild(number, title);
     // At the right of the first row: how many things its work waits for from the owner, white on red, the strongest
     // mark a card has, as what the owner looks for first; beside it, how many questions the owner may answer ahead,
-    // which hold the work at nothing yet, white on orange; its replies unread, white on the accent; and its returns
-    // sent back, framed in grey. What an item waits for stands under it in the tree, and no tag counts it again.
+    // which hold the work at nothing yet, white on orange; and its replies unread, white on the accent. What an item
+    // waits for stands under it in the tree, and no tag counts it again. Its returns sent back are counted on the
+    // System view and marked on the work's history, not on the card.
     let right = NODE_W - 8;
     const tags: DrawnTag[] = [];
-    const tag = (text: string, fill: string, sign: 'back' | null, solid: boolean) => {
+    const tag = (text: string, fill: string) => {
       tags.push({ text, fill });
-      const t = new BitmapText({ text, style: s.mono(solid ? PALETTE.onTag : fill) });
+      const t = new BitmapText({ text, style: s.mono(PALETTE.onTag) });
       const pad = 4;
-      const icon = sign !== null ? 10 : 0;
-      const w = t.width + icon + 2 * pad;
+      const w = t.width + 2 * pad;
       right -= w;
       const g = new Graphics();
-      if (solid) g.roundRect(right, row1 - 8, w, 16, 3).fill(fill);
-      else g.roundRect(right, row1 - 8, w, 16, 3).stroke({ color: fill, width: 1 });
-      const ax = right + pad;
-      if (sign === 'back') {
-        // A small arrow turning back, drawn: the font may have no such sign.
-        g.moveTo(ax + 7, row1 - 4)
-          .lineTo(ax + 7, row1 + 1)
-          .lineTo(ax + 1, row1 + 1)
-          .moveTo(ax + 3, row1 - 1)
-          .lineTo(ax + 1, row1 + 1)
-          .lineTo(ax + 3, row1 + 3)
-          .stroke({ color: fill, width: 1.2 });
-      }
-      t.position.set(right + pad + icon, row1 - t.height / 2);
+      g.roundRect(right, row1 - 8, w, 16, 3).fill(fill);
+      t.position.set(right + pad, row1 - t.height / 2);
       view.addChild(g, t);
       right -= 6;
     };
     // What waits for the owner in red, the strongest, as the engine's one list counts it; then the replies the owner has
     // not read, in the colour the map marks what is not read in.
-    if (item.asks > 0) tag(String(item.asks), PALETTE.red, null, true);
-    if (item.ahead > 0) tag(String(item.ahead), PALETTE.orange, null, true);
-    if (item.repliesUnread > 0) tag(String(item.repliesUnread), PALETTE.unseen, null, true);
-    if (item.work !== null && item.work.sentBack > 0) tag(String(item.work.sentBack), PALETTE.muted, 'back', false);
+    if (item.asks > 0) tag(String(item.asks), PALETTE.red);
+    if (item.ahead > 0) tag(String(item.ahead), PALETTE.orange);
+    if (item.repliesUnread > 0) tag(String(item.repliesUnread), PALETTE.unseen);
     this.tagsDrawn.set(item.id, tags);
     // Of an item whose work has ended, the lines that work added and removed, at the right of its one row, each in its
     // colour (`LINES_LOOKS`), as the item's window says them.
@@ -2299,7 +2476,7 @@ export class SnapScene {
   }
 
   /// How the card of item `id` was drawn, for the tests: how many rows high, and its fill and its edge's colour. None
-  /// for an item the tree does not draw, a shadow, and a deliverable, which has no card.
+  /// for an item the tree does not draw, and a shadow.
   cardLook(id: number): { rows: number; fill: string | number; edge: string | number } | null {
     return this.cardsDrawn.get(id) ?? null;
   }
@@ -2335,11 +2512,12 @@ export class SnapScene {
     const i = this.real.get(id);
     if (t === null || i === undefined) return null;
     const d = t.depth[i];
-    const line = this.app.screen.height / 2;
-    const [x, y] = [this.left + d * PITCH, line + (this.middle(d, t.rank[i]) - this.columns[d].at) * ROW];
+    const line = this.seen().height / 2;
+    const z = this.zoom;
+    const [x, y] = [this.left + d * PITCH, line + (this.middle(d, t.rank[i]) - this.at) * ROW];
     const m = this.drawnMoved;
-    if (m === null) return { x, y, size: 1, drawn: [x, y] };
-    return { x, y, size: m.a[i], drawn: [m.a[i] * x + m.bx[i], m.a[i] * y + m.by[i]] };
+    if (m === null) return { x: x * z, y: y * z, size: z, drawn: [x * z, y * z] };
+    return { x: x * z, y: y * z, size: m.a[i] * z, drawn: [(m.a[i] * x + m.bx[i]) * z, (m.a[i] * y + m.by[i]) * z] };
   }
 
   /// How bright the card of item `id` is drawn, for the tests: fully, or dimmed while something else is lit, eased
@@ -2414,13 +2592,12 @@ export class SnapScene {
     a.label.position.set(NODE_W - 8 - a.label.width, a.row - a.label.height / 2);
   }
 
-  /// Brings the item of rank `rank` in column `d` to the middle of the screen, its column the one the others follow.
+  /// Brings the item of rank `rank` in column `d` to the middle of the screen, up and down.
   private focus(d: number, rank: number): void {
     const t = this.tree;
     if (t === null) return;
-    this.realigning = false;
-    this.driver = d;
-    this.columns[d].aim = this.middle(d, Math.max(0, Math.min(t.columns[d].length - 1, rank)));
+    this.anchor = null;
+    this.aim = this.middle(d, Math.max(0, Math.min(t.columns[d].length - 1, rank)));
   }
 
   /// How many rows the item of rank `rank` in column `d` takes.
@@ -2429,102 +2606,9 @@ export class SnapScene {
     return this.rows[col[Math.max(0, Math.min(col.length - 1, rank))]];
   }
 
-  /// The middle of the item of rank `rank` in column `d`, in rows from the column's top.
+  /// The middle of the item of rank `rank` in column `d`, in rows from the tree's top.
   private middle(d: number, rank: number): number {
     return this.slot(d, rank) + this.rowsAt(d, rank) / 2;
-  }
-
-  /// Places column `c` with what joins it to the item of `from` nearest the middle of the screen, of those joined to
-  /// it, level with that item: the middle of the block of the items under it, or the item above it.
-  private level(c: number, from: number): void {
-    const t = this.tree as Tree;
-    const col = t.columns[from];
-    const line = this.columns[from].at;
-    let best = -1;
-    for (let r = 0; r < col.length; r += 1) {
-      const joined = c > from ? t.children[col[r]].length > 0 : t.parent[col[r]] >= 0;
-      if (joined && (best < 0 || Math.abs(this.middle(from, r) - line) < Math.abs(this.middle(from, best) - line)))
-        best = r;
-    }
-    if (best < 0) return;
-    const item = col[best];
-    let to: number;
-    if (c > from) {
-      const kids = t.children[item];
-      to = (this.middle(c, t.rank[kids[0]]) + this.middle(c, t.rank[kids[kids.length - 1]])) / 2;
-    } else to = this.middle(c, t.rank[t.parent[item]]);
-    this.columns[c].at = to - (this.middle(from, best) - line);
-  }
-
-  /// Moves column `c` towards where it stands by its links with the column `from` beside it, which it follows. Each
-  /// item of `from` near the middle of the screen wants what it is joined to in `c` level with it, the item above it or
-  /// any part of the block of the items under it, the more nearly the nearer the middle it is, and weighs the more. The
-  /// column stays where it is while every want is met, and else goes to the nearest place where the wants not met, each
-  /// pulling by its weight times how far it is from being met, pull it no further either way. Given `most`, it goes in
-  /// one frame only the way of its sign, and no more than that many rows: where the wants pull it the other way, it
-  /// stays. With nothing joining them near the middle, it stays.
-  private link(c: number, from: number, most?: number): void {
-    const t = this.tree as Tree;
-    const src = this.columns[from];
-    const me = this.columns[c];
-    const col = t.columns[from];
-    const line = src.at;
-    // Where each want is met, as the places of the column `c` at the middle of the screen, from `lows` to `highs`, and
-    // its weight: what stands from `top` to `bottom` of the column is level with an item `s` rows below the middle
-    // while its place is between `top - s` and `bottom - s`.
-    const lows: number[] = [];
-    const highs: number[] = [];
-    const weights: number[] = [];
-    const last = Math.min(col.length - 1, this.rankAt(from, line + 3 * REACH));
-    for (let r = this.rankAt(from, line - 3 * REACH); r <= last; r += 1) {
-      const s = this.middle(from, r) - line;
-      const item = col[r];
-      let top: number;
-      let bottom: number;
-      if (c > from) {
-        const kids = t.children[item];
-        if (kids.length === 0) continue;
-        const first = t.rank[kids[0]];
-        const end = t.rank[kids[kids.length - 1]];
-        top = this.slot(c, first);
-        bottom = this.slot(c, end) + this.rowsAt(c, end);
-      } else {
-        const above = t.parent[item];
-        if (above < 0) continue;
-        top = this.slot(c, t.rank[above]);
-        bottom = top + this.rowsAt(c, t.rank[above]);
-      }
-      const weight = Math.exp(-(s * s) / (2 * REACH * REACH));
-      const slack = SLACK * (1 / weight - 1);
-      lows.push(top - s - slack);
-      highs.push(bottom - s + slack);
-      weights.push(weight);
-    }
-    if (weights.length === 0) return;
-    const now = me.at;
-    // How hard the wants not met pull the column below `x`, those above it counted against: it grows with `x`.
-    const pull = (x: number) => {
-      let g = 0;
-      for (let i = 0; i < weights.length; i += 1) {
-        if (x < lows[i]) g += weights[i] * (x - lows[i]);
-        else if (x > highs[i]) g += weights[i] * (x - highs[i]);
-      }
-      return g;
-    };
-    const g = pull(now);
-    if (g === 0) return;
-    // The nearest place where the pull is spent: the last below where it still pulls down, or the first above where it
-    // still pulls up.
-    let lo = g > 0 ? Math.min(...lows) : now;
-    let hi = g > 0 ? now : Math.max(...highs);
-    for (let i = 0; i < 40; i += 1) {
-      const mid = (lo + hi) / 2;
-      if (g > 0 ? pull(mid) <= 0 : pull(mid) < 0) lo = mid;
-      else hi = mid;
-    }
-    const step = ((g > 0 ? lo : hi) - me.at) * LINK_EASE;
-    if (most === undefined) me.at += step;
-    else me.at += most > 0 ? Math.min(most, Math.max(0, step)) : Math.max(most, Math.min(0, step));
   }
 
   /// Adds to the funnels, or to `g`, the one from an item ending at `px`, its box from `top` to `bottom`, to items
@@ -2698,9 +2782,10 @@ export class SnapScene {
   }
 
   /// A card's edge as the light crosses it, from the card's left side to its right: the card at `x` with its middle
-  /// at `y` and `half` its height, and the pieces of the light `over` its crossing, each where it stands along the
-  /// crossing. Each piece lights the card's top and bottom edges between the two places it stands at, and the card's
-  /// own left or right edge where it is at that side, in the light's colour at that piece (`tint`).
+  /// at `y`, `half` its height and drawn `scale` times its size, and the pieces of the light `over` its crossing, each
+  /// where it stands along the crossing. Each piece lights the card's top and bottom edges between the two places it
+  /// stands at, and the card's own left or right edge where it is at that side, in the light's colour at that piece
+  /// (`tint`).
   private across(
     x: number,
     y: number,
@@ -2710,15 +2795,16 @@ export class SnapScene {
     line: number,
     glint: number,
     strength: number,
+    scale = 1,
   ) {
     over.forEach(({ from, to, bright }, n) => {
-      const [x0, x1] = [x + from, x + to];
+      const [x0, x1] = [x + from * scale, x + to * scale];
       const nose = n === over.length - 1 && to < NODE_W - NEAR;
       const lay = (g: Graphics) => {
         g.moveTo(x0, y - half).lineTo(x1, y - half);
         g.moveTo(x0, y + half).lineTo(x1, y + half);
         if (from <= 0) g.moveTo(x, y - half).lineTo(x, y + half);
-        if (to >= NODE_W) g.moveTo(x + NODE_W, y - half).lineTo(x + NODE_W, y + half);
+        if (to >= NODE_W) g.moveTo(x + NODE_W * scale, y - half).lineTo(x + NODE_W * scale, y + half);
       };
       this.coats(this.runEdges, lay, tint(bright), line, strength * bright, RUN.edgeWide, nose);
       // The glint within that line, as on a way, and only where the page is light: where it is dark the line under it
@@ -2770,10 +2856,10 @@ export class SnapScene {
     g.lineTo(...point(n, to));
   }
 
-  /// The rank of the item of column `d` at `place` rows from its top, the first whose place is not above it.
+  /// The rank of the item of column `d` at `place` rows from the tree's top, the first whose place is not above it.
   private rankAt(d: number, place: number): number {
     let lo = 0;
-    let hi = this.gaps[d].length;
+    let hi = (this.tree as Tree).columns[d].length;
     while (lo < hi) {
       const mid = (lo + hi) >> 1;
       if (this.slot(d, mid) + this.rowsAt(d, mid) < place) lo = mid + 1;
@@ -2782,12 +2868,12 @@ export class SnapScene {
     return lo;
   }
 
-  /// Where an item of a column starts, in rows from the column's top: the rows of the items above it, and the room
-  /// between the groups above it.
+  /// Where the item of rank `rank` in column `d` starts, in rows from the tree's top ([`layOut`]); a rank past either
+  /// end of the column a row further on for each rank past it.
   private slot(d: number, rank: number): number {
-    const g = this.gaps[d];
-    const r = Math.max(0, Math.min(g.length - 1, rank));
-    return this.pre[d][r] + (rank - r) + g[r];
+    const col = (this.tree as Tree).columns[d];
+    const r = Math.max(0, Math.min(col.length - 1, rank));
+    return this.tops[col[r]] + (rank - r);
   }
 
   /// Draws one frame `ms` on from the last drawn, without waiting for the browser to give one: what the scene does
@@ -2818,7 +2904,7 @@ export class SnapScene {
     gl?.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, this.pixel);
   }
 
-  /// Draws `frames` frames, every sixth with a scroll of most of a row over a column, waiting for the GPU each; gives
+  /// Draws `frames` frames, every sixth with a scroll of most of a row, waiting for the GPU each; gives
   /// the time of each frame in milliseconds.
   bench(frames: number): {
     meanMs: number;
@@ -2829,7 +2915,7 @@ export class SnapScene {
     const times: number[] = [];
     for (let k = 0; k < frames; k += 1) {
       const t0 = performance.now();
-      if (k % 6 === 0) this.scroll(1 + (k % 4), ROW * 0.7);
+      if (k % 6 === 0) this.scroll(ROW * 0.7);
       this.tick();
       this.app.renderer.render(this.app.stage);
       this.waitForGpu();
@@ -2938,96 +3024,124 @@ export class SnapScene {
     return { ...timesOf(took), made: this.stats.made };
   }
 
-  /// Makes the map's frame, and its height of a row: the longest column fits it twice, as a column may stand with
-  /// either end in the middle.
+  /// Makes the map's frame, and how large the tree is drawn in it: the whole tree fits inside its padding, in its
+  /// middle.
+  /// The console is told the map's size once it is first made.
   private buildMap(t: Tree) {
     this.map.removeChildren();
-    this.mapHigh = pixelsOf('--map-high', MAP_HIGH);
-    let longest = 1;
-    for (let d = 0; d < t.columns.length; d += 1) {
-      const n = t.columns[d].length;
-      longest = Math.max(longest, this.slot(d, n - 1) + this.rowsAt(d, n - 1));
-    }
-    this.mapRow = (this.mapHigh - 2 * MAP_PAD) / (2 * longest);
-    const wide = 2 * MAP_PAD + t.columns.length * MAP_STRIP + (t.columns.length - 1) * MAP_APART;
-    if (wide !== this.mapWide) {
-      this.mapWide = wide;
-      this.onMapWidth?.(wide);
+    const [wide, high] = [MAP_WIDE, MAP_HIGH];
+    const whole = this.extent();
+    const scale = Math.min(
+      (wide - 2 * MAP_PAD) / Math.max(1, whole.width),
+      (high - 2 * MAP_PAD) / Math.max(1, whole.height),
+    );
+    this.mapScale = scale;
+    this.mapOrigin = { x: (wide - whole.width * scale) / 2, y: (high - whole.height * scale) / 2 };
+    if (!this.mapTold) {
+      this.mapTold = true;
+      this.onMapSize?.(wide, high);
     }
     this.mapFrame
       .clear()
-      .roundRect(0, 0, wide, this.mapHigh, MAP_CORNER)
+      .roundRect(0, 0, wide, high, MAP_CORNER)
       .fill(PALETTE.page)
       .stroke({ color: PALETTE.line, width: 1 });
     this.mapMask
       .clear()
-      .rect(MAP_PAD / 2, MAP_PAD / 2, wide - MAP_PAD, this.mapHigh - MAP_PAD)
+      .rect(MAP_PAD / 2, MAP_PAD / 2, wide - MAP_PAD, high - MAP_PAD)
       .fill(0xffffff);
     this.mapBars.mask = this.mapMask;
-    this.map.addChild(this.mapFrame, this.mapMask, this.mapBars);
+    this.mapZoom?.destroy();
+    this.mapZoom = this.styles === null ? null : new BitmapText({ text: '', style: this.styles.mono(PALETTE.muted) });
+    this.map.addChild(this.mapFrame, this.mapMask, this.mapBars, this.mapZoomGround);
+    if (this.mapZoom !== null) this.map.addChild(this.mapZoom);
   }
 
-  /// Draws each column on the map as the items it holds, moved as the column is: each item a piece of the column's bar
-  /// as tall as its rows, a hairline apart where there is room, in the colour of how its card stands ([`mapColour`]);
-  /// in the accent across the bar where items are new to the owner; and where the item selected stands, the accent over
-  /// every other mark. Over the bars, in a thin light line round a faint ground that the bars show through, the part of
-  /// the tree the screen shows: from the first column it shows of to the last, as many rows as it holds round the
-  /// middle, where each column's place on the screen is. What it drew is kept, for the tests.
+  /// Where a point of the tree, `x` pixels right of its left side and `row` rows down from its top at its full size,
+  /// stands on the map.
+  private onMapAt(x: number, row: number): [number, number] {
+    return [this.mapOrigin.x + x * this.mapScale, this.mapOrigin.y + row * ROW * this.mapScale];
+  }
+
+  /// Draws the whole tree on the map, each item where it stands on the tree: a piece as wide as its card and as tall as
+  /// its rows, a hairline apart where there is room, in the colour of how its card stands ([`mapColour`]); in the accent
+  /// across it where an item is new to the owner; and where the item selected stands, the accent over every other mark.
+  /// Over them, in a thin light line round a faint ground that they show through, the part of the tree the screen
+  /// shows. What it drew is kept, for the tests.
   private drawMap(t: Tree) {
-    const mid = this.mapHigh / 2;
-    const { width, height } = this.app.screen;
-    const barAt = (d: number) => MAP_PAD + d * (MAP_STRIP + MAP_APART);
+    const { width, height } = this.seen();
+    const s = this.mapScale;
+    const card = NODE_W * s;
     this.mapBars.clear();
     const pieces: MapPiece[] = [];
     const unread: number[] = [];
-    this.columns.forEach((c, d) => {
-      const left = barAt(d);
-      t.columns[d].forEach((k, r) => {
-        const from = mid + (this.slot(d, r) - c.at) * this.mapRow;
-        const tall = this.rowsAt(d, r) * this.mapRow;
+    t.columns.forEach((col, d) => {
+      col.forEach((k, r) => {
+        const [x, from] = this.onMapAt(d * PITCH, this.slot(d, r));
+        const tall = this.rowsAt(d, r) * ROW * s;
         const gap = tall > 3 * MAP_GAP ? MAP_GAP : 0;
         const colour = this.mapColour(k);
-        this.mapBars.rect(left, from, MAP_STRIP, Math.max(0.5, tall - gap)).fill(colour);
+        this.mapBars.rect(x, from, card, Math.max(0.5, tall - gap)).fill(colour);
         pieces.push({ id: this.ids[k], column: d, y: from, height: tall, colour });
       });
-      // Where items are new to the owner, the accent across the bar.
+      // Where items are new to the owner, the accent across the piece.
       for (const r of this.fresh[d] ?? []) {
-        unread.push(this.ids[t.columns[d][r]]);
-        const at = mid + (this.slot(d, r) + this.rowsAt(d, r) / 2 - c.at) * this.mapRow;
-        this.mapBars.rect(left - 1, at - 1, MAP_STRIP + 2, 2).fill(PALETTE.accent);
+        unread.push(this.ids[col[r]]);
+        const [x, at] = this.onMapAt(d * PITCH, this.middle(d, r));
+        this.mapBars.rect(x - 1, at - 1, card + 2, 2).fill(PALETTE.accent);
       }
     });
-    // Where the item selected stands, the accent across its column's bar, over every other mark, a little wider, so that
-    // it is found again from anywhere.
+    // Where the item selected stands, the accent across its piece, over every other mark, a little wider, so that it is
+    // found again from anywhere.
     const chosen = this.selected === null ? undefined : this.real.get(this.selected);
     if (chosen !== undefined) {
-      const [d, r] = [t.depth[chosen], t.rank[chosen]];
-      const c = this.columns[d];
-      const at = mid + (this.slot(d, r) + this.rowsAt(d, r) / 2 - c.at) * this.mapRow;
-      this.mapBars.rect(barAt(d) - 2, at - 1.5, MAP_STRIP + 4, 3).fill(PALETTE.chosen);
+      const d = t.depth[chosen];
+      const [x, at] = this.onMapAt(d * PITCH, this.middle(d, t.rank[chosen]));
+      this.mapBars.rect(x - 2, at - 1.5, card + 4, 3).fill(PALETTE.chosen);
     }
-    // The part of the tree on the screen: the columns any of whose cards' room is on it, and round the middle the rows
-    // it holds.
-    const shown = this.columns.flatMap((_, d) => {
-      const x = this.left + d * PITCH;
-      return x + NODE_W > 0 && x < width ? [d] : [];
-    });
-    let frame: { x: number; y: number; width: number; height: number } | null = null;
-    if (shown.length > 0) {
-      const [first, last] = [shown[0], shown[shown.length - 1]];
-      const half = (height / ROW / 2) * this.mapRow;
-      frame = {
-        x: barAt(first) - MAP_FRAME_OUT,
-        y: mid - half,
-        width: barAt(last) + MAP_STRIP - barAt(first) + 2 * MAP_FRAME_OUT,
-        height: 2 * half,
-      };
-      this.mapBars
-        .rect(frame.x, frame.y, frame.width, frame.height)
-        .fill({ color: PALETTE.ink, alpha: MAP_FRAME_FILL })
-        .stroke({ color: PALETTE.faint, width: 1 });
+    // The part of the tree on the screen.
+    const [fx, fy] = this.onMapAt(-this.left, this.at - height / ROW / 2);
+    const frame = { x: fx, y: fy, width: width * s, height: height * s };
+    this.mapBars
+      .rect(frame.x, frame.y, frame.width, frame.height)
+      .fill({ color: PALETTE.ink, alpha: MAP_FRAME_FILL })
+      .stroke({ color: PALETTE.faint, width: 1 });
+    // How large the tree is drawn, at the bottom right.
+    const label = this.mapZoom;
+    if (label !== null) {
+      const said = `${Math.round(this.zoom * 100)}%`;
+      if (label.text !== said) label.text = said;
+      const inset = MAP_PAD / 2;
+      label.position.set(this.mapWide - inset - label.width, this.mapHigh - inset - label.height);
+      this.mapZoomGround
+        .clear()
+        .rect(label.x - 2, label.y - 1, label.width + 4, label.height + 2)
+        .fill(PALETTE.page);
     }
     this.mapDrawn = { frame, pieces, unread };
+  }
+
+  /// Whether the point `(px, py)` of the canvas is on the map.
+  private onMap(px: number, py: number): boolean {
+    const [x, y] = [px - this.map.x, py - this.map.y];
+    return x >= 0 && x <= this.mapWide && y >= 0 && y <= this.mapHigh;
+  }
+
+  /// Moves the screen to the point `(px, py)` of the canvas, on the map: the point of the tree there comes to the middle
+  /// of the screen.
+  private mapTo(px: number, py: number): void {
+    const t = this.tree;
+    if (t === null || t.columns.length === 0) return;
+    this.mark('view');
+    this.anchor = null;
+    this.goal = null;
+    const s = this.mapScale;
+    const x = (px - this.map.x - this.mapOrigin.x) / s;
+    const row = (py - this.map.y - this.mapOrigin.y) / (ROW * s);
+    this.at = this.bounded(row);
+    this.aim = this.at;
+    this.leftGoal = null;
+    this.left = this.seen().width / 2 - x;
   }
 
   /// The colour an item's piece of the map takes, as its card stands: of its work's state while a work is drawn on it,
@@ -3046,36 +3160,134 @@ export class SnapScene {
     return this.mapDrawn;
   }
 
-  /// A scroll of `dy` pixels over column `d`: it moves the column, which the others then follow, as far as leaves
-  /// `KEEP` rows of it on the screen at its top or its bottom.
-  scroll(d: number, dy: number): void {
-    const t = this.tree;
-    if (t === null || d < 0 || d >= this.columns.length) return;
-    const c = this.columns[d];
-    this.realigning = false;
-    if (d !== this.driver) {
-      this.driver = d;
-      c.aim = c.at;
+  /// The row `row` taken as near as it may be to the row at the middle of the screen: as far as leaves `KEEP` rows of
+  /// the tree on the screen at its top or its bottom.
+  private bounded(row: number): number {
+    const room = Math.max(0, this.seen().height / 2 / ROW - KEEP);
+    return Math.max(-room, Math.min(this.tall + room, row));
+  }
+
+  /// A scroll of `dy` pixels of the screen: it moves the tree up or down, as far as leaves `KEEP` rows of it on the
+  /// screen at its top or its bottom.
+  scroll(dy: number): void {
+    if (this.tree === null) return;
+    this.anchor = null;
+    this.goal = null;
+    this.aim = this.bounded(this.aim + dy / (ROW * this.zoom));
+  }
+
+  /// How wide and how tall the whole tree is, in pixels at its full size.
+  private extent(): { width: number; height: number } {
+    const columns = this.tree?.columns.length ?? 0;
+    return { width: Math.max(0, columns - 1) * PITCH + NODE_W, height: this.tall * ROW };
+  }
+
+  /// How large the whole tree is drawn to fit the screen, or `wide` pixels of its width, its room round it included,
+  /// and never larger than its full size.
+  private fitZoom(wide = this.app.screen.width): number {
+    const { height } = this.app.screen;
+    const whole = this.extent();
+    return Math.min(ZOOM_MOST, (wide - 2 * FIT_ROOM) / whole.width, (height - 2 * EDGE) / Math.max(ROW, whole.height));
+  }
+
+  /// Draws the tree `zoom` times its full size, the point `(sx, sy)` of the canvas staying on the same point of the
+  /// tree: no larger than its full size, and no smaller than a part of the size at which it fits the screen.
+  zoomAt(zoom: number, sx: number, sy: number): void {
+    if (this.tree === null) return;
+    this.mark('view');
+    const least = Math.max(ZOOM_LEAST, Math.min(ZOOM_MOST, this.fitZoom() * ZOOM_UNDER_FIT));
+    const to = Math.max(least, Math.min(ZOOM_MOST, zoom));
+    const z = this.zoom;
+    const mid = this.app.screen.height / 2;
+    const row = this.at + (sy - mid) / (z * ROW);
+    const along = sx / z - this.left;
+    this.zoom = to;
+    this.anchor = null;
+    this.goal = null;
+    this.leftGoal = null;
+    this.at = row - (sy - mid) / (to * ROW);
+    this.aim = this.at;
+    this.left = sx / to - along;
+  }
+
+  /// Whether the whole tree is made to fit the screen, until it goes back ([`overview`]).
+  wholeShown(): boolean {
+    return this.back !== null;
+  }
+
+  /// Makes the whole tree fit the screen between `from` and `to` pixels from its left, which what stands over the tree
+  /// leaves, in the middle of that room, gliding there; and once it does, glides back to where it was before.
+  overview(from = 0, to = this.app.screen.width): void {
+    if (this.tree === null) return;
+    this.mark('view');
+    this.anchor = null;
+    this.leftGoal = null;
+    if (this.back !== null) {
+      // Back to the size it was, round the pointer where it is over the tree; else back to where it was.
+      const back = this.back;
+      const zoom = back.zoom;
+      const sp = this.screenPointer;
+      this.back = null;
+      if (sp === null) {
+        this.goal = back;
+        return;
+      }
+      const mid = this.app.screen.height / 2;
+      const pivot = {
+        sx: sp.x,
+        sy: sp.y,
+        row: this.at + (sp.y - mid) / (this.zoom * ROW),
+        along: sp.x / this.zoom - this.left,
+      };
+      this.goal = { zoom, at: pivot.row - (sp.y - mid) / (zoom * ROW), left: sp.x / zoom - pivot.along, pivot };
+      return;
     }
-    const room = Math.max(0, this.app.screen.height / 2 / ROW - KEEP);
-    const last = t.columns[d].length - 1;
-    c.aim = Math.max(this.middle(d, 0) - room, Math.min(this.middle(d, last) + room, c.aim + dy / ROW));
+    this.back = { zoom: this.zoom, at: this.aim, left: this.left };
+    const wide = Math.max(2 * FIT_ROOM + 1, to - from);
+    const zoom = this.fitZoom(wide);
+    this.goal = { zoom, at: this.tall / 2, left: (from + wide / 2) / zoom - this.extent().width / 2 };
+  }
+
+  /// Brings the item at `k` to the middle of the screen at the tree's full size, gliding there.
+  private closeUpOn(k: number): void {
+    const t = this.tree;
+    if (t === null) return;
+    this.mark('view');
+    this.anchor = null;
+    this.back = null;
+    this.leftGoal = null;
+    const d = t.depth[k];
+    const width = this.app.screen.width / ZOOM_MOST;
+    this.goal = { zoom: ZOOM_MOST, at: this.middle(d, t.rank[k]), left: width / 2 - d * PITCH - NODE_W / 2 };
   }
 
   private wheel = (e: WheelEvent) => {
     e.preventDefault();
-    if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? this.app.screen.height : 1;
+    const [dx, dy] = [e.deltaX * unit, e.deltaY * unit];
+    // With Shift held, or in a pinch, which comes as the wheel with Ctrl held, the tree grows or shrinks round the
+    // pointer. Some systems turn the wheel with Shift held into a sideways turn, so the larger of the two counts.
+    if (e.shiftKey || e.ctrlKey) {
+      const turn = Math.abs(dy) >= Math.abs(dx) ? dy : dx;
+      const r = this.app.canvas.getBoundingClientRect();
+      const by = Math.exp(-turn * (e.ctrlKey ? ZOOM_PINCH : ZOOM_WHEEL));
+      this.zoomAt(this.zoom * by, e.clientX - r.left, e.clientY - r.top);
+      return;
+    }
+    if (dx !== 0) {
+      this.mark('view');
+      this.anchor = null;
+      this.goal = null;
       this.leftGoal = null;
-      this.left -= e.deltaX;
-    } else this.scroll(this.hovered, e.deltaY);
+      this.left -= dx / this.zoom;
+    }
+    if (dy !== 0) this.scroll(dy);
   };
 
   private hover = (e: PointerEvent) => {
     this.mark('pointer');
     const r = this.app.canvas.getBoundingClientRect();
-    const d = Math.floor((e.clientX - r.left - this.left + (PITCH - NODE_W) / 2) / PITCH);
-    this.hovered = d >= 0 && d < this.columns.length ? d : -1;
-    this.pointer = { x: e.clientX - r.left, y: e.clientY - r.top };
+    this.screenPointer = { x: e.clientX - r.left, y: e.clientY - r.top };
   };
 
   /// The item under the pointer, by its index in the tree, or none: the card of column `d` whose box holds the
@@ -3120,25 +3332,37 @@ export class SnapScene {
   ): number {
     const p = this.pointer;
     const d = this.hovered;
-    if (p === null || d < 0 || d >= this.columns.length || p.x < x(d) + from || p.x > x(d) + to) return -1;
-    const c = this.columns[d];
-    const line = this.app.screen.height / 2;
-    const rank = this.rankAt(d, (p.y - line) / ROW + c.at);
+    if (p === null || d < 0 || d >= t.columns.length || p.x < x(d) + from || p.x > x(d) + to) return -1;
+    const line = this.seen().height / 2;
+    const rank = this.rankAt(d, (p.y - line) / ROW + this.at);
     if (rank >= t.columns[d].length) return -1;
     const h = high(this.rowsAt(d, rank)) / 2;
     return Math.abs(p.y - y(d, rank)) <= h ? t.columns[d][rank] : -1;
   }
 
+  /// A move of the pointer while it is held down: on the map, the screen goes where the pointer is; on the tree, the
+  /// tree goes with the pointer, every way.
   private drag = (e: PointerEvent) => {
+    if (this.mapDragging) {
+      const r = this.app.canvas.getBoundingClientRect();
+      this.mapTo(e.clientX - r.left, e.clientY - r.top);
+      return;
+    }
     if (this.dragging === null) return;
+    this.mark('view');
+    this.anchor = null;
+    this.goal = null;
     this.leftGoal = null;
-    this.left += e.clientX - this.dragging.x;
-    this.dragging = { x: e.clientX };
+    this.left += (e.clientX - this.dragging.x) / this.zoom;
+    this.at = this.bounded(this.at - (e.clientY - this.dragging.y) / (ROW * this.zoom));
+    this.aim = this.at;
+    this.dragging = { x: e.clientX, y: e.clientY };
   };
 
   private up = (e: PointerEvent) => {
     this.mark('pointer');
     this.dragging = null;
+    this.mapDragging = false;
     const d = this.down;
     this.down = null;
     if (d === null || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4 || this.tree === null) return;
@@ -3148,6 +3372,14 @@ export class SnapScene {
     // A click on an item selects it, and on it again, or on no item, lets it go. A click on a shadow selects the item
     // it points to and brings it to the middle of the screen, so that the columns come to where it stands.
     const i = this.under;
+    // While the whole tree is made to fit the screen, a click on an item selects it and brings it to the middle of the
+    // screen at its full size.
+    if (i >= 0 && this.shadows[i] === 0 && this.back !== null) {
+      this.selected = this.ids[i];
+      this.closeUpOn(i);
+      this.announce();
+      return;
+    }
     if (i < 0) this.selected = null;
     else if (this.shadows[i] === 1) {
       const to = this.real.get(this.ids[i]);
@@ -3165,8 +3397,9 @@ export class SnapScene {
 
   /// Brings the item numbered `id` into view, within the `room` pixels of the screen's width from its left that the
   /// window beside the tree leaves: to the middle of the screen if it is above or below what is seen, and, if its
-  /// column is not wholly within the room, the columns moved sideways only until it is, a little in from the side it
-  /// was out at. An item already in view stays where it is.
+  /// column is not wholly within the room, the tree moved sideways only until it is, a little in from the side it was
+  /// out at. An item already in view stays where it is. While the tree is going somewhere as a whole, the item is
+  /// brought into view where the tree is going.
   reveal(id: number, room: number): void {
     this.mark('view');
     const t = this.tree;
@@ -3174,14 +3407,22 @@ export class SnapScene {
     if (t === null || i === undefined) return;
     const d = t.depth[i];
     const rank = t.rank[i];
-    const c = this.columns[d];
-    const height = this.app.screen.height;
-    const y = height / 2 + (this.middle(d, rank) - c.at) * ROW;
+    const g = this.goal;
+    const view = g ?? { zoom: this.zoom, at: this.at, left: this.left };
+    const height = this.app.screen.height / view.zoom;
+    const wide = room / view.zoom;
+    const y = height / 2 + (this.middle(d, rank) - view.at) * ROW;
     const h = high(this.rowsAt(d, rank)) / 2;
-    const x = this.left + d * PITCH;
-    if (y - h < EDGE || y + h > height - EDGE) this.focus(d, rank);
-    if (x < 0) this.leftGoal = INSET - d * PITCH;
-    else if (x + NODE_W > room) this.leftGoal = room - INSET - NODE_W - d * PITCH;
+    const x = view.left + d * PITCH;
+    const toAt = y - h < EDGE || y + h > height - EDGE ? this.middle(d, rank) : null;
+    const toLeft = x < 0 ? INSET - d * PITCH : x + NODE_W > wide ? wide - INSET - NODE_W - d * PITCH : null;
+    if (g !== null) {
+      if (toAt !== null) g.at = toAt;
+      if (toLeft !== null) g.left = toLeft;
+      return;
+    }
+    if (toAt !== null) this.focus(d, rank);
+    if (toLeft !== null) this.leftGoal = toLeft;
   }
 
   /// Flashes the soft light round the item numbered `id` once, from the next frame: it grows wider and stronger and
@@ -3198,15 +3439,13 @@ export class SnapScene {
     return this.turnFold(this.under);
   }
 
-  /// Tells the console to fold the items under the item at `k` away, or show them again, where it has any; its column
-  /// becomes the one the others follow, so that the items shown under it come level with it. Whether it had any.
+  /// Tells the console to fold the items under the item at `k` away, or show them again, where it has any; the item
+  /// stays where it is on the screen while the tree changes round it. Whether it had any.
   private turnFold(k: number): boolean {
     const fold = k < 0 ? null : this.shownItems[k].fold;
-    if (fold == null || this.tree === null) return false;
-    const c = this.tree.depth[k];
-    this.realigning = false;
-    this.driver = c;
-    this.columns[c].aim = this.columns[c].at;
+    const t = this.tree;
+    if (fold == null || t === null) return false;
+    this.anchor = { id: this.ids[k], off: this.middle(t.depth[k], t.rank[k]) - this.at };
     this.onFold?.(this.ids[k], !fold.folded);
     return true;
   }
@@ -3263,36 +3502,70 @@ export class SnapScene {
 
   /// Draws the frame at `now`, `step` milliseconds after the one before ([`advance`]).
   private draw(t: Tree, now: number, step: number) {
-    const { width, height } = this.app.screen;
+    // The tree is drawn at its full size, the whole of it made larger or smaller as it is zoomed: what is worked out
+    // here is in pixels at its full size, of which the screen shows `width` by `height`.
+    // The items take the sizes and places the folds turning give them now, the item held staying where it is on the
+    // screen. Where the tree is going as a whole, it goes a part of the way; else the row at the middle of the screen
+    // goes a part of the way to where the wheel took it.
+    if (this.turns.size > 0) {
+      this.shape();
+      this.hold();
+    }
+    const g = this.goal;
+    if (g !== null) {
+      this.zoom += (g.zoom - this.zoom) * SNAP;
+      // Round a pivot, the point of the tree under it stays under it at every size on the way.
+      if (g.pivot === undefined) {
+        this.at += (g.at - this.at) * SNAP;
+        this.left += (g.left - this.left) * SNAP;
+      } else {
+        const p = g.pivot;
+        this.at = p.row - (p.sy - this.app.screen.height / 2) / (this.zoom * ROW);
+        this.left = p.sx / this.zoom - p.along;
+      }
+      const there =
+        Math.abs(g.zoom - this.zoom) < 1e-3 && Math.abs(g.at - this.at) * ROW < 0.5 && Math.abs(g.left - this.left) < 0.5;
+      if (there) {
+        [this.zoom, this.at, this.left] = [g.zoom, g.at, g.left];
+        this.goal = null;
+      }
+      this.aim = this.at;
+    } else {
+      this.at += (this.aim - this.at) * GLIDE;
+      if (Math.abs(this.aim - this.at) * ROW < REST) this.at = this.aim;
+    }
+    this.world.scale.set(this.zoom);
+    const { width, height } = this.seen();
     const line = height / 2;
-    // The columns take the sizes the folds turning give them now. The column followed goes a part of the way to where
-    // it is taken; the others after it, out from it each way.
-    if (this.turns.size > 0) this.shape();
-    const was = this.columns.map((c) => c.at);
+    // Where the pointer is on the tree, and the column it is over, as the tree now stands.
+    const sp = this.screenPointer;
+    this.pointer = sp === null ? null : { x: sp.x / this.zoom, y: sp.y / this.zoom };
+    const over = this.pointer === null ? -1 : Math.floor((this.pointer.x - this.left + (PITCH - NODE_W) / 2) / PITCH);
+    this.hovered = over >= 0 && over < t.columns.length ? over : -1;
     // Whether anything the still parts draw is still easing at this frame, which draws them again at the next.
     let easing = false;
-    this.columns.forEach((c, d) => {
-      // The blue lines at the column's edges fade in while the pointer is over it, and out once it leaves, in about
-      // half a second.
-      const warm = d === this.hovered ? 1 : 0;
-      c.warm += (warm - c.warm) * (1 - Math.exp(-step / TURN));
-      if (Math.abs(warm - c.warm) < SETTLED) c.warm = warm;
-      else easing = true;
-      if (d !== this.driver) return;
-      c.at += (c.aim - c.at) * GLIDE;
-      if (Math.abs(c.aim - c.at) * ROW < REST) c.at = c.aim;
-    });
-    const moved = (d: number) => PACE * (this.columns[d].at - was[d]);
-    if (this.realigning) this.realignStep();
-    else {
-      for (let d = this.driver + 1; d < this.columns.length; d += 1) this.link(d, d - 1, moved(d - 1));
-      for (let d = this.driver - 1; d >= 0; d -= 1) this.link(d, d + 1, moved(d + 1));
-    }
-    const y = (d: number, rank: number) => {
-      const c = this.columns[d];
-      return line + (this.middle(d, rank) - c.at) * ROW;
-    };
-    const half = (d: number, rank: number) => high(this.rowsAt(d, rank)) / 2;
+    // The items near the pointer are drawn larger while the tree is drawn smaller than its full size and the pointer is
+    // on the tree, not on the map, and the tree is not being moved or going anywhere; round the pointer as it moves,
+    // coming in and going out smoothly.
+    const lensWanted =
+      this.gridBack === null &&
+      this.pointer !== null &&
+      this.zoom < LENS_UNDER &&
+      this.dragging === null &&
+      !this.mapDragging &&
+      g === null &&
+      !(sp !== null && this.map.visible && this.onMap(sp.x, sp.y));
+    if (lensWanted && this.pointer !== null) this.lensAt = { ...this.pointer };
+    const lensTo = lensWanted ? 1 : 0;
+    this.lens += (lensTo - this.lens) * (1 - Math.exp(-step / LENS_EASE));
+    if (Math.abs(lensTo - this.lens) < SETTLED) this.lens = lensTo;
+    else easing = true;
+    const lensing = this.lens > 0 && this.zoom < 1;
+    const drawnLens = this.lensDrawn;
+    const lensMoved =
+      lensing && (this.lens !== drawnLens.lens || this.lensAt.x !== drawnLens.x || this.lensAt.y !== drawnLens.y);
+    this.lensDrawn = { lens: this.lens, x: this.lensAt.x, y: this.lensAt.y };
+    const y = (d: number, rank: number) => line + (this.middle(d, rank) - this.at) * ROW;
     // The marks of cells running: lit, then in the last part of each beat faded out and back in, every running node
     // at once.
     const beat = (now % this.beat.ms) / this.beat.ms;
@@ -3307,23 +3580,22 @@ export class SnapScene {
       this.left += (goal - this.left) * SNAP;
       if (Math.abs(goal - this.left) < 0.5) this.leftGoal = null;
     }
-    this.left = bound(this.left);
+    if (g === null) this.left = bound(this.left);
     const x = (d: number) => this.left + d * PITCH;
     // The still parts of the tree, the cards where they stand, the funnels, the rings and the ribbons, the soft lights,
     // the dots, the edges and the map, are drawn again only where something they draw changed: a new tree, the
-    // pointer, a selection, a flash, the columns moving, a fold turning, the screen's size, or what was still easing at
-    // the last frame. Else they stand as they were drawn, and only the lights, the pulses and the ages are drawn.
-    // Moved since the last frame: by the glide of this frame, or by a pan or a scroll between the two.
-    const shifted =
-      this.left !== this.drawnLeft ||
-      this.columns.length !== this.drawnCols.length ||
-      this.columns.some((c, d) => c.at !== this.drawnCols[d]);
+    // pointer, a selection, a flash, the tree moving or zoomed, a fold turning, the screen's size, or what was still
+    // easing at the last frame. Else they stand as they were drawn, and only the lights, the pulses and the ages are
+    // drawn. Moved since the last frame: by the glide of this frame, or by a pan, a scroll or a zoom between the two.
+    const view = this.drawnView;
+    const shifted = this.left !== view.left || this.at !== view.at || this.zoom !== view.zoom;
     const sized = width !== this.drawnSize[0] || height !== this.drawnSize[1];
     const why = [...this.dirty];
     if (this.turns.size > 0) why.push('turns');
     if (shifted) why.push('moved');
     if (sized) why.push('size');
     if (this.easing) why.push('easing');
+    if (lensMoved) why.push('lens');
     const redraw = why.length > 0;
     for (const w of why) this.stats.redrawn[w] = (this.stats.redrawn[w] ?? 0) + 1;
     // Where the ways stand anew: a new tree, the theme, a fold turning, the columns moved, the screen's size, or the
@@ -3341,6 +3613,24 @@ export class SnapScene {
     const at = (k: number, px: number, py: number): [number, number] =>
       m === null ? [px, py] : [m.a[k] * px + m.bx[k], m.a[k] * py + m.by[k]];
     const size = (k: number) => (m === null ? 1 : m.a[k]);
+    // The cards near the pointer drawn larger, and they alone: the funnels, the ways and the dots stand where they do.
+    // Where a point of the card of item `k` is drawn, and how large the card is.
+    const lens = lensing ? this.magnified(t, x, y, m, this.lens) : null;
+    const cardAt = (k: number, px: number, py: number): [number, number] =>
+      lens === null ? at(k, px, py) : [lens.a[k] * px + lens.bx[k], lens.a[k] * py + lens.by[k]];
+    const cardSize = (k: number) => (lens === null ? size(k) : lens.a[k]);
+    // Where item `k` stands and how large, as the funnels and the ways meet it; and where its card is drawn and how
+    // large: each its left side, its middle, its width and half its height.
+    const box = (k: number) => {
+      const d = t.depth[k];
+      const [bx, by] = at(k, x(d), y(d, t.rank[k]));
+      return { x: bx, y: by, w: NODE_W * size(k), h: (high(this.base[k]) / 2) * size(k) };
+    };
+    const cardBox = (k: number) => {
+      const d = t.depth[k];
+      const [bx, by] = cardAt(k, x(d), y(d, t.rank[k]));
+      return { x: bx, y: by, w: NODE_W * cardSize(k), h: (high(this.base[k]) / 2) * cardSize(k) };
+    };
     if (redraw) {
       this.drawnSize = [width, height];
       this.stats.redraws += 1;
@@ -3348,6 +3638,7 @@ export class SnapScene {
       this.marks.clear();
       const nowShown = new Set<Container>();
       const drawn: number[] = [];
+      const lensGrounded = new Set<number>();
       const rows = Math.ceil(height / ROW / 2) + 2;
       // The funnel under the pointer, as it is drawn: every funnel folds, one over shadows alone as well.
       const pointer = this.pointer;
@@ -3356,23 +3647,37 @@ export class SnapScene {
         const cx = x(d);
         if (cx > width || cx + NODE_W < 0) continue;
         const col = t.columns[d];
-        const c = this.columns[d];
-        const centre = this.rankAt(d, c.at);
+        const centre = this.rankAt(d, this.at);
         for (let rank = Math.max(0, centre - rows); rank < Math.min(col.length, centre + rows); rank += 1) {
           const yy = y(d, rank);
           if (yy < -2 * ROW || yy > height + 2 * ROW) continue;
           const item = col[rank];
           const view = this.views[item];
-          view.position.set(...at(item, cx, yy));
-          view.scale.set(size(item));
+          view.position.set(...cardAt(item, cx, yy));
+          view.scale.set(cardSize(item));
+          // The larger a card is drawn, the more it stands over the others, on the page's ground.
+          view.zIndex = lensing ? cardSize(item) : 0;
+          if (lensing && cardSize(item) > 1 + SETTLED) {
+            let ground = this.lensGrounds.get(item);
+            if (ground === undefined) {
+              ground = new Graphics();
+              this.lensGrounds.set(item, ground);
+              this.layer.addChild(ground);
+            }
+            const b = cardBox(item);
+            ground.clear().roundRect(b.x, b.y - b.h, b.w, 2 * b.h, CARD_CORNER).fill(PALETTE.page);
+            ground.zIndex = view.zIndex - SETTLED;
+            lensGrounded.add(item);
+          }
           nowShown.add(view);
           drawn.push(item);
           if (!this.shown.has(view)) this.layer.addChild(view);
         }
         if (d === 0) continue;
         // The funnel from each item of the column to the left to the items under it: from its top to the top of the
-        // first and from its bottom to the bottom of the last, filled. While the item's fold turns, the whole funnel is
-        // drawn in towards its dot with the items under it, its end at the card too.
+        // first and from its bottom to the bottom of the last, filled, each end where its card is drawn. While the
+        // item's fold turns, the whole funnel is drawn in towards its dot with the items under it, its end at the card
+        // too.
         const px = x(d - 1) + NODE_W;
         const prev = t.columns[d - 1];
         for (let r = 0; r < prev.length; r += 1) {
@@ -3382,10 +3687,11 @@ export class SnapScene {
           const [one, end] = [kids[0], kids[kids.length - 1]];
           const py = y(d - 1, r);
           const ph = high(this.base[i]) / 2;
-          const [fx, top] = at(one, px, py - ph);
-          const [, bottom] = at(one, px, py + ph);
+          const from = this.turns.has(this.ids[i]) ? one : i;
+          const [fx, top] = at(from, px, py - ph);
+          const [, bottom] = at(from, px, py + ph);
           const [gx, first] = at(one, cx, y(d, t.rank[one]) - high(this.base[one]) / 2);
-          const [, last] = at(one, cx, y(d, t.rank[end]) + high(this.base[end]) / 2);
+          const [, last] = at(end, cx, y(d, t.rank[end]) + high(this.base[end]) / 2);
           if (Math.max(bottom, last) < 0 || Math.min(top, first) > height) continue;
           this.funnel(fx, top, bottom, gx, first, last);
           const on = pointer !== null && inFunnel(fx, top, bottom, gx, first, last, pointer.x, pointer.y);
@@ -3393,9 +3699,34 @@ export class SnapScene {
         }
       }
       this.links.fill({ color: PALETTE.other, alpha: PALETTE.otherAlpha * linksStrength(this.dim) });
+      for (const [k, ground] of this.lensGrounds) {
+        if (lensGrounded.has(k)) continue;
+        ground.destroy();
+        this.lensGrounds.delete(k);
+      }
       // What is under the pointer: a card first; else the dot of an item folded, past its card; else a funnel.
-      this.under = this.pointed(t, x, y);
-      const dot = this.under >= 0 ? -1 : this.dotPointed(t, x, y);
+      // While the items near the pointer are drawn larger, by where each card and its dot are drawn.
+      let dot: number;
+      if (lensing && pointer !== null) {
+        const inside = (k: number) => {
+          const b = cardBox(k);
+          return pointer.x >= b.x && pointer.x <= b.x + b.w && Math.abs(pointer.y - b.y) <= b.h;
+        };
+        const onDot = (k: number) => {
+          if (this.shownItems[k].fold?.folded !== true) return false;
+          const b = box(k);
+          const edge = b.x + b.w;
+          return pointer.x > edge && pointer.x <= edge + FOLD_REACH * size(k) && Math.abs(pointer.y - b.y) <= b.h;
+        };
+        // Of the cards that hold the pointer, the one drawn over the others: the largest.
+        const top = (holds: (k: number) => boolean) =>
+          drawn.reduce((best, k) => (holds(k) && (best < 0 || cardSize(k) > cardSize(best)) ? k : best), -1);
+        this.under = top(inside);
+        dot = this.under >= 0 ? -1 : top(onDot);
+      } else {
+        this.under = this.pointed(t, x, y);
+        dot = this.under >= 0 ? -1 : this.dotPointed(t, x, y);
+      }
       this.underFold = this.under >= 0 ? -1 : dot >= 0 ? dot : (funnelled?.k ?? -1);
       // The fold under the pointer: its dot set in a disc, or its funnel filled, in the pointer's tint under the lit
       // ways; the pointer a hand; and what a click does and what stands under the item said on pointing.
@@ -3465,19 +3796,10 @@ export class SnapScene {
       }
     }
     // While the pointer, the selection or the search lights something, every other item drawn is dimmed, more under
-    // the pointer than for the selection alone, so that the lit items and what joins them stand out; it comes and goes
-    // over a moment, so that a pointer passing over the tree does not make it flicker.
-    // What the dimming goes by is not the pointer's every move: an item becomes the one in focus only once the
-    // pointer has rested on it a moment, and the focus is let go only once the pointer has been off every item a
-    // moment. So a pointer crossing many items changes nothing, and going from one item to the next fades one way
-    // into the other. Each item then fades to its own brightness, slowly down and a little faster up.
-    if (this.under !== this.hoverWas) {
-      this.hoverWas = this.under;
-      this.hoverAt = now;
-    }
-    const rested = now - this.hoverAt;
-    if (this.under >= 0 && rested > DWELL_ON) this.inFocus = chain;
-    else if (this.under < 0 && rested > DWELL_OFF) this.inFocus = new Set();
+    // the pointer than for the selection alone, so that the lit items and what joins them stand out. The item under
+    // the pointer and what joins it are lit at once; everything else goes to its brightness over a moment, down as
+    // the light leaves it and back up once nothing is lit, so that the tree fades rather than jumps.
+    this.inFocus = this.under >= 0 ? chain : new Set();
     const focus = this.inFocus;
     // While the search is open, every item is dimmed but those it finds, lit as the items in focus are.
     const searching = this.found !== null;
@@ -3487,10 +3809,11 @@ export class SnapScene {
     const aim = focus.size > 0 || chosen.size > 0 || searching ? DIM : 1;
     this.dim = eased(this.dim, aim, step);
     if (this.dim !== aim) easing = true;
+    const inLight = (i: number) => focus.has(i) || chosen.has(i) || finding.has(i);
     for (const i of drawn) {
       const view = this.views[i];
-      const to = aim === 1 || focus.has(i) || chosen.has(i) || finding.has(i) ? 1 : DIM;
-      view.alpha = eased(view.alpha, to, step);
+      const to = aim === 1 || inLight(i) ? 1 : DIM;
+      view.alpha = inLight(i) ? dimmed(view.alpha, to, step) : eased(view.alpha, to, step);
       if (view.alpha !== to) easing = true;
     }
     // The way from each item whose work runs up to its root, lit in the colour of a running card's edge, with one
@@ -3504,7 +3827,8 @@ export class SnapScene {
     let strengthened = false;
     for (const [i, to] of wayAims(this.runWays, t.parent, shining, aim !== 1)) {
       const had = this.runStrength.get(i);
-      const now = eased(had ?? to, to, step);
+      const lights = shining.has(i) && shining.has(t.parent[i]);
+      const now = lights ? dimmed(had ?? to, to, step) : eased(had ?? to, to, step);
       if (now !== had) strengthened = true;
       this.runStrength.set(i, now);
     }
@@ -3604,7 +3928,6 @@ export class SnapScene {
     const meets: { place: number; burn: number; lay: (to: Strokes, burn: number) => void }[] = [];
     for (const [i, strength] of this.runStrength) {
       const p = t.parent[i];
-      const d = t.depth[i];
       const { px, py, cx, iy } = ends(i);
       if (cx < 0 || px > width) continue;
       if (Math.max(py, iy) < 0 || Math.min(py, iy) > height) continue;
@@ -3706,12 +4029,14 @@ export class SnapScene {
       if (t.parent[p] < 0 && !crossed.has(p)) {
         crossed.add(p);
         const over = lightOn(0, NODE_W, head);
-        this.across(x(d - 1), py, half(d - 1, t.rank[p]), over, tint, lineColour, glintColour, strength);
+        const b = cardBox(p);
+        this.across(b.x, b.y, b.h, over, tint, lineColour, glintColour, strength, cardSize(p));
       }
-      if (!crossed.has(i) && size(i) === 1) {
+      if (!crossed.has(i) && this.scaleOf[i] === 1) {
         crossed.add(i);
         const over = lightOn(dist + len, NODE_W, head);
-        this.across(x(d), iy, half(d, t.rank[i]), over, tint, lineColour, glintColour, strength);
+        const b = cardBox(i);
+        this.across(b.x, b.y, b.h, over, tint, lineColour, glintColour, strength, cardSize(i));
       }
     }
     // The dot of each fold with a running item folded in it is the end of the way: the way's line from the card's edge
@@ -3729,7 +4054,8 @@ export class SnapScene {
       const strength = dotStrength(k);
       if (root && !crossed.has(k)) {
         crossed.add(k);
-        this.across(x(d), ky, half(d, t.rank[k]), lightOn(0, NODE_W, head), tint, lineColour, glintColour, strength);
+        const b = cardBox(k);
+        this.across(b.x, b.y, b.h, lightOn(0, NODE_W, head), tint, lineColour, glintColour, strength, cardSize(k));
       }
       const [ex, ey] = at(k, x(d) + NODE_W, ky);
       const [dx, dy] = at(k, x(d) + NODE_W + DOT_AT, ky);
@@ -3834,17 +4160,15 @@ export class SnapScene {
       for (const i of chosen) {
         const p = t.parent[i];
         if (p < 0 || !isWhole(i)) continue;
-        const d = t.depth[i];
-        const [py, ph, iy, ih] = [y(d - 1, t.rank[p]), half(d - 1, t.rank[p]), y(d, t.rank[i]), half(d, t.rank[i])];
-        this.funnel(x(d - 1) + NODE_W, py - ph, py + ph, x(d), iy - ih, iy + ih);
+        const [pb, ib] = [box(p), box(i)];
+        this.funnel(pb.x + pb.w, pb.y - pb.h, pb.y + pb.h, ib.x, ib.y - ib.h, ib.y + ib.h);
       }
       if (chosen.size > 1) this.links.fill(PALETTE.chosenRibbon);
       for (const [i, a] of this.glowing) {
         const p = t.parent[i];
         if (p < 0 || !isWhole(i)) continue;
-        const d = t.depth[i];
-        const [py, ph, iy, ih] = [y(d - 1, t.rank[p]), half(d - 1, t.rank[p]), y(d, t.rank[i]), half(d, t.rank[i])];
-        this.funnel(x(d - 1) + NODE_W, py - ph, py + ph, x(d), iy - ih, iy + ih);
+        const [pb, ib] = [box(p), box(i)];
+        this.funnel(pb.x + pb.w, pb.y - pb.h, pb.y + pb.h, ib.x, ib.y - ib.h, ib.y + ib.h);
         this.links.fill({ color: PALETTE.hoverRibbon, alpha: a });
       }
       // The soft lights, each in its item's own colour: behind the item selected, wider and stronger as far as its
@@ -3854,9 +4178,8 @@ export class SnapScene {
       this.hoverGlow.clear();
       const lights: Light[] = [];
       const softLight = (g: Graphics, i: number, out: number, blur: number, colour: string, on: number) => {
-        const d = t.depth[i];
-        const [gx, gy, gh] = [x(d), y(d, t.rank[i]), half(d, t.rank[i])];
-        g.roundRect(gx - out, gy - gh - out, NODE_W + 2 * out, 2 * gh + 2 * out, CARD_CORNER + out).fill({
+        const { x: gx, y: gy, w: gw, h: gh } = cardBox(i);
+        g.roundRect(gx - out, gy - gh - out, gw + 2 * out, 2 * gh + 2 * out, CARD_CORNER + out).fill({
           color: colour,
           alpha: SOFT_ALPHA * on,
         });
@@ -3878,43 +4201,52 @@ export class SnapScene {
       if (lights.length > 0) {
         for (const j of drawn) {
           if (!isWhole(j)) continue;
-          const d = t.depth[j];
-          const [jx, jy, jh] = [x(d), y(d, t.rank[j]), half(d, t.rank[j])];
-          const boxed = this.shadows[j] === 1 || !this.shownItems[j].deliver;
-          if (!grounded(j, jx, jy, jh, boxed, lights)) continue;
-          this.glowGround.roundRect(jx, jy - jh, NODE_W, 2 * jh, CARD_CORNER).fill(PALETTE.page);
+          const { x: jx, y: jy, w: jw, h: jh } = cardBox(j);
+          if (!grounded(j, jx, jy, jh, true, lights)) continue;
+          this.glowGround.roundRect(jx, jy - jh, jw, 2 * jh, CARD_CORNER).fill(PALETTE.page);
         }
       }
       // The rings, each in its item's own colour: of the item under the pointer and those above it, as far as each has
       // come in; over them, of the item selected and those above it, the item selected's wider, so that the selection
-      // stands out under the pointer too.
+      // stands out under the pointer too. While the items near the pointer are drawn larger, each card's ring stands
+      // with its card among the cards, so that a card drawn over another hides that one's ring too.
+      const ringed = new Set<number>();
+      const ringOf = (i: number): Graphics => {
+        if (!lensing) return this.marks;
+        let g = this.lensRings.get(i);
+        if (g === undefined) {
+          g = new Graphics();
+          this.lensRings.set(i, g);
+          this.layer.addChild(g);
+        }
+        if (!ringed.has(i)) g.clear();
+        ringed.add(i);
+        g.zIndex = cardSize(i) + SETTLED;
+        return g;
+      };
       for (const [i, a] of this.glowing) {
         if (!isWhole(i)) continue;
-        const d = t.depth[i];
-        const [gx, gy, gh] = [x(d), y(d, t.rank[i]), half(d, t.rank[i])];
-        this.marks
-          .roundRect(gx, gy - gh, NODE_W, 2 * gh, CARD_CORNER)
+        const { x: gx, y: gy, w: gw, h: gh } = cardBox(i);
+        ringOf(i)
+          .roundRect(gx, gy - gh, gw, 2 * gh, CARD_CORNER)
           .stroke({ color: this.own[i], width: RING, alpha: a });
       }
       for (const i of chosen) {
         if (!isWhole(i)) continue;
-        const d = t.depth[i];
-        const [gx, gy, gh] = [x(d), y(d, t.rank[i]), half(d, t.rank[i])];
+        const { x: gx, y: gy, w: gw, h: gh } = cardBox(i);
         const ring = i === picked ? CHOSEN_RING : RING;
-        this.marks.roundRect(gx, gy - gh, NODE_W, 2 * gh, CARD_CORNER).stroke({ color: this.own[i], width: ring });
+        ringOf(i).roundRect(gx, gy - gh, gw, 2 * gh, CARD_CORNER).stroke({ color: this.own[i], width: ring });
       }
-      // The columns fade into the page at the top and the bottom; at those edges the column under the pointer has a
-      // line of blue.
+      for (const [k, g] of this.lensRings) {
+        if (ringed.has(k)) continue;
+        g.destroy();
+        this.lensRings.delete(k);
+      }
+      // The tree fades into the page at the top and the bottom of the screen, drawn over it at the screen's own size.
+      const screen = this.app.screen;
       this.edges.clear();
-      this.edges.rect(0, 0, width, EDGE).fill(this.fades.top);
-      this.edges.rect(0, height - EDGE, width, EDGE).fill(this.fades.bottom);
-      this.columns.forEach((c, d) => {
-        if (c.warm < 0.01) return;
-        const gx = x(d) - (PITCH - NODE_W) / 4;
-        const gw = NODE_W + (PITCH - NODE_W) / 2;
-        this.edges.rect(gx, 0, gw, EDGE_LINE).fill({ color: PALETTE.over, alpha: c.warm });
-        this.edges.rect(gx, height - EDGE_LINE, gw, EDGE_LINE).fill({ color: PALETTE.over, alpha: c.warm });
-      });
+      this.edges.rect(0, 0, screen.width, EDGE).fill(this.fades.top);
+      this.edges.rect(0, screen.height - EDGE, screen.width, EDGE).fill(this.fades.bottom);
       this.drawMap(t);
       for (const v of this.shown) if (!this.nowShown.has(v)) this.layer.removeChild(v);
       this.shown = this.nowShown;
@@ -3928,8 +4260,7 @@ export class SnapScene {
     }
     this.easing = easing;
     this.dirty.clear();
-    this.drawnLeft = this.left;
-    this.drawnCols = this.columns.map((c) => c.at);
+    this.drawnView = { zoom: this.zoom, at: this.at, left: this.left };
     this.stats.blurs = this.blurred.filter((layer) => layer.visible && layer.renderable).length;
   }
 

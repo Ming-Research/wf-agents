@@ -296,6 +296,8 @@
   --orange-tint: color-mix(in srgb, var(--orange) 10%, var(--card));
   --red-tint: color-mix(in srgb, var(--red) 10%, var(--card));
   --running-tint: color-mix(in srgb, var(--running) 10%, var(--card));
+  /* The light step of red an item's edge takes where something under it waits for the owner. */
+  --red-under: color-mix(in srgb, var(--red) 50%, var(--card));
   /* The frame of an option not picked, and its radio mark: a grey halfway from the muted colour to the card, so that it
      shows on a card that waits for an answer as on any other. */
   --option-edge: color-mix(in srgb, var(--muted) 50%, var(--card));

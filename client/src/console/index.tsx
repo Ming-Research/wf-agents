@@ -1,4 +1,4 @@
-// The console: the items as a tree in snapping columns on a canvas drawn by WebGL (`snap.ts`), as they stand, drawn
+// The console: the items as a tree in columns on a canvas drawn by WebGL (`snap.ts`), as they stand, drawn
 // again as they change; with `?fixtures` in the page's address, made-up items that show every state the drawing has
 // (`fixtures.ts`): those that stand as the boxes over the tree's corner tick, open, done or cancelled, and what stands
 // over them. A press on the funnel or the dot of an item's fold folds the items under it away or shows them again, as
@@ -70,8 +70,8 @@ const OVERVIEW_PAD = 24;
 /// How long the page draws the trees in turn in each frame while the overview shows every tree at once, in
 /// milliseconds: at least one tree a frame, and as many more as fit.
 const OVERVIEW_DRAWS_MS = 4;
-/// What the overview Space opens says it is.
-const OVERVIEW_SAYS = "Every project's tree: a click or its key shows it; Space or Escape goes back";
+/// What the overview `v` opens says it is.
+const OVERVIEW_SAYS = "Every project's tree: a click or its key shows it; v or Escape goes back";
 
 /// Calls `then` once the browser has nothing else to do, or soon where it cannot say when that is.
 function idle(then: () => void) {
@@ -148,6 +148,11 @@ export function ConsolePage({
   // The panel: whether it is out, and whether its handle brought it out, which keeps it out once the item is let go.
   const [win, setWin] = useState({ open: false, byHand: false });
   const open = win.open;
+  // Whether the window is out, for the keys' handler, made once.
+  const openNow = useRef(open);
+  useEffect(() => {
+    openNow.current = open;
+  }, [open]);
   // Which kinds of item the tree shows, open, done and cancelled each ticked or not, and what stands over them.
   const [shows, tick] = useKeptTicks(CHOICE_KEYS.consoleShows, ['open'], STANDINGS);
   const showsNow = useRef(shows);
@@ -160,9 +165,6 @@ export function ConsolePage({
   const foldsNow = useRef(folds);
   const turnFoldNow = useRef(turnFold);
   const turnFoldsNow = useRef(turnFolds);
-  // The projects whose trees `o` or `O` turned, each tree to be brought back to where its links put it once it is drawn
-  // with those folds.
-  const realignAsked = useRef(new Set<string>());
   useEffect(() => {
     turnFoldNow.current = turnFold;
     turnFoldsNow.current = turnFolds;
@@ -201,11 +203,11 @@ export function ConsolePage({
     () => (data === undefined || project === null ? null : emptyOf(data, shows, project)),
     [data, shows, project],
   );
-  // Whether the overview Space opens is open: every project's tree on the screen at once.
+  // Whether the overview `v` opens is open: every project's tree on the screen at once.
   const [overview, setOverview] = useState(false);
   const overviewNow = useRef(false);
   // How wide the map the scene shown draws is, which the boxes stand past.
-  const [mapWidth, setMapWidth] = useState(0);
+  const [mapSize, setMapSize] = useState({ width: 0, height: 0 });
   // The scenes made and ready to draw, by their project.
   const ready = useRef(new Set<string>());
   // The item the panel last showed, of whichever project's tree.
@@ -279,11 +281,12 @@ export function ConsolePage({
           s.onFold = (id, folded) => turnFoldNow.current(id, folded);
           // A click on the shadow of an item of another project shows that project's tree, and selects the item there.
           s.onAway = (id) => pickNow.current(id);
-          s.onMapWidth = (w) => {
-            if (scene.current === s) setMapWidth(w);
+          s.onMapSize = (width, height) => {
+            if (scene.current === s) setMapSize({ width, height });
           };
           ready.current.add(name);
           if (latestData.current !== undefined) s.show(treeOf(latestData.current, name));
+          if (overviewNow.current) s.showWhole(true);
           s.showMap(name === projectNow.current && !overviewNow.current && moving.current === null);
           stale.current.add(name);
           paintStale();
@@ -317,7 +320,7 @@ export function ConsolePage({
     // shown, and `consoleScene.show(consoleFake(2000))` draws a made-up tree in its place.
     if (import.meta.env.DEV) Object.assign(window, { consoleScene: s });
     s.setDetail(overviewNow.current ? smallNow.current : 1);
-    setMapWidth(s.mapWidth());
+    setMapSize(s.mapSize());
     s.select(s.selectedId());
     selectNamed();
   };
@@ -460,6 +463,9 @@ export function ConsolePage({
     setFade(on ? 'in' : 'out');
     // Closing onto another tree, the tree that was shown fades out in the grid as the others do.
     if (!(to !== undefined && choose(to)) && was !== null) fadeAway(was);
+    // In the overview each project's tree is shown whole; closed, each goes back to where it was. The tree shown is
+    // pictured as it stood first, so that what fades out is what was on the screen.
+    for (const s of scenes.current.values()) s.showWhole(on);
     planeMoves();
   };
   const setOverviewNow = useRef(setOverviewTo);
@@ -510,10 +516,8 @@ export function ConsolePage({
       for (const [name, s] of scenes.current)
         if (ready.current.has(name)) {
           s.show(treeOf(data, name));
-          if (realignAsked.current.has(name)) s.realign();
           if (name !== projectNow.current) stale.current.add(name);
         }
-    realignAsked.current.clear();
     paintStale();
     selectNamed();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -769,13 +773,21 @@ export function ConsolePage({
         }
         return;
       }
-      // Space opens the overview of every project's tree, and closes it again; as the digits, not in a field.
-      if (e.key === ' ') {
+      // `v` opens the overview of every project's tree, and closes it again; Space makes the whole tree shown fit the
+      // screen, and brings it back to where it was; as the digits, not in a field.
+      if (e.key === 'v' || e.key === ' ') {
         const to = e.target as HTMLElement | null;
         if (e.ctrlKey || e.metaKey || e.altKey) return;
         if (to && (to.isContentEditable || /^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(to.tagName))) return;
         e.preventDefault();
-        setOverviewNow.current(!overviewNow.current);
+        if (e.key === 'v') setOverviewNow.current(!overviewNow.current);
+        else if (!overviewNow.current) {
+          // The whole tree fits between the list of projects at its left and the window, while it is out.
+          const list = host.current?.parentElement?.querySelector('.console-projects');
+          const hostLeft = host.current?.getBoundingClientRect().left ?? 0;
+          const from = list === null || list === undefined ? 0 : list.getBoundingClientRect().right - hostLeft;
+          scene.current?.overview(Math.max(0, from), room(openNow.current));
+        }
         return;
       }
       if (e.key === 'Escape' && overviewNow.current) {
@@ -785,9 +797,7 @@ export function ConsolePage({
       // `o` folds every item of the trees shown under which no work is under way, at every level (`quietFolds`), and
       // leaves every other fold as it is; `O` unfolds every item of them. The trees shown are the project's, or every
       // project's in the overview. Each keeps its choices as the owner's own, at once for them all; as the other keys,
-      // not while the owner types in a field, nor with Ctrl, Alt or Meta held. Each tree, drawn with its folds, then
-      // comes back to where its links put it from the column of its roots, so that no column stays off the screen
-      // where it had been scrolled (`realign`); a tree with nothing to turn comes back at once.
+      // not while the owner types in a field, nor with Ctrl, Alt or Meta held.
       if (e.key === 'o' || e.key === 'O') {
         const to = e.target as HTMLElement | null;
         if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -803,10 +813,7 @@ export function ConsolePage({
         const roots = names.flatMap((name) => shownTree(d, showsNow.current, foldsNow.current, name));
         const fold = e.key === 'o';
         const ids = fold ? quietFolds(roots) : foldable(roots);
-        if (ids.length > 0) {
-          for (const name of names) realignAsked.current.add(name);
-          turnFoldsNow.current(new Map(ids.map((id): [number, boolean] => [id, fold])));
-        } else for (const name of names) scenes.current.get(name)?.realign();
+        if (ids.length > 0) turnFoldsNow.current(new Map(ids.map((id): [number, boolean] => [id, fold])));
         return;
       }
       // `e` folds the items under the card the pointer is over away, or shows them again, as a click on its funnel or
@@ -925,7 +932,10 @@ export function ConsolePage({
         )}
         {/* The list of projects, the boxes beside the map and the map held while the trees move, which go at once while
             the overview shows every tree small, and come back at once as it closes. */}
-        <div className={overview ? 'console-chrome away' : 'console-chrome'}>
+        <div
+          className={overview ? 'console-chrome away' : 'console-chrome'}
+          style={mapSize.height > 0 ? ({ '--map-high': `${mapSize.height}px` } as CSSProperties) : undefined}
+        >
           <div className="console-map-held" ref={held} />
           <ProjectList
             projects={projects}
@@ -934,7 +944,7 @@ export function ConsolePage({
             onShow={showProject}
             onOrder={reorder}
           />
-          <div className="console-over" style={{ left: `calc(var(--space-12) + ${mapWidth}px + var(--space-8))` }}>
+          <div className="console-over" style={{ left: `calc(var(--space-12) + ${mapSize.width}px + var(--space-8))` }}>
             <div className="console-shows" role="group" aria-label="Which items the tree shows">
               {STANDINGS.map((s) => (
                 <label key={s} className="view-toggle" title={SHOWS[s].title}>

@@ -27,6 +27,10 @@ A work's history is drawn as the flow's matrix: the cells across, under the matr
 - replaced: A history that did not show the lines, by which cells share a session, was on main; the owner changed it, because the lines should show plainly, drawn with the flow's own parts so that the two never drift apart.
 - replaced: A light background on the cell that ran, instead of its outline, was on main; the owner changed it, because on a dark page the background could hardly be seen.
 
+### decision a-run-sent-back-is-marked-on-its-mark
+A run that was sent back carries, at the top right of its mark in the history, a bold red ↵ and how many times.
+- replaced: How many times a work was sent back, on its card in the console, was on main; the owner changed it, because the card's room is wanted for other things, and a sending back belongs with the run it sent back.
+
 ### decision a-row-is-a-run
 Each row of a work's history is one run of a cell, with what woke it named at the left; a pause, a resume, a cancel or a reopening is a half-height row between runs, a dashed line in the accent.
 - replaced: Rows also for the owner's actions that woke no cell, and for pauses and resumes, was on main; the owner changed it, because the left column then held two kinds of thing, while it should say what woke each run.

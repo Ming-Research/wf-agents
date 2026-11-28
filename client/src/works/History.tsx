@@ -18,7 +18,7 @@ import { type CSSProperties, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import type { Cell } from '../api';
 import { CellHead, LineLine, RowArrow, WIDTHS, WordsHead, useWheel } from '../Chart';
 import { matrix } from '../matrix';
-import { LevelMark, MARKS, type MarkKey, markName } from '../marks';
+import { LevelMark, MARKS, type MarkKey, SentBackMark, markName } from '../marks';
 import { age } from '../console/items';
 import { Arrow, Edge } from '../parts';
 import { WIDTH_KEYS, useKeptWidth, useKeptWidths } from '../sizes';
@@ -31,10 +31,11 @@ import { NOT_KEPT, duration, fullTime, isOpen, partsText, ranLast, runTook } fro
 
 /// The marks the history draws, in the order its legend lists them (`Legend` in marks.tsx): the arrow from a write to
 /// the run it woke and the way back; the signs of who wrote what woke a run, and a tool's mark; how a run
-/// ended, then how an open one stands.
+/// ended, then how an open one stands; and how many times what a run handed in was sent back.
 export const HISTORY_MARKS: MarkKey[] = [
   'wakes',
   'sentBackWay',
+  'sentBack',
   'people',
   'outside',
   'tools',
@@ -259,6 +260,8 @@ function StepRow(props: {
   const did = partsText(row.did);
   const ms = step.kind === 'run' ? runTook(step, now) : null;
   const ran = step.kind === 'run' ? ranLast(step) : null;
+  // How many times the engine sent back what the run handed in: each round after the first that was told why.
+  const sentBack = step.kind === 'run' ? step.rounds.filter((r) => r.given.kind === 'sentBack').length : 0;
   return (
     <tr className={`row step-row ${chosen ? 'chosen' : ''}`} onClick={onChoose}>
       <th
@@ -309,6 +312,9 @@ function StepRow(props: {
             {line?.left && <span className={`seg seg-left ${kind}`} aria-hidden="true" />}
             {line?.right && <span className={`seg seg-right ${kind}`} aria-hidden="true" />}
             {runHere && <span className="glyphs">{MARKS[runHere.state].draw(words)}</span>}
+            {runHere && sentBack > 0 && (
+              <SentBackMark count={sentBack} says={`sent back ${sentBack} ${sentBack === 1 ? 'time' : 'times'}`} />
+            )}
             {runHere && row.from !== null && (
               <RowArrow reach={RUN_REACH} from={row.from.column > runHere.column ? 'right' : 'left'} />
             )}
